@@ -170,13 +170,13 @@ class Server:
             if self._async_shutdown is not None:
                 self._async_shutdown.set()
 
-        # Install signal handlers (main thread only)
+        # Install signal handlers (main thread only).
+        # NotImplementedError: Windows.
+        # RuntimeError: non-main thread or non-main interpreter (Python 3.14t).
         for sig in (signal.SIGINT, signal.SIGTERM):
             try:
                 loop.add_signal_handler(sig, _on_signal)
-            except NotImplementedError:
-                # Windows or non-main thread — signals won't work,
-                # but shutdown() still does.
+            except (NotImplementedError, RuntimeError):
                 pass
 
         worker = Worker(

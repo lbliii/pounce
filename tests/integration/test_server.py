@@ -127,6 +127,88 @@ class TestServerLifecycle:
         assert "shutdown" in _lifespan_events
 
 
+class TestProgrammaticShutdown:
+    """Server.shutdown() from another thread."""
+
+    def test_shutdown_stops_server(self):
+        """shutdown() from another thread causes run() to return."""
+        lifespan_events: list[str] = []
+
+        async def tracking_app(scope: Scope, receive: Receive, send: Send) -> None:
+            if scope["type"] == "lifespan":
+                while True:
+                    message = await receive()
+                    if message["type"] == "lifespan.startup":
+                        lifespan_events.append("startup")
+                        await send({"type": "lifespan.startup.complete"})
+                    elif message["type"] == "lifespan.shutdown":
+                        lifespan_events.append("shutdown")
+                        await send({"type": "lifespan.shutdown.complete"})
+                        return
+                return
+
+            await receive()
+            await send({
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", b"2")],
+            })
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        config = ServerConfig(host="127.0.0.1", port=0, access_log=False)
+        server = Server(config, tracking_app)
+
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+
+        # Wait for server to be ready (lifespan startup fires)
+        deadline = time.monotonic() + 3.0
+        while "startup" not in lifespan_events:
+            if time.monotonic() > deadline:
+                raise AssertionError("Server did not start within 3s")
+            time.sleep(0.05)
+
+        # Shutdown from this thread
+        server.shutdown()
+        thread.join(timeout=5)
+
+        assert not thread.is_alive(), "Server did not stop after shutdown()"
+        assert "startup" in lifespan_events
+        assert "shutdown" in lifespan_events
+
+    def test_shutdown_is_idempotent(self):
+        """Calling shutdown() multiple times does not raise."""
+        config = ServerConfig(host="127.0.0.1", port=0, access_log=False)
+        server = Server(config, _lifespan_tracking_app)
+
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        time.sleep(0.5)
+
+        # Call shutdown multiple times — should not raise
+        server.shutdown()
+        server.shutdown()
+        server.shutdown()
+        thread.join(timeout=5)
+
+        assert not thread.is_alive()
+
+    def test_shutdown_before_run(self):
+        """shutdown() called before run() causes immediate exit."""
+        config = ServerConfig(host="127.0.0.1", port=0, access_log=False)
+        server = Server(config, _lifespan_tracking_app)
+
+        # Pre-set shutdown
+        server.shutdown()
+
+        # run() should return quickly (not block forever)
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        thread.join(timeout=5)
+
+        assert not thread.is_alive(), "Server blocked despite pre-shutdown"
+
+
 class TestCloseSockets:
     """Server._close_sockets deduplicates shared-fd sockets."""
 

@@ -8,13 +8,17 @@ Each worker is self-contained: it owns its event loop, its set of active
 connections, and its per-worker metrics.  The supervisor spawns workers as
 threads (nogil) or processes (GIL) — the worker does not know which.
 
-Connection flow (HTTP):
+Connection flow (HTTP/1.1):
     socket.accept() → H1Protocol.receive_data() → build_scope()
     → negotiate_compression() → app(scope, receive, send) → access_log()
 
-Connection flow (WebSocket):
+Connection flow (WebSocket over HTTP/1.1):
     socket.accept() → H1Protocol detects upgrade → build_ws_scope()
     → send 101 → WSProtocol frames → app(scope, receive, send)
+
+Connection flow (HTTP/2 via TLS+ALPN):
+    socket.accept() → TLS handshake → ALPN selects "h2" →
+    H2Connection → per-stream ASGI tasks → multiplexed responses
 
 """
 
@@ -31,6 +35,7 @@ from pounce._errors import ParseError
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
 from pounce.asgi.bridge import build_scope, create_receive, create_send
+from pounce.asgi.h2_bridge import build_h2_scope, create_h2_receive, create_h2_send
 from pounce.asgi.ws_bridge import build_ws_scope, create_ws_receive, create_ws_send
 from pounce.config import ServerConfig
 from pounce.logging import access_log
@@ -180,9 +185,11 @@ class Worker:
     ) -> None:
         """Handle a single TCP connection through request-response cycles.
 
-        Supports keep-alive: loops until the client disconnects or an error
-        occurs. Each request goes through the full pipeline:
-        parse → scope → compress → ASGI app → response → log.
+        After TLS handshake, checks ALPN to determine protocol:
+        - "h2" → HTTP/2 multiplexed connection handler
+        - "http/1.1" or None → HTTP/1.1 keep-alive loop
+
+        HTTP/1.1 also supports WebSocket upgrade mid-connection.
 
         """
         # Connection backpressure — reject when at capacity
@@ -200,6 +207,28 @@ class Worker:
         client_str = f"{client[0]}:{client[1]}"
         server_addr = writer.get_extra_info("sockname")
         server = (server_addr[0], server_addr[1]) if server_addr else (self._config.host, self._config.port)
+
+        # Check ALPN negotiation result (only present on TLS connections)
+        ssl_object = writer.get_extra_info("ssl_object")
+        if ssl_object is not None:
+            alpn = ssl_object.selected_alpn_protocol()
+            if alpn == "h2":
+                try:
+                    await self._handle_h2_connection(
+                        reader, writer, client, server, client_str,
+                    )
+                except Exception:
+                    self._logger.exception(
+                        "Unhandled error on H2 connection from %s", client_str,
+                    )
+                finally:
+                    self._active_connections -= 1
+                    try:
+                        writer.close()
+                        await writer.wait_closed()
+                    except Exception:
+                        pass
+                return
 
         proto = H1Protocol(
             max_incomplete_event_size=self._config.h11_max_incomplete_event_size,
@@ -332,6 +361,181 @@ class Worker:
             target = request.target.decode("ascii", errors="replace")
             method = request.method.decode("ascii", errors="replace")
             access_log(method, target, status, bytes_sent, duration, client_str)
+
+    async def _handle_h2_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        client: tuple[str, int],
+        server: tuple[str, int],
+        client_str: str,
+    ) -> None:
+        """Handle a full HTTP/2 connection with multiplexed streams.
+
+        Runs one ASGI task per stream. The main loop reads data from the
+        network, feeds it to H2Connection, and dispatches per-stream
+        events to the appropriate ASGI task.
+
+        """
+        from pounce.protocols.h2 import (
+            H2BodyReceived,
+            H2Connection,
+            H2GoAway,
+            H2RequestReceived,
+            H2StreamReset,
+            H2WindowUpdated,
+            is_h2_available,
+        )
+
+        if not is_h2_available():
+            self._logger.warning("H2 negotiated but h2 library not available")
+            return
+
+        h2_conn = H2Connection()
+        h2_conn.initiate_connection()
+        writer.write(h2_conn.data_to_send())
+        await writer.drain()
+
+        # Per-stream state: {stream_id: (task, body_queue)}
+        stream_tasks: dict[int, tuple[asyncio.Task[None], asyncio.Queue[dict]]] = {}
+
+        async def _run_stream(
+            stream_id: int,
+            request: RequestReceived,
+            body_queue: asyncio.Queue[dict],
+        ) -> None:
+            """Run the ASGI app for a single HTTP/2 stream."""
+            request_start = monotonic_ns()
+            scope = build_h2_scope(request, self._config, client, server)
+
+            timing: ServerTiming | None = None
+            if self._config.server_timing:
+                timing = ServerTiming()
+                timing.add("parse", elapsed_ms(request_start))
+
+            compressor: Compressor | None = None
+            if self._config.compression:
+                accept_encoding = _get_header(request.headers, b"accept-encoding")
+                if accept_encoding:
+                    encoding = negotiate_encoding(accept_encoding)
+                    if encoding:
+                        compressor = create_compressor(encoding)
+
+            receive = create_h2_receive(body_queue)
+            app_start = monotonic_ns()
+            send = create_h2_send(
+                h2_conn, stream_id, writer,
+                timing=timing, compressor=compressor,
+            )
+
+            status = 500
+            try:
+                await self._app(scope, receive, send)
+                status = 200
+            except Exception:
+                self._logger.exception(
+                    "ASGI app error on H2 stream %d %s %s",
+                    stream_id, scope["method"], scope["path"],
+                )
+                try:
+                    h2_conn.send_response_headers(
+                        stream_id, 500,
+                        [(b"content-type", b"text/plain")],
+                    )
+                    h2_conn.send_data(
+                        stream_id, b"Internal Server Error", end_stream=True,
+                    )
+                    writer.write(h2_conn.data_to_send())
+                except Exception:
+                    pass
+                status = 500
+            finally:
+                h2_conn.remove_stream(stream_id)
+                stream_tasks.pop(stream_id, None)
+
+            if timing:
+                timing.add("app", elapsed_ms(app_start))
+
+            try:
+                await writer.drain()
+            except (ConnectionError, OSError):
+                pass
+
+            if self._config.access_log:
+                duration = elapsed_ms(request_start)
+                target = request.target.decode("ascii", errors="replace")
+                method = request.method.decode("ascii", errors="replace")
+                access_log(method, target, status, 0, duration, client_str)
+
+        try:
+            while not h2_conn.is_closed:
+                try:
+                    data = await asyncio.wait_for(
+                        reader.read(65536),
+                        timeout=self._config.keep_alive_timeout,
+                    )
+                except asyncio.TimeoutError:
+                    break
+                except (ConnectionError, OSError):
+                    break
+
+                if not data:
+                    break
+
+                events = h2_conn.receive_data(data)
+                # Flush any h2-generated output (SETTINGS ACKs, WINDOW_UPDATEs)
+                output = h2_conn.data_to_send()
+                if output:
+                    writer.write(output)
+
+                for event in events:
+                    if isinstance(event, H2RequestReceived):
+                        body_queue: asyncio.Queue[dict] = asyncio.Queue()
+                        task = asyncio.create_task(
+                            _run_stream(event.stream_id, event.request, body_queue)
+                        )
+                        stream_tasks[event.stream_id] = (task, body_queue)
+
+                    elif isinstance(event, H2BodyReceived):
+                        pair = stream_tasks.get(event.stream_id)
+                        if pair is not None:
+                            _, bq = pair
+                            await bq.put({
+                                "type": "http.request",
+                                "body": event.body.data,
+                                "more_body": event.body.more,
+                            })
+
+                    elif isinstance(event, H2StreamReset):
+                        pair = stream_tasks.pop(event.stream_id, None)
+                        if pair is not None:
+                            pair[0].cancel()
+
+                    elif isinstance(event, H2GoAway):
+                        break  # Stop reading, finish existing streams
+
+                try:
+                    await writer.drain()
+                except (ConnectionError, OSError):
+                    break
+
+        finally:
+            # Cancel all remaining stream tasks
+            for stream_id, (task, _) in stream_tasks.items():
+                task.cancel()
+            # Wait for cancellations to complete
+            if stream_tasks:
+                await asyncio.gather(
+                    *(task for task, _ in stream_tasks.values()),
+                    return_exceptions=True,
+                )
+            # Send GOAWAY
+            try:
+                h2_conn.close_connection()
+                writer.write(h2_conn.data_to_send())
+                await writer.drain()
+            except Exception:
+                pass
 
     async def _handle_websocket(
         self,
