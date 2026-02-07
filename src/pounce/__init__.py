@@ -31,3 +31,28 @@ Part of the Bengal ecosystem:
 _Py_mod_gil = 0
 
 __version__ = "0.1.0-dev"
+
+from pounce.config import ServerConfig
+
+
+def run(app: str, **kwargs) -> None:  # noqa: ANN003
+    """Start a pounce server.
+
+    Args:
+        app: ASGI application string (e.g., "myapp:app").
+        **kwargs: Server configuration overrides passed to ServerConfig.
+
+    Example:
+        >>> import pounce
+        >>> pounce.run("myapp:app", host="0.0.0.0", port=8000, workers=4)
+
+    """
+    from pounce._importer import import_app
+    from pounce.server import Server
+
+    config = ServerConfig(**kwargs)
+    server = Server(config, import_app(app))
+    server.run()
+
+
+__all__ = ["ServerConfig", "run", "__version__"]
