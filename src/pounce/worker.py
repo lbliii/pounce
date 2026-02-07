@@ -46,6 +46,33 @@ from pounce.protocols._base import (
 )
 from pounce.protocols.h1 import H1Protocol
 
+# Auto-detect httptools for C-accelerated HTTP/1.1 parsing.
+# Falls back to h11 (pure Python) when httptools is not installed.
+try:
+    from pounce.protocols.h1_httptools import H1HttpToolsProtocol, is_httptools_available
+
+    _use_httptools = is_httptools_available()
+except ImportError:
+    _use_httptools = False
+
+
+def _create_h1_protocol(
+    *, max_incomplete_event_size: int | None = None,
+) -> H1Protocol:
+    """Create the best available HTTP/1.1 protocol handler.
+
+    Uses httptools when installed (``pip install pounce[fast]``),
+    falls back to h11 (pure Python) otherwise.
+
+    """
+    if _use_httptools:
+        from pounce.protocols.h1_httptools import H1HttpToolsProtocol
+
+        return H1HttpToolsProtocol(  # type: ignore[return-value]
+            max_incomplete_event_size=max_incomplete_event_size,
+        )
+    return H1Protocol(max_incomplete_event_size=max_incomplete_event_size)
+
 
 class Worker:
     """Single-threaded async worker that serves HTTP requests.
@@ -228,7 +255,7 @@ class Worker:
                         pass
                 return
 
-        proto = H1Protocol(
+        proto = _create_h1_protocol(
             max_incomplete_event_size=self._config.h11_max_incomplete_event_size,
         )
 
