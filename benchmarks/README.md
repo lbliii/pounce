@@ -2,15 +2,59 @@
 
 Throughput, memory, and streaming stress tests for pounce.
 
-## Automated Benchmarks (pytest)
+## Quick Start
 
-Run all benchmarks:
+### Automated Benchmark Suite (Phase 4)
+
+The benchmark runner starts pounce, drives load with wrk or hey, and captures
+structured results.
+
+```bash
+# Prerequisites
+brew install wrk    # or: go install github.com/rakyll/hey@latest
+
+# Quick benchmark (hello-world, 10s, 1 worker)
+python benchmarks/run_benchmark.py
+
+# Full suite, all workloads, 4 workers
+python benchmarks/run_benchmark.py --workload all --workers 4 --duration 30
+
+# Compare against uvicorn
+python benchmarks/run_benchmark.py --compare --workers 4
+
+# Save results as JSON
+python benchmarks/run_benchmark.py --workload all --output results.json
+```
+
+### Workloads
+
+| Workload | App | Description |
+|----------|-----|-------------|
+| `hello` | `benchmarks.apps.hello:app` | Minimal hello-world (measures server overhead) |
+| `json` | `benchmarks.apps.json_app:app` | JSON response (pre-serialized) |
+| `echo` | `benchmarks.apps.echo:app` | POST body echo (1KB payload) |
+
+### Runner Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--workload` | `hello` | Workload name or `all` |
+| `--workers` | `1` | Pounce worker count |
+| `--duration` | `10` | Test duration in seconds |
+| `--threads` | `4` | Load generator thread count |
+| `--connections` | `100` | Concurrent connections |
+| `--compare` | off | Also benchmark uvicorn |
+| `--output` | none | Save results to JSON file |
+
+## Pytest Benchmarks
+
+Run in-process benchmarks via pytest:
 
 ```bash
 uv run pytest benchmarks/ -m benchmark -v -s
 ```
 
-### What the automated suite tests
+### What the pytest suite tests
 
 | Test | File | What it validates |
 |------|------|-------------------|
@@ -22,46 +66,15 @@ uv run pytest benchmarks/ -m benchmark -v -s
 | SSE stress test | `test_sse_stress.py` | 100 concurrent streams held 10s, no memory leak |
 | Chirp compatibility | `test_chirp_compat.py` | Chirp App serves via pounce Worker (skips if chirp not installed) |
 
-### Latest Results (Python 3.14.2t, macOS, Apple Silicon)
-
-```
-Throughput:
-  [single-worker] ~6-7k req/s, p50=6.6ms, p99=13.7ms
-  [multi-worker]  ~7k req/s (2 workers, shared socket)
-
-Memory (4 workers):
-  [thread workers]  delta ~3MB (shared interpreter)
-  [process workers] delta ~0MB (measured from parent; child RSS not reflected in ru_maxrss)
-
-SSE Stress:
-  [100 connections] held 10s, ~20k total events, RSS growth < 3MB
-```
-
-Note: These are test-environment numbers with modest load (500 requests, 50
-concurrency). True throughput scaling at production loads will be validated
-with wrk/hey in Phase 4.
-
 ## Manual Benchmarks (wrk / hey)
 
-For production-grade throughput numbers, use an external benchmarking tool.
-
-### Prerequisites
+For ad-hoc testing without the runner:
 
 ```bash
-# wrk (recommended)
-brew install wrk
+# Start pounce
+pounce benchmarks.apps.hello:app --workers 0 --no-access-log --no-compression
 
-# or hey
-go install github.com/rakyll/hey@latest
-```
-
-### Quick Start
-
-```bash
-# Start pounce with the benchmark app
-pounce benchmarks.hello_app:app --workers 0 --no-access-log
-
-# In another terminal, run the benchmark
+# In another terminal
 wrk -t4 -c100 -d10s http://127.0.0.1:8000/
 ```
 
@@ -71,35 +84,23 @@ wrk -t4 -c100 -d10s http://127.0.0.1:8000/
 
 ```bash
 # Pounce (1 worker)
-pounce benchmarks.hello_app:app --workers 1 --no-access-log
+pounce benchmarks.apps.hello:app --workers 1 --no-access-log --no-compression
 
 # Uvicorn (1 worker)
-uvicorn benchmarks.hello_app:app --host 127.0.0.1 --port 8001 --no-access-log
+uvicorn benchmarks.apps.hello:app --host 127.0.0.1 --port 8001 --no-access-log
 ```
 
 #### Multi-worker
 
 ```bash
 # Pounce (4 workers, threads on nogil)
-pounce benchmarks.hello_app:app --workers 4 --no-access-log
+pounce benchmarks.apps.hello:app --workers 4 --no-access-log --no-compression
 
 # Uvicorn (4 workers, processes)
-uvicorn benchmarks.hello_app:app --host 127.0.0.1 --port 8001 --workers 4 --no-access-log
+uvicorn benchmarks.apps.hello:app --host 127.0.0.1 --port 8001 --workers 4 --no-access-log
 ```
 
-### SSE Streaming
-
-```bash
-# Start the SSE app
-pounce benchmarks.sse_app:app --workers 4 --no-access-log
-
-# Hold open N concurrent SSE connections (use curl or a custom client)
-for i in $(seq 1 100); do
-  curl -N http://127.0.0.1:8000/events &
-done
-```
-
-### Performance Targets (Phase 4)
+## Performance Targets (Phase 4)
 
 | Metric | Target |
 |--------|--------|
@@ -108,3 +109,22 @@ done
 | p99 latency at 10k req/s | < 5ms |
 | Memory (1 worker) | < 20MB RSS |
 | Memory (4 workers, threads) | < 30MB RSS |
+
+## Profiling
+
+### Hot-path flame graph
+
+```bash
+# Start pounce under load, then attach py-spy
+pounce benchmarks.apps.hello:app --workers 1 --no-access-log --no-compression &
+PID=$!
+wrk -t4 -c100 -d30s http://127.0.0.1:8000/ &
+py-spy record -o flame.svg --pid $PID --duration 20
+kill $PID
+```
+
+### Memory profiling
+
+```bash
+python benchmarks/profile_memory.py --workers 4 --duration 30
+```
