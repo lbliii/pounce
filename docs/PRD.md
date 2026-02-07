@@ -1,8 +1,8 @@
 # Product Requirements Document: Pounce
 
-**Version**: 0.3.0-dev
+**Version**: 0.4.0-dev
 **Date**: 2026-02-07
-**Status**: Phase 3 implemented
+**Status**: Phase 4 implemented
 
 ---
 
@@ -259,17 +259,18 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 
 | Extra | Dependency | Purpose |
 |-------|------------|---------|
+| `pounce[fast]` | httptools | C-accelerated HTTP/1.1 parsing |
 | `pounce[h2]` | h2 | HTTP/2 protocol support |
 | `pounce[ws]` | wsproto | WebSocket protocol support |
 | `pounce[tls]` | truststore | System certificate store for TLS |
-| `pounce[full]` | All of the above | Full protocol support |
+| `pounce[full]` | All of the above (except fast) | Full protocol support |
 
 ### Excluded
 
 | Dependency | Reason |
 |------------|--------|
 | uvloop | Replaces asyncio's event loop with C extension; pounce proves pure Python is enough |
-| httptools | C binding to Node's http-parser; h11 is pure Python and debuggable |
+| httptools | Now available as `pounce[fast]` optional extra; h11 remains the pure-Python default |
 | anyio | Server doesn't need backend-agnostic async; asyncio is sufficient |
 | click | CLI uses argparse; no additional dependency needed |
 | brotli / brotlicffi | C extension that re-enables the GIL on Python 3.14t, defeating free-threading |
@@ -290,7 +291,7 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 - [x] Server-Timing header injection (`parse`, `app` durations)
 - [x] 188 tests passing (unit + integration)
 - [x] Chirp hello-world app runs without modification (verified via pounce Worker)
-- [x] ASGI compliance suite (37 pass, 2 xfail — request body reading gap documented)
+- [x] ASGI compliance suite (39 pass — request body reading fixed in Phase 4)
 
 ### 7.2 v0.2.0 (Phase 2: It Scales) — ✓ Implemented
 
@@ -317,15 +318,16 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 - [x] Keep-alive tuning: `--keep-alive-timeout`, `--max-requests-per-connection`
 - [x] 408 tests passing (unit + integration + ASGI compliance)
 - Brotli excluded: C extension re-enables GIL on 3.14t (compression remains zstd > gzip)
-- App factory support deferred to Phase 4
 
-### 7.4 v0.4.0 (Phase 4: It's Fast)
+### 7.4 v0.4.0 (Phase 4: It's Fast) — ✓ Implemented
 
-- App factory support: `pounce "myapp:create_app()"` (deferred from Phase 3)
-- Benchmark suite with reproducible results
-- Competitive with uvicorn on single-worker throughput
-- Demonstrably faster on multi-worker nogil (threads vs processes)
-- Optional httptools backend for users who want C-accelerated parsing
+- [x] App factory support: `pounce "myapp:create_app()"` wired end-to-end with tests
+- [x] POST request body reading fixed (concurrent body reader, xfail tests removed)
+- [x] Benchmark suite with reproducible results (wrk/hey runner, comparison mode)
+- [x] Profiling infrastructure (py-spy flame graphs, tracemalloc memory)
+- [x] Optional httptools backend (`pounce[fast]`) for C-accelerated parsing
+- [x] Hot-path optimizations: bodyless fast-path, write coalescing, pre-computed constants
+- [x] 426 tests passing (unit + integration + ASGI compliance + httptools)
 
 ---
 
@@ -367,9 +369,9 @@ Pounce deliberately does not:
    philosophy but acknowledges that some users prioritize raw speed. Leaning toward supporting
    it as an optional extra without making it the default.
 
-2. **Should the CLI support app factory patterns?** `pounce "myapp:create_app()"` vs only
-   `pounce "myapp:app"`. Factory patterns are common in larger applications. Uvicorn supports
-   this via `--factory`. Worth supporting but not in phase 1.
+2. **~~Should the CLI support app factory patterns?~~** **Resolved: implemented in Phase 4.**
+   `pounce "myapp:create_app()"` works end-to-end. The importer detects trailing `()` and
+   calls the factory function. No `--factory` flag needed — the call syntax is explicit.
 
 3. **How should pounce handle the transition from dev server to production?** Chirp's
    `app.run()` currently starts a dev server. Should it detect pounce and use it automatically?

@@ -1007,6 +1007,65 @@ class TestKeepAlive:
             thread.join(timeout=2)
             sock.close()
 
+    def test_post_then_get_same_connection(self):
+        """POST with body followed by GET on a single keep-alive connection."""
+        worker, sock, thread = start_worker(_body_echo_app)
+        addr = sock.getsockname()
+
+        tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        tcp.settimeout(3.0)
+        try:
+            tcp.connect(addr)
+
+            # First request — POST with body (keep-alive)
+            payload = b"keepalive-post-body"
+            tcp.sendall(
+                b"POST /first HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Content-Length: " + str(len(payload)).encode() + b"\r\n"
+                b"\r\n" + payload
+            )
+            import time
+            time.sleep(0.3)
+            resp1 = b""
+            try:
+                while True:
+                    chunk = tcp.recv(4096)
+                    if not chunk:
+                        break
+                    resp1 += chunk
+            except TimeoutError:
+                pass
+
+            assert b"200" in resp1
+            assert payload in resp1
+
+            # Second request — GET on same connection (Connection: close)
+            tcp.sendall(
+                b"GET /second HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+            )
+            time.sleep(0.3)
+            resp2 = b""
+            try:
+                while True:
+                    chunk = tcp.recv(4096)
+                    if not chunk:
+                        break
+                    resp2 += chunk
+            except TimeoutError:
+                pass
+
+            assert b"200" in resp2
+
+        finally:
+            tcp.close()
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
 
 # =========================================================================
 # 6. Error Handling
@@ -1194,3 +1253,95 @@ class TestLifespanCompliance:
                     pass  # Should not reach here
 
         asyncio.run(_test())
+
+
+# =========================================================================
+# 9. Compression + Request Body Combinations (Phase 4)
+# =========================================================================
+
+
+class TestCompressionWithBody:
+    """Compressed responses with request bodies present."""
+
+    def test_post_body_with_gzip_response(self):
+        """POST body is read correctly and response is gzip-compressed."""
+        import gzip
+
+        worker, sock, thread = start_worker(
+            _body_echo_app,
+            config=ServerConfig(
+                host="127.0.0.1", port=0, access_log=False,
+                compression=True, compression_min_size=1,
+            ),
+        )
+        addr = sock.getsockname()
+        try:
+            # Send a POST with body and Accept-Encoding: gzip
+            payload = b"compressed-echo-test-payload" * 20
+            request = (
+                b"POST /echo HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Content-Length: " + str(len(payload)).encode() + b"\r\n"
+                b"Accept-Encoding: gzip\r\n"
+                b"Connection: close\r\n"
+                b"\r\n" + payload
+            )
+            response = send_raw_request(addr, request)
+            assert b"200" in response
+            assert b"content-encoding: gzip" in response.lower()
+
+            # Extract the gzip body after the blank line separator
+            body_start = response.find(b"\r\n\r\n")
+            assert body_start != -1
+            raw_body = response[body_start + 4:]
+            # The body may be chunked — strip chunk framing if present
+            if b"transfer-encoding: chunked" in response.lower():
+                # Simple dechunk: find the actual gzip data
+                # Chunks are: size\r\ndata\r\n...0\r\n\r\n
+                dechunked = b""
+                pos = 0
+                while pos < len(raw_body):
+                    end = raw_body.find(b"\r\n", pos)
+                    if end == -1:
+                        break
+                    chunk_size = int(raw_body[pos:end], 16)
+                    if chunk_size == 0:
+                        break
+                    dechunked += raw_body[end + 2:end + 2 + chunk_size]
+                    pos = end + 2 + chunk_size + 2
+                raw_body = dechunked
+
+            decompressed = gzip.decompress(raw_body)
+            assert decompressed == payload
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
+    def test_post_body_no_accept_encoding_uncompressed(self):
+        """POST without Accept-Encoding returns uncompressed response."""
+        worker, sock, thread = start_worker(
+            _body_echo_app,
+            config=ServerConfig(
+                host="127.0.0.1", port=0, access_log=False,
+                compression=True,
+            ),
+        )
+        addr = sock.getsockname()
+        try:
+            payload = b"no-compression-test"
+            request = (
+                b"POST /echo HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Content-Length: " + str(len(payload)).encode() + b"\r\n"
+                b"Connection: close\r\n"
+                b"\r\n" + payload
+            )
+            response = send_raw_request(addr, request)
+            assert b"200" in response
+            assert b"content-encoding" not in response.lower()
+            assert payload in response
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()

@@ -1,12 +1,24 @@
-"""Tests for pounce.asgi.bridge — scope construction and ASGI callables."""
+"""Tests for pounce.asgi.bridge — scope construction and ASGI callables.
+
+Also tests the _create_h1_protocol() factory (worker.py) since it's a
+thin factory function that selects between protocol backends.
+"""
 
 import asyncio
+from unittest.mock import patch
 
 import pytest
 
 from pounce._compression import GzipCompressor
 from pounce._timing import ServerTiming
-from pounce.asgi.bridge import build_scope, create_receive, create_send
+from pounce.asgi.bridge import (
+    _COALESCE_THRESHOLD,
+    _EMPTY_BODY_MESSAGE,
+    build_scope,
+    create_empty_receive,
+    create_receive,
+    create_send,
+)
 from pounce.config import ServerConfig
 from pounce.protocols._base import BodyReceived, RequestReceived
 from pounce.protocols.h1 import H1Protocol
@@ -160,9 +172,11 @@ class _FakeTransport:
 
     def __init__(self) -> None:
         self.data = bytearray()
+        self.write_count = 0
 
     def write(self, data: bytes) -> None:
         self.data.extend(data)
+        self.write_count += 1
 
 
 class TestCreateSend:
@@ -305,3 +319,172 @@ class TestCreateSend:
                 "type": "http.response.body",
                 "body": b"extra",
             })
+
+
+class TestCreateEmptyReceive:
+    """create_empty_receive() fast-path for bodyless requests."""
+
+    @pytest.mark.asyncio
+    async def test_first_call_returns_empty_body(self):
+        """First call returns the pre-built empty body message."""
+        receive = create_empty_receive()
+        msg = await receive()
+        assert msg["type"] == "http.request"
+        assert msg["body"] == b""
+        assert msg["more_body"] is False
+
+    @pytest.mark.asyncio
+    async def test_returns_shared_constant(self):
+        """The returned message is the pre-allocated _EMPTY_BODY_MESSAGE."""
+        receive = create_empty_receive()
+        msg = await receive()
+        assert msg is _EMPTY_BODY_MESSAGE
+
+    @pytest.mark.asyncio
+    async def test_second_call_blocks(self):
+        """Second call blocks indefinitely (app should never call twice)."""
+        receive = create_empty_receive()
+        await receive()  # first call — returns immediately
+
+        # Second call should block; verify with a short timeout
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(receive(), timeout=0.05)
+
+    @pytest.mark.asyncio
+    async def test_independent_instances(self):
+        """Each create_empty_receive() call returns an independent callable."""
+        recv1 = create_empty_receive()
+        recv2 = create_empty_receive()
+
+        msg1 = await recv1()
+        msg2 = await recv2()
+
+        # Both should succeed independently
+        assert msg1["more_body"] is False
+        assert msg2["more_body"] is False
+
+
+class TestWriteCoalescing:
+    """Write coalescing: head + body combined into single write for small responses."""
+
+    @pytest.mark.asyncio
+    async def test_small_response_single_write(self):
+        """Small response (< threshold) uses one write call for head + body."""
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        send = create_send(proto, transport)
+
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", b"text/plain"), (b"content-length", b"5")],
+        })
+        # Head is buffered — no writes yet
+        assert transport.write_count == 0
+
+        await send({
+            "type": "http.response.body",
+            "body": b"hello",
+        })
+        # Head + body coalesced into a single write
+        assert transport.write_count == 1
+        output = bytes(transport.data)
+        assert b"200" in output
+        assert b"hello" in output
+
+    @pytest.mark.asyncio
+    async def test_large_response_two_writes(self):
+        """Large response (> threshold) flushes head and body separately."""
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        send = create_send(proto, transport)
+
+        # Body larger than _COALESCE_THRESHOLD (16 KB)
+        large_body = b"x" * (_COALESCE_THRESHOLD + 1)
+
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/plain"),
+                (b"content-length", str(len(large_body)).encode()),
+            ],
+        })
+        assert transport.write_count == 0
+
+        await send({
+            "type": "http.response.body",
+            "body": large_body,
+        })
+        # Head and body written separately
+        assert transport.write_count == 2
+
+    @pytest.mark.asyncio
+    async def test_streaming_head_coalesced_with_first_chunk(self):
+        """In streaming mode, head is coalesced with the first small chunk."""
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        send = create_send(proto, transport)
+
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"transfer-encoding", b"chunked")],
+        })
+        assert transport.write_count == 0
+
+        # First small chunk — coalesced with head
+        await send({
+            "type": "http.response.body",
+            "body": b"first",
+            "more_body": True,
+        })
+        assert transport.write_count == 1  # head + first chunk
+
+        # Second chunk — standalone write
+        await send({
+            "type": "http.response.body",
+            "body": b"second",
+            "more_body": False,
+        })
+        assert transport.write_count == 2  # second chunk separate
+
+
+class TestCreateH1Protocol:
+    """_create_h1_protocol() selects the best available HTTP/1.1 backend."""
+
+    def test_fallback_to_h11(self):
+        """Without httptools, returns H1Protocol (h11)."""
+        from pounce.worker import _create_h1_protocol
+
+        with patch("pounce.worker._use_httptools", False):
+            proto = _create_h1_protocol()
+
+        assert type(proto).__name__ == "H1Protocol"
+
+    def test_httptools_when_available(self):
+        """With httptools available, returns H1HttpToolsProtocol."""
+        httptools = pytest.importorskip("httptools")  # noqa: F841
+
+        from pounce.worker import _create_h1_protocol
+
+        with patch("pounce.worker._use_httptools", True):
+            proto = _create_h1_protocol()
+
+        assert type(proto).__name__ == "H1HttpToolsProtocol"
+
+    def test_passes_max_incomplete_event_size(self):
+        """max_incomplete_event_size is forwarded to the h11 backend."""
+        from pounce.worker import _create_h1_protocol
+
+        with patch("pounce.worker._use_httptools", False):
+            proto = _create_h1_protocol(max_incomplete_event_size=8192)
+
+        # h11 stores this on its Connection object
+        assert proto._conn._max_incomplete_event_size == 8192

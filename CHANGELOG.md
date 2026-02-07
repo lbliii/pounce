@@ -11,12 +11,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### ASGI 3.0 Compliance Suite
 
-- `tests/integration/test_asgi_compliance.py` — 39 tests (37 pass, 2 xfail) validating
-  pounce against the ASGI 3.0 HTTP Connection Scope and Lifespan specs: scope completeness,
-  all HTTP methods, header lowercasing, path decoding, query strings, request body protocol,
-  response streaming, keep-alive, Connection: close, error handling, lifespan lifecycle
-- 2 xfail tests document a known gap: worker does not yet read POST request body from the
-  connection (always delivers empty `BodyReceived`) — to be addressed in Phase 4
+- `tests/integration/test_asgi_compliance.py` — 41 tests validating pounce against the
+  ASGI 3.0 HTTP Connection Scope and Lifespan specs: scope completeness, all HTTP methods,
+  header lowercasing, path decoding, query strings, request body protocol, response
+  streaming, keep-alive, Connection: close, error handling, lifespan lifecycle
+
+---
+
+**Phase 4: It's Fast** — performance optimization, correctness fixes, benchmark infrastructure.
+
+#### POST Request Body Reading (Correctness Fix)
+
+- Worker now reads POST/PUT/PATCH request bodies correctly. Restructured `_handle_request`
+  to collect body events from the initial h11 parse batch and, for bodies spanning multiple
+  socket reads, runs a concurrent body reader task alongside the ASGI app
+- Removed xfail markers from `test_post_body_echo` and `test_large_body`
+- Added tests for PUT body, streaming multi-chunk body
+
+#### App Factory Support
+
+- `pounce "myapp:create_app()"` works end-to-end — the importer already supported factory
+  detection; CLI, integration tests, and example app now verify the full pipeline
+- Added `examples/factory_app.py` demonstrating the factory pattern
+
+#### Optional httptools Backend (`pounce[fast]`)
+
+- `protocols/h1_httptools.py` — C-accelerated HTTP/1.1 parser implementing the same
+  `ProtocolHandler` interface as `H1Protocol` (h11). Uses httptools callbacks for parsing
+  and hand-crafted response serialization for speed
+- Worker auto-detects httptools at import time; `pip install pounce[fast]` is the opt-in
+- Full unit test suite for the httptools backend (skips when not installed)
+- `pyproject.toml` adds `fast` optional extra: `httptools>=0.6`
+
+#### Benchmark Suite
+
+- `benchmarks/run_benchmark.py` — reproducible benchmark runner that starts pounce, drives
+  load with wrk or hey, captures results as structured JSON, prints markdown summary table
+- Comparison mode: `--compare` runs the same workload against uvicorn
+- Workloads: hello-world (overhead), JSON (serialize), POST echo (body reading)
+- Dedicated benchmark apps in `benchmarks/apps/`
+
+#### Profiling Infrastructure
+
+- `benchmarks/profile_hotpath.sh` — wraps py-spy for flame graph generation under load
+- `benchmarks/profile_memory.py` — RSS tracking with optional tracemalloc integration
+
+#### Hot-Path Optimizations
+
+- Pre-computed ASGI spec dict constant (avoid per-request dict allocation)
+- Bodyless fast-path receive: skip asyncio.Queue for GET/HEAD requests
+- Write coalescing: head + first body chunk combined into single write for responses < 16KB
+- Single-pass header lookup for compression negotiation
+- Skip empty body writes (avoid zero-length syscalls)
 
 #### CI
 

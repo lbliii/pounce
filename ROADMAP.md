@@ -116,6 +116,7 @@ pounce/
 ├── protocols/
 │   ├── _base.py             # ProtocolHandler Protocol, event types, Connection
 │   ├── h1.py                # HTTP/1.1 via h11
+│   ├── h1_httptools.py      # HTTP/1.1 via httptools (optional, pounce[fast])
 │   ├── h2.py                # HTTP/2 via h2 (optional)
 │   └── ws.py                # WebSocket via wsproto (optional)
 │
@@ -293,10 +294,11 @@ pounce (the server)
 ### Optional (explicit extras)
 
 ```
+pip install pounce[fast]     # httptools — C-accelerated HTTP/1.1 parsing
 pip install pounce[h2]       # h2 — HTTP/2 protocol support
 pip install pounce[ws]       # wsproto — WebSocket support
 pip install pounce[tls]      # truststore — system TLS certificate stores
-pip install pounce[full]     # All of the above
+pip install pounce[full]     # All of the above (except fast)
 ```
 
 ### Excluded
@@ -304,7 +306,7 @@ pip install pounce[full]     # All of the above
 | Dependency | Reason |
 |------------|--------|
 | uvloop | C extension; pounce proves pure Python is enough |
-| httptools | C binding; h11 is debuggable (httptools available in phase 4) |
+| httptools | Available as `pounce[fast]` optional extra; h11 is the pure-Python default |
 | anyio | Not needed; server uses asyncio directly |
 | click | CLI uses stdlib argparse |
 | brotli / brotlicffi | C extension that re-enables the GIL on 3.14t, defeating free-threading |
@@ -438,22 +440,28 @@ Full protocol support — HTTP/2, WebSocket, TLS, modern HTTP features.
 - Brotli content-encoding — `brotli`/`brotlicffi` are C extensions that re-enable the
   GIL on Python 3.14t, defeating free-threading. Compression remains `zstd > gzip > identity`.
 
-**Deferred to Phase 4:**
-
-- [ ] App factory support: `pounce "myapp:create_app()"`
-
 **Test coverage:** 408 tests (unit + integration + ASGI compliance), all passing.
 
-### Phase 4: It's Fast
+### Phase 4: It's Fast ✓
 
-Performance optimization pass.
+Performance optimization pass, correctness fixes, benchmark infrastructure.
 
-- [ ] Benchmark suite vs Uvicorn and Granian (reproducible, automated)
-- [ ] Hot-path profiling with `py-spy` and `perf`
-- [ ] Optional httptools backend (`pounce[fast]`) for C-accelerated parsing
-- [ ] Zero-copy response paths where possible
-- [ ] Connection pooling optimizations
-- [ ] Memory profiling: thread workers vs process workers
+**Correctness fixes:**
+
+- [x] POST request body reading — worker reads body events from h11, concurrent
+  body reader for multi-chunk bodies, xfail tests removed
+- [x] App factory support: `pounce "myapp:create_app()"` wired end-to-end
+
+**Performance:**
+
+- [x] Optional httptools backend (`pounce[fast]`) for C-accelerated HTTP/1.1 parsing
+- [x] Bodyless fast-path receive — skip asyncio.Queue for GET/HEAD requests
+- [x] Write coalescing — head + body in single write for small responses
+- [x] Pre-computed ASGI spec constants, single-pass header lookup
+- [x] Benchmark suite with wrk/hey runner, comparison mode vs uvicorn
+- [x] Profiling scripts: py-spy flame graphs, tracemalloc memory tracking
+
+**Test coverage:** 426 tests (unit + integration + ASGI compliance + httptools), all passing.
 
 ### Phase 5: It Explores
 

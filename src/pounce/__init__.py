@@ -30,7 +30,7 @@ Part of the Bengal ecosystem:
 # PEP 703: Declare this module as free-threading safe
 _Py_mod_gil = 0
 
-__version__ = "0.1.0-dev"
+__version__ = "0.4.0-dev"
 
 from pounce._types import ASGIApp, Receive, Scope, Send
 from pounce.config import ServerConfig

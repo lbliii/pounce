@@ -13,23 +13,24 @@ fork, no GIL, no per-process memory duplication. On Python 3.14t (free-threading
 threads run N asyncio event loops in parallel, all sharing immutable config and route tables
 with zero synchronization overhead.
 
-**Status:** Phase 3 complete — full protocol support: WebSocket via wsproto, HTTP/2 via h2
-with stream multiplexing, TLS termination with ALPN negotiation, WebSocket over HTTP/2
-(RFC 8441), Priority Signals (RFC 9218), 103 Early Hints, dev reload (`--reload`),
-keep-alive tuning, plus all Phase 1/2 features (HTTP/1.1, multi-worker, zstd/gzip
-compression, Server-Timing, streaming-first pipeline, supervisor, ASGI lifespan, CLI).
-408 tests passing. See [ROADMAP.md](ROADMAP.md) for the full vision.
+**Status:** Phase 4 complete — performance optimized: optional httptools backend
+(`pounce[fast]`), bodyless fast-path receive, write coalescing, POST body reading fix,
+app factory support, reproducible benchmark suite with wrk/hey runner. Plus all Phase 1-3
+features (HTTP/1.1, HTTP/2, WebSocket, TLS, multi-worker, zstd/gzip compression,
+Server-Timing, streaming-first pipeline, supervisor, ASGI lifespan, CLI, dev reload).
+426 tests passing. See [ROADMAP.md](ROADMAP.md) for the full vision.
 
 ## Key Ideas
 
 - **Free-threading first.** Threads, not processes. One interpreter, N event loops, shared
   immutable state. On GIL builds, falls back to multi-process automatically.
-- **Pure Python.** No Rust, no C extensions in the server itself. Debuggable, hackable,
-  readable. Uses `h11` for HTTP parsing because that problem is solved.
+- **Pure Python.** No Rust, no C extensions in the server core. Debuggable, hackable,
+  readable. Uses `h11` for HTTP parsing by default, with optional `httptools` backend
+  (`pounce[fast]`) for C-accelerated performance.
 - **Typed end-to-end.** Frozen config, typed ASGI definitions, zero `type: ignore` comments.
   `ty` passes clean.
 - **One dependency.** `h11` for HTTP/1.1 parsing. HTTP/2 (`h2`), WebSocket (`wsproto`),
-  and TLS (`truststore`) are optional extras. Install `pounce[full]` for everything.
+  TLS (`truststore`), and httptools (`pounce[fast]`) are optional extras.
 - **Chirp companion.** Built to serve chirp apps natively, but works with any ASGI framework.
 
 ## Requirements
@@ -62,6 +63,7 @@ pounce myapp:app
 pounce myapp:app --host 0.0.0.0 --port 8000 --workers 4
 pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem
 pounce myapp:app --reload  # dev mode — auto-restart on source changes
+pounce myapp:create_app()  # app factory pattern
 ```
 
 ## How It Works

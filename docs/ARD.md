@@ -1,8 +1,8 @@
 # Architecture Design Document: Pounce
 
-**Version**: 0.3.0-dev
+**Version**: 0.4.0-dev
 **Date**: 2026-02-07
-**Status**: Phase 3 implemented
+**Status**: Phase 4 implemented
 
 ---
 
@@ -743,6 +743,7 @@ experimental and would require an ASGI extension. Future exploration only.
            ├── pounce/protocols/
            │      ├── _base.py            (depends on _errors.py; ProtocolHandler, events)
            │      ├── h1.py               (external: h11; depends on _base.py)
+           │      ├── h1_httptools.py     (external: httptools; optional pounce[fast])
            │      ├── h2.py               (external: h2; depends on _base.py)
            │      └── ws.py               (external: wsproto; depends on _base.py)
            │
@@ -896,7 +897,7 @@ with full context:
 ### 9.3 Startup Banner
 
 ```
-Pounce v0.3.0 (Python 3.14.0t, free-threading)
+Pounce v0.4.0 (Python 3.14.0t, free-threading)
 ├─ Workers: 4 (threads)
 ├─ Listening: https://0.0.0.0:8000
 ├─ App: myapp:app
@@ -914,7 +915,7 @@ enabled or set to non-default values.
 
 ## 10. Testing Strategy
 
-**Current state:** 408 tests passing (Phase 3 + ASGI compliance suite).
+**Current state:** 426 tests passing (Phase 4 + ASGI compliance suite + httptools).
 
 ### 10.1 Unit Tests (Protocol Layer)
 
@@ -993,9 +994,21 @@ def test_get_hello(hello_app):
 - CLI flag parsing: `--ssl-certfile`, `--ssl-keyfile`, `--reload`, `--keep-alive-timeout`,
   `--max-requests-per-connection`
 
-### 10.7 Future: Benchmark Tests (Phase 4)
+### 10.7 Unit Tests (Phase 4 Additions)
 
-Reproducible throughput measurements vs Uvicorn and Granian.
+- httptools backend: `H1HttpToolsProtocol` parsing, serialization, keep-alive, error handling
+- ASGI bridge: `create_empty_receive()` bodyless fast-path, write coalescing threshold
+- Worker: `_create_h1_protocol()` runtime protocol selection
+- Package exports: Phase 4 symbols (`create_empty_receive`, `H1HttpToolsProtocol`)
+
+### 10.8 Integration Tests (Phase 4 Additions)
+
+- POST/PUT body handling: echo, large body, streaming multi-chunk, PUT
+- App factory pattern: `import_app()` with `create_app()`, CLI argument preservation
+- Keep-alive + POST body: sequential POST then GET on same connection
+- Compression + POST body: compressed responses with request body present
+- Benchmark suite: `benchmarks/run_benchmark.py` with wrk/hey runner, comparison mode
+- Profiling infrastructure: `profile_hotpath.sh` (py-spy), `profile_memory.py` (tracemalloc)
 
 ---
 
