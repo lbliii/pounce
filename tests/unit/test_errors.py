@@ -6,7 +6,9 @@ from pounce._errors import (
     LimitError,
     ParseError,
     PounceError,
+    SupervisorError,
     TimeoutError,
+    WorkerError,
 )
 
 
@@ -30,6 +32,12 @@ class TestErrorHierarchy:
 
     def test_lifespan_error_inherits(self):
         assert issubclass(LifespanError, PounceError)
+
+    def test_supervisor_error_inherits(self):
+        assert issubclass(SupervisorError, PounceError)
+
+    def test_worker_error_inherits(self):
+        assert issubclass(WorkerError, PounceError)
 
 
 class TestStatusCodes:
@@ -61,6 +69,14 @@ class TestStatusCodes:
 
     def test_lifespan_error_500(self):
         err = LifespanError("startup failed")
+        assert err.status_code == 500
+
+    def test_supervisor_error_500(self):
+        err = SupervisorError("spawn failed")
+        assert err.status_code == 500
+
+    def test_worker_error_500(self):
+        err = WorkerError("worker crashed")
         assert err.status_code == 500
 
     def test_custom_status_code_override(self):

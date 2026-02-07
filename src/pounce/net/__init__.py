@@ -10,6 +10,6 @@ Modules:
 
 """
 
-from pounce.net.listener import create_listener
+from pounce.net.listener import create_listener, create_listeners
 
-__all__ = ["create_listener"]
+__all__ = ["create_listener", "create_listeners"]

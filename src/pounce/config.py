@@ -6,6 +6,8 @@ Frozen after creation — the server reads config but never mutates it.
 
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 
@@ -26,6 +28,8 @@ class ServerConfig:
     port: int = 8000
 
     # Worker configuration
+    # 0 = auto-detect from os.cpu_count(), 1 = single-worker (no supervisor),
+    # 2+ = explicit multi-worker with supervisor
     workers: int = 1
     backlog: int = 2048
 
@@ -69,3 +73,25 @@ class ServerConfig:
     # TLS (optional — phase 3)
     ssl_certfile: str | None = None
     ssl_keyfile: str | None = None
+
+    def __post_init__(self) -> None:
+        """Validate configuration values."""
+        if self.workers < 0:
+            msg = f"workers must be >= 0 (got {self.workers})"
+            raise ValueError(msg)
+        if self.port < 0 or self.port > 65535:
+            msg = f"port must be 0-65535 (got {self.port})"
+            raise ValueError(msg)
+
+    def resolve_workers(self) -> int:
+        """Return the effective worker count.
+
+        If ``workers`` is 0 (auto-detect), returns ``os.cpu_count()``
+        (minimum 1).  Otherwise returns the explicit value.
+
+        """
+        if self.workers == 0:
+            from pounce._runtime import default_worker_count
+
+            return default_worker_count()
+        return self.workers

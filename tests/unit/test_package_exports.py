@@ -80,3 +80,30 @@ class TestNetExports:
     def test_create_listener(self):
         from pounce.net import create_listener
         assert callable(create_listener)
+
+    def test_create_listeners(self):
+        from pounce.net import create_listeners
+        assert callable(create_listeners)
+
+
+class TestPhase2Exports:
+    """Phase 2 modules are importable."""
+
+    def test_runtime_module(self):
+        from pounce._runtime import (
+            default_worker_count,
+            detect_worker_mode,
+            is_gil_enabled,
+        )
+        assert callable(is_gil_enabled)
+        assert callable(detect_worker_mode)
+        assert callable(default_worker_count)
+
+    def test_supervisor_module(self):
+        from pounce.supervisor import Supervisor
+        assert Supervisor is not None
+
+    def test_error_types(self):
+        from pounce._errors import SupervisorError, WorkerError
+        assert issubclass(SupervisorError, Exception)
+        assert issubclass(WorkerError, Exception)

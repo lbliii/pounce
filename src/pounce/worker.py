@@ -4,8 +4,9 @@ Worker — the heart of pounce's request handling.
 Runs a single asyncio event loop that accepts connections on a socket and
 processes HTTP requests through the protocol → bridge → ASGI pipeline.
 
-Phase 1 is single-threaded (one worker per server). Phase 2 adds the
-supervisor with multiple worker threads.
+Each worker is self-contained: it owns its event loop, its set of active
+connections, and its per-worker metrics.  The supervisor spawns workers as
+threads (nogil) or processes (GIL) — the worker does not know which.
 
 Connection flow:
     socket.accept() → H1Protocol.receive_data() → build_scope()
@@ -18,9 +19,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import socket
+import threading
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
-from pounce._errors import AppError, ParseError, PounceError
+from pounce._errors import ParseError
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
 from pounce.asgi.bridge import build_scope, create_receive, create_send
@@ -28,8 +30,6 @@ from pounce.config import ServerConfig
 from pounce.logging import access_log
 from pounce.protocols._base import BodyReceived, ConnectionClosed, RequestReceived
 from pounce.protocols.h1 import H1Protocol
-
-logger = logging.getLogger("pounce.worker")
 
 
 class Worker:
@@ -42,19 +42,48 @@ class Worker:
         config: Server configuration.
         app: The ASGI application.
         sock: A bound, listening socket.
+        worker_id: Numeric identifier for log differentiation.
+        shutdown_event: Optional external ``threading.Event`` set by the
+            supervisor to coordinate cross-thread shutdown.  When ``None``
+            the worker manages its own shutdown lifecycle.
+        max_connections: Per-worker connection limit for backpressure.
+            ``0`` means no limit.
 
     """
 
-    __slots__ = ("_config", "_app", "_sock", "_shutdown_event", "_active_connections")
+    __slots__ = (
+        "_config",
+        "_app",
+        "_sock",
+        "_worker_id",
+        "_ext_shutdown",
+        "_async_shutdown",
+        "_loop",
+        "_active_connections",
+        "_max_connections",
+        "_logger",
+    )
 
     def __init__(
-        self, config: ServerConfig, app: ASGIApp, sock: socket.socket
+        self,
+        config: ServerConfig,
+        app: ASGIApp,
+        sock: socket.socket,
+        *,
+        worker_id: int = 0,
+        shutdown_event: threading.Event | None = None,
+        max_connections: int = 0,
     ) -> None:
         self._config = config
         self._app = app
         self._sock = sock
-        self._shutdown_event = asyncio.Event()
+        self._worker_id = worker_id
+        self._ext_shutdown = shutdown_event
+        self._async_shutdown: asyncio.Event | None = None  # created inside event loop
+        self._loop: asyncio.AbstractEventLoop | None = None  # set in _serve
         self._active_connections = 0
+        self._max_connections = max_connections
+        self._logger = logging.getLogger(f"pounce.worker.{worker_id}")
 
     def run(self) -> None:
         """Start the worker's event loop (blocking)."""
@@ -62,24 +91,63 @@ class Worker:
 
     async def _serve(self) -> None:
         """Accept connections until shutdown is signaled."""
+        self._loop = asyncio.get_running_loop()
+        self._async_shutdown = asyncio.Event()
+
         server = await asyncio.start_server(
             self._handle_connection,
             sock=self._sock,
         )
 
-        logger.info("Worker started, accepting connections")
+        self._logger.info("Worker %d started, accepting connections", self._worker_id)
+
+        # If an external threading.Event was provided (multi-worker mode),
+        # bridge it into the asyncio event loop so the supervisor can
+        # trigger shutdown from its own thread.
+        bridge_task: asyncio.Task[None] | None = None
+        if self._ext_shutdown is not None:
+            bridge_task = asyncio.create_task(
+                self._bridge_shutdown(self._ext_shutdown)
+            )
 
         try:
-            # Wait for shutdown signal
-            await self._shutdown_event.wait()
+            await self._async_shutdown.wait()
         finally:
+            if bridge_task is not None:
+                bridge_task.cancel()
             server.close()
             await server.wait_closed()
-            logger.info("Worker stopped")
+            self._logger.info("Worker %d stopped", self._worker_id)
+
+    async def _bridge_shutdown(self, ext_event: threading.Event) -> None:
+        """Poll an external ``threading.Event`` and set the async shutdown.
+
+        Runs as a background task inside the worker's event loop.  Checks
+        the threading event every 0.25 s — fast enough for responsive
+        shutdown without measurable overhead.
+
+        """
+        loop = asyncio.get_running_loop()
+        while not ext_event.is_set():
+            await asyncio.sleep(0.25)
+        # Trigger the asyncio-side shutdown
+        if self._async_shutdown is not None:
+            loop.call_soon(self._async_shutdown.set)
 
     def shutdown(self) -> None:
-        """Signal the worker to stop accepting connections."""
-        self._shutdown_event.set()
+        """Signal the worker to stop accepting connections.
+
+        Safe to call from any thread.  In multi-worker mode the
+        supervisor sets the shared ``threading.Event`` which the bridge
+        task picks up.  In single-worker mode we use
+        ``call_soon_threadsafe`` to safely set the asyncio event from
+        an external thread.
+
+        """
+        if self._ext_shutdown is not None:
+            self._ext_shutdown.set()
+        elif self._async_shutdown is not None and self._loop is not None:
+            self._loop.call_soon_threadsafe(self._async_shutdown.set)
 
     async def _handle_connection(
         self,
@@ -93,6 +161,15 @@ class Worker:
         parse → scope → compress → ASGI app → response → log.
 
         """
+        # Connection backpressure — reject when at capacity
+        if self._max_connections > 0 and self._active_connections >= self._max_connections:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+            return
+
         self._active_connections += 1
         peername = writer.get_extra_info("peername")
         client = (peername[0], peername[1]) if peername else ("unknown", 0)
@@ -142,7 +219,7 @@ class Worker:
                     break  # Connection can't be reused
 
         except Exception:
-            logger.exception("Unhandled error on connection from %s", client_str)
+            self._logger.exception("Unhandled error on connection from %s", client_str)
         finally:
             self._active_connections -= 1
             try:
@@ -201,7 +278,9 @@ class Worker:
             await self._app(scope, receive, send)
             status = 200  # Default if we can't determine from send
         except Exception as exc:
-            logger.exception("ASGI app error on %s %s", scope["method"], scope["path"])
+            self._logger.exception(
+                "ASGI app error on %s %s", scope["method"], scope["path"]
+            )
             try:
                 await self._send_error(writer, proto, 500, "Internal Server Error")
             except Exception:

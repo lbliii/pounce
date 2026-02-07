@@ -10,6 +10,8 @@ Error categories:
 - LimitError: headers or body exceed configured limits (413/431)
 - AppError: the ASGI application raised an exception (500)
 - LifespanError: lifespan startup or shutdown failure (500)
+- SupervisorError: worker spawn or crash-restart failure (500)
+- WorkerError: worker-level failure reported to supervisor (500)
 
 """
 
@@ -55,5 +57,17 @@ class AppError(PounceError):
 
 class LifespanError(PounceError):
     """ASGI lifespan startup or shutdown failed."""
+
+    status_code: int = 500
+
+
+class SupervisorError(PounceError):
+    """Worker spawn failure or crash-restart exhaustion."""
+
+    status_code: int = 500
+
+
+class WorkerError(PounceError):
+    """Worker-level failure that bubbles to the supervisor."""
 
     status_code: int = 500

@@ -162,6 +162,54 @@ class TestServerConfigEquality:
         assert a != b
 
 
+class TestServerConfigValidation:
+    """ServerConfig validates input values."""
+
+    def test_negative_workers_raises(self):
+        with pytest.raises(ValueError, match="workers must be >= 0"):
+            ServerConfig(workers=-1)
+
+    def test_zero_workers_allowed(self):
+        config = ServerConfig(workers=0)
+        assert config.workers == 0
+
+    def test_positive_workers_allowed(self):
+        config = ServerConfig(workers=4)
+        assert config.workers == 4
+
+    def test_negative_port_raises(self):
+        with pytest.raises(ValueError, match="port must be 0-65535"):
+            ServerConfig(port=-1)
+
+    def test_port_too_high_raises(self):
+        with pytest.raises(ValueError, match="port must be 0-65535"):
+            ServerConfig(port=70000)
+
+
+class TestServerConfigResolveWorkers:
+    """resolve_workers() handles auto-detect and explicit values."""
+
+    def test_explicit_workers(self):
+        config = ServerConfig(workers=4)
+        assert config.resolve_workers() == 4
+
+    def test_single_worker(self):
+        config = ServerConfig(workers=1)
+        assert config.resolve_workers() == 1
+
+    def test_auto_detect_returns_positive(self):
+        config = ServerConfig(workers=0)
+        result = config.resolve_workers()
+        assert result >= 1
+
+    def test_auto_detect_uses_cpu_count(self):
+        from unittest.mock import patch
+
+        config = ServerConfig(workers=0)
+        with patch("pounce._runtime.os.cpu_count", return_value=8):
+            assert config.resolve_workers() == 8
+
+
 class TestServerConfigSlots:
     """ServerConfig uses __slots__ for memory efficiency."""
 

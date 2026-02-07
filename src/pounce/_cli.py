@@ -87,7 +87,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--workers",
         type=int,
         default=1,
-        help="Number of worker threads (default: 1)",
+        help=(
+            "Number of workers (default: 1). "
+            "Use 0 for auto-detect (one per CPU core). "
+            "On nogil builds workers are threads; on GIL builds they are processes."
+        ),
     )
     parser.add_argument(
         "--log-level",
