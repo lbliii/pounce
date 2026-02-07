@@ -38,6 +38,7 @@ class TestServerConfigDefaults:
         assert config.max_header_size == 65_536
         assert config.max_headers == 100
         assert config.max_connections == 10_000
+        assert config.max_requests_per_connection == 0  # 0 = unlimited
 
     def test_default_logging(self):
         config = ServerConfig()
@@ -123,6 +124,14 @@ class TestServerConfigOverrides:
         assert config.ssl_certfile == "/path/to/cert.pem"
         assert config.ssl_keyfile == "/path/to/key.pem"
 
+    def test_custom_max_requests_per_connection(self):
+        config = ServerConfig(max_requests_per_connection=1000)
+        assert config.max_requests_per_connection == 1000
+
+    def test_custom_keep_alive_timeout(self):
+        config = ServerConfig(keep_alive_timeout=30.0)
+        assert config.keep_alive_timeout == 30.0
+
 
 class TestServerConfigFrozen:
     """ServerConfig is immutable (frozen=True)."""
@@ -184,6 +193,18 @@ class TestServerConfigValidation:
     def test_port_too_high_raises(self):
         with pytest.raises(ValueError, match="port must be 0-65535"):
             ServerConfig(port=70000)
+
+    def test_keep_alive_timeout_zero_raises(self):
+        with pytest.raises(ValueError, match="keep_alive_timeout must be > 0"):
+            ServerConfig(keep_alive_timeout=0.0)
+
+    def test_keep_alive_timeout_negative_raises(self):
+        with pytest.raises(ValueError, match="keep_alive_timeout must be > 0"):
+            ServerConfig(keep_alive_timeout=-1.0)
+
+    def test_max_requests_per_connection_negative_raises(self):
+        with pytest.raises(ValueError, match="max_requests_per_connection must be >= 0"):
+            ServerConfig(max_requests_per_connection=-1)
 
 
 class TestServerConfigResolveWorkers:

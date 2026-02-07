@@ -107,3 +107,78 @@ class TestPhase2Exports:
         from pounce._errors import SupervisorError, WorkerError
         assert issubclass(SupervisorError, Exception)
         assert issubclass(WorkerError, Exception)
+
+
+class TestPhase3ProtocolExports:
+    """Phase 3 protocol exports are importable via pounce.protocols."""
+
+    def test_ws_protocol(self):
+        from pounce.protocols import WSProtocol
+        assert WSProtocol is not None
+
+    def test_h2_connection(self):
+        from pounce.protocols import H2Connection
+        assert H2Connection is not None
+
+    def test_h2_event_types(self):
+        from pounce.protocols import (
+            H2BodyReceived,
+            H2GoAway,
+            H2RequestReceived,
+            H2StreamReset,
+            H2WebSocketRequest,
+            H2WindowUpdated,
+        )
+        assert H2RequestReceived is not None
+        assert H2BodyReceived is not None
+        assert H2StreamReset is not None
+        assert H2GoAway is not None
+        assert H2WindowUpdated is not None
+        assert H2WebSocketRequest is not None
+
+    def test_ws_event_types(self):
+        from pounce.protocols import (
+            WebSocketConnected,
+            WebSocketDataReceived,
+            WebSocketDisconnected,
+        )
+        assert WebSocketConnected is not None
+        assert WebSocketDataReceived is not None
+        assert WebSocketDisconnected is not None
+
+
+class TestPhase3AsgiExports:
+    """Phase 3 ASGI bridge exports."""
+
+    def test_ws_bridge(self):
+        from pounce.asgi import build_ws_scope, create_ws_receive, create_ws_send
+        assert callable(build_ws_scope)
+        assert callable(create_ws_receive)
+        assert callable(create_ws_send)
+
+    def test_h2_bridge(self):
+        from pounce.asgi import build_h2_scope, create_h2_receive, create_h2_send
+        assert callable(build_h2_scope)
+        assert callable(create_h2_receive)
+        assert callable(create_h2_send)
+
+
+class TestPhase3NetExports:
+    """Phase 3 network exports."""
+
+    def test_tls_exports(self):
+        from pounce.net import create_tls_context, is_tls_configured
+        assert callable(create_tls_context)
+        assert callable(is_tls_configured)
+
+
+class TestPhase3ErrorExports:
+    """Phase 3 error types."""
+
+    def test_tls_error(self):
+        from pounce._errors import TLSError
+        assert issubclass(TLSError, Exception)
+
+    def test_reload_error(self):
+        from pounce._errors import ReloadError
+        assert issubclass(ReloadError, Exception)

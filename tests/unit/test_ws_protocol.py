@@ -328,3 +328,87 @@ class TestWSBridge:
         )
 
         assert scope["scheme"] == "wss"
+
+
+class TestIsWebSocketUpgrade:
+    """Tests for _is_websocket_upgrade() header detection."""
+
+    def test_valid_upgrade(self):
+        from pounce.worker import _is_websocket_upgrade
+        request = RequestReceived(
+            method=b"GET",
+            target=b"/ws",
+            http_version="1.1",
+            headers=(
+                (b"Host", b"localhost"),
+                (b"Connection", b"Upgrade"),
+                (b"Upgrade", b"websocket"),
+                (b"Sec-WebSocket-Key", b"dGhlIHNhbXBsZSBub25jZQ=="),
+            ),
+        )
+        assert _is_websocket_upgrade(request) is True
+
+    def test_missing_connection_header(self):
+        from pounce.worker import _is_websocket_upgrade
+        request = RequestReceived(
+            method=b"GET",
+            target=b"/ws",
+            http_version="1.1",
+            headers=(
+                (b"Host", b"localhost"),
+                (b"Upgrade", b"websocket"),
+            ),
+        )
+        assert _is_websocket_upgrade(request) is False
+
+    def test_missing_upgrade_header(self):
+        from pounce.worker import _is_websocket_upgrade
+        request = RequestReceived(
+            method=b"GET",
+            target=b"/ws",
+            http_version="1.1",
+            headers=(
+                (b"Host", b"localhost"),
+                (b"Connection", b"Upgrade"),
+            ),
+        )
+        assert _is_websocket_upgrade(request) is False
+
+    def test_case_insensitive(self):
+        from pounce.worker import _is_websocket_upgrade
+        request = RequestReceived(
+            method=b"GET",
+            target=b"/ws",
+            http_version="1.1",
+            headers=(
+                (b"connection", b"UPGRADE"),
+                (b"UPGRADE", b"WebSocket"),
+            ),
+        )
+        assert _is_websocket_upgrade(request) is True
+
+    def test_normal_http_request(self):
+        from pounce.worker import _is_websocket_upgrade
+        request = RequestReceived(
+            method=b"GET",
+            target=b"/api/data",
+            http_version="1.1",
+            headers=(
+                (b"Host", b"localhost"),
+                (b"Accept", b"application/json"),
+            ),
+        )
+        assert _is_websocket_upgrade(request) is False
+
+    def test_upgrade_but_not_websocket(self):
+        from pounce.worker import _is_websocket_upgrade
+        request = RequestReceived(
+            method=b"GET",
+            target=b"/h2c",
+            http_version="1.1",
+            headers=(
+                (b"Connection", b"Upgrade"),
+                (b"Upgrade", b"h2c"),
+            ),
+        )
+        assert _is_websocket_upgrade(request) is False

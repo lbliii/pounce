@@ -43,6 +43,7 @@ class ServerConfig:
     max_header_size: int = 65_536      # 64 KB
     max_headers: int = 100
     max_connections: int = 10_000
+    max_requests_per_connection: int = 0  # 0 = unlimited
 
     # Logging
     access_log: bool = True
@@ -81,6 +82,15 @@ class ServerConfig:
             raise ValueError(msg)
         if self.port < 0 or self.port > 65535:
             msg = f"port must be 0-65535 (got {self.port})"
+            raise ValueError(msg)
+        if self.keep_alive_timeout <= 0:
+            msg = f"keep_alive_timeout must be > 0 (got {self.keep_alive_timeout})"
+            raise ValueError(msg)
+        if self.max_requests_per_connection < 0:
+            msg = (
+                f"max_requests_per_connection must be >= 0 "
+                f"(got {self.max_requests_per_connection})"
+            )
             raise ValueError(msg)
 
     def resolve_workers(self) -> int:

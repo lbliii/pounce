@@ -22,6 +22,11 @@ class TestCLIParser:
         assert parsed.no_compression is False
         assert parsed.server_timing is False
         assert parsed.no_access_log is False
+        assert parsed.ssl_certfile is None
+        assert parsed.ssl_keyfile is None
+        assert parsed.reload is False
+        assert parsed.keep_alive_timeout == 5.0
+        assert parsed.max_requests_per_connection == 0
 
     def test_custom_args(self):
         parser = _build_parser()
@@ -50,6 +55,31 @@ class TestCLIParser:
         parser = _build_parser()
         with pytest.raises(SystemExit):
             parser.parse_args([])
+
+    def test_phase3_tls_args(self):
+        parser = _build_parser()
+        parsed = parser.parse_args([
+            "myapp:app",
+            "--ssl-certfile", "/path/to/cert.pem",
+            "--ssl-keyfile", "/path/to/key.pem",
+        ])
+        assert parsed.ssl_certfile == "/path/to/cert.pem"
+        assert parsed.ssl_keyfile == "/path/to/key.pem"
+
+    def test_phase3_reload_flag(self):
+        parser = _build_parser()
+        parsed = parser.parse_args(["myapp:app", "--reload"])
+        assert parsed.reload is True
+
+    def test_phase3_keepalive_args(self):
+        parser = _build_parser()
+        parsed = parser.parse_args([
+            "myapp:app",
+            "--keep-alive-timeout", "30.0",
+            "--max-requests-per-connection", "1000",
+        ])
+        assert parsed.keep_alive_timeout == 30.0
+        assert parsed.max_requests_per_connection == 1000
 
     def test_invalid_log_level_exits(self):
         parser = _build_parser()

@@ -155,6 +155,40 @@ class Supervisor:
         """Signal all workers to stop (non-blocking)."""
         self._shutdown_event.set()
 
+    def restart_workers(self) -> None:
+        """Gracefully restart all workers (for dev reload).
+
+        Signals all running workers to stop, waits for them to drain,
+        clears the shutdown event, and spawns fresh workers. Process-based
+        workers get a fresh module import; thread-based workers reuse the
+        existing app object but reinitialise their async loops.
+
+        """
+        logger.info("Restarting %d worker(s)...", self._effective_workers)
+
+        # Signal all workers to stop
+        self._shutdown_event.set()
+
+        # Join with timeout
+        deadline = time.monotonic() + self._config.shutdown_timeout
+        for handle in self._handles:
+            remaining = max(0.1, deadline - time.monotonic())
+            handle.target.join(timeout=remaining)
+            if handle.target.is_alive():
+                self._force_stop(handle)
+
+        # Clear shutdown event for new workers
+        self._shutdown_event.clear()
+
+        # Reset restart counts for fresh workers
+        self._handles.clear()
+
+        # Respawn all workers
+        for i in range(self._effective_workers):
+            self._spawn_worker(i)
+
+        logger.info("All %d worker(s) restarted", self._effective_workers)
+
     # ------------------------------------------------------------------
     # Spawning
     # ------------------------------------------------------------------

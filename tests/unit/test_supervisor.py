@@ -214,6 +214,63 @@ class TestSupervisorRespawn:
                     pass
 
 
+class TestSupervisorRestartWorkers:
+    """Supervisor restart_workers() logic (unit-level, no real workers)."""
+
+    def test_restart_clears_shutdown_event(self):
+        """restart_workers() sets then clears the shutdown event."""
+        config = ServerConfig(workers=2, host="127.0.0.1", port=0, access_log=False)
+        sup = Supervisor(config, _noop_app, mode="thread")
+        sockets = _make_sockets(2)
+        sup._sockets = sockets
+
+        # Plant mock handles so restart_workers can join them
+        for i in range(2):
+            mock_thread = MagicMock(spec=threading.Thread)
+            mock_thread.is_alive.return_value = False
+            sup._handles.append(_WorkerHandle(i, mock_thread))
+
+        try:
+            # Patch at the class level (Supervisor uses __slots__)
+            with patch.object(Supervisor, "_spawn_worker") as mock_spawn:
+                sup.restart_workers()
+
+                # Shutdown event should be cleared for new workers
+                assert not sup._shutdown_event.is_set()
+                # _spawn_worker should be called for each worker
+                assert mock_spawn.call_count == 2
+        finally:
+            for s in sockets:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+
+    def test_restart_joins_old_workers(self):
+        """restart_workers() joins existing workers before respawning."""
+        config = ServerConfig(workers=1, host="127.0.0.1", port=0, access_log=False)
+        sup = Supervisor(config, _noop_app, mode="thread")
+        sockets = _make_sockets(1)
+        sup._sockets = sockets
+
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = False
+        sup._handles.append(_WorkerHandle(0, mock_thread))
+
+        try:
+            with patch.object(Supervisor, "_spawn_worker"):
+                sup.restart_workers()
+
+                # Old handle should have been joined
+                mock_thread.join.assert_called_once()
+        finally:
+            for s in sockets:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+
+
 class TestSupervisorPerWorkerConnections:
     """Supervisor calculates per-worker connection limits."""
 

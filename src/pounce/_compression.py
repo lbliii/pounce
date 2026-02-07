@@ -12,6 +12,11 @@ Gzip uses stdlib zlib for the raw deflate stream.
 
 Both are stdlib modules that work correctly under free-threading (3.14t).
 
+Note: Brotli (br) is intentionally excluded — the ``brotli`` C extension
+re-enables the GIL on Python 3.14t, defeating pounce's free-threading
+architecture. Clients that only send ``Accept-Encoding: br`` will receive
+uncompressed responses.
+
 """
 
 from __future__ import annotations

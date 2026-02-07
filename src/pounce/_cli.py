@@ -48,6 +48,9 @@ def main(args: list[str] | None = None) -> None:
         access_log=not parsed.no_access_log,
         ssl_certfile=parsed.ssl_certfile,
         ssl_keyfile=parsed.ssl_keyfile,
+        reload=parsed.reload,
+        keep_alive_timeout=parsed.keep_alive_timeout,
+        max_requests_per_connection=parsed.max_requests_per_connection,
     )
 
     # Run the server
@@ -133,6 +136,24 @@ def _build_parser() -> argparse.ArgumentParser:
         "--ssl-keyfile",
         default=None,
         help="Path to TLS private key file",
+    )
+    parser.add_argument(
+        "--reload",
+        action="store_true",
+        default=False,
+        help="Enable auto-reload on source file changes (development mode)",
+    )
+    parser.add_argument(
+        "--keep-alive-timeout",
+        type=float,
+        default=5.0,
+        help="Seconds to wait for a new request on an idle keep-alive connection (default: 5.0)",
+    )
+    parser.add_argument(
+        "--max-requests-per-connection",
+        type=int,
+        default=0,
+        help="Max requests per keep-alive connection; 0 = unlimited (default: 0)",
     )
 
     return parser

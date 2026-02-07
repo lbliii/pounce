@@ -25,15 +25,33 @@ from pounce.protocols._base import (
     WebSocketDisconnected,
 )
 from pounce.protocols.h1 import H1Protocol
+from pounce.protocols.h2 import (
+    H2BodyReceived,
+    H2Connection,
+    H2GoAway,
+    H2RequestReceived,
+    H2StreamReset,
+    H2WebSocketRequest,
+    H2WindowUpdated,
+)
+from pounce.protocols.ws import WSProtocol
 
 __all__ = [
     "BodyReceived",
     "ConnectionClosed",
     "H1Protocol",
+    "H2BodyReceived",
+    "H2Connection",
+    "H2GoAway",
+    "H2RequestReceived",
+    "H2StreamReset",
+    "H2WebSocketRequest",
+    "H2WindowUpdated",
     "ProtocolEvent",
     "ProtocolHandler",
     "RequestReceived",
     "Upgraded",
+    "WSProtocol",
     "WebSocketConnected",
     "WebSocketDataReceived",
     "WebSocketDisconnected",

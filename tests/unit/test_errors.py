@@ -6,7 +6,9 @@ from pounce._errors import (
     LimitError,
     ParseError,
     PounceError,
+    ReloadError,
     SupervisorError,
+    TLSError,
     TimeoutError,
     WorkerError,
 )
@@ -38,6 +40,12 @@ class TestErrorHierarchy:
 
     def test_worker_error_inherits(self):
         assert issubclass(WorkerError, PounceError)
+
+    def test_tls_error_inherits(self):
+        assert issubclass(TLSError, PounceError)
+
+    def test_reload_error_inherits(self):
+        assert issubclass(ReloadError, PounceError)
 
 
 class TestStatusCodes:
@@ -77,6 +85,14 @@ class TestStatusCodes:
 
     def test_worker_error_500(self):
         err = WorkerError("worker crashed")
+        assert err.status_code == 500
+
+    def test_tls_error_500(self):
+        err = TLSError("bad certificate")
+        assert err.status_code == 500
+
+    def test_reload_error_500(self):
+        err = ReloadError("watcher failed")
         assert err.status_code == 500
 
     def test_custom_status_code_override(self):

@@ -7,9 +7,9 @@ import pytest
 from pounce._compression import (
     GzipCompressor,
     ZstdCompressor,
+    _HAS_ZSTD,
     create_compressor,
     negotiate_encoding,
-    _HAS_ZSTD,
 )
 
 
@@ -35,7 +35,7 @@ class TestNegotiateEncoding:
         assert result is None
 
     def test_br_not_supported(self):
-        """Brotli is not supported — br-only clients get no compression."""
+        """Brotli is excluded — re-enables the GIL on 3.14t."""
         result = negotiate_encoding(b"br")
         assert result is None
 
@@ -156,6 +156,6 @@ class TestCreateCompressor:
             create_compressor("deflate")
 
     def test_br_raises(self):
-        """Brotli is not supported — re-enables the GIL on 3.14t."""
+        """Brotli is excluded — re-enables the GIL on 3.14t."""
         with pytest.raises(ValueError, match="Unsupported encoding"):
             create_compressor("br")

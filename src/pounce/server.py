@@ -137,6 +137,10 @@ class Server:
 
     def _run_single(self) -> None:
         """Run with a single worker — no supervisor, minimal overhead."""
+        if self._config.reload:
+            self._run_single_with_reload()
+            return
+
         sock = create_listener(self._config)
         actual_addr = sock.getsockname()
 
@@ -152,6 +156,66 @@ class Server:
             pass
         finally:
             sock.close()
+            logger.info("Pounce server stopped")
+
+    def _run_single_with_reload(self) -> None:
+        """Single-worker mode with auto-reload on source changes.
+
+        Runs the worker in a loop. When the file watcher detects changes
+        it sets ``_reload_requested`` and signals shutdown, causing the
+        asyncio loop to exit. The outer loop then restarts the worker
+        with a fresh socket and event loop.
+
+        """
+        from pathlib import Path
+
+        from pounce._reload import watch_for_changes
+
+        reload_requested = threading.Event()
+        stop_watcher = threading.Event()
+
+        def _on_change() -> None:
+            reload_requested.set()
+            self.shutdown()
+
+        watcher = threading.Thread(
+            target=watch_for_changes,
+            args=([Path.cwd()], _on_change),
+            kwargs={"stop_event": stop_watcher},
+            daemon=True,
+        )
+        watcher.start()
+
+        try:
+            while True:
+                # Reset state for each iteration
+                self._shutdown_event.clear()
+                reload_requested.clear()
+                self._loop = None
+                self._async_shutdown = None
+
+                sock = create_listener(self._config)
+                actual_addr = sock.getsockname()
+
+                logger.info(
+                    "Pounce server starting on %s:%d (single worker, reload)",
+                    actual_addr[0],
+                    actual_addr[1],
+                )
+
+                try:
+                    asyncio.run(self._run_single_async(sock))
+                except KeyboardInterrupt:
+                    break
+                finally:
+                    sock.close()
+
+                if reload_requested.is_set():
+                    logger.info("Reloading...")
+                    continue
+                break
+        finally:
+            stop_watcher.set()
             logger.info("Pounce server stopped")
 
     async def _run_single_async(self, sock: socket.socket) -> None:
@@ -212,6 +276,9 @@ class Server:
         Lifespan runs once in the main process/thread before workers
         are spawned.  Workers do not run lifespan.
 
+        When ``--reload`` is active, a file watcher thread runs alongside
+        the supervisor and triggers ``restart_workers()`` on changes.
+
         """
         sockets = create_listeners(self._config, effective_workers)
 
@@ -229,12 +296,35 @@ class Server:
             self._config, self._app, mode=mode, ssl_context=self._ssl_context,
         )
 
+        # Start file watcher for reload mode
+        stop_watcher: threading.Event | None = None
+        if self._config.reload:
+            from pathlib import Path
+
+            from pounce._reload import watch_for_changes
+
+            stop_watcher = threading.Event()
+            supervisor_ref = self._supervisor
+
+            def _on_change() -> None:
+                supervisor_ref.restart_workers()
+
+            watcher = threading.Thread(
+                target=watch_for_changes,
+                args=([Path.cwd()], _on_change),
+                kwargs={"stop_event": stop_watcher},
+                daemon=True,
+            )
+            watcher.start()
+
         # Run lifespan once in the main thread, then start supervisor
         try:
             asyncio.run(self._run_lifespan_then_supervise(self._supervisor, sockets))
         except KeyboardInterrupt:
             pass
         finally:
+            if stop_watcher is not None:
+                stop_watcher.set()
             self._close_sockets(sockets)
             logger.info("Pounce server stopped")
 
@@ -280,6 +370,14 @@ class Server:
             lines.append("  -> server-timing: enabled")
         if self._config.root_path:
             lines.append(f"  -> root_path: {self._config.root_path}")
+        if self._config.reload:
+            lines.append("  -> reload: enabled (watching for changes)")
+        if self._config.keep_alive_timeout != 5.0:
+            lines.append(f"  -> keep-alive: {self._config.keep_alive_timeout}s")
+        if self._config.max_requests_per_connection > 0:
+            lines.append(
+                f"  -> max-requests/conn: {self._config.max_requests_per_connection}"
+            )
         lines.append("")
 
         sys.stderr.write("\n".join(lines) + "\n")

@@ -234,6 +234,9 @@ class Worker:
             max_incomplete_event_size=self._config.h11_max_incomplete_event_size,
         )
 
+        max_requests = self._config.max_requests_per_connection
+        request_count = 0
+
         try:
             while True:
                 # Read data from the client
@@ -259,6 +262,7 @@ class Worker:
 
                 for event in events:
                     if isinstance(event, RequestReceived):
+                        request_count += 1
                         # Check for WebSocket upgrade
                         if _is_websocket_upgrade(event):
                             await self._handle_websocket(
@@ -270,6 +274,10 @@ class Worker:
                         )
                     elif isinstance(event, ConnectionClosed):
                         return  # Clean close
+
+                # Enforce max requests per connection
+                if max_requests > 0 and request_count >= max_requests:
+                    break  # Limit reached — close connection
 
                 # Check if we can do another cycle (keep-alive)
                 try:
