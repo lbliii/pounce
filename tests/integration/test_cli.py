@@ -81,6 +81,18 @@ class TestCLIParser:
         assert parsed.keep_alive_timeout == 30.0
         assert parsed.max_requests_per_connection == 1000
 
+    def test_factory_pattern_preserved(self):
+        """Factory pattern 'module:create_app()' is preserved through argparse."""
+        parser = _build_parser()
+        parsed = parser.parse_args(["myapp:create_app()"])
+        assert parsed.app == "myapp:create_app()"
+
+    def test_dotted_factory_pattern(self):
+        """Dotted factory pattern 'myapp.web:create_app()' is preserved."""
+        parser = _build_parser()
+        parsed = parser.parse_args(["myapp.web:create_app()"])
+        assert parsed.app == "myapp.web:create_app()"
+
     def test_invalid_log_level_exits(self):
         parser = _build_parser()
         with pytest.raises(SystemExit):

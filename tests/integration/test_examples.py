@@ -136,6 +136,44 @@ def test_cpu_parallel_example() -> None:
         thread.join(timeout=3)
         sock.close()
 
+@pytest.mark.timeout(10)
+def test_factory_app_example() -> None:
+    """examples/factory_app.py create_app() returns a working ASGI app."""
+    from examples.factory_app import create_app
+
+    app = create_app()
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+
+    try:
+        response = send_raw_request(addr, _GET)
+        assert b"HTTP/1.1 200" in response
+        assert b"Hello from factory!" in response
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
+
+@pytest.mark.timeout(10)
+def test_factory_app_via_importer() -> None:
+    """import_app() resolves factory pattern 'module:create_app()' correctly."""
+    from pounce._importer import import_app
+
+    app = import_app("examples.factory_app:create_app()")
+    assert callable(app)
+
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+
+    try:
+        response = send_raw_request(addr, _GET)
+        assert b"HTTP/1.1 200" in response
+        assert b"Hello from factory!" in response
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
+
 @pytest.mark.timeout(15)
 def test_chirp_app_example() -> None:
     """examples/chirp_app.py returns 200 with chirp response."""
