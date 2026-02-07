@@ -23,6 +23,11 @@
 5. **ASGI and nothing more.** Pounce is a server, not a framework. It accepts an ASGI
    callable and serves it. No routing, no middleware, no opinions about application structure.
 
+6. **Streaming-first.** The response pipeline is designed for chunked streaming as the
+   primary path, not buffered-then-send. SSE, htmx streaming, AI token streaming are
+   first-class patterns, not edge cases. The dominant response patterns of 2026 — chunked
+   HTML (htmx 4.0), event streams (SSE), token delivery (LLM APIs) — are all streaming.
+
 ---
 
 ## 2. System Context
@@ -123,15 +128,80 @@ connections from accept to close.
 **Purpose:** Translates bytes on the wire into ASGI messages and back.
 
 **Components:**
-- `H1Protocol` — HTTP/1.1 via h11
-- `H2Protocol` — HTTP/2 via h2 (phase 3, optional)
-- `WSProtocol` — WebSocket via wsproto (phase 3, optional)
+- `ProtocolHandler` — Protocol (structural type) defining the sans-I/O contract
+- `H1Protocol` — HTTP/1.1 via h11 (implements `ProtocolHandler`)
+- `H2Protocol` — HTTP/2 via h2 (phase 3, optional, implements `ProtocolHandler`)
+- `WSProtocol` — WebSocket via wsproto (phase 3, optional, implements `ProtocolHandler`)
 - `ASGIBridge` — constructs scope, receive, send for the application
 
 **Constraints:**
 - Sans-I/O design: protocol handlers process bytes, produce bytes
 - No direct socket access — the worker feeds bytes in, reads bytes out
 - No asyncio imports — protocol logic is sync and testable
+
+#### 3.4a Protocol Contract
+
+All protocol handlers conform to the same structural interface. No base class —
+`Protocol` from `typing` enforces the shape at type-check time.
+
+```python
+class ProtocolHandler(Protocol):
+    """Sans-I/O contract for all wire protocols."""
+
+    def receive_data(self, data: bytes) -> list[ProtocolEvent]: ...
+    def send_response(self, status: int, headers: list[tuple[bytes, bytes]]) -> bytes: ...
+    def send_body(self, data: bytes, more: bool = False) -> bytes: ...
+    def start_new_cycle(self) -> None: ...
+```
+
+The worker interacts with any protocol handler through this interface. H1, H2, and WS
+implementations are interchangeable without the worker knowing which protocol is active.
+
+#### 3.4b Protocol Event Types
+
+Protocol handlers produce typed events instead of raw h11 objects. This decouples the
+worker from any specific library.
+
+```python
+@dataclass(frozen=True, slots=True)
+class RequestReceived:
+    method: bytes
+    target: bytes
+    headers: tuple[tuple[bytes, bytes], ...]
+    http_version: str
+
+@dataclass(frozen=True, slots=True)
+class BodyReceived:
+    data: bytes
+    more: bool
+
+@dataclass(frozen=True, slots=True)
+class ConnectionClosed:
+    reason: str
+
+@dataclass(frozen=True, slots=True)
+class Upgraded:
+    protocol: str  # "websocket", "h2c"
+
+type ProtocolEvent = RequestReceived | BodyReceived | ConnectionClosed | Upgraded
+```
+
+#### 3.4c Connection Abstraction
+
+Each accepted connection is represented by an immutable metadata record and its
+associated protocol handler.
+
+```python
+@dataclass(slots=True)
+class Connection:
+    transport: asyncio.Transport
+    protocol: ProtocolHandler
+    client: tuple[str, int]
+    server: tuple[str, int]
+    created_at: float  # time.monotonic()
+```
+
+Connections are per-worker and never shared across workers or threads.
 
 ---
 
@@ -205,6 +275,12 @@ exits.
     Close? → close socket
 ```
 
+**Streaming responses** (SSE, chunked HTML, AI token streams) keep the connection open
+and send body chunks as the app produces them. The response body is never buffered — each
+`send({"type": "http.response.body", "body": chunk, "more_body": True})` call writes
+immediately through the protocol layer to the socket. This is the primary response path,
+not an edge case.
+
 ### 4.3 ASGI Bridge
 
 The bridge translates between pounce's protocol layer and the ASGI 3.0 spec:
@@ -245,9 +321,13 @@ async def receive() -> dict[str, Any]:
 async def send(message: dict[str, Any]) -> None:
     if message["type"] == "http.response.start":
         # Buffer status + headers, serialize via h11
+        # Inject Server-Timing header if config.server_timing is True
         ...
     elif message["type"] == "http.response.body":
-        # Serialize body, write to socket
+        # Compress chunk via content-encoding pipeline (if negotiated)
+        # Serialize body, write to socket immediately (no buffering)
+        # The app controls streaming cadence — pounce writes as fast as
+        # the app sends and the client consumes (backpressure via TCP)
         ...
 ```
 
@@ -336,6 +416,70 @@ this natural — we simply stop feeding it bytes.
 **Response-level:** If the client is slow to consume the response (TCP backpressure), the
 asyncio transport's `write()` buffers data. When the buffer exceeds a threshold, we pause
 the ASGI app's `send()` calls via flow control.
+
+### 4.7 Content Encoding Pipeline
+
+Pounce negotiates response compression using Python 3.14's stdlib — no external
+dependencies for zstd or gzip.
+
+```
+    Client: Accept-Encoding: zstd, gzip;q=0.8, br;q=0.9
+                    │
+                    ▼
+    ┌───────────────────────────┐
+    │   Negotiation (per-req)   │
+    │                           │
+    │   Parse Accept-Encoding   │
+    │   Waterfall:              │
+    │   1. zstd  (stdlib)       │
+    │   2. br    (optional dep) │
+    │   3. gzip  (stdlib)       │
+    │   4. identity (no-op)     │
+    └─────────┬─────────────────┘
+              │
+              ▼
+    ┌───────────────────────────┐
+    │   Compress (per-chunk)    │
+    │                           │
+    │   Create compressor once  │
+    │   Stream-compress each    │
+    │   response body chunk     │
+    │   Flush on final chunk    │
+    └─────────┬─────────────────┘
+              │
+              ▼
+    Set Content-Encoding header
+    Remove Content-Length (chunked)
+```
+
+**Implementation:**
+- `compression.zstd` (PEP 784, Python 3.14 stdlib) — best ratio/speed trade-off, ~76%
+  browser support (Chrome 123+, Firefox 126+, Safari 26.0+ partial)
+- `zlib` (stdlib) — gzip/deflate, universal fallback
+- `brotli` or `brotlicffi` (optional `pounce[br]`) — best compression ratio, universal
+  browser support, but requires C extension
+- Compressor instances are created per-request, never shared across connections or workers
+- Streaming responses are compressed chunk-by-chunk, not buffered-then-compressed
+
+**Thread safety:** Each compressor is instantiated per-request inside a single worker's
+event loop. No shared state, no locks needed.
+
+### 4.8 Server-Timing
+
+When `config.server_timing = True`, pounce auto-injects a `Server-Timing` header into
+every response:
+
+```
+Server-Timing: parse;dur=0.3, app;dur=12.1, encode;dur=0.8
+```
+
+**Metrics tracked:**
+- `parse` — time from first byte received to complete request parsed (h11 events)
+- `app` — time spent in `app(scope, receive, send)` (ASGI app execution)
+- `encode` — time spent in content-encoding compression (if active)
+
+All timing uses `time.monotonic()` for precision. The timing context is per-request and
+lives on the ASGI bridge — no shared mutable state.
 
 ---
 
@@ -457,6 +601,23 @@ else:
     protocol = H1Protocol(config)
 ```
 
+**RFC 8441 — WebSocket over HTTP/2.** WebSocket connections can be multiplexed over a
+single HTTP/2 TCP connection via the Extended CONNECT method. When pounce supports both
+H2 and WebSocket (phase 3), it should handle the `SETTINGS_ENABLE_CONNECT_PROTOCOL`
+parameter and bootstrap WS streams within an H2 connection. This eliminates the need for
+a separate TCP connection per WebSocket.
+
+**RFC 9218 — Extensible Priority Signals.** Browsers send a `Priority` header with
+urgency and incremental hints (e.g., CSS is urgent, images are incremental). HTTP/2 adds
+`PRIORITY_UPDATE` frames for reprioritization after the initial request. Pounce's H2
+implementation should respect these signals when scheduling response frame delivery.
+
+**RFC 9842 — Compression Dictionary Transport.** Standardized September 2025. Enables
+delta compression using shared dictionaries with Brotli and Zstandard — if the client
+already has `app.v1.js`, the server sends only the diff to `app.v2.js`. This is
+experimental and would require an ASGI extension for the application to declare available
+dictionaries. Future exploration only.
+
 ---
 
 ## 7. Module Dependency Graph
@@ -464,16 +625,36 @@ else:
 ```
     pounce/__init__.py  (public API: run, ServerConfig)
            │
-           ├── pounce/config.py          (no internal deps)
+           │  ── Primitives (leaf nodes, no internal deps) ──────────
            │
-           ├── pounce/_types.py          (no internal deps; ASGI type aliases)
+           ├── pounce/config.py            (no internal deps)
+           ├── pounce/_types.py            (no internal deps; ASGI type aliases)
+           ├── pounce/_errors.py           (no internal deps; PounceError hierarchy)
+           ├── pounce/_timing.py           (no internal deps; monotonic clock, Server-Timing)
+           ├── pounce/_importer.py         (no internal deps; "myapp:app" → callable)
+           │
+           │  ── Protocol contracts (depends only on primitives) ────
+           │
+           ├── pounce/protocols/
+           │      ├── _base.py            (depends on _errors.py; ProtocolHandler, events)
+           │      ├── h1.py               (external: h11; depends on _base.py)
+           │      ├── h2.py               (external: h2; depends on _base.py)
+           │      └── ws.py               (external: wsproto; depends on _base.py)
+           │
+           │  ── Compression (depends on config) ───────────────────
+           │
+           ├── pounce/_compression.py      (depends on config.py; encoding negotiation)
+           │
+           │  ── Core modules ──────────────────────────────────────
            │
            ├── pounce/_cli.py
-           │      └── pounce/config.py
+           │      ├── pounce/config.py
+           │      └── pounce/_importer.py
            │
            ├── pounce/server.py
            │      ├── pounce/config.py
            │      ├── pounce/supervisor.py
+           │      ├── pounce/_importer.py
            │      └── pounce/_types.py
            │
            ├── pounce/supervisor.py
@@ -483,30 +664,36 @@ else:
            │
            ├── pounce/worker.py
            │      ├── pounce/config.py
+           │      ├── pounce/_errors.py
+           │      ├── pounce/_timing.py
+           │      ├── pounce/_compression.py
            │      ├── pounce/protocols/h1.py
            │      ├── pounce/asgi/bridge.py
            │      ├── pounce/net/listener.py
            │      └── pounce/logging.py
            │
-           ├── pounce/protocols/
-           │      ├── h1.py              (external: h11; no internal deps)
-           │      ├── h2.py              (external: h2; no internal deps)
-           │      └── ws.py              (external: wsproto; no internal deps)
+           │  ── ASGI subsystem ────────────────────────────────────
            │
            ├── pounce/asgi/
-           │      ├── bridge.py          (depends on _types.py)
-           │      └── lifespan.py        (depends on _types.py)
+           │      ├── bridge.py            (depends on _types.py, _timing.py)
+           │      └── lifespan.py          (depends on _types.py, _errors.py)
+           │
+           │  ── Network subsystem ─────────────────────────────────
            │
            ├── pounce/net/
-           │      ├── listener.py        (depends on config.py)
-           │      └── tls.py             (depends on config.py)
+           │      ├── listener.py          (depends on config.py)
+           │      └── tls.py              (depends on config.py)
            │
-           └── pounce/logging.py         (depends on config.py)
+           └── pounce/logging.py           (depends on config.py)
 ```
 
-**Key constraint:** `pounce/protocols/` has no internal dependencies. Each protocol handler
-depends only on its external library (h11, h2, wsproto) and can be tested in complete
-isolation.
+**Key constraints:**
+- Primitives (`_errors.py`, `_timing.py`, `_importer.py`, `_types.py`, `config.py`) have
+  no internal dependencies and form the foundation layer.
+- `pounce/protocols/_base.py` defines the `ProtocolHandler` Protocol and event types.
+  Concrete protocol handlers (h1, h2, ws) depend on `_base.py` and their external library.
+- `_compression.py` depends only on `config.py` and stdlib modules.
+- Dependency direction is strictly downward. No circular imports.
 
 ---
 
@@ -656,3 +843,60 @@ def test_throughput_single_worker(benchmark):
     # Measure requests/second for a minimal ASGI app
     ...
 ```
+
+---
+
+## 11. Future Exploration
+
+### 11.1 Subinterpreter Workers (PEP 734)
+
+Python 3.14 ships `concurrent.interpreters` in the stdlib (PEP 734). Subinterpreters
+offer a third worker model beyond threads and processes:
+
+| Model | Isolation | Memory | Communication |
+|-------|-----------|--------|---------------|
+| Processes | Strong (separate address space) | High (duplicated) | IPC (pickle, pipes) |
+| Threads (nogil) | Weak (shared interpreter) | Low (shared) | Direct (immutable data) |
+| Subinterpreters | Medium (separate state, same process) | Medium (shared code, separate data) | Limited types only |
+
+**Advantages over processes:** No fork overhead, no memory duplication of code objects.
+**Advantages over threads:** Stronger isolation — bugs in one interpreter can't corrupt
+another's state.
+
+**Limitations (as of 3.14):**
+- Can only share `str | bytes | int | float | bool | None | tuple | Queue | memoryview`
+- Not all PyPI packages support multiple interpreters
+- `InterpreterPoolExecutor` uses pickling (slow) vs `call_in_thread` (fast but limited)
+- Not available on WebAssembly platforms
+
+**CPU-bound benchmarks show subinterpreters outperform free-threading.** For I/O-heavy
+ASGI workloads, free-threading is more appropriate. But subinterpreters could be valuable
+for CPU-heavy ASGI apps (image processing, ML inference, heavy computation in request
+handlers) where isolation is more important than shared-memory speed.
+
+**Status:** Phase 5 exploration. Wait for ecosystem maturity before building a third
+worker model.
+
+### 11.2 WebTransport (HTTP/3)
+
+WebTransport is a bidirectional transport protocol built on HTTP/3 (QUIC). Browser
+coverage is ~82% as of 2026 (Chrome, Firefox, Edge — no Safari/iOS). The specification
+is still in Editor's Draft status.
+
+WebTransport offers advantages over WebSocket: reduced head-of-line blocking, faster
+performance via QUIC, better network transitions, and UDP-like unreliable datagrams. It
+requires UDP socket handling, which is architecturally different from pounce's TCP model.
+
+**Status:** Not in initial phases. Revisit when Safari adds support and the spec
+stabilizes.
+
+### 11.3 Compression Dictionary Transport (RFC 9842)
+
+Standardized September 2025. Enables delta compression using shared dictionaries with
+Brotli and Zstandard. Instead of compressing each resource independently, the server can
+reference a previously transmitted resource as a dictionary — sending only the diff.
+
+This would require an ASGI extension for applications to declare available dictionaries
+and a server-side cache of dictionary metadata. Experimental and forward-looking.
+
+**Status:** Future ASGI extension exploration.

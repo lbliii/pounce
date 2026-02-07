@@ -14,19 +14,38 @@ Named after the Bengal cat's hunting instinct, pounce is part of a family of Pyt
 
 ## Why Pounce Exists
 
-Every ASGI server was built for a Python that had a GIL:
+Pounce isn't "uvicorn with threads." It's a server that could only exist in 2026, built
+on three pillars that no existing ASGI server combines:
+
+**1. Free-threading native.** Python 3.14t removes the GIL. For the first time, Python
+threads execute in true parallel. Facebook's free-threading benchmarks show asyncio
+workloads running 1.5-2.4x faster on 3.14t. Pounce runs N worker threads sharing one
+interpreter, one copy of the application, one set of frozen route tables and config — all
+with zero synchronization for immutable data.
+
+**2. 2026-native features.** Python 3.14 ships `compression.zstd` in the stdlib (PEP 784).
+Pounce is the first ASGI server with zero-dependency zstd content-encoding — better
+compression ratios than gzip, lower CPU cost, using pure stdlib. Server-Timing headers
+are auto-injected for built-in observability. Content negotiation handles
+`zstd > br > gzip > identity` automatically.
+
+**3. Built for the modern web.** htmx 4.0 switches to `fetch()` with built-in streaming
+response support. LLM APIs stream tokens via SSE. The dominant response patterns of 2026 —
+chunked HTML, event streams, AI token delivery — are all streaming. Pounce's response
+pipeline is streaming-first: body chunks flow immediately to the socket, never buffered.
+
+Every existing ASGI server was built for a Python that had a GIL:
 
 - **Uvicorn** runs one event loop per process. Parallelism means fork. Four workers means
   four copies of your app, your routes, your templates, your config — all in separate memory.
+  It added Python 3.14 *compatibility* (v0.38.0, Oct 2025) but not a free-threading-native
+  worker model.
 - **Granian** does its I/O in Rust and calls into Python for the ASGI app. It supports nogil
   threads, but the core server logic isn't Python.
 - **Hypercorn** and **Daphne** are process-based. No free-threading awareness.
 
-Python 3.14t changes the game. Without the GIL, threads execute in true parallel. A server
-can run four worker threads sharing one interpreter, one copy of the application, one set
-of frozen route tables and config — all with zero synchronization for immutable data.
-
-Pounce is built for this world. Pure Python, thread-based, shared-memory, and minimal.
+Pounce is built for the world that 3.14t creates. Pure Python, thread-based,
+shared-memory, streaming-first, and minimal.
 
 ---
 
@@ -78,14 +97,21 @@ pounce/
 ├── __init__.py              # Public API: run(), ServerConfig
 ├── py.typed                 # PEP 561
 │
+│   # Primitives (leaf nodes, no internal deps)
 ├── _types.py                # ASGI type definitions (Scope, Receive, Send)
+├── _errors.py               # PounceError hierarchy (ParseError, TimeoutError, etc.)
+├── _timing.py               # Monotonic clock utilities, Server-Timing builder
+├── _importer.py             # Resolve "myapp:app" → ASGI callable
+├── _compression.py          # Content-encoding negotiation (zstd/gzip/identity)
 ├── config.py                # ServerConfig — frozen dataclass
 │
+│   # Core modules
 ├── server.py                # Server — bind, start supervisor, run
 ├── supervisor.py            # Supervisor — spawn workers, handle signals
 ├── worker.py                # Worker — asyncio event loop, accept, dispatch
 │
 ├── protocols/
+│   ├── _base.py             # ProtocolHandler Protocol, event types, Connection
 │   ├── h1.py                # HTTP/1.1 via h11 (phase 1)
 │   ├── h2.py                # HTTP/2 via h2 (phase 3)
 │   └── ws.py                # WebSocket via wsproto (phase 3)
@@ -283,14 +309,31 @@ pip install pounce[full]     # All of the above
 
 ### Phase 1: It Runs
 
-The minimal viable server. One worker, HTTP/1.1, ASGI compliance.
+The minimal viable server. One worker, HTTP/1.1, ASGI compliance, 2026-native features.
 
-- [ ] `ServerConfig` frozen dataclass with sane defaults
+**Primitives and contracts (bottom-up foundation):**
+
+- [ ] `_errors.py` — `PounceError` hierarchy: `ParseError`, `TimeoutError`, `LimitError`,
+  `AppError`, `LifespanError`
+- [ ] `_timing.py` — monotonic clock utilities, `Server-Timing` header builder
+- [ ] `_importer.py` — resolve `"myapp:app"` strings to ASGI callables
+- [ ] `_compression.py` — content-encoding negotiation (`zstd > gzip > identity`)
+- [ ] `protocols/_base.py` — `ProtocolHandler` Protocol, `ProtocolEvent` union types
+  (`RequestReceived`, `BodyReceived`, `ConnectionClosed`, `Upgraded`), `Connection`
+  dataclass
+- [ ] `config.py` — `ServerConfig` frozen dataclass with `root_path`, `server_timing`,
+  `compression` fields
+
+**Server core:**
+
 - [ ] Socket bind and accept via asyncio
-- [ ] HTTP/1.1 parsing via h11
-- [ ] ASGI bridge (scope, receive, send)
+- [ ] HTTP/1.1 parsing via h11 (implements `ProtocolHandler`)
+- [ ] ASGI bridge (scope, receive, send) with streaming-first response pipeline
 - [ ] ASGI lifespan protocol (startup/shutdown)
 - [ ] `pounce.run("app:app")` programmatic API
+- [ ] Zstd content-encoding via stdlib `compression.zstd`
+- [ ] Content negotiation pipeline (`Accept-Encoding` parsing, quality waterfall)
+- [ ] Server-Timing header auto-injection (when `config.server_timing = True`)
 - [ ] Access logging (method, path, status, timing)
 - [ ] Graceful shutdown on SIGINT/SIGTERM
 - [ ] Error responses (400 for malformed, 500 for server errors)
@@ -308,16 +351,21 @@ Multi-worker mode with automatic GIL detection.
 - [ ] Shared socket fallback for macOS
 - [ ] Worker count auto-detection from `os.cpu_count()`
 - [ ] Connection-level backpressure (per-worker connection limits)
+- [ ] Streaming response stress test (SSE hold-open, 10k concurrent streams)
 - [ ] Benchmark suite: single-worker and multi-worker throughput
 
 ### Phase 3: It's Complete
 
-Full protocol support — HTTP/2, WebSocket, TLS.
+Full protocol support — HTTP/2, WebSocket, TLS, modern HTTP features.
 
 - [ ] WebSocket upgrade and lifecycle via wsproto (optional dep)
 - [ ] HTTP/2 via h2 library (optional dep)
+- [ ] RFC 8441: WebSocket over HTTP/2 (multiplexed WS on single TCP connection)
+- [ ] RFC 9218: Priority Signals for H2 response scheduling (urgency/incremental)
+- [ ] 103 Early Hints (HTTP/2+ only, `Link` header preloading)
 - [ ] ALPN negotiation for automatic H1/H2 selection
 - [ ] TLS termination via stdlib ssl + optional truststore
+- [ ] Optional brotli content-encoding (`pounce[br]`)
 - [ ] Keep-alive tuning and connection limits
 - [ ] CLI: `--reload` for development file watching
 - [ ] App factory support: `pounce "myapp:create_app()"`
@@ -333,6 +381,18 @@ Performance optimization pass.
 - [ ] Connection pooling optimizations
 - [ ] Memory profiling: thread workers vs process workers
 
+### Phase 5: It Explores
+
+Experimental features uniquely enabled by Python 3.14.
+
+- [ ] `concurrent.interpreters` worker model (PEP 734) — subinterpreters as a third
+  option beyond threads and processes, offering isolation without fork overhead
+- [ ] Subinterpreter-per-request isolation experiment for CPU-heavy ASGI apps
+- [ ] Compression Dictionary Transport (RFC 9842) ASGI extension — delta compression
+  via shared dictionaries with Brotli/Zstd
+- [ ] WebTransport (HTTP/3 QUIC) — if/when Safari catches up (~82% browser coverage now,
+  still Editor's Draft)
+
 ---
 
 ## Non-Goals
@@ -341,7 +401,8 @@ Pounce deliberately does not:
 
 - **Include application logic.** No routing, no middleware, no templates, no static files.
   That's chirp's job. Pounce serves ASGI apps.
-- **Include HTTP/3.** QUIC is UDP-based and architecturally different. Maybe someday.
+- **Include HTTP/3 in initial phases.** QUIC is UDP-based and architecturally different.
+  WebTransport has ~82% browser coverage and is growing — this is a Phase 5 exploration.
 - **Include a process manager.** Pounce manages its own workers but doesn't replace systemd
   or container orchestration.
 - **Support Python < 3.14.** Free-threading is the reason pounce exists.

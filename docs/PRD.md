@@ -13,7 +13,10 @@ real OS threads sharing a single interpreter for parallel request handling — n
 no GIL contention, no per-process memory duplication.
 
 Pounce targets Python 3.14+ and is designed as the production server for the Bengal
-ecosystem, with first-class support for chirp applications.
+ecosystem, with first-class support for chirp applications. It leverages Python 3.14's
+new stdlib features — `compression.zstd` for HTTP content encoding, `concurrent.interpreters`
+for future isolation models — alongside free-threading for a server that could only exist
+in 2026.
 
 ---
 
@@ -60,6 +63,16 @@ without contention. But no ASGI server is built to exploit this:
 5. **No ecosystem integration.** Chirp's `app.run()` shells out to uvicorn. A purpose-built
    server could integrate directly — zero config, zero import overhead.
 
+6. **No zstd content-encoding.** Python 3.14 ships `compression.zstd` in the stdlib (PEP 784).
+   Browsers support `Accept-Encoding: zstd` — Chrome 123+, Firefox 126+, ~76% global
+   coverage. No existing ASGI server negotiates zstd because the stdlib didn't have it until
+   now. Every server is stuck on gzip.
+
+7. **No streaming-first architecture.** htmx 4.0 switches to the `fetch()` API with built-in
+   streaming response support. LLM APIs stream tokens via SSE. The dominant response patterns
+   of 2026 — chunked HTML, event streams, AI token delivery — are all streaming. Existing
+   servers handle streaming but don't optimize for it as the primary response path.
+
 ---
 
 ## 3. Target Users
@@ -71,7 +84,8 @@ Developers building chirp applications who need a production server. Today they 
 parallelism on 3.14t with zero configuration.
 
 **Needs:**
-- Drop-in replacement for uvicorn (`pounce myapp:app`)
+- Familiar CLI interface (`pounce myapp:app`) — same invocation pattern, fundamentally
+  different server: thread-based parallelism, zstd compression, streaming-first pipeline
 - Automatic worker scaling based on CPU count
 - Graceful shutdown without dropping connections
 - Access logging compatible with standard tooling
@@ -117,51 +131,65 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 | F-008 | Access logging | Method, path, status, timing per request |
 | F-009 | Error responses | Malformed requests get 400, server errors get 500 |
 | F-010 | Request size limits | Reject oversized headers and bodies |
+| F-011 | `root_path` support | Reverse proxy path prefix passed in ASGI scope |
+| F-012 | Content-encoding negotiation | `zstd > br > gzip > identity` via `Accept-Encoding` |
+| F-013 | Streaming response pipeline | Chunked transfer, SSE, long-lived connections as primary path |
 
 ### 4.2 Multi-Worker (P0 — Must Have)
 
 | ID | Requirement | Acceptance Criteria |
 |----|-------------|---------------------|
-| F-011 | Thread-based workers (nogil) | N threads, each with own event loop |
-| F-012 | Process-based fallback (GIL) | N processes when GIL is enabled |
-| F-013 | GIL detection | `sys._is_gil_enabled()` check at startup |
-| F-014 | Supervisor lifecycle | Start workers, monitor health, restart on crash |
-| F-015 | SO_REUSEPORT | Kernel-level connection distribution (Linux) |
-| F-016 | Worker count auto-detect | Default to `os.cpu_count()` workers |
+| F-014 | Thread-based workers (nogil) | N threads, each with own event loop |
+| F-015 | Process-based fallback (GIL) | N processes when GIL is enabled |
+| F-016 | GIL detection | `sys._is_gil_enabled()` check at startup |
+| F-017 | Supervisor lifecycle | Start workers, monitor health, restart on crash |
+| F-018 | SO_REUSEPORT | Kernel-level connection distribution (Linux) |
+| F-019 | Worker count auto-detect | Default to `os.cpu_count()` workers |
 
 ### 4.3 CLI (P1 — Should Have)
 
 | ID | Requirement | Acceptance Criteria |
 |----|-------------|---------------------|
-| F-017 | CLI entry point | `pounce myapp:app` starts the server |
-| F-018 | Host/port flags | `--host`, `--port` override config |
-| F-019 | Worker count flag | `--workers N` sets worker count |
-| F-020 | Log level flag | `--log-level debug\|info\|warning\|error` |
-| F-021 | Reload flag | `--reload` for development (file watcher) |
+| F-020 | CLI entry point | `pounce myapp:app` starts the server |
+| F-021 | Host/port flags | `--host`, `--port` override config |
+| F-022 | Worker count flag | `--workers N` sets worker count |
+| F-023 | Log level flag | `--log-level debug\|info\|warning\|error` |
+| F-024 | Reload flag | `--reload` for development (file watcher) |
 
-### 4.4 HTTP/2 (P2 — Nice to Have)
-
-| ID | Requirement | Acceptance Criteria |
-|----|-------------|---------------------|
-| F-022 | HTTP/2 via h2 library | Optional dependency, stream multiplexing |
-| F-023 | ALPN negotiation | Automatic H1/H2 selection with TLS |
-| F-024 | Server push | ASGI extension for H2 push promises |
-
-### 4.5 WebSocket (P2 — Nice to Have)
+### 4.4 Content Encoding (P1 — Should Have)
 
 | ID | Requirement | Acceptance Criteria |
 |----|-------------|---------------------|
-| F-025 | WebSocket upgrade | HTTP/1.1 upgrade to WebSocket |
-| F-026 | wsproto integration | Optional dependency for WS parsing |
-| F-027 | ASGI websocket scope | Full ASGI WebSocket lifecycle |
+| F-025 | Zstd encoding | Compress responses via stdlib `compression.zstd` (zero deps) |
+| F-026 | Gzip/deflate encoding | Compress responses via stdlib `zlib` (universal fallback) |
+| F-027 | Brotli encoding | Optional `pounce[br]` extra for `Accept-Encoding: br` |
+| F-028 | Quality negotiation | Parse `Accept-Encoding` q-values, waterfall: zstd > br > gzip > identity |
 
-### 4.6 TLS (P2 — Nice to Have)
+### 4.5 HTTP/2 (P2 — Nice to Have)
 
 | ID | Requirement | Acceptance Criteria |
 |----|-------------|---------------------|
-| F-028 | TLS termination | Direct HTTPS without reverse proxy |
-| F-029 | Certificate config | `ssl_certfile` and `ssl_keyfile` in config |
-| F-030 | ALPN for H2 | Advertise HTTP/2 support via ALPN |
+| F-029 | HTTP/2 via h2 library | Optional dependency, stream multiplexing |
+| F-030 | ALPN negotiation | Automatic H1/H2 selection with TLS |
+| F-031 | Server push | ASGI extension for H2 push promises |
+| F-032 | WebSocket over H2 (RFC 8441) | Multiplexed WS on single TCP connection |
+| F-033 | Priority Signals (RFC 9218) | Respect browser urgency/incremental hints |
+
+### 4.6 WebSocket (P2 — Nice to Have)
+
+| ID | Requirement | Acceptance Criteria |
+|----|-------------|---------------------|
+| F-034 | WebSocket upgrade | HTTP/1.1 upgrade to WebSocket |
+| F-035 | wsproto integration | Optional dependency for WS parsing |
+| F-036 | ASGI websocket scope | Full ASGI WebSocket lifecycle |
+
+### 4.7 TLS (P2 — Nice to Have)
+
+| ID | Requirement | Acceptance Criteria |
+|----|-------------|---------------------|
+| F-037 | TLS termination | Direct HTTPS without reverse proxy |
+| F-038 | Certificate config | `ssl_certfile` and `ssl_keyfile` in config |
+| F-039 | ALPN for H2 | Advertise HTTP/2 support via ALPN |
 
 ---
 
@@ -219,12 +247,21 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 |------------|---------|------|---------------|
 | h11 | HTTP/1.1 parser | ~15KB | Pure Python, well-tested, sans-I/O design |
 
+### Stdlib (no extra deps — Python 3.14+)
+
+| Module | Purpose | Notes |
+|--------|---------|-------|
+| `compression.zstd` | Zstd content-encoding (PEP 784) | Best ratio/speed, ~76% browser support |
+| `zlib` | Gzip/deflate content-encoding | Universal fallback |
+| `ssl` | TLS termination | Stdlib, no extras needed for basic TLS |
+
 ### Optional Extras
 
 | Extra | Dependency | Purpose |
 |-------|------------|---------|
 | `pounce[h2]` | h2 | HTTP/2 protocol support |
 | `pounce[ws]` | wsproto | WebSocket protocol support |
+| `pounce[br]` | brotli or brotlicffi | Brotli content-encoding (`Accept-Encoding: br`) |
 | `pounce[tls]` | truststore | System certificate store for TLS |
 | `pounce[full]` | All of the above | Full protocol support |
 
@@ -248,6 +285,8 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 - Single-worker mode passes ASGI compliance
 - Graceful shutdown on SIGINT
 - Chirp hello-world app runs without modification
+- Zstd content-encoding works with Chrome and Firefox
+- Content negotiation respects `Accept-Encoding` quality values
 
 ### 7.2 v0.2.0 (Phase 2: It Scales)
 
@@ -255,6 +294,7 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 - GIL detection and automatic mode selection
 - Linear throughput scaling with worker count on 3.14t
 - Memory advantage measurable vs. multi-process uvicorn
+- Streaming SSE responses hold open without memory leak under sustained load
 
 ### 7.3 v0.3.0 (Phase 3: It's Complete)
 
@@ -282,6 +322,7 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 | SO_REUSEPORT not available on macOS | Uneven load distribution | Low | Fallback to single-accept with round-robin dispatch |
 | h2/wsproto libraries not 3.14t-safe | Blocks HTTP/2 and WebSocket | Low | Test optional deps on 3.14t; report upstream if needed |
 | Scope creep toward "framework features" | Dilutes server focus | Medium | Strict boundary: pounce serves ASGI apps, period |
+| `compression.zstd` not thread-safe under 3.14t | Data corruption in compressed responses | Low | Per-request compressor instances (stateless); test early on 3.14t |
 
 ---
 
@@ -291,8 +332,9 @@ Pounce deliberately does not:
 
 - **Include application logic.** No routing, no middleware, no templates. That's chirp.
 - **Include a WSGI adapter.** ASGI only. Use Gunicorn for WSGI.
-- **Include HTTP/3.** QUIC requires UDP socket handling that's architecturally different.
-  Maybe someday, but not in the initial vision.
+- **Include HTTP/3 in initial phases.** QUIC requires UDP socket handling that's
+  architecturally different. WebTransport (HTTP/3 based) has ~82% browser coverage as of
+  2026 and is growing — this is a Phase 5 exploration, not a hard exclusion.
 - **Include static file serving.** The ASGI app handles static files (or use a CDN).
 - **Include a process manager.** Pounce manages its own workers but doesn't replace systemd,
   supervisor, or container orchestration.
@@ -323,3 +365,16 @@ Pounce deliberately does not:
 5. **Should pounce support hot reload for production?** Graceful restart (new workers start,
    old workers drain) is useful for zero-downtime deploys. This is different from dev-mode
    file-watching reload. Worth considering for phase 2.
+
+6. **Should pounce explore `concurrent.interpreters` as a third worker model?**
+   Subinterpreters (PEP 734, new in 3.14) offer isolation without fork overhead — no memory
+   duplication like processes, stronger boundaries than threads. CPU-bound benchmarks show
+   subinterpreters outperform free-threading. Limitations: restricted shareable types
+   (`str | bytes | int | float | bool | None | tuple | Queue | memoryview`), not all
+   PyPI packages support it yet. Worth exploring as Phase 5 once the ecosystem matures.
+
+7. **Should brotli be a core optional extra or left to middleware?** `Accept-Encoding: br`
+   is universally supported in browsers, and brotli offers better compression ratios than
+   gzip. But brotli requires a C extension (`brotli` or `brotlicffi`), which contradicts
+   the pure-Python philosophy. Leaning toward offering it as `pounce[br]` — explicit opt-in,
+   not forced on anyone.
