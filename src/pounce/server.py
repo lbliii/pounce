@@ -26,6 +26,7 @@ from pounce.asgi.lifespan import run_lifespan
 from pounce.config import ServerConfig
 from pounce.logging import configure_logging
 from pounce.net.listener import create_listener, create_listeners
+from pounce.net.tls import create_tls_context, is_tls_configured
 from pounce.supervisor import Supervisor
 from pounce.worker import Worker
 
@@ -49,11 +50,12 @@ class Server:
 
     """
 
-    __slots__ = ("_config", "_app")
+    __slots__ = ("_config", "_app", "_ssl_context")
 
     def __init__(self, config: ServerConfig, app: ASGIApp) -> None:
         self._config = config
         self._app = app
+        self._ssl_context = None
 
     def run(self) -> None:
         """Start the server (blocking).
@@ -61,19 +63,25 @@ class Server:
         Lifecycle:
         1. Configure logging
         2. Resolve effective worker count and detect worker mode
-        3. Print startup banner
-        4. Bind socket(s)
-        5. Run ASGI lifespan startup (once, in the main thread)
-        6. Start worker(s) — single-worker fast path or supervisor
-        7. Wait for shutdown signal
-        8. Run ASGI lifespan shutdown
-        9. Close socket(s)
+        3. Create TLS context (if configured)
+        4. Print startup banner
+        5. Bind socket(s)
+        6. Run ASGI lifespan startup (once, in the main thread)
+        7. Start worker(s) — single-worker fast path or supervisor
+        8. Wait for shutdown signal
+        9. Run ASGI lifespan shutdown
+        10. Close socket(s)
 
         """
         configure_logging(self._config)
 
         effective_workers = self._config.resolve_workers()
         mode = detect_worker_mode()
+
+        # Create TLS context if certificate is configured
+        if is_tls_configured(self._config):
+            self._ssl_context = create_tls_context(self._config)
+            logger.info("TLS enabled")
 
         self._print_banner(effective_workers, mode)
 
@@ -118,12 +126,17 @@ class Server:
                 # Windows doesn't support add_signal_handler
                 pass
 
-        worker = Worker(self._config, self._app, sock, worker_id=0)
+        worker = Worker(
+            self._config, self._app, sock,
+            worker_id=0,
+            ssl_context=self._ssl_context,
+        )
 
         async with run_lifespan(self._app, self._config):
             server = await asyncio.start_server(
                 worker._handle_connection,
                 sock=sock,
+                ssl=self._ssl_context,
             )
 
             logger.info("Ready to accept connections")
@@ -158,7 +171,9 @@ class Server:
             mode,
         )
 
-        supervisor = Supervisor(self._config, self._app, mode=mode)
+        supervisor = Supervisor(
+            self._config, self._app, mode=mode, ssl_context=self._ssl_context,
+        )
 
         # Run lifespan once in the main thread, then start supervisor
         try:
@@ -200,6 +215,8 @@ class Server:
             f"  -> {url}",
             f"  -> workers: {effective_workers} ({mode_label})",
         ]
+        if self._ssl_context is not None:
+            lines.append("  -> tls: enabled")
         if self._config.compression:
             lines.append("  -> compression: enabled (zstd, gzip)")
         if self._config.server_timing:

@@ -12,6 +12,8 @@ Error categories:
 - LifespanError: lifespan startup or shutdown failure (500)
 - SupervisorError: worker spawn or crash-restart failure (500)
 - WorkerError: worker-level failure reported to supervisor (500)
+- TLSError: TLS configuration or handshake failure (500)
+- ReloadError: file-watcher or worker-restart failure during reload (500)
 
 """
 
@@ -69,5 +71,17 @@ class SupervisorError(PounceError):
 
 class WorkerError(PounceError):
     """Worker-level failure that bubbles to the supervisor."""
+
+    status_code: int = 500
+
+
+class TLSError(PounceError):
+    """TLS configuration or handshake failure."""
+
+    status_code: int = 500
+
+
+class ReloadError(PounceError):
+    """File-watcher or worker-restart failure during reload."""
 
     status_code: int = 500

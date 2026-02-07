@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import socket
+import ssl
 import threading
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
@@ -61,6 +62,7 @@ class Worker:
         "_loop",
         "_active_connections",
         "_max_connections",
+        "_ssl_context",
         "_logger",
     )
 
@@ -73,6 +75,7 @@ class Worker:
         worker_id: int = 0,
         shutdown_event: threading.Event | None = None,
         max_connections: int = 0,
+        ssl_context: ssl.SSLContext | None = None,
     ) -> None:
         self._config = config
         self._app = app
@@ -83,6 +86,7 @@ class Worker:
         self._loop: asyncio.AbstractEventLoop | None = None  # set in _serve
         self._active_connections = 0
         self._max_connections = max_connections
+        self._ssl_context = ssl_context
         self._logger = logging.getLogger(f"pounce.worker.{worker_id}")
 
     def run(self) -> None:
@@ -97,6 +101,7 @@ class Worker:
         server = await asyncio.start_server(
             self._handle_connection,
             sock=self._sock,
+            ssl=self._ssl_context,
         )
 
         self._logger.info("Worker %d started, accepting connections", self._worker_id)

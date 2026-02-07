@@ -46,6 +46,8 @@ def main(args: list[str] | None = None) -> None:
         compression=not parsed.no_compression,
         server_timing=parsed.server_timing,
         access_log=not parsed.no_access_log,
+        ssl_certfile=parsed.ssl_certfile,
+        ssl_keyfile=parsed.ssl_keyfile,
     )
 
     # Run the server
@@ -121,6 +123,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Disable access logging",
+    )
+    parser.add_argument(
+        "--ssl-certfile",
+        default=None,
+        help="Path to TLS certificate file (enables HTTPS)",
+    )
+    parser.add_argument(
+        "--ssl-keyfile",
+        default=None,
+        help="Path to TLS private key file",
     )
 
     return parser

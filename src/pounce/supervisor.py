@@ -23,6 +23,7 @@ import multiprocessing
 import os
 import signal
 import socket
+import ssl
 import threading
 import time
 from typing import Literal
@@ -77,6 +78,7 @@ class Supervisor:
         "_handles",
         "_sockets",
         "_effective_workers",
+        "_ssl_context",
     )
 
     def __init__(
@@ -85,6 +87,7 @@ class Supervisor:
         app: ASGIApp,
         *,
         mode: WorkerMode | None = None,
+        ssl_context: ssl.SSLContext | None = None,
     ) -> None:
         self._config = config
         self._app = app
@@ -93,6 +96,7 @@ class Supervisor:
         self._handles: list[_WorkerHandle] = []
         self._sockets: list[socket.socket] = []
         self._effective_workers = config.resolve_workers()
+        self._ssl_context = ssl_context
 
     @property
     def mode(self) -> WorkerMode:
@@ -170,6 +174,7 @@ class Supervisor:
             worker_id=worker_id,
             shutdown_event=self._shutdown_event,
             max_connections=per_worker_max,
+            ssl_context=self._ssl_context,
         )
 
         if self._mode == "thread":
