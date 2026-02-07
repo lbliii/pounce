@@ -1,0 +1,143 @@
+"""
+Protocol contracts — event types and handler interface.
+
+Defines the structural interface that all protocol handlers (H1, H2, WS) must
+conform to, and the typed events they produce. The worker layer interacts with
+any protocol handler through this interface without knowing which wire protocol
+is active.
+
+Sans-I/O: protocol handlers consume bytes and produce bytes. No socket access,
+no asyncio imports. The worker feeds data in and reads data out.
+
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
+
+
+# ---------------------------------------------------------------------------
+# Protocol Events — produced by protocol handlers
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class RequestReceived:
+    """A complete HTTP request head has been parsed.
+
+    Attributes:
+        method: HTTP method as bytes (e.g., b"GET").
+        target: Request target as bytes (e.g., b"/api/users?page=1").
+        headers: Header pairs as a tuple of (name, value) byte pairs.
+        http_version: HTTP version string (e.g., "1.1").
+    """
+
+    method: bytes
+    target: bytes
+    headers: tuple[tuple[bytes, bytes], ...]
+    http_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class BodyReceived:
+    """A chunk of request body data.
+
+    Attributes:
+        data: The body bytes for this chunk.
+        more: True if more body chunks are expected.
+    """
+
+    data: bytes
+    more: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectionClosed:
+    """The connection has been closed by the client or due to an error.
+
+    Attributes:
+        reason: Human-readable reason for the closure.
+    """
+
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class Upgraded:
+    """The connection has been upgraded to a different protocol.
+
+    Attributes:
+        protocol: The protocol being upgraded to (e.g., "websocket", "h2c").
+    """
+
+    protocol: str
+
+
+type ProtocolEvent = RequestReceived | BodyReceived | ConnectionClosed | Upgraded
+
+
+# ---------------------------------------------------------------------------
+# Protocol Handler — structural interface for all wire protocols
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class ProtocolHandler(Protocol):
+    """Sans-I/O contract for all wire protocols.
+
+    Protocol handlers translate between raw bytes and typed events.
+    The worker layer feeds bytes in via receive_data() and gets serialized
+    bytes out via send_response() and send_body().
+
+    Implementations:
+    - H1Protocol (h11) — HTTP/1.1
+    - H2Protocol (h2)  — HTTP/2 (phase 3)
+    - WSProtocol (wsproto) — WebSocket (phase 3)
+
+    """
+
+    def receive_data(self, data: bytes) -> list[ProtocolEvent]:
+        """Feed raw bytes from the socket, return parsed protocol events.
+
+        Args:
+            data: Raw bytes received from the network.
+
+        Returns:
+            List of protocol events parsed from the input.
+        """
+        ...
+
+    def send_response(
+        self, status: int, headers: list[tuple[bytes, bytes]]
+    ) -> bytes:
+        """Serialize a response start (status + headers) into bytes.
+
+        Args:
+            status: HTTP status code.
+            headers: Response headers as (name, value) byte pairs.
+
+        Returns:
+            Serialized bytes to write to the socket.
+        """
+        ...
+
+    def send_body(self, data: bytes, more: bool = False) -> bytes:
+        """Serialize a response body chunk into bytes.
+
+        Args:
+            data: Body bytes to send.
+            more: True if more body chunks will follow.
+
+        Returns:
+            Serialized bytes to write to the socket.
+        """
+        ...
+
+    def start_new_cycle(self) -> None:
+        """Reset the protocol handler for a new request on keep-alive.
+
+        Called after a complete request-response cycle to prepare for the
+        next request on the same connection.
+        """
+        ...
