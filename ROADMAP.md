@@ -99,16 +99,17 @@ pounce/
 │
 │   # Primitives (leaf nodes, no internal deps)
 ├── _types.py                # ASGI type definitions (Scope, Receive, Send)
-├── _errors.py               # PounceError hierarchy (ParseError, TimeoutError, etc.)
+├── _errors.py               # PounceError hierarchy (ParseError, SupervisorError, etc.)
 ├── _timing.py               # Monotonic clock utilities, Server-Timing builder
 ├── _importer.py             # Resolve "myapp:app" → ASGI callable
 ├── _compression.py          # Content-encoding negotiation (zstd/gzip/identity)
-├── config.py                # ServerConfig — frozen dataclass
+├── _runtime.py              # GIL detection, worker mode, default worker count
+├── config.py                # ServerConfig — frozen dataclass, resolve_workers()
 │
 │   # Core modules
-├── server.py                # Server — bind, start supervisor, run
-├── supervisor.py            # Supervisor — spawn workers, handle signals
-├── worker.py                # Worker — asyncio event loop, accept, dispatch
+├── server.py                # Server — single-worker fast path + supervisor delegation
+├── supervisor.py            # Supervisor — spawn/monitor/restart workers (thread/process)
+├── worker.py                # Worker — asyncio event loop, accept, dispatch, backpressure
 │
 ├── protocols/
 │   ├── _base.py             # ProtocolHandler Protocol, event types, Connection
@@ -341,19 +342,58 @@ The minimal viable server. One worker, HTTP/1.1, ASGI compliance, 2026-native fe
 
 **Test coverage:** 188 tests (unit + integration), all passing.
 
-### Phase 2: It Scales
+### Phase 2: It Scales ✓
 
 Multi-worker mode with automatic GIL detection.
 
-- [ ] Supervisor: spawn N workers, monitor health, restart on crash
-- [ ] Thread-based workers on 3.14t (nogil detection)
-- [ ] Process-based workers on GIL builds (fallback)
-- [ ] `SO_REUSEPORT` for kernel-level load balancing (Linux)
-- [ ] Shared socket fallback for macOS
-- [ ] Worker count auto-detection from `os.cpu_count()`
-- [ ] Connection-level backpressure (per-worker connection limits)
-- [ ] Streaming response stress test (SSE hold-open, 10k concurrent streams)
-- [ ] Benchmark suite: single-worker and multi-worker throughput
+**Runtime detection and configuration:**
+
+- [x] `_runtime.py` — `is_gil_enabled()` wrapping `sys._is_gil_enabled()` with safe
+  fallback, `detect_worker_mode()` returning `"thread"` or `"process"`,
+  `default_worker_count()` from `os.cpu_count()`
+- [x] `config.py` — `workers=0` auto-detect semantics via `resolve_workers()`,
+  `__post_init__` validation for workers and port
+- [x] `_errors.py` — `SupervisorError` and `WorkerError` added to hierarchy
+
+**Supervisor:**
+
+- [x] `supervisor.py` — spawn N workers as threads (nogil) or processes (GIL)
+- [x] Health monitoring watchdog loop (`_watch`, 1s interval)
+- [x] Crash detection and automatic restart with budget (max 5 per 60s window)
+- [x] Graceful shutdown coordination via `threading.Event`
+- [x] Per-worker connection limit calculation from `max_connections / workers`
+- [x] Signal handling (SIGINT/SIGTERM) forwarded to shutdown event
+
+**Worker enhancements:**
+
+- [x] External `threading.Event` shutdown bridge (`_bridge_shutdown`, polls every 250ms,
+  bridges to asyncio via `call_soon_threadsafe`)
+- [x] Per-worker connection backpressure (reject connections at capacity)
+- [x] Worker ID for log differentiation (`pounce.worker.0`, `pounce.worker.1`, etc.)
+- [x] Thread-safe `shutdown()` via `loop.call_soon_threadsafe`
+
+**Network:**
+
+- [x] `create_listeners(config, count)` — multi-socket strategy
+- [x] `SO_REUSEPORT` per-worker independent sockets (Linux kernel-level distribution)
+- [x] Shared socket fallback for macOS (single fd, all workers accept)
+
+**Server orchestration:**
+
+- [x] Single-worker fast path (`workers=1`) — no supervisor overhead
+- [x] Multi-worker path delegates to `Supervisor`
+- [x] Lifespan runs once in main thread before workers spawn
+- [x] Startup banner shows GIL status and worker mode (`threads` / `processes`)
+- [x] Socket deduplication on cleanup (shared-fd safety)
+- [x] CLI `--workers 0` for auto-detect, help text updated
+
+**Benchmarks (scaffold):**
+
+- [x] `benchmarks/hello_app.py` — minimal ASGI app for throughput testing
+- [ ] Throughput measurements: single-worker and multi-worker comparison
+- [ ] Streaming response stress test (SSE hold-open, sustained concurrent streams)
+
+**Test coverage:** 253 tests (unit + integration), all passing.
 
 ### Phase 3: It's Complete
 

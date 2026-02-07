@@ -9,6 +9,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**Phase 2: It Scales** — multi-worker mode with automatic GIL detection.
+
+#### Runtime Detection
+
+- `_runtime.py` — `is_gil_enabled()` wrapping `sys._is_gil_enabled()` with safe fallback
+  for Python < 3.13; `detect_worker_mode()` returning `"thread"` (nogil) or `"process"`
+  (GIL); `default_worker_count()` from `os.cpu_count()`
+
+#### Supervisor
+
+- `supervisor.py` — `Supervisor` class that spawns N workers as `threading.Thread` (on
+  nogil / 3.14t) or `multiprocessing.Process` (on GIL builds). Health monitoring via
+  watchdog loop (1s interval), crash detection and automatic restart with budget (max 5
+  restarts per 60s window), graceful shutdown coordination via `threading.Event`, per-worker
+  connection limit calculation, SIGINT/SIGTERM signal forwarding
+
+#### Worker Enhancements
+
+- External `threading.Event` shutdown bridge — supervisor sets a threading event, the
+  worker's `_bridge_shutdown` task polls it every 250ms and bridges to asyncio via
+  `loop.call_soon_threadsafe`
+- Per-worker connection backpressure — rejects connections when at capacity
+- Worker ID for log differentiation (`pounce.worker.0`, `pounce.worker.1`, etc.)
+- Thread-safe `shutdown()` method using `call_soon_threadsafe`
+
+#### Network
+
+- `create_listeners(config, count)` — multi-socket creation strategy: per-worker
+  independent sockets with `SO_REUSEPORT` on Linux (kernel-level distribution), shared
+  socket fallback on macOS (single fd, all workers accept)
+
+#### Server Orchestration
+
+- Single-worker fast path (`workers=1`) — skips supervisor entirely, no overhead
+- Multi-worker path delegates to `Supervisor` for lifecycle management
+- ASGI lifespan runs once in main thread before workers spawn
+- Startup banner now shows GIL status (`nogil` / `GIL`) and worker mode
+- Socket deduplication on cleanup for shared-fd safety
+
+#### Configuration
+
+- `workers=0` auto-detect semantics via `resolve_workers()` (defaults to `os.cpu_count()`)
+- `__post_init__` validation for workers (>= 0) and port (0-65535)
+- CLI `--workers 0` for auto-detect with updated help text
+
+#### Error Hierarchy
+
+- `SupervisorError` — worker spawn failures, crash-restart exhaustion
+- `WorkerError` — worker-level failures reported to supervisor
+
+#### Benchmarks (scaffold)
+
+- `benchmarks/hello_app.py` — minimal ASGI app for throughput benchmarking
+- `benchmarks/README.md` — instructions for wrk/hey benchmarking
+
+#### Tests (253 passing, up from 188)
+
+- Unit tests for runtime detection: GIL state, worker mode, CPU count fallback
+- Unit tests for supervisor: init, mode detection, socket validation, shutdown, spawn/stop,
+  respawn budget, restart window pruning, per-worker connection limits
+- Unit tests for listener multi-socket: create_listeners, strategy detection, SO_REUSEPORT
+  vs shared, count validation
+- Unit tests for worker: external shutdown bridge, internal shutdown, worker ID, backpressure
+- Integration tests for multi-worker: concurrent requests across workers, graceful shutdown,
+  worker liveness, supervisor mode reporting
+- Integration tests for server: _close_sockets deduplication, shared-fd handling
+- Updated conftest and test_server to use explicit `worker_id=0`
+- Updated package export tests for Phase 2 modules
+
+---
+
 **Phase 1: It Runs** — the minimal viable ASGI server.
 
 #### Primitives

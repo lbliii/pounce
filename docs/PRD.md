@@ -292,13 +292,17 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 - [ ] Chirp hello-world app runs without modification (needs manual verification)
 - [ ] ASGI compliance suite (formal spec compliance test — to be run)
 
-### 7.2 v0.2.0 (Phase 2: It Scales)
+### 7.2 v0.2.0 (Phase 2: It Scales) — ✓ Implemented
 
-- Multi-worker mode (threads on nogil, processes on GIL)
-- GIL detection and automatic mode selection
-- Linear throughput scaling with worker count on 3.14t
-- Memory advantage measurable vs. multi-process uvicorn
-- Streaming SSE responses hold open without memory leak under sustained load
+- [x] Multi-worker mode (threads on nogil, processes on GIL)
+- [x] GIL detection and automatic mode selection (`_runtime.py`)
+- [x] Supervisor: spawn, monitor, restart workers with budget (5 per 60s)
+- [x] `SO_REUSEPORT` for kernel-level load balancing (Linux), shared socket fallback (macOS)
+- [x] Connection-level backpressure (per-worker connection limits)
+- [x] 253 tests passing (unit + integration)
+- [ ] Linear throughput scaling with worker count on 3.14t (benchmark pending)
+- [ ] Memory advantage measurable vs. multi-process uvicorn (benchmark pending)
+- [ ] Streaming SSE responses hold open without memory leak under sustained load (stress test pending)
 
 ### 7.3 v0.3.0 (Phase 3: It's Complete)
 

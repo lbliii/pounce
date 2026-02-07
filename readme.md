@@ -13,9 +13,11 @@ fork, no GIL, no per-process memory duplication. On Python 3.14t (free-threading
 threads run N asyncio event loops in parallel, all sharing immutable config and route tables
 with zero synchronization overhead.
 
-**Status:** Phase 1 complete — single-worker HTTP/1.1 server with ASGI lifespan, zstd/gzip
-compression, Server-Timing, streaming-first pipeline, and CLI. See [ROADMAP.md](ROADMAP.md)
-for the full vision.
+**Status:** Phase 2 complete — multi-worker ASGI server with automatic GIL detection
+(threads on 3.14t, processes on GIL builds), supervisor with health monitoring and crash
+restart, connection backpressure, `SO_REUSEPORT` kernel-level load balancing, plus all
+Phase 1 features (HTTP/1.1, zstd/gzip compression, Server-Timing, streaming-first pipeline,
+ASGI lifespan, CLI). 253 tests passing. See [ROADMAP.md](ROADMAP.md) for the full vision.
 
 ## Key Ideas
 
