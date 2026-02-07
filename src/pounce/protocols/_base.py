@@ -74,7 +74,55 @@ class Upgraded:
     protocol: str
 
 
-type ProtocolEvent = RequestReceived | BodyReceived | ConnectionClosed | Upgraded
+# ---------------------------------------------------------------------------
+# WebSocket Events — produced by WSProtocol
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class WebSocketConnected:
+    """WebSocket handshake completed successfully.
+
+    Attributes:
+        subprotocol: The negotiated subprotocol (if any).
+    """
+
+    subprotocol: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class WebSocketDataReceived:
+    """A WebSocket data frame has been received.
+
+    Attributes:
+        data: The message payload (bytes for binary, str for text).
+    """
+
+    data: bytes | str
+
+
+@dataclass(frozen=True, slots=True)
+class WebSocketDisconnected:
+    """The WebSocket connection has been closed.
+
+    Attributes:
+        code: The WebSocket close status code.
+        reason: Human-readable reason for the closure.
+    """
+
+    code: int
+    reason: str
+
+
+type ProtocolEvent = (
+    RequestReceived
+    | BodyReceived
+    | ConnectionClosed
+    | Upgraded
+    | WebSocketConnected
+    | WebSocketDataReceived
+    | WebSocketDisconnected
+)
 
 
 # ---------------------------------------------------------------------------

@@ -20,6 +20,9 @@ from pounce.protocols._base import (
     ProtocolHandler,
     RequestReceived,
     Upgraded,
+    WebSocketConnected,
+    WebSocketDataReceived,
+    WebSocketDisconnected,
 )
 from pounce.protocols.h1 import H1Protocol
 
@@ -31,4 +34,7 @@ __all__ = [
     "ProtocolHandler",
     "RequestReceived",
     "Upgraded",
+    "WebSocketConnected",
+    "WebSocketDataReceived",
+    "WebSocketDisconnected",
 ]
