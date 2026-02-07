@@ -115,8 +115,16 @@ class Worker:
         finally:
             if bridge_task is not None:
                 bridge_task.cancel()
-            server.close()
-            await server.wait_closed()
+            # Guard against shared-fd sockets: on macOS all workers share
+            # the same socket fd.  When the first worker closes the asyncio
+            # server it unregisters the fd from the selector.  The second
+            # worker then tries to unregister the same (now-invalid) fd,
+            # raising ``ValueError: Invalid file descriptor: -1``.
+            try:
+                server.close()
+                await server.wait_closed()
+            except (ValueError, OSError):
+                pass  # fd already closed by another worker sharing the socket
             self._logger.info("Worker %d stopped", self._worker_id)
 
     async def _bridge_shutdown(self, ext_event: threading.Event) -> None:

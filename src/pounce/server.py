@@ -212,13 +212,25 @@ class Server:
 
     @staticmethod
     def _close_sockets(sockets: list[socket.socket]) -> None:
-        """Close all sockets, deduplicating shared-fd sockets."""
+        """Close all sockets, deduplicating shared-fd sockets.
+
+        On macOS (no SO_REUSEPORT) all workers share the same socket fd.
+        Deduplicate by fd and guard against already-closed fds to avoid
+        ``ValueError: Invalid file descriptor: -1`` on shutdown.
+
+        """
         closed: set[int] = set()
         for sock in sockets:
-            fd = sock.fileno()
+            try:
+                fd = sock.fileno()
+            except OSError:
+                continue  # socket already closed
             if fd != -1 and fd not in closed:
                 closed.add(fd)
-                sock.close()
+                try:
+                    sock.close()
+                except OSError:
+                    pass  # already closed by another worker
 
 
 def _get_version() -> str:
