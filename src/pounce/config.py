@@ -6,8 +6,6 @@ Frozen after creation — the server reads config but never mutates it.
 
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 
 

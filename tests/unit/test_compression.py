@@ -5,9 +5,9 @@ import gzip
 import pytest
 
 from pounce._compression import (
+    _HAS_ZSTD,
     GzipCompressor,
     ZstdCompressor,
-    _HAS_ZSTD,
     create_compressor,
     negotiate_encoding,
 )

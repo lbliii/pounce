@@ -6,8 +6,6 @@ tests should use these fixtures instead of defining their own apps.
 
 """
 
-from __future__ import annotations
-
 import asyncio
 import socket
 import threading
@@ -23,7 +21,6 @@ from pounce.worker import Worker
 # ---------------------------------------------------------------------------
 # ASGI test apps
 # ---------------------------------------------------------------------------
-
 
 async def _hello_app(scope: Scope, receive: Receive, send: Send) -> None:
     """Minimal ASGI app that returns 'Hello, World!'."""
@@ -52,7 +49,6 @@ async def _hello_app(scope: Scope, receive: Receive, send: Send) -> None:
         "body": body,
     })
 
-
 async def _echo_app(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI app that echoes the request path and method."""
     if scope["type"] == "lifespan":
@@ -79,7 +75,6 @@ async def _echo_app(scope: Scope, receive: Receive, send: Send) -> None:
         "type": "http.response.body",
         "body": body,
     })
-
 
 async def _streaming_app(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI app that streams response body in chunks."""
@@ -109,7 +104,6 @@ async def _streaming_app(scope: Scope, receive: Receive, send: Send) -> None:
             "more_body": i < 2,
         })
 
-
 async def _error_app(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI app that raises an exception."""
     if scope["type"] == "lifespan":
@@ -123,7 +117,6 @@ async def _error_app(scope: Scope, receive: Receive, send: Send) -> None:
         return
 
     raise RuntimeError("App crashed!")
-
 
 async def _sse_app(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI app that streams SSE events until the client disconnects."""
@@ -169,46 +162,38 @@ async def _sse_app(scope: Scope, receive: Receive, send: Send) -> None:
         "more_body": False,
     })
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def hello_app() -> ASGIApp:
     """Minimal ASGI app that returns 'Hello, World!'."""
     return _hello_app
 
-
 @pytest.fixture
 def echo_app() -> ASGIApp:
     """ASGI app that echoes method and path."""
     return _echo_app
-
 
 @pytest.fixture
 def streaming_app() -> ASGIApp:
     """ASGI app that streams chunked responses."""
     return _streaming_app
 
-
 @pytest.fixture
 def error_app() -> ASGIApp:
     """ASGI app that always raises."""
     return _error_app
-
 
 @pytest.fixture
 def sse_app() -> ASGIApp:
     """ASGI app that streams SSE events."""
     return _sse_app
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
 
 def send_raw_request(
     addr: tuple[str, int],
@@ -233,7 +218,6 @@ def send_raw_request(
         return response
     finally:
         sock.close()
-
 
 def start_worker(
     app: ASGIApp,

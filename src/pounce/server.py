@@ -12,8 +12,6 @@ Signal handling: SIGINT/SIGTERM trigger graceful shutdown.
 
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 import signal
@@ -32,7 +30,6 @@ from pounce.supervisor import Supervisor
 from pounce.worker import Worker
 
 logger = logging.getLogger("pounce")
-
 
 class Server:
     """Top-level server that orchestrates the full lifecycle.
@@ -403,7 +400,6 @@ class Server:
                     sock.close()
                 except OSError:
                     pass  # already closed by another worker
-
 
 def _get_version() -> str:
     """Get the pounce version string."""

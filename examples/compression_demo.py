@@ -31,8 +31,6 @@ to ~300-400 bytes.
 
 """
 
-from __future__ import annotations
-
 import json
 from typing import Any
 
@@ -73,11 +71,9 @@ _DATA: dict[str, Any] = {
 
 _BODY = json.dumps(_DATA, indent=2).encode()
 
-
 # ---------------------------------------------------------------------------
 # ASGI app
 # ---------------------------------------------------------------------------
-
 
 async def app(scope: Scope, receive: Receive, send: Send) -> None:
     """Return a JSON payload large enough for pounce to compress."""

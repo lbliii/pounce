@@ -9,8 +9,6 @@ Handles the standard "module:attribute" pattern used by ASGI servers:
 
 """
 
-from __future__ import annotations
-
 import importlib
 from typing import Any
 

@@ -22,8 +22,6 @@ Connection flow (HTTP/2 via TLS+ALPN):
 
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 import socket
@@ -858,7 +856,6 @@ class Worker:
         except Exception:
             pass
 
-
 def _is_websocket_upgrade(request: RequestReceived) -> bool:
     """Check if the request is a WebSocket upgrade.
 
@@ -876,7 +873,6 @@ def _is_websocket_upgrade(request: RequestReceived) -> bool:
             has_websocket_upgrade = value.lower() == b"websocket"
 
     return has_upgrade_connection and has_websocket_upgrade
-
 
 def _get_header(
     headers: tuple[tuple[bytes, bytes], ...], name: bytes

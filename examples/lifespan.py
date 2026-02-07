@@ -13,8 +13,6 @@ Then visit http://127.0.0.1:8000/ — each request increments a counter.
 
 """
 
-from __future__ import annotations
-
 import logging
 import threading
 import time
@@ -34,11 +32,9 @@ _state_lock = threading.Lock()
 _request_count: int = 0
 _started_at: float = 0.0
 
-
 # ---------------------------------------------------------------------------
 # ASGI app
 # ---------------------------------------------------------------------------
-
 
 async def app(scope: Scope, receive: Receive, send: Send) -> None:
     """Count requests and report uptime.

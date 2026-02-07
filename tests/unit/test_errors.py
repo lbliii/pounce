@@ -8,8 +8,8 @@ from pounce._errors import (
     PounceError,
     ReloadError,
     SupervisorError,
-    TLSError,
     TimeoutError,
+    TLSError,
     WorkerError,
 )
 

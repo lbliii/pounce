@@ -1,7 +1,5 @@
 """Tests for the HTTP/2 protocol handler."""
 
-from __future__ import annotations
-
 import pytest
 
 try:
@@ -17,7 +15,6 @@ pytestmark = pytest.mark.skipif(
     not _HAS_H2,
     reason="h2 not installed",
 )
-
 
 def _make_client_server():
     """Create a paired client/server H2 connection.
@@ -42,7 +39,6 @@ def _make_client_server():
 
     return client, server
 
-
 class TestH2Connection:
     def test_init(self) -> None:
         from pounce.protocols.h2 import H2Connection
@@ -60,7 +56,7 @@ class TestH2Connection:
         assert len(preface) > 0
 
     def test_single_get_request(self) -> None:
-        from pounce.protocols.h2 import H2Connection, H2RequestReceived, H2BodyReceived
+        from pounce.protocols.h2 import H2BodyReceived, H2Connection, H2RequestReceived
 
         client, server = _make_client_server()
 
@@ -99,7 +95,7 @@ class TestH2Connection:
         assert not body_events[0].body.more
 
     def test_post_request_with_body(self) -> None:
-        from pounce.protocols.h2 import H2Connection, H2RequestReceived, H2BodyReceived
+        from pounce.protocols.h2 import H2BodyReceived, H2Connection, H2RequestReceived
 
         client, server = _make_client_server()
 
@@ -259,7 +255,6 @@ class TestH2Connection:
         # :authority should be mapped to host header
         headers_dict = dict(req_events[0].request.headers)
         assert headers_dict[b"host"] == b"example.com"
-
 
 class TestH2Availability:
     def test_is_h2_available(self) -> None:

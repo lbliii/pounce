@@ -14,8 +14,6 @@ The worker receives a socket and does not know which strategy was used.
 
 """
 
-from __future__ import annotations
-
 import logging
 import socket
 import sys
@@ -23,7 +21,6 @@ import sys
 from pounce.config import ServerConfig
 
 logger = logging.getLogger("pounce.net")
-
 
 def create_listener(config: ServerConfig) -> socket.socket:
     """Create and bind a single server socket from configuration.
@@ -39,7 +36,6 @@ def create_listener(config: ServerConfig) -> socket.socket:
 
     """
     return _bind_socket(config)
-
 
 def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
     """Create server sockets for *count* workers.
@@ -94,11 +90,9 @@ def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
     )
     return [shared] * count
 
-
 def has_so_reuseport() -> bool:
     """Check if SO_REUSEPORT is available on this platform."""
     return hasattr(socket, "SO_REUSEPORT") and sys.platform != "win32"
-
 
 def _bind_socket(config: ServerConfig) -> socket.socket:
     """Create, configure, bind, and listen on a single TCP socket."""

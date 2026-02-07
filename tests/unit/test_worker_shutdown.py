@@ -1,7 +1,5 @@
 """Tests for Worker shutdown coordination and backpressure (Phase 2)."""
 
-from __future__ import annotations
-
 import asyncio
 import socket
 import threading
@@ -14,11 +12,9 @@ from pounce.config import ServerConfig
 from pounce.net.listener import create_listener
 from pounce.worker import Worker
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
 
 async def _hello_app(scope: Scope, receive: Receive, send: Send) -> None:
     """Minimal ASGI app for testing."""
@@ -43,7 +39,6 @@ async def _hello_app(scope: Scope, receive: Receive, send: Send) -> None:
         ],
     })
     await send({"type": "http.response.body", "body": body})
-
 
 def _start_worker(
     app: ASGIApp,
@@ -70,7 +65,6 @@ def _start_worker(
     time.sleep(0.2)
     return worker, sock, thread
 
-
 def _send_request(addr: tuple[str, int]) -> bytes:
     """Send a simple GET request and return the response."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -91,11 +85,9 @@ def _send_request(addr: tuple[str, int]) -> bytes:
     finally:
         sock.close()
 
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
-
 
 class TestWorkerExternalShutdown:
     """Worker responds to an external threading.Event for shutdown."""
@@ -134,7 +126,6 @@ class TestWorkerExternalShutdown:
         finally:
             sock.close()
 
-
 class TestWorkerIdentity:
     """Worker ID is used for log differentiation."""
 
@@ -157,7 +148,6 @@ class TestWorkerIdentity:
             assert "7" in worker._logger.name
         finally:
             sock.close()
-
 
 class TestWorkerBackpressure:
     """Worker rejects connections when at capacity."""
@@ -190,7 +180,6 @@ class TestWorkerBackpressure:
             worker.shutdown()
             thread.join(timeout=3.0)
             sock.close()
-
 
 class TestWorkerBridgeShutdown:
     """The bridge task translates threading.Event to asyncio shutdown."""

@@ -11,8 +11,6 @@ Optionally uses ``watchfiles`` (Rust-based, fast) when available.
 
 """
 
-from __future__ import annotations
-
 import logging
 import os
 import time
@@ -53,7 +51,6 @@ _WATCH_EXTENSIONS: frozenset[str] = frozenset({
     ".ini",
 })
 
-
 def _should_watch(path: Path) -> bool:
     """Check if a path should be watched for changes."""
     # Skip excluded directories
@@ -62,7 +59,6 @@ def _should_watch(path: Path) -> bool:
             return False
     # Only watch specific extensions
     return path.suffix in _WATCH_EXTENSIONS
-
 
 def _snapshot(directories: list[Path]) -> dict[str, float]:
     """Take a snapshot of file modification times.
@@ -82,7 +78,6 @@ def _snapshot(directories: list[Path]) -> dict[str, float]:
                 except OSError:
                     pass
     return snapshot
-
 
 def detect_changes(
     directories: list[Path],
@@ -112,7 +107,6 @@ def detect_changes(
             changed.add(path)
 
     return changed, current
-
 
 def watch_for_changes(
     directories: list[Path],

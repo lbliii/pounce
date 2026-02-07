@@ -13,8 +13,6 @@ ASGI WebSocket lifecycle:
 
 """
 
-from __future__ import annotations
-
 import asyncio
 from typing import Any
 from urllib.parse import unquote
@@ -79,7 +77,6 @@ def build_ws_scope(
         "subprotocols": subprotocols,
     }
 
-
 def create_ws_receive(
     events: asyncio.Queue[dict[str, Any]],
 ) -> Any:
@@ -100,7 +97,6 @@ def create_ws_receive(
         return await events.get()
 
     return receive
-
 
 def create_ws_send(
     writer: asyncio.StreamWriter,

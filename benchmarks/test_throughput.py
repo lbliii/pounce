@@ -9,8 +9,6 @@ Marked with ``@pytest.mark.benchmark`` — run via ``poe bench`` or
 
 """
 
-from __future__ import annotations
-
 import asyncio
 import socket
 import statistics
@@ -32,7 +30,6 @@ _HEADERS = [
     (b"content-type", b"text/plain; charset=utf-8"),
     (b"content-length", b"13"),
 ]
-
 
 async def _bench_app(scope: Scope, receive: Receive, send: Send) -> None:
     """Minimal ASGI app for throughput measurement."""
@@ -57,13 +54,11 @@ async def _bench_app(scope: Scope, receive: Receive, send: Send) -> None:
         "body": _BODY,
     })
 
-
 # ---------------------------------------------------------------------------
 # Load generation
 # ---------------------------------------------------------------------------
 
 _REQUEST = b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
-
 
 async def _fire_request(addr: tuple[str, int]) -> float:
     """Send one HTTP request and return the round-trip time in seconds."""
@@ -78,7 +73,6 @@ async def _fire_request(addr: tuple[str, int]) -> float:
     except (ConnectionError, OSError):
         pass
     return time.perf_counter() - t0
-
 
 async def _run_load(
     addr: tuple[str, int],
@@ -111,11 +105,9 @@ async def _run_load(
 
     return {"req_per_sec": req_per_sec, "p50_ms": p50, "p99_ms": p99}
 
-
 # ---------------------------------------------------------------------------
 # Single-worker helper
 # ---------------------------------------------------------------------------
-
 
 def _start_single_worker(
     app: ASGIApp,
@@ -134,11 +126,9 @@ def _start_single_worker(
     time.sleep(0.15)
     return worker, sock, thread
 
-
 # ---------------------------------------------------------------------------
 # Multi-worker helper (shared socket, no supervisor overhead)
 # ---------------------------------------------------------------------------
-
 
 def _start_multi_workers(
     app: ASGIApp,
@@ -173,7 +163,6 @@ def _start_multi_workers(
     time.sleep(0.3)
     return shutdown, sock, threads, addr
 
-
 # ---------------------------------------------------------------------------
 # Benchmarks
 # ---------------------------------------------------------------------------
@@ -182,7 +171,6 @@ def _start_multi_workers(
 # not minutes.  Phase 4 will run larger loads.
 _TOTAL_REQUESTS = 500
 _CONCURRENCY = 50
-
 
 @pytest.mark.benchmark
 @pytest.mark.timeout(30)
@@ -205,7 +193,6 @@ def test_single_worker_throughput() -> None:
         f"p50={results['p50_ms']:.1f}ms, p99={results['p99_ms']:.1f}ms"
     )
     assert results["req_per_sec"] > 0
-
 
 @pytest.mark.benchmark
 @pytest.mark.timeout(30)

@@ -9,8 +9,6 @@ Skipped if chirp is not installed.
 
 """
 
-from __future__ import annotations
-
 import socket
 import threading
 import time
@@ -23,13 +21,11 @@ from pounce.worker import Worker
 # Skip the entire module if chirp is not importable
 chirp = pytest.importorskip("chirp")
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 _REQUEST = b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
-
 
 def _send_raw_request(addr: tuple[str, int], request: bytes, timeout: float = 3.0) -> bytes:
     """Send a raw HTTP request and return the full response."""
@@ -51,11 +47,9 @@ def _send_raw_request(addr: tuple[str, int], request: bytes, timeout: float = 3.
     finally:
         sock.close()
 
-
 # ---------------------------------------------------------------------------
 # Test
 # ---------------------------------------------------------------------------
-
 
 @pytest.mark.benchmark
 @pytest.mark.timeout(15)

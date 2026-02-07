@@ -11,8 +11,6 @@ Marked with ``@pytest.mark.benchmark`` — run via ``poe bench`` or
 
 """
 
-from __future__ import annotations
-
 import asyncio
 import platform
 import resource
@@ -29,7 +27,6 @@ from pounce.worker import Worker
 # ---------------------------------------------------------------------------
 # SSE app (inlined — same as conftest but self-contained for benchmark)
 # ---------------------------------------------------------------------------
-
 
 async def _sse_app(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI app that streams SSE events every 50ms."""
@@ -75,7 +72,6 @@ async def _sse_app(scope: Scope, receive: Receive, send: Send) -> None:
         "more_body": False,
     })
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -87,7 +83,6 @@ _SSE_REQUEST = (
     b"\r\n"
 )
 
-
 def _get_rss_mb() -> float:
     """Return the current process RSS in megabytes."""
     usage = resource.getrusage(resource.RUSAGE_SELF)
@@ -95,7 +90,6 @@ def _get_rss_mb() -> float:
     if platform.system() == "Darwin":
         return rss / (1024 * 1024)
     return rss / 1024
-
 
 def _create_socket() -> socket.socket:
     """Create a bound, listening, non-blocking socket on an ephemeral port."""
@@ -105,7 +99,6 @@ def _create_socket() -> socket.socket:
     sock.listen(2048)
     sock.setblocking(False)
     return sock
-
 
 async def _hold_sse_connection(
     addr: tuple[str, int],
@@ -138,7 +131,6 @@ async def _hold_sse_connection(
         pass
     return event_count
 
-
 # ---------------------------------------------------------------------------
 # Benchmark
 # ---------------------------------------------------------------------------
@@ -146,7 +138,6 @@ async def _hold_sse_connection(
 _NUM_CONNECTIONS = 100
 _HOLD_DURATION = 10.0  # seconds
 _RSS_GROWTH_LIMIT_MB = 50.0  # generous ceiling for CI environments
-
 
 @pytest.mark.benchmark
 @pytest.mark.timeout(60)

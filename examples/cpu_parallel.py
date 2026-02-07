@@ -25,8 +25,6 @@ scaling because threads share the interpreter and run without the GIL.
 
 """
 
-from __future__ import annotations
-
 import hashlib
 from typing import Any
 
@@ -37,7 +35,6 @@ type Send = Any
 # Number of hash iterations per request.  Tune this to control how much
 # CPU each request consumes.  1000 iterations ≈ 0.5-1ms on modern hardware.
 _ITERATIONS = 1000
-
 
 def _cpu_work(iterations: int) -> bytes:
     """Burn CPU by iteratively hashing.
@@ -51,11 +48,9 @@ def _cpu_work(iterations: int) -> bytes:
         digest = hashlib.sha256(digest).digest()
     return digest.hex().encode()
 
-
 # Pre-build the response template
 _PREFIX = b'{"iterations": ' + str(_ITERATIONS).encode() + b', "digest": "'
 _SUFFIX = b'"}\n'
-
 
 async def app(scope: Scope, receive: Receive, send: Send) -> None:
     """Do CPU work per request, return the result as JSON."""

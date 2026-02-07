@@ -10,8 +10,6 @@ supervisor unit tests.
 
 """
 
-from __future__ import annotations
-
 import socket
 import threading
 import time
@@ -21,14 +19,11 @@ from pounce._types import ASGIApp, Receive, Scope, Send
 from pounce.config import ServerConfig
 from pounce.net.listener import create_listeners
 from pounce.supervisor import Supervisor
-
 from tests.conftest import send_raw_request
-
 
 # ---------------------------------------------------------------------------
 # Test ASGI apps
 # ---------------------------------------------------------------------------
-
 
 async def _hello_app(scope: Scope, receive: Receive, send: Send) -> None:
     """Minimal app that returns Hello + the worker thread name."""
@@ -55,11 +50,9 @@ async def _hello_app(scope: Scope, receive: Receive, send: Send) -> None:
     })
     await send({"type": "http.response.body", "body": body})
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
 
 def _send_request(addr: tuple[str, int]) -> bytes:
     """Send a simple GET request and return the response."""
@@ -67,7 +60,6 @@ def _send_request(addr: tuple[str, int]) -> bytes:
         addr,
         b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
-
 
 def _start_supervisor(
     app: ASGIApp,
@@ -97,11 +89,9 @@ def _start_supervisor(
 
     return sup, sockets, t, addr
 
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
-
 
 class TestMultiWorkerServing:
     """Multiple workers serve concurrent requests correctly."""
@@ -145,7 +135,6 @@ class TestMultiWorkerServing:
                 except Exception:
                     pass
 
-
 class TestMultiWorkerShutdown:
     """Supervisor graceful shutdown drains all workers."""
 
@@ -185,7 +174,6 @@ class TestMultiWorkerShutdown:
                     s.close()
                 except Exception:
                     pass
-
 
 class TestSupervisorMode:
     """Supervisor correctly reports its mode."""

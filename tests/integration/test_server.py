@@ -12,9 +12,7 @@ from pounce.logging import configure_logging
 from pounce.net.listener import create_listener
 from pounce.server import Server
 from pounce.worker import Worker
-
 from tests.conftest import send_raw_request
-
 
 # -- Lifespan-tracking app (server-specific) --------------------------------
 

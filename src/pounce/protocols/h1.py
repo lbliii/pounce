@@ -9,8 +9,6 @@ All state is per-connection, per-request-cycle. No shared mutable state.
 
 """
 
-from __future__ import annotations
-
 import h11
 
 from pounce._errors import LimitError, ParseError

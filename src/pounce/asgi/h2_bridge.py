@@ -12,8 +12,6 @@ worker's event loop — no lock needed).
 
 """
 
-from __future__ import annotations
-
 import asyncio
 from typing import Any
 
@@ -65,7 +63,6 @@ def build_h2_scope(
         "headers": headers,
     }
 
-
 def create_h2_receive(
     body_queue: asyncio.Queue[dict[str, Any]],
 ) -> Any:
@@ -79,7 +76,6 @@ def create_h2_receive(
         return await body_queue.get()
 
     return receive
-
 
 def create_h2_send(
     h2_conn: Any,  # H2Connection — Any to avoid import cycle
@@ -173,7 +169,6 @@ def create_h2_send(
                 response_complete = True
 
     return send
-
 
 def _flush(h2_conn: Any, writer: asyncio.StreamWriter) -> None:
     """Write pending h2 output bytes to the transport."""

@@ -16,8 +16,6 @@ All state is per-connection. No shared mutable state.
 
 """
 
-from __future__ import annotations
-
 import base64
 import hashlib
 import logging
@@ -42,11 +40,9 @@ logger = logging.getLogger("pounce.protocols.ws")
 # WebSocket magic GUID (RFC 6455 Section 4.2.2)
 _WS_MAGIC = b"258EAFA5-E914-47DA-95CA-5AB5353BE70A"
 
-
 def is_wsproto_available() -> bool:
     """Check if wsproto is installed."""
     return _HAS_WSPROTO
-
 
 def build_ws_accept_key(ws_key: bytes) -> bytes:
     """Compute the Sec-WebSocket-Accept value for the handshake.
@@ -60,7 +56,6 @@ def build_ws_accept_key(ws_key: bytes) -> bytes:
     """
     digest = hashlib.sha1(ws_key.strip() + _WS_MAGIC).digest()  # noqa: S324
     return base64.b64encode(digest)
-
 
 def build_101_response(
     ws_key: bytes,
@@ -93,7 +88,6 @@ def build_101_response(
     lines.append(b"")
     lines.append(b"")
     return b"\r\n".join(lines)
-
 
 class WSProtocol:
     """WebSocket protocol handler backed by wsproto.

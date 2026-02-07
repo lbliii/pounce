@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 from pounce._errors import LifespanError
-from pounce._types import ASGIApp, Receive, Send, Scope
+from pounce._types import ASGIApp, Receive, Scope, Send
 from pounce.asgi.lifespan import run_lifespan
 from pounce.config import ServerConfig
 

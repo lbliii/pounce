@@ -14,8 +14,6 @@ This module provides:
 
 """
 
-from __future__ import annotations
-
 import heapq
 from dataclasses import dataclass, field
 
@@ -31,7 +29,6 @@ class StreamPriority:
 
     urgency: int = 3
     incremental: bool = False
-
 
 def parse_priority(value: bytes | str) -> StreamPriority:
     """Parse an RFC 9218 Priority header value.
@@ -74,7 +71,6 @@ def parse_priority(value: bytes | str) -> StreamPriority:
             incremental = True
 
     return StreamPriority(urgency=urgency, incremental=incremental)
-
 
 @dataclass(slots=True)
 class PriorityScheduler:

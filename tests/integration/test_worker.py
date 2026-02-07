@@ -2,7 +2,6 @@
 
 from pounce._types import ASGIApp
 from pounce.config import ServerConfig
-
 from tests.conftest import send_raw_request, start_worker
 
 

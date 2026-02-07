@@ -12,8 +12,6 @@ Then visit http://127.0.0.1:8000/ in a browser or:
 
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 type Scope = dict[str, Any]
@@ -26,7 +24,6 @@ _HEADERS = [
     (b"content-type", b"text/plain; charset=utf-8"),
     (b"content-length", b"13"),
 ]
-
 
 async def app(scope: Scope, receive: Receive, send: Send) -> None:
     """Return ``Hello, World!`` for every HTTP request."""

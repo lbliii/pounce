@@ -1,22 +1,18 @@
 """Tests for TLS context creation."""
 
-from __future__ import annotations
-
+import os
 import ssl
 import tempfile
-import os
 
 import pytest
 
 from pounce._errors import TLSError
 from pounce.config import ServerConfig
-from pounce.net.tls import create_tls_context, is_tls_configured, _build_alpn_protocols
-
+from pounce.net.tls import _build_alpn_protocols, create_tls_context, is_tls_configured
 
 # ---------------------------------------------------------------------------
 # Helpers — generate self-signed cert for testing
 # ---------------------------------------------------------------------------
-
 
 def _generate_self_signed_cert(tmpdir: str) -> tuple[str, str]:
     """Generate a self-signed certificate and key for testing.
@@ -48,11 +44,9 @@ def _generate_self_signed_cert(tmpdir: str) -> tuple[str, str]:
 
     return certfile, keyfile
 
-
 # ---------------------------------------------------------------------------
 # Tests — is_tls_configured
 # ---------------------------------------------------------------------------
-
 
 class TestIsTLSConfigured:
     def test_not_configured_by_default(self) -> None:
@@ -70,11 +64,9 @@ class TestIsTLSConfigured:
         )
         assert is_tls_configured(config) is True
 
-
 # ---------------------------------------------------------------------------
 # Tests — create_tls_context
 # ---------------------------------------------------------------------------
-
 
 class TestCreateTLSContext:
     def test_raises_without_certfile(self) -> None:
@@ -125,11 +117,9 @@ class TestCreateTLSContext:
             ctx = create_tls_context(config)
             assert "SSLContext" in type(ctx).__name__
 
-
 # ---------------------------------------------------------------------------
 # Tests — ALPN protocol list
 # ---------------------------------------------------------------------------
-
 
 class TestBuildALPNProtocols:
     def test_always_includes_http11(self) -> None:

@@ -16,8 +16,6 @@ Responsibilities:
 
 """
 
-from __future__ import annotations
-
 import logging
 import multiprocessing
 import os
@@ -41,7 +39,6 @@ _MAX_RESTARTS = 5
 _RESTART_WINDOW = 60.0  # seconds
 _HEALTH_CHECK_INTERVAL = 1.0  # seconds
 
-
 class _WorkerHandle:
     """Metadata about a running worker (thread or process)."""
 
@@ -53,7 +50,6 @@ class _WorkerHandle:
         self.started_at = time.monotonic()
         self.restart_count = 0
         self.restarts: list[float] = []  # timestamps of recent restarts
-
 
 class Supervisor:
     """Spawn and supervise N workers as threads or processes.
@@ -352,7 +348,6 @@ class Supervisor:
             except (OSError, ValueError):
                 # Cannot install signal handlers from non-main threads
                 pass
-
 
 def _target_id(target: threading.Thread | multiprocessing.Process) -> str:
     """Return an identifier string for a thread or process."""

@@ -1,7 +1,5 @@
 """Tests for the file watcher / reload module."""
 
-from __future__ import annotations
-
 import tempfile
 import time
 from pathlib import Path
@@ -39,7 +37,6 @@ class TestShouldWatch:
     def test_venv_excluded(self) -> None:
         assert _should_watch(Path(".venv/lib/python3.14/site.py")) is False
 
-
 class TestSnapshot:
     def test_snapshot_empty_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -68,7 +65,6 @@ class TestSnapshot:
 
             result = _snapshot([p])
             assert len(result) == 0
-
 
 class TestDetectChanges:
     def test_new_file_detected(self) -> None:
@@ -119,7 +115,6 @@ class TestDetectChanges:
             snapshot = _snapshot([p])
             changed, _ = detect_changes([p], snapshot)
             assert len(changed) == 0
-
 
 class TestExcludeDirs:
     def test_common_excludes(self) -> None:

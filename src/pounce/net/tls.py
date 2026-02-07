@@ -11,8 +11,6 @@ protocol handler is available.
 
 """
 
-from __future__ import annotations
-
 import logging
 import ssl
 
@@ -28,7 +26,6 @@ try:
     _HAS_TRUSTSTORE = True
 except ImportError:
     _HAS_TRUSTSTORE = False
-
 
 def create_tls_context(config: ServerConfig) -> ssl.SSLContext:
     """Build an ``ssl.SSLContext`` from server configuration.
@@ -81,7 +78,6 @@ def create_tls_context(config: ServerConfig) -> ssl.SSLContext:
 
     return ctx
 
-
 def _build_alpn_protocols() -> list[str]:
     """Return the ALPN protocol list based on available optional deps.
 
@@ -101,7 +97,6 @@ def _build_alpn_protocols() -> list[str]:
 
     protocols.append("http/1.1")
     return protocols
-
 
 def is_tls_configured(config: ServerConfig) -> bool:
     """Return True if TLS is configured in the server config."""

@@ -1,7 +1,5 @@
 """Tests for the WebSocket protocol handler and ASGI bridge."""
 
-from __future__ import annotations
-
 import pytest
 
 from pounce.protocols._base import (
@@ -26,11 +24,9 @@ pytestmark = pytest.mark.skipif(
     reason="wsproto not installed",
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
 
 def _ws_upgrade_request() -> RequestReceived:
     """Build a minimal WebSocket upgrade request."""
@@ -46,7 +42,6 @@ def _ws_upgrade_request() -> RequestReceived:
         ),
         http_version="1.1",
     )
-
 
 def _make_client_server():
     """Create a paired client/server for roundtrip tests.
@@ -65,11 +60,9 @@ def _make_client_server():
 
     return client, server
 
-
 # ---------------------------------------------------------------------------
 # WSProtocol tests
 # ---------------------------------------------------------------------------
-
 
 class TestWSProtocol:
     def test_init(self) -> None:
@@ -173,11 +166,9 @@ class TestWSProtocol:
             assert isinstance(events[0], WebSocketDataReceived)
             assert events[0].data == f"msg-{i}"
 
-
 # ---------------------------------------------------------------------------
 # Handshake helpers
 # ---------------------------------------------------------------------------
-
 
 class TestHandshakeHelpers:
     def test_build_ws_accept_key(self) -> None:
@@ -208,18 +199,15 @@ class TestHandshakeHelpers:
         )
         assert b"Sec-WebSocket-Protocol: graphql-ws" in raw
 
-
 class TestWSProtocolAvailability:
     def test_is_wsproto_available(self) -> None:
         from pounce.protocols.ws import is_wsproto_available
 
         assert is_wsproto_available() is True
 
-
 # ---------------------------------------------------------------------------
 # WebSocket event types
 # ---------------------------------------------------------------------------
-
 
 class TestWSEventTypes:
     def test_ws_connected(self) -> None:
@@ -243,11 +231,9 @@ class TestWSEventTypes:
         assert event.code == 1000
         assert event.reason == "normal"
 
-
 # ---------------------------------------------------------------------------
 # WebSocket ASGI bridge tests
 # ---------------------------------------------------------------------------
-
 
 class TestWSBridge:
     def test_build_ws_scope(self) -> None:
@@ -328,7 +314,6 @@ class TestWSBridge:
         )
 
         assert scope["scheme"] == "wss"
-
 
 class TestIsWebSocketUpgrade:
     """Tests for _is_websocket_upgrade() header detection."""

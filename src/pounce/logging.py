@@ -9,8 +9,6 @@ Format:
 
 """
 
-from __future__ import annotations
-
 import logging
 import sys
 from datetime import datetime, timezone
@@ -21,10 +19,8 @@ from pounce.config import ServerConfig
 access_logger = logging.getLogger("pounce.access")
 logger = logging.getLogger("pounce")
 
-
 _LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s - %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-
 
 def configure_logging(config: ServerConfig) -> None:
     """Configure stdlib logging for pounce.
@@ -49,7 +45,6 @@ def configure_logging(config: ServerConfig) -> None:
         formatter = logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT)
         handler.setFormatter(formatter)
         root.addHandler(handler)
-
 
 def access_log(
     method: str,

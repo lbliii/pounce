@@ -7,8 +7,6 @@ work".  If an example breaks after an API change, this catches it.
 
 """
 
-from __future__ import annotations
-
 import pytest
 
 from tests.conftest import send_raw_request, start_worker
@@ -23,11 +21,9 @@ _GET_SSE = (
     b"GET / HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\nConnection: close\r\n\r\n"
 )
 
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
-
 
 @pytest.mark.timeout(10)
 def test_hello_example() -> None:
@@ -46,7 +42,6 @@ def test_hello_example() -> None:
         thread.join(timeout=3)
         sock.close()
 
-
 @pytest.mark.timeout(10)
 def test_lifespan_example() -> None:
     """examples/lifespan.py returns 200 with a request counter."""
@@ -63,7 +58,6 @@ def test_lifespan_example() -> None:
         worker.shutdown()
         thread.join(timeout=3)
         sock.close()
-
 
 @pytest.mark.timeout(15)
 def test_streaming_sse_example() -> None:
@@ -103,7 +97,6 @@ def test_streaming_sse_example() -> None:
         thread.join(timeout=3)
         sock.close()
 
-
 @pytest.mark.timeout(10)
 def test_compression_demo_example() -> None:
     """examples/compression_demo.py returns 200 with JSON payload."""
@@ -125,7 +118,6 @@ def test_compression_demo_example() -> None:
         thread.join(timeout=3)
         sock.close()
 
-
 @pytest.mark.timeout(10)
 def test_cpu_parallel_example() -> None:
     """examples/cpu_parallel.py returns 200 with a hash digest."""
@@ -143,7 +135,6 @@ def test_cpu_parallel_example() -> None:
         worker.shutdown()
         thread.join(timeout=3)
         sock.close()
-
 
 @pytest.mark.timeout(15)
 def test_chirp_app_example() -> None:

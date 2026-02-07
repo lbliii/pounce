@@ -10,8 +10,6 @@ Marked with ``@pytest.mark.benchmark`` — run via ``poe bench`` or
 
 """
 
-from __future__ import annotations
-
 import multiprocessing
 import platform
 import resource
@@ -34,7 +32,6 @@ _HEADERS = [
     (b"content-type", b"text/plain"),
     (b"content-length", b"2"),
 ]
-
 
 async def _mem_app(scope: Scope, receive: Receive, send: Send) -> None:
     """Minimal ASGI app for memory measurement."""
@@ -59,11 +56,9 @@ async def _mem_app(scope: Scope, receive: Receive, send: Send) -> None:
         "body": _BODY,
     })
 
-
 # ---------------------------------------------------------------------------
 # RSS measurement
 # ---------------------------------------------------------------------------
-
 
 def _get_rss_mb() -> float:
     """Return the current process RSS in megabytes.
@@ -77,11 +72,9 @@ def _get_rss_mb() -> float:
     # Linux: kilobytes
     return rss / 1024
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
 
 def _create_socket() -> socket.socket:
     """Create a bound, listening, non-blocking socket on an ephemeral port."""
@@ -92,13 +85,11 @@ def _create_socket() -> socket.socket:
     sock.setblocking(False)
     return sock
 
-
 def _run_worker_process(app: ASGIApp, sock: socket.socket) -> None:
     """Entry point for a worker running in a child process."""
     config = ServerConfig(host="127.0.0.1", port=0, access_log=False, compression=False)
     worker = Worker(config, app, sock, worker_id=0)
     worker.run()
-
 
 # ---------------------------------------------------------------------------
 # Benchmarks
@@ -106,7 +97,6 @@ def _run_worker_process(app: ASGIApp, sock: socket.socket) -> None:
 
 _WORKER_COUNT = 4
 _SETTLE_TIME = 0.5  # seconds to let workers start and settle
-
 
 @pytest.mark.benchmark
 @pytest.mark.timeout(30)
@@ -153,7 +143,6 @@ def test_thread_workers_memory() -> None:
     # Sanity: total RSS should be under 50MB for 4 idle thread workers
     assert rss_after < 100, f"Thread workers RSS too high: {rss_after:.1f}MB"
 
-
 @pytest.mark.benchmark
 @pytest.mark.timeout(30)
 def test_process_workers_memory() -> None:
@@ -191,7 +180,6 @@ def test_process_workers_memory() -> None:
         f"RSS before={rss_before:.1f}MB, after={rss_after:.1f}MB, "
         f"delta={process_rss:.1f}MB"
     )
-
 
 @pytest.mark.benchmark
 @pytest.mark.timeout(60)

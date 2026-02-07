@@ -10,8 +10,6 @@ transport. No buffering — each http.response.body message is compressed
 
 """
 
-from __future__ import annotations
-
 import asyncio
 from typing import Any
 from urllib.parse import unquote
@@ -72,7 +70,6 @@ def build_scope(
         "headers": headers,
     }
 
-
 def create_receive(
     body_events: asyncio.Queue[BodyReceived],
 ) -> Any:
@@ -98,7 +95,6 @@ def create_receive(
         }
 
     return receive
-
 
 def create_send(
     protocol: ProtocolHandler,
@@ -192,7 +188,6 @@ def create_send(
                 response_complete = True
 
     return send
-
 
 def _write(
     transport: asyncio.WriteTransport | asyncio.StreamWriter,

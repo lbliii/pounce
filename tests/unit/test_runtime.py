@@ -1,7 +1,5 @@
 """Tests for pounce._runtime — GIL detection and worker mode selection."""
 
-from __future__ import annotations
-
 from unittest.mock import patch
 
 from pounce._runtime import default_worker_count, detect_worker_mode, is_gil_enabled
@@ -31,7 +29,6 @@ class TestIsGilEnabled:
             result = is_gil_enabled()
             assert result is True
 
-
 class TestDetectWorkerMode:
     """detect_worker_mode() chooses threads vs processes based on GIL."""
 
@@ -42,7 +39,6 @@ class TestDetectWorkerMode:
     def test_process_on_gil(self):
         with patch("pounce._runtime.is_gil_enabled", return_value=True):
             assert detect_worker_mode() == "process"
-
 
 class TestDefaultWorkerCount:
     """default_worker_count() returns a sensible CPU-based default."""

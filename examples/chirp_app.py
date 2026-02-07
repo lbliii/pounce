@@ -15,8 +15,6 @@ Then visit http://127.0.0.1:8000/ in a browser.
 
 """
 
-from __future__ import annotations
-
 try:
     import chirp
 except ImportError as exc:
@@ -28,12 +26,10 @@ except ImportError as exc:
 
 app = chirp.App()
 
-
 @app.route("/")
 def index() -> str:
     """Home page."""
     return "Hello from chirp, served by pounce!"
-
 
 @app.route("/health")
 def health() -> dict[str, str]:

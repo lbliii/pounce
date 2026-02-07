@@ -15,8 +15,6 @@ All state is per-connection. No shared mutable state.
 
 """
 
-from __future__ import annotations
-
 import logging
 from dataclasses import dataclass, field
 
@@ -39,16 +37,13 @@ except ImportError:
 
 logger = logging.getLogger("pounce.protocols.h2")
 
-
 def is_h2_available() -> bool:
     """Check if h2 is installed."""
     return _HAS_H2
 
-
 # ---------------------------------------------------------------------------
 # H2 Stream Events — wrapper around pounce events with stream context
 # ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True, slots=True)
 class H2RequestReceived:
@@ -62,7 +57,6 @@ class H2RequestReceived:
     stream_id: int
     request: RequestReceived
 
-
 @dataclass(frozen=True, slots=True)
 class H2BodyReceived:
     """HTTP/2 request body data received on a stream.
@@ -74,7 +68,6 @@ class H2BodyReceived:
 
     stream_id: int
     body: BodyReceived
-
 
 @dataclass(frozen=True, slots=True)
 class H2StreamReset:
@@ -88,7 +81,6 @@ class H2StreamReset:
     stream_id: int
     error_code: int
 
-
 @dataclass(frozen=True, slots=True)
 class H2GoAway:
     """Remote sent GOAWAY — no new streams, finish existing ones.
@@ -101,7 +93,6 @@ class H2GoAway:
     last_stream_id: int
     error_code: int
 
-
 @dataclass(frozen=True, slots=True)
 class H2WindowUpdated:
     """Flow control window was updated — may resume sending.
@@ -111,7 +102,6 @@ class H2WindowUpdated:
     """
 
     stream_id: int
-
 
 @dataclass(frozen=True, slots=True)
 class H2WebSocketRequest:
@@ -130,7 +120,6 @@ class H2WebSocketRequest:
     request: RequestReceived
     ws_path: bytes
 
-
 type H2Event = (
     H2RequestReceived
     | H2BodyReceived
@@ -140,11 +129,9 @@ type H2Event = (
     | H2WebSocketRequest
 )
 
-
 # ---------------------------------------------------------------------------
 # Per-stream state
 # ---------------------------------------------------------------------------
-
 
 @dataclass(slots=True)
 class _StreamState:
@@ -153,11 +140,9 @@ class _StreamState:
     headers_received: bool = False
     ended: bool = False
 
-
 # ---------------------------------------------------------------------------
 # H2Connection — manages the full HTTP/2 connection
 # ---------------------------------------------------------------------------
-
 
 class H2Connection:
     """HTTP/2 connection state machine backed by the h2 library.

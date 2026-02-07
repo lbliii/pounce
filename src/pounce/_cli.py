@@ -9,8 +9,6 @@ Uses argparse (stdlib) — no extra dependencies.
 
 """
 
-from __future__ import annotations
-
 import argparse
 import sys
 
@@ -56,7 +54,6 @@ def main(args: list[str] | None = None) -> None:
     # Run the server
     server = Server(config, app)
     server.run()
-
 
 def _build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for the pounce CLI."""

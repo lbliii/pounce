@@ -11,16 +11,12 @@ no asyncio imports. The worker feeds data in and reads data out.
 
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
-
 
 # ---------------------------------------------------------------------------
 # Protocol Events — produced by protocol handlers
 # ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True, slots=True)
 class RequestReceived:
@@ -38,7 +34,6 @@ class RequestReceived:
     headers: tuple[tuple[bytes, bytes], ...]
     http_version: str
 
-
 @dataclass(frozen=True, slots=True)
 class BodyReceived:
     """A chunk of request body data.
@@ -51,7 +46,6 @@ class BodyReceived:
     data: bytes
     more: bool
 
-
 @dataclass(frozen=True, slots=True)
 class ConnectionClosed:
     """The connection has been closed by the client or due to an error.
@@ -61,7 +55,6 @@ class ConnectionClosed:
     """
 
     reason: str
-
 
 @dataclass(frozen=True, slots=True)
 class Upgraded:
@@ -73,11 +66,9 @@ class Upgraded:
 
     protocol: str
 
-
 # ---------------------------------------------------------------------------
 # WebSocket Events — produced by WSProtocol
 # ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True, slots=True)
 class WebSocketConnected:
@@ -89,7 +80,6 @@ class WebSocketConnected:
 
     subprotocol: str | None
 
-
 @dataclass(frozen=True, slots=True)
 class WebSocketDataReceived:
     """A WebSocket data frame has been received.
@@ -99,7 +89,6 @@ class WebSocketDataReceived:
     """
 
     data: bytes | str
-
 
 @dataclass(frozen=True, slots=True)
 class WebSocketDisconnected:
@@ -113,7 +102,6 @@ class WebSocketDisconnected:
     code: int
     reason: str
 
-
 type ProtocolEvent = (
     RequestReceived
     | BodyReceived
@@ -124,11 +112,9 @@ type ProtocolEvent = (
     | WebSocketDisconnected
 )
 
-
 # ---------------------------------------------------------------------------
 # Protocol Handler — structural interface for all wire protocols
 # ---------------------------------------------------------------------------
-
 
 @runtime_checkable
 class ProtocolHandler(Protocol):
