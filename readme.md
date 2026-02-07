@@ -1,4 +1,4 @@
-# pounce
+# ⟩⟩· pounce
 
 A free-threading-native ASGI server for Python 3.14t.
 

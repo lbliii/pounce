@@ -30,7 +30,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "h11>=0.14.0",  # HTTP/1.1 parser (pure Python, well-tested, ~2k LOC)
+    "h11>=0.14.0", # HTTP/1.1 parser (pure Python, well-tested, ~2k LOC)
 ]
 
 [project.optional-dependencies]
@@ -44,11 +44,7 @@ ws = ["wsproto>=1.2"]
 tls = ["truststore>=0.9"]
 
 # Full protocol support
-full = [
-    "h2>=4.0",
-    "wsproto>=1.2",
-    "truststore>=0.9",
-]
+full = ["h2>=4.0", "wsproto>=1.2", "truststore>=0.9"]
 
 [project.scripts]
 pounce = "pounce._cli:main"
@@ -93,12 +89,12 @@ select = [
     "PT",   # flake8-pytest-style — pytest best practices
 ]
 ignore = [
-    "E501",   # line too long — handled by formatter
+    "E501", # line too long — handled by formatter
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]    # Allow unused imports in __init__ files (re-exports)
-"tests/**/*.py" = ["S101"]  # Allow assert in tests
+"__init__.py" = ["F401"]   # Allow unused imports in __init__ files (re-exports)
+"tests/**/*.py" = ["S101"] # Allow assert in tests
 
 # =============================================================================
 # ty — Type Checker (Rust-based, Astral)
@@ -203,8 +199,17 @@ format = { cmd = "ruff format .", help = "Format code with ruff" }
 format-check = { cmd = "ruff format . --check", help = "Check formatting" }
 
 # CI Pipeline
-ci = { sequence = ["lint", "format-check", "ty", "test"], help = "Full CI check" }
-check = { sequence = ["lint", "format-check", "ty"], help = "Quick check (no tests)" }
+ci = { sequence = [
+    "lint",
+    "format-check",
+    "ty",
+    "test",
+], help = "Full CI check" }
+check = { sequence = [
+    "lint",
+    "format-check",
+    "ty",
+], help = "Quick check (no tests)" }
 
 # Build & Release
 dist = { shell = "rm -rf dist/ && uv build && ls -la dist/", help = "Build distribution" }
