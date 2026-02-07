@@ -12,7 +12,6 @@ import asyncio
 import socket
 import threading
 import time
-from typing import Any
 
 import pytest
 
@@ -20,7 +19,6 @@ from pounce._types import ASGIApp, Receive, Scope, Send
 from pounce.config import ServerConfig
 from pounce.net.listener import create_listener
 from pounce.worker import Worker
-
 
 # ---------------------------------------------------------------------------
 # ASGI test apps
@@ -127,6 +125,51 @@ async def _error_app(scope: Scope, receive: Receive, send: Send) -> None:
     raise RuntimeError("App crashed!")
 
 
+async def _sse_app(scope: Scope, receive: Receive, send: Send) -> None:
+    """ASGI app that streams SSE events until the client disconnects."""
+    if scope["type"] == "lifespan":
+        while True:
+            message = await receive()
+            if message["type"] == "lifespan.startup":
+                await send({"type": "lifespan.startup.complete"})
+            elif message["type"] == "lifespan.shutdown":
+                await send({"type": "lifespan.shutdown.complete"})
+                return
+        return
+
+    await receive()
+
+    await send({
+        "type": "http.response.start",
+        "status": 200,
+        "headers": [
+            (b"content-type", b"text/event-stream"),
+            (b"cache-control", b"no-cache"),
+            (b"connection", b"keep-alive"),
+        ],
+    })
+
+    tick = 0
+    try:
+        while True:
+            chunk = f"data: tick {tick}\n\n".encode()
+            await send({
+                "type": "http.response.body",
+                "body": chunk,
+                "more_body": True,
+            })
+            tick += 1
+            await asyncio.sleep(0.05)
+    except (asyncio.CancelledError, ConnectionError, OSError):
+        pass
+
+    await send({
+        "type": "http.response.body",
+        "body": b"",
+        "more_body": False,
+    })
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -156,6 +199,12 @@ def error_app() -> ASGIApp:
     return _error_app
 
 
+@pytest.fixture
+def sse_app() -> ASGIApp:
+    """ASGI app that streams SSE events."""
+    return _sse_app
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -179,7 +228,7 @@ def send_raw_request(
                 if not chunk:
                     break
                 response += chunk
-            except socket.timeout:
+            except TimeoutError:
                 break
         return response
     finally:

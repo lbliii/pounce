@@ -59,12 +59,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SupervisorError` — worker spawn failures, crash-restart exhaustion
 - `WorkerError` — worker-level failures reported to supervisor
 
-#### Benchmarks (scaffold)
+#### Benchmarks
 
 - `benchmarks/hello_app.py` — minimal ASGI app for throughput benchmarking
+- `benchmarks/sse_app.py` — SSE streaming app for stress testing
+- `benchmarks/test_throughput.py` — automated throughput scaling benchmark (single-worker
+  baseline ~6-7k req/s, multi-worker validated via shared-socket workers)
+- `benchmarks/test_memory.py` — thread vs process RSS comparison (thread workers use
+  shared interpreter, ~3MB delta for 4 workers)
+- `benchmarks/test_sse_stress.py` — SSE stress test: 100 concurrent streams held 10s,
+  ~20k events delivered, RSS growth < 3MB (no memory leak)
+- `benchmarks/test_chirp_compat.py` — chirp App compatibility verification (chirp hello-world
+  served through pounce Worker without modification)
 - `benchmarks/README.md` — instructions for wrk/hey benchmarking
 
-#### Tests (253 passing, up from 188)
+#### Tests (253 + 7 benchmark tests, all passing)
 
 - Unit tests for runtime detection: GIL state, worker mode, CPU count fallback
 - Unit tests for supervisor: init, mode detection, socket validation, shutdown, spawn/stop,

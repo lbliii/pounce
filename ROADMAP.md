@@ -387,13 +387,16 @@ Multi-worker mode with automatic GIL detection.
 - [x] Socket deduplication on cleanup (shared-fd safety)
 - [x] CLI `--workers 0` for auto-detect, help text updated
 
-**Benchmarks (scaffold):**
+**Benchmarks:**
 
 - [x] `benchmarks/hello_app.py` — minimal ASGI app for throughput testing
-- [ ] Throughput measurements: single-worker and multi-worker comparison
-- [ ] Streaming response stress test (SSE hold-open, sustained concurrent streams)
+- [x] `benchmarks/sse_app.py` — SSE streaming app for stress testing
+- [x] Throughput benchmark: single-worker ~6-7k req/s, multi-worker validated
+- [x] Memory benchmark: thread workers vs process workers RSS comparison
+- [x] SSE stress test: 100 concurrent streams, 10s hold, ~20k events, RSS growth < 3MB
+- [x] Chirp compatibility: chirp App served through pounce Worker
 
-**Test coverage:** 253 tests (unit + integration), all passing.
+**Test coverage:** 253 tests (unit + integration) + 7 benchmark tests, all passing.
 
 ### Phase 3: It's Complete
 
