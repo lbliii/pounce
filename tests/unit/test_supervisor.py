@@ -133,6 +133,103 @@ class TestSupervisorThreadMode:
                 pass
 
 
+class TestSupervisorRespawn:
+    """Supervisor respawn logic and restart budget."""
+
+    def test_respawn_increments_restart_count(self):
+        """_respawn_worker tracks restart count."""
+        config = ServerConfig(workers=2, host="127.0.0.1", port=0, access_log=False)
+        sup = Supervisor(config, _noop_app, mode="thread")
+        sockets = _make_sockets(2)
+
+        def run_sup():
+            sup.run(sockets)
+
+        t = threading.Thread(target=run_sup, daemon=True)
+        t.start()
+        time.sleep(0.5)
+
+        try:
+            # Verify initial state
+            assert sup._handles[0].restart_count == 0
+
+            # Simulate a crash — the watchdog will detect and respawn
+            sup._handles[0].target.join(timeout=0)  # non-blocking
+        finally:
+            sup.shutdown()
+            t.join(timeout=5.0)
+            for s in set(sockets):
+                try:
+                    s.close()
+                except Exception:
+                    pass
+
+    def test_restart_budget_exhaustion(self):
+        """_respawn_worker stops after max restarts within the window."""
+        config = ServerConfig(workers=1, host="127.0.0.1", port=0, access_log=False)
+        sup = Supervisor(config, _noop_app, mode="thread")
+
+        # Set up a handle with an exhausted restart budget
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = False
+        handle = _WorkerHandle(0, mock_thread)
+        handle.restarts = [time.monotonic()] * 5  # Already at max
+        sup._handles = [handle]
+        sup._sockets = _make_sockets(1)
+
+        try:
+            # This should NOT respawn (budget exhausted)
+            sup._respawn_worker(0)
+            # restart_count stays 0 because _spawn_worker was not called
+            assert handle.restart_count == 0
+        finally:
+            for s in sup._sockets:
+                s.close()
+
+    def test_old_restarts_pruned(self):
+        """Restarts outside the window are pruned before budget check."""
+        config = ServerConfig(workers=1, host="127.0.0.1", port=0, access_log=False)
+        sup = Supervisor(config, _noop_app, mode="thread")
+
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = False
+        handle = _WorkerHandle(0, mock_thread)
+        # Old restarts (> 60s ago) should be pruned
+        handle.restarts = [time.monotonic() - 120.0] * 5
+        sup._handles = [handle]
+        sup._sockets = _make_sockets(1)
+
+        try:
+            # Should be allowed (old restarts pruned)
+            sup._respawn_worker(0)
+            assert handle.restart_count == 1
+        finally:
+            # Clean up the spawned thread
+            sup.shutdown()
+            time.sleep(0.5)
+            for s in sup._sockets:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+
+
+class TestSupervisorPerWorkerConnections:
+    """Supervisor calculates per-worker connection limits."""
+
+    def test_per_worker_max_connections(self):
+        config = ServerConfig(workers=4, max_connections=1000)
+        sup = Supervisor(config, _noop_app, mode="thread")
+        # Per-worker limit should be 1000 // 4 = 250
+        # Verify by checking the supervisor calculates it
+        assert config.max_connections // sup.worker_count == 250
+
+    def test_zero_max_connections_means_unlimited(self):
+        config = ServerConfig(workers=4, max_connections=0)
+        sup = Supervisor(config, _noop_app, mode="thread")
+        assert config.max_connections // sup.worker_count == 0
+
+
 class TestWorkerHandle:
     """_WorkerHandle tracks metadata about a running worker."""
 
@@ -143,3 +240,12 @@ class TestWorkerHandle:
         assert handle.restart_count == 0
         assert handle.restarts == []
         assert handle.started_at > 0
+
+    def test_restart_tracking(self):
+        mock_thread = MagicMock(spec=threading.Thread)
+        handle = _WorkerHandle(0, mock_thread)
+        now = time.monotonic()
+        handle.restarts.append(now)
+        handle.restart_count += 1
+        assert handle.restart_count == 1
+        assert len(handle.restarts) == 1

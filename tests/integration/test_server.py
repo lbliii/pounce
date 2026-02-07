@@ -1,6 +1,7 @@
 """Integration tests for pounce.server — full server lifecycle."""
 
 import asyncio
+import socket
 import threading
 import time
 
@@ -9,6 +10,7 @@ from pounce.asgi.lifespan import run_lifespan
 from pounce.config import ServerConfig
 from pounce.logging import configure_logging
 from pounce.net.listener import create_listener
+from pounce.server import Server
 from pounce.worker import Worker
 
 from tests.conftest import send_raw_request
@@ -67,7 +69,7 @@ def _run_server_background(
     def _run() -> None:
         async def _serve() -> None:
             configure_logging(config)
-            worker = Worker(config, app, sock)
+            worker = Worker(config, app, sock, worker_id=0)
             async with run_lifespan(app, config):
                 srv = await asyncio.start_server(
                     worker._handle_connection, sock=sock
@@ -123,3 +125,33 @@ class TestServerLifecycle:
 
         assert "startup" in _lifespan_events
         assert "shutdown" in _lifespan_events
+
+
+class TestCloseSockets:
+    """Server._close_sockets deduplicates shared-fd sockets."""
+
+    def test_closes_unique_sockets(self):
+        """Distinct sockets are all closed."""
+        s1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s1.bind(("127.0.0.1", 0))
+        s2.bind(("127.0.0.1", 0))
+
+        Server._close_sockets([s1, s2])
+
+        assert s1.fileno() == -1
+        assert s2.fileno() == -1
+
+    def test_deduplicates_shared_socket(self):
+        """Same socket appearing multiple times is only closed once."""
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("127.0.0.1", 0))
+
+        # Same object three times (shared-fd strategy)
+        Server._close_sockets([s, s, s])
+
+        assert s.fileno() == -1
+
+    def test_handles_empty_list(self):
+        """Empty list does nothing."""
+        Server._close_sockets([])  # Should not raise

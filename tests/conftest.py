@@ -198,7 +198,7 @@ def start_worker(
     if config is None:
         config = ServerConfig(host="127.0.0.1", port=0, access_log=False)
     sock = create_listener(config)
-    worker = Worker(config, app, sock)
+    worker = Worker(config, app, sock, worker_id=0)
     thread = threading.Thread(target=worker.run, daemon=True)
     thread.start()
     time.sleep(0.15)

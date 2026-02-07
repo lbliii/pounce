@@ -175,3 +175,52 @@ class TestWorkerBackpressure:
             worker.shutdown()
             thread.join(timeout=3.0)
             sock.close()
+
+    def test_no_limit_when_zero(self):
+        """max_connections=0 means unlimited."""
+        worker, sock, thread = _start_worker(
+            _hello_app, max_connections=0,
+        )
+        addr = sock.getsockname()
+
+        try:
+            response = _send_request(addr)
+            assert b"200" in response
+        finally:
+            worker.shutdown()
+            thread.join(timeout=3.0)
+            sock.close()
+
+
+class TestWorkerBridgeShutdown:
+    """The bridge task translates threading.Event to asyncio shutdown."""
+
+    def test_bridge_detects_external_event(self):
+        """Worker stops when external threading.Event is set."""
+        ext_event = threading.Event()
+        worker, sock, thread = _start_worker(
+            _hello_app, shutdown_event=ext_event,
+        )
+        addr = sock.getsockname()
+
+        try:
+            # Confirm it's serving
+            response = _send_request(addr)
+            assert b"200" in response
+
+            # Set the external event (simulates supervisor shutdown)
+            ext_event.set()
+            thread.join(timeout=3.0)
+            assert not thread.is_alive()
+        finally:
+            sock.close()
+
+    def test_bridge_not_created_without_external_event(self):
+        """Without an external event, no bridge task is created."""
+        config = ServerConfig(host="127.0.0.1", port=0, access_log=False)
+        sock = create_listener(config)
+        try:
+            worker = Worker(config, _hello_app, sock, worker_id=0)
+            assert worker._ext_shutdown is None
+        finally:
+            sock.close()

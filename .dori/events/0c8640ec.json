@@ -1,0 +1,14 @@
+{
+  "id": "0c8640ec",
+  "type": "docs_staged",
+  "timestamp": "2026-02-07T17:22:11.859381Z",
+  "message": "1 doc(s) staged for commit",
+  "suggested_action": "::a",
+  "acknowledged": false,
+  "metadata": {
+    "file_count": 1
+  },
+  "files": [
+    "benchmarks/README.md"
+  ]
+}
