@@ -383,6 +383,7 @@ class Worker:
             H2GoAway,
             H2RequestReceived,
             H2StreamReset,
+            H2WebSocketRequest,
             H2WindowUpdated,
             is_h2_available,
         )
@@ -496,6 +497,18 @@ class Worker:
                         )
                         stream_tasks[event.stream_id] = (task, body_queue)
 
+                    elif isinstance(event, H2WebSocketRequest):
+                        # RFC 8441: WebSocket over HTTP/2 via Extended CONNECT
+                        ws_queue: asyncio.Queue[dict] = asyncio.Queue()
+                        ws_task = asyncio.create_task(
+                            self._handle_h2_websocket_stream(
+                                h2_conn, event.stream_id,
+                                event.request, ws_queue, writer,
+                                client, server, client_str,
+                            )
+                        )
+                        stream_tasks[event.stream_id] = (ws_task, ws_queue)
+
                     elif isinstance(event, H2BodyReceived):
                         pair = stream_tasks.get(event.stream_id)
                         if pair is not None:
@@ -536,6 +549,145 @@ class Worker:
                 await writer.drain()
             except Exception:
                 pass
+
+    async def _handle_h2_websocket_stream(
+        self,
+        h2_conn: object,  # H2Connection
+        stream_id: int,
+        request: RequestReceived,
+        data_queue: asyncio.Queue[dict],
+        writer: asyncio.StreamWriter,
+        client: tuple[str, int],
+        server: tuple[str, int],
+        client_str: str,
+    ) -> None:
+        """Handle a WebSocket-over-HTTP/2 stream (RFC 8441).
+
+        The Extended CONNECT bootstraps a WebSocket session within an H2
+        stream. Data frames on this stream carry WebSocket frames (via
+        wsproto), and the ASGI app sees a standard ``websocket`` scope.
+
+        """
+        from pounce.protocols.h2 import H2Connection
+        from pounce.protocols.ws import WSProtocol, is_wsproto_available
+
+        if not is_wsproto_available():
+            self._logger.warning(
+                "WebSocket over H2 requested but wsproto not installed"
+            )
+            return
+
+        h2 = h2_conn  # type: H2Connection  # noqa: F841
+        ws_proto = WSProtocol()
+
+        # Send 200 OK response headers to accept the Extended CONNECT
+        h2_conn.send_response_headers(stream_id, 200, [])  # type: ignore[union-attr]
+        writer.write(h2_conn.data_to_send())  # type: ignore[union-attr]
+
+        # Build WebSocket ASGI scope
+        scope = build_ws_scope(request, self._config, client, server)
+
+        receive_queue: asyncio.Queue[dict] = asyncio.Queue()
+        close_event = asyncio.Event()
+
+        # Push the initial connect event
+        await receive_queue.put({"type": "websocket.connect"})
+
+        async def _ws_receive() -> dict:
+            return await receive_queue.get()
+
+        accepted = False
+
+        async def _ws_send(message: dict) -> None:
+            nonlocal accepted
+
+            msg_type = message["type"]
+
+            if msg_type == "websocket.accept":
+                accepted = True
+                # Already sent 200 OK; no further handshake needed for H2 WS
+
+            elif msg_type == "websocket.send":
+                data = message.get("text")
+                if data is not None:
+                    raw = ws_proto.send_message(data)
+                else:
+                    raw = ws_proto.send_message(message.get("bytes", b""))
+                h2_conn.send_data(stream_id, raw)  # type: ignore[union-attr]
+                writer.write(h2_conn.data_to_send())  # type: ignore[union-attr]
+
+            elif msg_type == "websocket.close":
+                code = message.get("code", 1000)
+                reason = message.get("reason", "")
+                raw = ws_proto.close(code=code, reason=reason)
+                h2_conn.send_data(stream_id, raw, end_stream=True)  # type: ignore[union-attr]
+                writer.write(h2_conn.data_to_send())  # type: ignore[union-attr]
+                close_event.set()
+
+        # Run the ASGI app
+        async def _run_app() -> None:
+            try:
+                await self._app(scope, _ws_receive, _ws_send)
+            except Exception:
+                self._logger.exception(
+                    "ASGI app error on H2 WebSocket stream %d", stream_id,
+                )
+
+        # Process incoming H2 data frames as WebSocket frames
+        async def _process_data() -> None:
+            while not close_event.is_set():
+                try:
+                    msg = await asyncio.wait_for(data_queue.get(), timeout=30.0)
+                except asyncio.TimeoutError:
+                    continue
+
+                raw_data = msg.get("body", b"")
+                if raw_data:
+                    events = ws_proto.receive_data(raw_data)
+                    for ws_event in events:
+                        if isinstance(ws_event, WebSocketDataReceived):
+                            if isinstance(ws_event.data, str):
+                                await receive_queue.put({
+                                    "type": "websocket.receive",
+                                    "text": ws_event.data,
+                                })
+                            else:
+                                await receive_queue.put({
+                                    "type": "websocket.receive",
+                                    "bytes": ws_event.data,
+                                })
+                        elif isinstance(ws_event, WebSocketDisconnected):
+                            await receive_queue.put({
+                                "type": "websocket.disconnect",
+                                "code": ws_event.code,
+                            })
+                            return
+
+                if not msg.get("more_body", True):
+                    await receive_queue.put({
+                        "type": "websocket.disconnect",
+                        "code": 1000,
+                    })
+                    return
+
+        app_task = asyncio.create_task(_run_app())
+        data_task = asyncio.create_task(_process_data())
+
+        try:
+            done, pending = await asyncio.wait(
+                {app_task, data_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        except Exception:
+            self._logger.exception(
+                "Unhandled error on H2 WebSocket from %s", client_str,
+            )
 
     async def _handle_websocket(
         self,

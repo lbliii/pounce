@@ -113,12 +113,31 @@ class H2WindowUpdated:
     stream_id: int
 
 
+@dataclass(frozen=True, slots=True)
+class H2WebSocketRequest:
+    """Extended CONNECT for WebSocket over HTTP/2 (RFC 8441).
+
+    The client used ``:method = CONNECT`` with ``:protocol = websocket``
+    to request a WebSocket stream within the HTTP/2 connection.
+
+    Attributes:
+        stream_id: The h2 stream identifier.
+        request: The pounce RequestReceived event (method set to CONNECT).
+        ws_path: The ``:path`` pseudo-header (WebSocket target).
+    """
+
+    stream_id: int
+    request: RequestReceived
+    ws_path: bytes
+
+
 type H2Event = (
     H2RequestReceived
     | H2BodyReceived
     | H2StreamReset
     | H2GoAway
     | H2WindowUpdated
+    | H2WebSocketRequest
 )
 
 
@@ -184,8 +203,20 @@ class H2Connection:
         Must be called once after creation. The output bytes (settings
         frame) should be written to the network via ``data_to_send()``.
 
+        Enables RFC 8441 Extended CONNECT protocol for WebSocket over H2.
+
         """
         self._conn.initiate_connection()
+        # Advertise Extended CONNECT support (RFC 8441)
+        # SETTINGS_ENABLE_CONNECT_PROTOCOL = 0x8
+        try:
+            import h2.settings
+            self._conn.update_settings({
+                h2.settings.SettingCodes.ENABLE_CONNECT_PROTOCOL: 1,
+            })
+        except (AttributeError, Exception):
+            # Older h2 versions may not support this setting
+            pass
 
     def receive_data(self, data: bytes) -> list[H2Event]:
         """Feed raw bytes from the network and return h2 stream events.
@@ -213,6 +244,7 @@ class H2Connection:
                 target = b"/"
                 authority = b""
                 scheme = b"https"
+                h2_protocol = b""
                 headers_list: list[tuple[bytes, bytes]] = []
 
                 for name, value in event.headers:
@@ -227,6 +259,8 @@ class H2Connection:
                         authority = value_bytes
                     elif name_bytes == b":scheme":
                         scheme = value_bytes
+                    elif name_bytes == b":protocol":
+                        h2_protocol = value_bytes
                     elif not name_bytes.startswith(b":"):
                         headers_list.append((name_bytes, value_bytes))
 
@@ -243,17 +277,26 @@ class H2Connection:
                     http_version="2",
                 )
                 self._streams[stream_id].headers_received = True
-                pounce_events.append(H2RequestReceived(
-                    stream_id=stream_id, request=request,
-                ))
 
-                # If stream ended with headers (GET, HEAD, etc.)
-                if event.stream_ended is not None:
-                    self._streams[stream_id].ended = True
-                    pounce_events.append(H2BodyReceived(
+                # RFC 8441: Extended CONNECT with :protocol = websocket
+                if method == b"CONNECT" and h2_protocol == b"websocket":
+                    pounce_events.append(H2WebSocketRequest(
                         stream_id=stream_id,
-                        body=BodyReceived(data=b"", more=False),
+                        request=request,
+                        ws_path=target,
                     ))
+                else:
+                    pounce_events.append(H2RequestReceived(
+                        stream_id=stream_id, request=request,
+                    ))
+
+                    # If stream ended with headers (GET, HEAD, etc.)
+                    if event.stream_ended is not None:
+                        self._streams[stream_id].ended = True
+                        pounce_events.append(H2BodyReceived(
+                            stream_id=stream_id,
+                            body=BodyReceived(data=b"", more=False),
+                        ))
 
             elif isinstance(event, h2.events.DataReceived):
                 stream_id = event.stream_id
