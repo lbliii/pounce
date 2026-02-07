@@ -145,3 +145,14 @@ class H1Protocol:
     def client_is_waiting_for_100_continue(self) -> bool:
         """True if the client sent Expect: 100-continue."""
         return self._conn.client_is_waiting_for_100_continue  # type: ignore[return-value]
+
+    def has_pending_data(self) -> bool:
+        """True if h11 has buffered data from a pipelined request.
+
+        After ``start_new_cycle()``, h11 may still have unconsumed
+        bytes from a previous read.  Check this before doing another
+        socket read to avoid blocking when data is already available.
+
+        """
+        trailing, _ = self._conn.trailing_data
+        return bool(trailing)

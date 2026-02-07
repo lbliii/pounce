@@ -263,28 +263,10 @@ class Worker:
         request_count = 0
 
         try:
-            while True:
-                # Read data from the client
-                try:
-                    data = await asyncio.wait_for(
-                        reader.read(65536),
-                        timeout=self._config.keep_alive_timeout,
-                    )
-                except asyncio.TimeoutError:
-                    break  # Keep-alive timeout — close connection
-                except (ConnectionError, OSError):
-                    break
-
-                if not data:
-                    break  # Client disconnected
-
-                # Parse through the protocol layer
-                try:
-                    events = proto.receive_data(data)
-                except ParseError as exc:
-                    await self._send_error(writer, proto, 400, str(exc))
-                    break
-
+            # Reusable helper: process a batch of events from the protocol
+            # layer. Returns True if the connection should close.
+            async def _process_events(events: list) -> bool:
+                nonlocal request_count
                 idx = 0
                 while idx < len(events):
                     event = events[idx]
@@ -308,13 +290,39 @@ class Worker:
                             await self._handle_websocket(
                                 event, reader, writer, client, server, client_str,
                             )
-                            return  # WS takes over the connection
+                            return True  # WS takes over
                         await self._handle_request(
                             event, proto, reader, writer, client, server, client_str,
                             initial_body=initial_body,
                         )
                     elif isinstance(event, ConnectionClosed):
-                        return  # Clean close
+                        return True  # Clean close
+                return False
+
+            while True:
+                # Read data from the client
+                try:
+                    data = await asyncio.wait_for(
+                        reader.read(65536),
+                        timeout=self._config.keep_alive_timeout,
+                    )
+                except asyncio.TimeoutError:
+                    break  # Keep-alive timeout — close connection
+                except (ConnectionError, OSError):
+                    break
+
+                if not data:
+                    break  # Client disconnected
+
+                # Parse through the protocol layer
+                try:
+                    events = proto.receive_data(data)
+                except ParseError as exc:
+                    await self._send_error(writer, proto, 400, str(exc))
+                    break
+
+                if await _process_events(events):
+                    return
 
                 # Enforce max requests per connection
                 if max_requests > 0 and request_count >= max_requests:
@@ -325,6 +333,12 @@ class Worker:
                     proto.start_new_cycle()
                 except Exception:
                     break  # Connection can't be reused
+
+                # NOTE: HTTP pipelining (next request buffered in h11
+                # before we call reader.read()) is intentionally not
+                # optimised here.  Pipelining is rarely used by modern
+                # clients.  h11 preserves its buffer across cycles, so
+                # the next reader.read() + receive_data() will flush it.
 
         except Exception:
             self._logger.exception("Unhandled error on connection from %s", client_str)

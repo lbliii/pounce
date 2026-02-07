@@ -141,6 +141,11 @@ def create_empty_receive() -> Any:
     return receive
 
 
+# Threshold for write coalescing: if head + body fit in this many bytes,
+# combine them into a single write()/syscall.
+_COALESCE_THRESHOLD = 16384  # 16 KB
+
+
 def create_send(
     protocol: ProtocolHandler,
     writer: asyncio.StreamWriter,
@@ -152,6 +157,11 @@ def create_send(
 
     Streaming-first: each response.body chunk is written immediately.
     No buffering — the client sees data as soon as the app produces it.
+
+    Write coalescing: the response head is held back and combined with
+    the first body chunk in a single ``writer.write()`` call when the
+    total fits within ``_COALESCE_THRESHOLD``.  This halves the number
+    of syscalls for small responses (the common case).
 
     Args:
         protocol: Protocol handler for serialization.
@@ -165,9 +175,12 @@ def create_send(
     """
     response_started = False
     response_complete = False
+    # Buffer for write coalescing: holds the serialized response head
+    # until the first body chunk arrives.
+    pending_head: bytes = b""
 
     async def send(message: dict[str, Any]) -> None:
-        nonlocal response_started, response_complete
+        nonlocal response_started, response_complete, pending_head
 
         msg_type = message["type"]
 
@@ -206,7 +219,9 @@ def create_send(
                     headers.append((b"server-timing", rendered))
 
             raw = protocol.send_response(status, headers)
-            writer.write(raw)
+
+            # Hold back the head for coalescing with the first body chunk.
+            pending_head = raw
 
         elif msg_type == "http.response.body":
             if not response_started:
@@ -229,7 +244,19 @@ def create_send(
                 body = compressor.flush()
 
             raw = protocol.send_body(body, more=more_body)
-            if raw:
+
+            # Write coalescing: combine pending head + body into one write
+            if pending_head:
+                if raw and len(pending_head) + len(raw) <= _COALESCE_THRESHOLD:
+                    # Small enough to coalesce — single write
+                    writer.write(pending_head + raw)
+                else:
+                    # Too large or no body — flush head, then body
+                    writer.write(pending_head)
+                    if raw:
+                        writer.write(raw)
+                pending_head = b""
+            elif raw:
                 writer.write(raw)
 
             if not more_body:
