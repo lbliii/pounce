@@ -5,9 +5,10 @@ Parses Accept-Encoding headers, selects the best encoding, and returns
 per-request compressor instances. Each compressor is created fresh per
 request — never shared between requests or threads.
 
-Encoding priority: zstd > gzip > identity (matching modern browser support).
+Encoding priority: zstd > br > gzip > identity (matching modern browser support).
 
 Zstd uses Python 3.14 stdlib compression.zstd (PEP 784).
+Brotli uses optional brotli/brotlicffi library (pounce[br] extra).
 Gzip uses stdlib zlib for the raw deflate stream.
 
 """
@@ -25,11 +26,34 @@ try:
 except ImportError:
     _HAS_ZSTD = False
 
+# Brotli — optional, import-gated (pounce[br] extra)
+# Supports both the C brotli library and the CFFI brotlicffi binding
+try:
+    import brotli as _brotli  # type: ignore[import-untyped]
+
+    _HAS_BROTLI = True
+except ImportError:
+    try:
+        import brotlicffi as _brotli  # type: ignore[import-untyped,no-redef]
+
+        _HAS_BROTLI = True
+    except ImportError:
+        _HAS_BROTLI = False
+
 
 # Encoding priority — highest to lowest preference
-_ENCODING_PRIORITY: tuple[str, ...] = ("zstd", "gzip")
-if not _HAS_ZSTD:
-    _ENCODING_PRIORITY = ("gzip",)
+def _build_encoding_priority() -> tuple[str, ...]:
+    """Build encoding priority based on available libraries."""
+    encodings: list[str] = []
+    if _HAS_ZSTD:
+        encodings.append("zstd")
+    if _HAS_BROTLI:
+        encodings.append("br")
+    encodings.append("gzip")
+    return tuple(encodings)
+
+
+_ENCODING_PRIORITY: tuple[str, ...] = _build_encoding_priority()
 
 
 class Compressor(Protocol):
@@ -83,6 +107,42 @@ class GzipCompressor:
     @property
     def encoding(self) -> str:
         return "gzip"
+
+
+class BrotliCompressor:
+    """Brotli compressor using the brotli or brotlicffi library.
+
+    Requires the ``brotli`` or ``brotlicffi`` package
+    (install with ``pip install pounce[br]``).
+
+    Each request gets its own BrotliCompressor — no shared state.
+
+    """
+
+    __slots__ = ("_buffer",)
+
+    def __init__(self, *, quality: int = 4) -> None:
+        if not _HAS_BROTLI:
+            raise RuntimeError(
+                "Brotli compression requires brotli or brotlicffi. "
+                "Install with: pip install pounce[br]"
+            )
+        self._buffer = bytearray()
+
+    def compress(self, data: bytes) -> bytes:
+        # Brotli doesn't support streaming well in the Python bindings,
+        # so we buffer data and compress all at once on flush
+        self._buffer.extend(data)
+        return b""
+
+    def flush(self) -> bytes:
+        if not self._buffer:
+            return b""
+        return _brotli.compress(bytes(self._buffer))
+
+    @property
+    def encoding(self) -> str:
+        return "br"
 
 
 class ZstdCompressor:
@@ -186,6 +246,8 @@ def create_compressor(encoding: str) -> Compressor:
     """
     if encoding == "zstd":
         return ZstdCompressor()
+    if encoding == "br":
+        return BrotliCompressor()
     if encoding == "gzip":
         return GzipCompressor()
     raise ValueError(f"Unsupported encoding: {encoding!r}")

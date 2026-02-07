@@ -43,11 +43,15 @@ ws = ["wsproto>=1.2"]
 # TLS termination
 tls = ["truststore>=0.9"]
 
+# Brotli content-encoding
+br = ["brotli>=1.1"]
+
 # Full protocol support
 full = [
     "h2>=4.0",
     "wsproto>=1.2",
     "truststore>=0.9",
+    "brotli>=1.1",
 ]
 
 [project.scripts]

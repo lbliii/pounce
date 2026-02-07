@@ -6,10 +6,12 @@ import sys
 import pytest
 
 from pounce._compression import (
+    BrotliCompressor,
     GzipCompressor,
     ZstdCompressor,
     create_compressor,
     negotiate_encoding,
+    _HAS_BROTLI,
     _HAS_ZSTD,
 )
 
@@ -35,10 +37,13 @@ class TestNegotiateEncoding:
         result = negotiate_encoding(b"")
         assert result is None
 
-    def test_br_only_returns_none(self):
-        """Brotli not supported in stdlib — returns None."""
+    def test_br_only(self):
+        """Brotli returns 'br' if available, None otherwise."""
         result = negotiate_encoding(b"br")
-        assert result is None
+        if _HAS_BROTLI:
+            assert result == "br"
+        else:
+            assert result is None
 
     def test_q_value_zero_excluded(self):
         """Encoding with q=0 is excluded."""
@@ -140,6 +145,39 @@ class TestZstdCompressor:
         assert decompressed == b""
 
 
+@pytest.mark.skipif(not _HAS_BROTLI, reason="brotli not available")
+class TestBrotliCompressor:
+    """BrotliCompressor wraps brotli/brotlicffi for br encoding."""
+
+    def test_encoding_name(self):
+        c = BrotliCompressor()
+        assert c.encoding == "br"
+
+    def test_roundtrip(self):
+        import brotli
+
+        c = BrotliCompressor()
+        data = b"Hello, World!" * 100
+        compressed = c.compress(data) + c.flush()
+        decompressed = brotli.decompress(compressed)
+        assert decompressed == data
+
+    def test_empty_input(self):
+        c = BrotliCompressor()
+        compressed = c.compress(b"") + c.flush()
+        # Empty input produces empty output (no data buffered)
+        assert compressed == b""
+
+    def test_large_input(self):
+        import brotli
+
+        c = BrotliCompressor()
+        data = b"x" * 1_000_000
+        compressed = c.compress(data) + c.flush()
+        assert len(compressed) < len(data)
+        assert brotli.decompress(compressed) == data
+
+
 class TestCreateCompressor:
     """create_compressor() is a factory for compressor instances."""
 
@@ -156,6 +194,12 @@ class TestCreateCompressor:
         with pytest.raises(ValueError, match="Unsupported encoding"):
             create_compressor("deflate")
 
-    def test_br_unsupported(self):
-        with pytest.raises(ValueError, match="Unsupported encoding"):
+    @pytest.mark.skipif(not _HAS_BROTLI, reason="brotli not available")
+    def test_create_br(self):
+        c = create_compressor("br")
+        assert c.encoding == "br"
+
+    @pytest.mark.skipif(_HAS_BROTLI, reason="brotli is available")
+    def test_br_unavailable_raises(self):
+        with pytest.raises(RuntimeError, match="requires brotli"):
             create_compressor("br")

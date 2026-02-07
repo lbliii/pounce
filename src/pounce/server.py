@@ -218,7 +218,10 @@ class Server:
         if self._ssl_context is not None:
             lines.append("  -> tls: enabled")
         if self._config.compression:
-            lines.append("  -> compression: enabled (zstd, gzip)")
+            from pounce._compression import _ENCODING_PRIORITY
+
+            enc_list = ", ".join(_ENCODING_PRIORITY)
+            lines.append(f"  -> compression: enabled ({enc_list})")
         if self._config.server_timing:
             lines.append("  -> server-timing: enabled")
         if self._config.root_path:
