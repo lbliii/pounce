@@ -19,6 +19,7 @@ import logging
 import signal
 import socket
 import sys
+import threading
 
 from pounce._runtime import WorkerMode, detect_worker_mode, is_gil_enabled
 from pounce._types import ASGIApp
@@ -50,12 +51,24 @@ class Server:
 
     """
 
-    __slots__ = ("_config", "_app", "_ssl_context")
+    __slots__ = (
+        "_config",
+        "_app",
+        "_ssl_context",
+        "_shutdown_event",
+        "_loop",
+        "_async_shutdown",
+        "_supervisor",
+    )
 
     def __init__(self, config: ServerConfig, app: ASGIApp) -> None:
         self._config = config
         self._app = app
         self._ssl_context = None
+        self._shutdown_event = threading.Event()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._async_shutdown: asyncio.Event | None = None
+        self._supervisor: Supervisor | None = None
 
     def run(self) -> None:
         """Start the server (blocking).
@@ -90,6 +103,34 @@ class Server:
         else:
             self._run_multi(effective_workers, mode)
 
+    def shutdown(self) -> None:
+        """Request graceful shutdown. Thread-safe and idempotent.
+
+        Can be called from any thread to stop a running server. In
+        single-worker mode this wakes the asyncio event loop via
+        ``call_soon_threadsafe``. In multi-worker mode this delegates
+        to the supervisor's shutdown.
+
+        Safe to call before ``run()`` — the server will exit immediately
+        on startup. Safe to call multiple times.
+
+        """
+        self._shutdown_event.set()
+
+        # Multi-worker: delegate to supervisor
+        supervisor = self._supervisor
+        if supervisor is not None:
+            supervisor.shutdown()
+
+        # Single-worker: bridge to the asyncio event
+        loop = self._loop
+        async_shutdown = self._async_shutdown
+        if loop is not None and async_shutdown is not None:
+            try:
+                loop.call_soon_threadsafe(async_shutdown.set)
+            except RuntimeError:
+                pass  # Loop already closed
+
     # ------------------------------------------------------------------
     # Single-worker fast path (no supervisor overhead)
     # ------------------------------------------------------------------
@@ -116,14 +157,26 @@ class Server:
     async def _run_single_async(self, sock: socket.socket) -> None:
         """Async entry point for single-worker mode."""
         loop = asyncio.get_running_loop()
-        shutdown_event = asyncio.Event()
+        self._loop = loop
+        self._async_shutdown = asyncio.Event()
 
-        # Install signal handlers
+        # If shutdown() was called before the loop started, honour it
+        if self._shutdown_event.is_set():
+            self._async_shutdown.set()
+
+        def _on_signal() -> None:
+            """Set both events so shutdown() and signal paths converge."""
+            self._shutdown_event.set()
+            if self._async_shutdown is not None:
+                self._async_shutdown.set()
+
+        # Install signal handlers (main thread only)
         for sig in (signal.SIGINT, signal.SIGTERM):
             try:
-                loop.add_signal_handler(sig, shutdown_event.set)
+                loop.add_signal_handler(sig, _on_signal)
             except NotImplementedError:
-                # Windows doesn't support add_signal_handler
+                # Windows or non-main thread — signals won't work,
+                # but shutdown() still does.
                 pass
 
         worker = Worker(
@@ -142,11 +195,12 @@ class Server:
             logger.info("Ready to accept connections")
 
             try:
-                await shutdown_event.wait()
+                await self._async_shutdown.wait()
             finally:
                 logger.info("Shutting down...")
                 server.close()
                 await server.wait_closed()
+                self._loop = None
 
     # ------------------------------------------------------------------
     # Multi-worker path (supervisor)
@@ -171,13 +225,13 @@ class Server:
             mode,
         )
 
-        supervisor = Supervisor(
+        self._supervisor = Supervisor(
             self._config, self._app, mode=mode, ssl_context=self._ssl_context,
         )
 
         # Run lifespan once in the main thread, then start supervisor
         try:
-            asyncio.run(self._run_lifespan_then_supervise(supervisor, sockets))
+            asyncio.run(self._run_lifespan_then_supervise(self._supervisor, sockets))
         except KeyboardInterrupt:
             pass
         finally:
