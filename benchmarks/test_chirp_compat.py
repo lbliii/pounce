@@ -4,6 +4,7 @@ Chirp compatibility test — verifies a chirp app runs on pounce without modific
 Checks off the Phase 1 success criterion: "Chirp hello-world app runs
 without modification."
 
+Uses the canonical chirp example from ``examples/chirp_app.py``.
 Skipped if chirp is not installed.
 
 """
@@ -60,12 +61,7 @@ def _send_raw_request(addr: tuple[str, int], request: bytes, timeout: float = 3.
 @pytest.mark.timeout(15)
 def test_chirp_hello_world_on_pounce() -> None:
     """A minimal chirp App should serve HTTP through a pounce Worker."""
-    # Build a minimal chirp application
-    app = chirp.App()
-
-    @app.route("/")
-    def index() -> str:
-        return "Hello from chirp!"
+    from examples.chirp_app import app
 
     # Start a pounce worker with the chirp app
     config = ServerConfig(host="127.0.0.1", port=0, access_log=False, compression=False)
@@ -87,7 +83,7 @@ def test_chirp_hello_world_on_pounce() -> None:
         # Verify we got a valid HTTP response
         assert b"HTTP/1.1" in response, f"No HTTP response: {response[:200]}"
         assert b"200" in response, f"Expected 200 status: {response[:200]}"
-        assert b"Hello from chirp!" in response, f"Missing chirp body: {response[:500]}"
+        assert b"Hello from chirp" in response, f"Missing chirp body: {response[:500]}"
 
         print("\n  [chirp compat] chirp App served successfully via pounce Worker")
     finally:
