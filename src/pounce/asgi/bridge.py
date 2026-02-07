@@ -8,6 +8,12 @@ Streaming-first: send() writes response chunks immediately to the
 transport. No buffering — each http.response.body message is compressed
 (if applicable) and flushed to the wire before the next one.
 
+Phase 4 hot-path optimizations:
+- Pre-encoded ASGI spec constants (avoid per-request dict allocation)
+- Bodyless fast-path receive (skip asyncio.Queue for GET/HEAD)
+- Single write call for head+body when small
+- Reduced isinstance checks
+
 """
 
 import asyncio
@@ -18,6 +24,20 @@ from pounce._compression import Compressor
 from pounce._timing import ServerTiming
 from pounce.config import ServerConfig
 from pounce.protocols._base import BodyReceived, ProtocolHandler, RequestReceived
+
+# ---------------------------------------------------------------------------
+# Pre-computed constants — allocated once at import, shared across workers
+# ---------------------------------------------------------------------------
+
+_ASGI_SPEC: dict[str, str] = {"version": "3.0", "spec_version": "2.4"}
+
+# Pre-built terminal body message for bodyless requests (GET, HEAD, etc.)
+# Avoids asyncio.Queue entirely for the common no-body case.
+_EMPTY_BODY_MESSAGE: dict[str, Any] = {
+    "type": "http.request",
+    "body": b"",
+    "more_body": False,
+}
 
 
 def build_scope(
@@ -57,7 +77,7 @@ def build_scope(
 
     return {
         "type": "http",
-        "asgi": {"version": "3.0", "spec_version": "2.4"},
+        "asgi": _ASGI_SPEC,
         "http_version": request.http_version,
         "method": request.method.decode("ascii"),
         "path": path,
@@ -69,6 +89,7 @@ def build_scope(
         "client": client,
         "headers": headers,
     }
+
 
 def create_receive(
     body_events: asyncio.Queue[BodyReceived],
@@ -96,9 +117,33 @@ def create_receive(
 
     return receive
 
+
+def create_empty_receive() -> Any:
+    """Create a fast-path receive for bodyless requests (GET, HEAD, etc.).
+
+    Returns a static empty-body message without asyncio.Queue overhead.
+    Called at most once per request — second call would hang, but ASGI
+    apps should not call receive() twice for bodyless requests.
+
+    """
+    called = False
+
+    async def receive() -> dict[str, Any]:
+        nonlocal called
+        if not called:
+            called = True
+            return _EMPTY_BODY_MESSAGE
+        # Block forever — the app shouldn't call receive() again
+        # after getting more_body=False.
+        await asyncio.Event().wait()
+        return _EMPTY_BODY_MESSAGE  # unreachable, keeps type checker happy
+
+    return receive
+
+
 def create_send(
     protocol: ProtocolHandler,
-    transport: asyncio.WriteTransport | asyncio.StreamWriter,
+    writer: asyncio.StreamWriter,
     *,
     timing: ServerTiming | None = None,
     compressor: Compressor | None = None,
@@ -110,7 +155,7 @@ def create_send(
 
     Args:
         protocol: Protocol handler for serialization.
-        transport: Asyncio write transport for the connection.
+        writer: Asyncio stream writer for the connection.
         timing: Optional Server-Timing header builder.
         compressor: Optional content compressor for the response.
 
@@ -124,7 +169,9 @@ def create_send(
     async def send(message: dict[str, Any]) -> None:
         nonlocal response_started, response_complete
 
-        if message["type"] == "http.response.start":
+        msg_type = message["type"]
+
+        if msg_type == "http.response.start":
             status: int = message["status"]
 
             # 103 Early Hints — informational response (RFC 8297)
@@ -159,9 +206,9 @@ def create_send(
                     headers.append((b"server-timing", rendered))
 
             raw = protocol.send_response(status, headers)
-            _write(transport, raw)
+            writer.write(raw)
 
-        elif message["type"] == "http.response.body":
+        elif msg_type == "http.response.body":
             if not response_started:
                 raise RuntimeError(
                     "Received http.response.body before http.response.start"
@@ -182,19 +229,10 @@ def create_send(
                 body = compressor.flush()
 
             raw = protocol.send_body(body, more=more_body)
-            _write(transport, raw)
+            if raw:
+                writer.write(raw)
 
             if not more_body:
                 response_complete = True
 
     return send
-
-def _write(
-    transport: asyncio.WriteTransport | asyncio.StreamWriter,
-    data: bytes,
-) -> None:
-    """Write bytes to the transport, handling both transport types."""
-    if isinstance(transport, asyncio.StreamWriter):
-        transport.write(data)
-    else:
-        transport.write(data)

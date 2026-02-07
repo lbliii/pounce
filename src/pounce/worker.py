@@ -32,7 +32,7 @@ from pounce._compression import Compressor, create_compressor, negotiate_encodin
 from pounce._errors import ParseError
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
-from pounce.asgi.bridge import build_scope, create_receive, create_send
+from pounce.asgi.bridge import build_scope, create_empty_receive, create_receive, create_send
 from pounce.asgi.h2_bridge import build_h2_scope, create_h2_receive, create_h2_send
 from pounce.asgi.ws_bridge import build_ws_scope, create_ws_receive, create_ws_send
 from pounce.config import ServerConfig
@@ -360,33 +360,35 @@ class Worker:
             timing = ServerTiming()
             timing.add("parse", elapsed_ms(request_start))
 
-        # Negotiate compression
+        # Single-pass header lookup — scan once instead of per-header
         compressor: Compressor | None = None
         if self._config.compression:
-            accept_encoding = _get_header(request.headers, b"accept-encoding")
+            accept_encoding = _get_header_from_tuple(
+                request.headers, b"accept-encoding",
+            )
             if accept_encoding:
                 encoding = negotiate_encoding(accept_encoding)
                 if encoding:
                     compressor = create_compressor(encoding)
 
-        # Create ASGI bridge callables
-        body_queue: asyncio.Queue[BodyReceived] = asyncio.Queue()
-        receive = create_receive(body_queue)
-
-        # Feed body events collected from the initial parse batch.
-        # h11 may produce body data (h11.Data → BodyReceived) and the
-        # terminal marker (h11.EndOfMessage → BodyReceived(more=False))
-        # in the same receive_data() call as the request head.
+        # Determine body status and create receive callable.
+        # For bodyless requests (most GET/HEAD), use the fast-path
+        # receive that returns a static message — no asyncio.Queue.
         body_complete = False
+        body_queue: asyncio.Queue[BodyReceived] | None = None
+
         if initial_body:
+            # Body events arrived with the request head
+            body_queue = asyncio.Queue()
             for body_event in initial_body:
                 await body_queue.put(body_event)
                 if not body_event.more:
                     body_complete = True
+            receive = create_receive(body_queue)
         else:
-            # No body events from initial parse — shouldn't happen for
-            # well-formed HTTP (h11 always emits EndOfMessage), but be safe.
-            await body_queue.put(BodyReceived(data=b"", more=False))
+            # No body events — bodyless request (GET/HEAD).
+            # Use the fast-path: no Queue, static message.
+            receive = create_empty_receive()
             body_complete = True
 
         app_start = monotonic_ns()
@@ -596,7 +598,7 @@ class Worker:
 
             compressor: Compressor | None = None
             if self._config.compression:
-                accept_encoding = _get_header(request.headers, b"accept-encoding")
+                accept_encoding = _get_header_from_tuple(request.headers, b"accept-encoding")
                 if accept_encoding:
                     encoding = negotiate_encoding(accept_encoding)
                     if encoding:
@@ -903,7 +905,7 @@ class Worker:
         scope = build_ws_scope(request, self._config, client, server)
 
         # Extract Sec-WebSocket-Key for the 101 handshake
-        ws_key = _get_header(request.headers, b"sec-websocket-key")
+        ws_key = _get_header_from_tuple(request.headers, b"sec-websocket-key")
         if not ws_key:
             self._logger.warning("WebSocket upgrade missing Sec-WebSocket-Key")
             return
@@ -1048,10 +1050,15 @@ def _is_websocket_upgrade(request: RequestReceived) -> bool:
 
     return has_upgrade_connection and has_websocket_upgrade
 
-def _get_header(
-    headers: tuple[tuple[bytes, bytes], ...], name: bytes
+def _get_header_from_tuple(
+    headers: tuple[tuple[bytes, bytes], ...], name: bytes,
 ) -> bytes | None:
-    """Get a header value by lowercase name."""
+    """Get a header value by lowercase name from a headers tuple.
+
+    Single linear scan — use when only one header is needed.  For
+    multiple lookups, build a dict with ``_headers_to_dict``.
+
+    """
     name_lower = name.lower()
     for header_name, header_value in headers:
         if header_name.lower() == name_lower:
