@@ -442,7 +442,7 @@ Full protocol support — HTTP/2, WebSocket, TLS, modern HTTP features.
 
 - [ ] App factory support: `pounce "myapp:create_app()"`
 
-**Test coverage:** 369 tests (unit + integration), all passing.
+**Test coverage:** 408 tests (unit + integration + ASGI compliance), all passing.
 
 ### Phase 4: It's Fast
 

@@ -315,7 +315,7 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 - [x] ALPN negotiation for automatic H1/H2 protocol selection
 - [x] Dev reload: `--reload` with file watcher, graceful worker restart
 - [x] Keep-alive tuning: `--keep-alive-timeout`, `--max-requests-per-connection`
-- [x] 369 tests passing (unit + integration)
+- [x] 408 tests passing (unit + integration + ASGI compliance)
 - Brotli excluded: C extension re-enables GIL on 3.14t (compression remains zstd > gzip)
 - App factory support deferred to Phase 4
 

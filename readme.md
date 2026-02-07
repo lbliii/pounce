@@ -18,7 +18,7 @@ with stream multiplexing, TLS termination with ALPN negotiation, WebSocket over 
 (RFC 8441), Priority Signals (RFC 9218), 103 Early Hints, dev reload (`--reload`),
 keep-alive tuning, plus all Phase 1/2 features (HTTP/1.1, multi-worker, zstd/gzip
 compression, Server-Timing, streaming-first pipeline, supervisor, ASGI lifespan, CLI).
-369 tests passing. See [ROADMAP.md](ROADMAP.md) for the full vision.
+408 tests passing. See [ROADMAP.md](ROADMAP.md) for the full vision.
 
 ## Key Ideas
 

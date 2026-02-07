@@ -914,7 +914,7 @@ enabled or set to non-default values.
 
 ## 10. Testing Strategy
 
-**Current state:** 369 tests passing (Phase 3).
+**Current state:** 408 tests passing (Phase 3 + ASGI compliance suite).
 
 ### 10.1 Unit Tests (Protocol Layer)
 

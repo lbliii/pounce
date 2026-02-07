@@ -129,6 +129,7 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: full server integration tests",
     "benchmark: performance benchmarks",
+    "timeout: per-test timeout (requires pytest-timeout)",
 ]
 
 # =============================================================================

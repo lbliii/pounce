@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### ASGI 3.0 Compliance Suite
+
+- `tests/integration/test_asgi_compliance.py` — 39 tests (37 pass, 2 xfail) validating
+  pounce against the ASGI 3.0 HTTP Connection Scope and Lifespan specs: scope completeness,
+  all HTTP methods, header lowercasing, path decoding, query strings, request body protocol,
+  response streaming, keep-alive, Connection: close, error handling, lifespan lifecycle
+- 2 xfail tests document a known gap: worker does not yet read POST request body from the
+  connection (always delivers empty `BodyReceived`) — to be addressed in Phase 4
+
+#### CI
+
+- `.github/workflows/ci.yml` — GitHub Actions pipeline: lint (ruff check + format), type
+  check (ty), and tests on a 2x2 matrix (ubuntu/macos x Python 3.14/3.14t). Includes GIL
+  status verification on free-threaded builds. 15-minute timeout per the py-free-threading
+  CI guide
+
+### Changed
+
+- Removed `from __future__ import annotations` from all 43 source, test, example, and
+  benchmark files — not needed on Python 3.14 (PEP 563 import is a no-op)
+- Registered `timeout` pytest marker in `pyproject.toml` (silences 6 warnings)
+
+---
+
 **Phase 3: It's Complete** — full protocol support, TLS, WebSocket, HTTP/2, modern HTTP features.
 
 #### TLS Termination
@@ -95,7 +119,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `asgi/__init__.py` — re-exports WS and H2 bridge functions
 - `net/__init__.py` — re-exports `create_tls_context`, `is_tls_configured`
 
-#### Tests (369 passing — unit + integration)
+#### Tests (408 passing — unit + integration + compliance)
 
 - TLS: context creation, secure defaults, ALPN, missing cert handling, truststore
 - WebSocket: `WSProtocol` framing, `build_ws_accept_key`, `build_101_response`,
