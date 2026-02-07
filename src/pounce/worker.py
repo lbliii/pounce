@@ -2,15 +2,19 @@
 Worker — the heart of pounce's request handling.
 
 Runs a single asyncio event loop that accepts connections on a socket and
-processes HTTP requests through the protocol → bridge → ASGI pipeline.
+processes requests through the protocol → bridge → ASGI pipeline.
 
 Each worker is self-contained: it owns its event loop, its set of active
 connections, and its per-worker metrics.  The supervisor spawns workers as
 threads (nogil) or processes (GIL) — the worker does not know which.
 
-Connection flow:
+Connection flow (HTTP):
     socket.accept() → H1Protocol.receive_data() → build_scope()
     → negotiate_compression() → app(scope, receive, send) → access_log()
+
+Connection flow (WebSocket):
+    socket.accept() → H1Protocol detects upgrade → build_ws_scope()
+    → send 101 → WSProtocol frames → app(scope, receive, send)
 
 """
 
@@ -27,9 +31,16 @@ from pounce._errors import ParseError
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
 from pounce.asgi.bridge import build_scope, create_receive, create_send
+from pounce.asgi.ws_bridge import build_ws_scope, create_ws_receive, create_ws_send
 from pounce.config import ServerConfig
 from pounce.logging import access_log
-from pounce.protocols._base import BodyReceived, ConnectionClosed, RequestReceived
+from pounce.protocols._base import (
+    BodyReceived,
+    ConnectionClosed,
+    RequestReceived,
+    WebSocketDataReceived,
+    WebSocketDisconnected,
+)
 from pounce.protocols.h1 import H1Protocol
 
 
@@ -219,6 +230,12 @@ class Worker:
 
                 for event in events:
                     if isinstance(event, RequestReceived):
+                        # Check for WebSocket upgrade
+                        if _is_websocket_upgrade(event):
+                            await self._handle_websocket(
+                                event, reader, writer, client, server, client_str,
+                            )
+                            return  # WS takes over the connection
                         await self._handle_request(
                             event, proto, reader, writer, client, server, client_str,
                         )
@@ -316,6 +333,143 @@ class Worker:
             method = request.method.decode("ascii", errors="replace")
             access_log(method, target, status, bytes_sent, duration, client_str)
 
+    async def _handle_websocket(
+        self,
+        request: RequestReceived,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        client: tuple[str, int],
+        server: tuple[str, int],
+        client_str: str,
+    ) -> None:
+        """Handle a WebSocket connection after upgrade detection.
+
+        Lifecycle:
+        1. Build ASGI ``websocket`` scope
+        2. Push ``websocket.connect`` to the receive queue
+        3. Run the ASGI app — it sends ``websocket.accept`` (or close)
+        4. Read WebSocket frames and feed to receive queue
+        5. App sends ``websocket.send`` / ``websocket.close``
+        6. Clean up when either side disconnects
+
+        """
+        from pounce.protocols.ws import WSProtocol, is_wsproto_available
+
+        if not is_wsproto_available():
+            self._logger.warning(
+                "WebSocket upgrade requested but wsproto not installed"
+            )
+            return
+
+        request_start = monotonic_ns()
+
+        # Build WebSocket ASGI scope
+        scope = build_ws_scope(request, self._config, client, server)
+
+        # Extract Sec-WebSocket-Key for the 101 handshake
+        ws_key = _get_header(request.headers, b"sec-websocket-key")
+        if not ws_key:
+            self._logger.warning("WebSocket upgrade missing Sec-WebSocket-Key")
+            return
+
+        # Create protocol and ASGI bridge
+        ws_proto = WSProtocol()
+        accept_event = asyncio.Event()
+        close_event = asyncio.Event()
+
+        receive_queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+        receive = create_ws_receive(receive_queue)
+        send = create_ws_send(
+            writer, ws_proto, ws_key,
+            accept_event=accept_event,
+            close_event=close_event,
+        )
+
+        # Push the initial connect event
+        await receive_queue.put({"type": "websocket.connect"})
+
+        # Run the ASGI app and the frame reader concurrently
+        async def _run_app() -> None:
+            try:
+                await self._app(scope, receive, send)
+            except Exception:
+                self._logger.exception(
+                    "ASGI app error on WebSocket %s", scope["path"]
+                )
+
+        async def _read_frames() -> None:
+            """Read WebSocket frames from the client and push to queue."""
+            # Wait for the app to accept before reading frames
+            await accept_event.wait()
+
+            try:
+                while not close_event.is_set():
+                    try:
+                        data = await asyncio.wait_for(
+                            reader.read(65536),
+                            timeout=self._config.keep_alive_timeout,
+                        )
+                    except asyncio.TimeoutError:
+                        break
+                    except (ConnectionError, OSError):
+                        break
+
+                    if not data:
+                        break
+
+                    events = ws_proto.receive_data(data)
+                    for event in events:
+                        if isinstance(event, WebSocketDataReceived):
+                            if isinstance(event.data, str):
+                                await receive_queue.put({
+                                    "type": "websocket.receive",
+                                    "text": event.data,
+                                })
+                            else:
+                                await receive_queue.put({
+                                    "type": "websocket.receive",
+                                    "bytes": event.data,
+                                })
+                        elif isinstance(event, WebSocketDisconnected):
+                            await receive_queue.put({
+                                "type": "websocket.disconnect",
+                                "code": event.code,
+                            })
+                            return
+            finally:
+                # Ensure the app unblocks if still waiting on receive
+                if not close_event.is_set():
+                    await receive_queue.put({
+                        "type": "websocket.disconnect",
+                        "code": 1006,
+                    })
+
+        app_task = asyncio.create_task(_run_app())
+        reader_task = asyncio.create_task(_read_frames())
+
+        try:
+            # Wait for either the app or the reader to finish
+            done, pending = await asyncio.wait(
+                {app_task, reader_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        except Exception:
+            self._logger.exception(
+                "Unhandled error on WebSocket from %s", client_str
+            )
+
+        # Access log
+        if self._config.access_log:
+            duration = elapsed_ms(request_start)
+            target = request.target.decode("ascii", errors="replace")
+            access_log("WS", target, 101, 0, duration, client_str)
+
     async def _send_error(
         self,
         writer: asyncio.StreamWriter,
@@ -339,6 +493,25 @@ class Worker:
             await writer.drain()
         except Exception:
             pass
+
+
+def _is_websocket_upgrade(request: RequestReceived) -> bool:
+    """Check if the request is a WebSocket upgrade.
+
+    Detects ``Connection: Upgrade`` + ``Upgrade: websocket`` headers.
+
+    """
+    has_upgrade_connection = False
+    has_websocket_upgrade = False
+
+    for name, value in request.headers:
+        name_lower = name.lower()
+        if name_lower == b"connection":
+            has_upgrade_connection = b"upgrade" in value.lower()
+        elif name_lower == b"upgrade":
+            has_websocket_upgrade = value.lower() == b"websocket"
+
+    return has_upgrade_connection and has_websocket_upgrade
 
 
 def _get_header(
