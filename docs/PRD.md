@@ -290,7 +290,7 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 - [x] Server-Timing header injection (`parse`, `app` durations)
 - [x] 188 tests passing (unit + integration)
 - [x] Chirp hello-world app runs without modification (verified via pounce Worker)
-- [ ] ASGI compliance suite (formal spec compliance test — to be run)
+- [x] ASGI compliance suite (37 pass, 2 xfail — request body reading gap documented)
 
 ### 7.2 v0.2.0 (Phase 2: It Scales) — ✓ Implemented
 
