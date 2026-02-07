@@ -644,10 +644,6 @@ class TestRequestBody:
             thread.join(timeout=2)
             sock.close()
 
-    @pytest.mark.xfail(
-        reason="Worker does not yet read POST body from connection (puts empty BodyReceived)",
-        strict=True,
-    )
     def test_post_body_echo(self):
         """POST request body is delivered to the app and can be read."""
         worker, sock, thread = start_worker(_body_echo_app)
@@ -671,10 +667,6 @@ class TestRequestBody:
             thread.join(timeout=2)
             sock.close()
 
-    @pytest.mark.xfail(
-        reason="Worker does not yet read POST body from connection (puts empty BodyReceived)",
-        strict=True,
-    )
     def test_large_body(self):
         """Large request bodies are delivered correctly."""
         worker, sock, thread = start_worker(_body_echo_app)
@@ -712,6 +704,51 @@ class TestRequestBody:
             assert "type" in msg
             assert "body" in msg
             assert "more_body" in msg
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
+    def test_put_body(self):
+        """PUT request body is delivered correctly."""
+        worker, sock, thread = start_worker(_body_echo_app)
+        addr = sock.getsockname()
+        try:
+            payload = b'{"key": "value"}'
+            request = (
+                b"PUT /resource HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Content-Length: " + str(len(payload)).encode() + b"\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Connection: close\r\n"
+                b"\r\n" + payload
+            )
+            response = send_raw_request(addr, request)
+            assert b"200" in response
+            assert payload in response
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
+    def test_streaming_body_multiple_chunks(self):
+        """Request body arriving in multiple socket reads is reassembled."""
+        worker, sock, thread = start_worker(_body_echo_app)
+        addr = sock.getsockname()
+        try:
+            # Send a body large enough that it likely spans multiple reads
+            # but still fits in a single Content-Length declaration
+            payload = b"A" * 4096 + b"B" * 4096 + b"C" * 4096
+            request = (
+                b"POST /upload HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Content-Length: " + str(len(payload)).encode() + b"\r\n"
+                b"Connection: close\r\n"
+                b"\r\n" + payload
+            )
+            response = send_raw_request(addr, request, timeout=5.0)
+            assert b"200" in response
+            assert payload in response
         finally:
             worker.shutdown()
             thread.join(timeout=2)

@@ -258,9 +258,24 @@ class Worker:
                     await self._send_error(writer, proto, 400, str(exc))
                     break
 
-                for event in events:
+                idx = 0
+                while idx < len(events):
+                    event = events[idx]
+                    idx += 1
+
                     if isinstance(event, RequestReceived):
                         request_count += 1
+
+                        # Collect body events from the same parse batch
+                        initial_body: list[BodyReceived] = []
+                        while idx < len(events):
+                            next_evt = events[idx]
+                            if isinstance(next_evt, BodyReceived):
+                                initial_body.append(next_evt)
+                                idx += 1
+                            else:
+                                break
+
                         # Check for WebSocket upgrade
                         if _is_websocket_upgrade(event):
                             await self._handle_websocket(
@@ -269,6 +284,7 @@ class Worker:
                             return  # WS takes over the connection
                         await self._handle_request(
                             event, proto, reader, writer, client, server, client_str,
+                            initial_body=initial_body,
                         )
                     elif isinstance(event, ConnectionClosed):
                         return  # Clean close
@@ -302,6 +318,8 @@ class Worker:
         client: tuple[str, int],
         server: tuple[str, int],
         client_str: str,
+        *,
+        initial_body: list[BodyReceived] | None = None,
     ) -> None:
         """Process a single HTTP request through the ASGI pipeline."""
         request_start = monotonic_ns()
@@ -328,10 +346,21 @@ class Worker:
         body_queue: asyncio.Queue[BodyReceived] = asyncio.Queue()
         receive = create_receive(body_queue)
 
-        # Push the initial body event (for requests with no body, this signals completion)
-        # For GET/HEAD, the EndOfMessage was already parsed by h11
-        # We need to collect any remaining body events
-        await body_queue.put(BodyReceived(data=b"", more=False))
+        # Feed body events collected from the initial parse batch.
+        # h11 may produce body data (h11.Data → BodyReceived) and the
+        # terminal marker (h11.EndOfMessage → BodyReceived(more=False))
+        # in the same receive_data() call as the request head.
+        body_complete = False
+        if initial_body:
+            for body_event in initial_body:
+                await body_queue.put(body_event)
+                if not body_event.more:
+                    body_complete = True
+        else:
+            # No body events from initial parse — shouldn't happen for
+            # well-formed HTTP (h11 always emits EndOfMessage), but be safe.
+            await body_queue.put(BodyReceived(data=b"", more=False))
+            body_complete = True
 
         app_start = monotonic_ns()
         send = create_send(proto, writer, timing=timing, compressor=compressor)
@@ -339,18 +368,28 @@ class Worker:
         # Call the ASGI app
         status = 500
         bytes_sent = 0
-        try:
-            await self._app(scope, receive, send)
-            status = 200  # Default if we can't determine from send
-        except Exception as exc:
-            self._logger.exception(
-                "ASGI app error on %s %s", scope["method"], scope["path"]
-            )
+
+        if body_complete:
+            # Fast path: entire body (or no body) already available.
+            # No concurrent reading needed — just run the app.
             try:
-                await self._send_error(writer, proto, 500, "Internal Server Error")
+                await self._app(scope, receive, send)
+                status = 200
             except Exception:
-                pass
-            status = 500
+                self._logger.exception(
+                    "ASGI app error on %s %s", scope["method"], scope["path"]
+                )
+                try:
+                    await self._send_error(writer, proto, 500, "Internal Server Error")
+                except Exception:
+                    pass
+                status = 500
+        else:
+            # Body still arriving — read concurrently with the app.
+            # Same pattern as WebSocket: two tasks, wait for first to finish.
+            status = await self._run_with_body_reader(
+                scope, receive, send, body_queue, proto, reader, writer,
+            )
 
         if timing:
             timing.add("app", elapsed_ms(app_start))
@@ -367,6 +406,114 @@ class Worker:
             target = request.target.decode("ascii", errors="replace")
             method = request.method.decode("ascii", errors="replace")
             access_log(method, target, status, bytes_sent, duration, client_str)
+
+    async def _run_with_body_reader(
+        self,
+        scope: dict,
+        receive: object,
+        send: object,
+        body_queue: asyncio.Queue[BodyReceived],
+        proto: H1Protocol,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> int:
+        """Run the ASGI app while concurrently reading request body.
+
+        Used when the request body spans multiple socket reads (large POSTs,
+        chunked uploads). Follows the same concurrent-task pattern as the
+        WebSocket handler.
+
+        Returns:
+            HTTP status code (200 on success, 500 on error).
+
+        """
+
+        async def _read_body() -> None:
+            """Read remaining body data from the connection into the queue."""
+            try:
+                while True:
+                    try:
+                        data = await asyncio.wait_for(
+                            reader.read(65536),
+                            timeout=self._config.request_timeout,
+                        )
+                    except asyncio.TimeoutError:
+                        await body_queue.put(BodyReceived(data=b"", more=False))
+                        return
+                    except (ConnectionError, OSError):
+                        await body_queue.put(BodyReceived(data=b"", more=False))
+                        return
+
+                    if not data:
+                        await body_queue.put(BodyReceived(data=b"", more=False))
+                        return
+
+                    try:
+                        events = proto.receive_data(data)
+                    except ParseError:
+                        await body_queue.put(BodyReceived(data=b"", more=False))
+                        return
+
+                    for evt in events:
+                        if isinstance(evt, BodyReceived):
+                            await body_queue.put(evt)
+                            if not evt.more:
+                                return
+            except asyncio.CancelledError:
+                # Ensure the app unblocks if cancelled
+                await body_queue.put(BodyReceived(data=b"", more=False))
+                raise
+
+        async def _run_app() -> int:
+            try:
+                await self._app(scope, receive, send)
+                return 200
+            except Exception:
+                self._logger.exception(
+                    "ASGI app error on %s %s", scope["method"], scope["path"]
+                )
+                try:
+                    await self._send_error(writer, proto, 500, "Internal Server Error")
+                except Exception:
+                    pass
+                return 500
+
+        app_task = asyncio.create_task(_run_app())
+        reader_task = asyncio.create_task(_read_body())
+
+        status = 500
+        try:
+            done, pending = await asyncio.wait(
+                {app_task, reader_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+            # Extract status from the app task
+            if app_task in done:
+                try:
+                    status = app_task.result()
+                except Exception:
+                    status = 500
+            else:
+                # Reader finished first (body complete), wait for app
+                try:
+                    status = await app_task
+                except Exception:
+                    status = 500
+        except Exception:
+            self._logger.exception(
+                "Unhandled error during body reading for %s",
+                scope.get("path", "?"),
+            )
+            status = 500
+
+        return status
 
     async def _handle_h2_connection(
         self,
