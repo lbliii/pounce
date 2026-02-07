@@ -109,8 +109,6 @@ def create_h2_send(
         nonlocal response_started, response_complete
 
         if message["type"] == "http.response.start":
-            response_started = True
-
             status: int = message["status"]
             headers: list[tuple[bytes, bytes]] = [
                 (
@@ -119,6 +117,15 @@ def create_h2_send(
                 )
                 for name, value in message.get("headers", [])
             ]
+
+            # 103 Early Hints — informational response (RFC 8297)
+            # Can be sent multiple times before the final response
+            if status == 103:
+                h2_conn.send_response_headers(stream_id, 103, headers)
+                _flush(h2_conn, writer)
+                return  # Don't mark response_started yet
+
+            response_started = True
 
             # Inject Content-Encoding if compressing
             if compressor is not None:

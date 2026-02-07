@@ -129,9 +129,14 @@ def create_send(
         nonlocal response_started, response_complete
 
         if message["type"] == "http.response.start":
-            response_started = True
-
             status: int = message["status"]
+
+            # 103 Early Hints — informational response (RFC 8297)
+            # Skip for HTTP/1.1 as browser support is limited
+            if status == 103:
+                return
+
+            response_started = True
             headers: list[tuple[bytes, bytes]] = [
                 (name if isinstance(name, bytes) else name.encode(),
                  value if isinstance(value, bytes) else value.encode())
