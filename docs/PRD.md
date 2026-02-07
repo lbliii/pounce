@@ -1,8 +1,8 @@
 # Product Requirements Document: Pounce
 
-**Version**: 0.1.0-dev
+**Version**: 0.3.0-dev
 **Date**: 2026-02-07
-**Status**: Phase 1 implemented
+**Status**: Phase 3 implemented
 
 ---
 
@@ -99,8 +99,8 @@ nogil-native ASGI server.
 **Needs:**
 - Full ASGI 3.0 compliance
 - Lifespan protocol support
-- WebSocket support (phase 3)
-- HTTP/2 support (phase 3)
+- WebSocket support ✓
+- HTTP/2 support ✓
 
 ### 3.3 Tertiary: Performance-Conscious Deployers
 
@@ -110,7 +110,7 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 **Needs:**
 - Lower memory footprint than multi-process deployments
 - Predictable latency under load
-- TLS termination without a reverse proxy (phase 3)
+- TLS termination without a reverse proxy ✓
 - Metrics for monitoring (connections, requests, latency)
 
 ---
@@ -132,7 +132,7 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 | F-009 | Error responses | Malformed requests get 400, server errors get 500 |
 | F-010 | Request size limits | Reject oversized headers and bodies |
 | F-011 | `root_path` support | Reverse proxy path prefix passed in ASGI scope |
-| F-012 | Content-encoding negotiation | `zstd > br > gzip > identity` via `Accept-Encoding` |
+| F-012 | Content-encoding negotiation | `zstd > gzip > identity` via `Accept-Encoding` (br excluded — GIL-incompatible) |
 | F-013 | Streaming response pipeline | Chunked transfer, SSE, long-lived connections as primary path |
 
 ### 4.2 Multi-Worker (P0 — Must Have)
@@ -162,8 +162,8 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 |----|-------------|---------------------|
 | F-025 | Zstd encoding | Compress responses via stdlib `compression.zstd` (zero deps) |
 | F-026 | Gzip/deflate encoding | Compress responses via stdlib `zlib` (universal fallback) |
-| F-027 | Brotli encoding | Optional `pounce[br]` extra for `Accept-Encoding: br` |
-| F-028 | Quality negotiation | Parse `Accept-Encoding` q-values, waterfall: zstd > br > gzip > identity |
+| F-027 | ~~Brotli encoding~~ | Excluded — `brotli`/`brotlicffi` C extensions re-enable the GIL on 3.14t |
+| F-028 | Quality negotiation | Parse `Accept-Encoding` q-values, waterfall: zstd > gzip > identity |
 
 ### 4.5 HTTP/2 (P2 — Nice to Have)
 
@@ -261,7 +261,6 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 |-------|------------|---------|
 | `pounce[h2]` | h2 | HTTP/2 protocol support |
 | `pounce[ws]` | wsproto | WebSocket protocol support |
-| `pounce[br]` | brotli or brotlicffi | Brotli content-encoding (`Accept-Encoding: br`) |
 | `pounce[tls]` | truststore | System certificate store for TLS |
 | `pounce[full]` | All of the above | Full protocol support |
 
@@ -273,6 +272,7 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 | httptools | C binding to Node's http-parser; h11 is pure Python and debuggable |
 | anyio | Server doesn't need backend-agnostic async; asyncio is sufficient |
 | click | CLI uses argparse; no additional dependency needed |
+| brotli / brotlicffi | C extension that re-enables the GIL on Python 3.14t, defeating free-threading |
 
 ---
 
@@ -304,15 +304,24 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 - [x] Memory comparison: thread workers vs process workers (thread delta ~3MB for 4 workers)
 - [x] Streaming SSE: 100 concurrent streams held 10s, ~20k events, RSS growth < 3MB
 
-### 7.3 v0.3.0 (Phase 3: It's Complete)
+### 7.3 v0.3.0 (Phase 3: It's Complete) — ✓ Implemented
 
-- WebSocket support via wsproto
-- HTTP/2 support via h2
-- TLS termination
-- Feature parity with uvicorn for common use cases
+- [x] WebSocket support via wsproto (HTTP/1.1 upgrade + ASGI websocket scope)
+- [x] HTTP/2 support via h2 (stream multiplexing, per-stream ASGI dispatch)
+- [x] RFC 8441: WebSocket over HTTP/2 (Extended CONNECT, multiplexed WS streams)
+- [x] RFC 9218: Priority Signals for H2 response scheduling
+- [x] 103 Early Hints (H2 informational headers; H1 silently skips)
+- [x] TLS termination via stdlib `ssl` + optional `truststore`
+- [x] ALPN negotiation for automatic H1/H2 protocol selection
+- [x] Dev reload: `--reload` with file watcher, graceful worker restart
+- [x] Keep-alive tuning: `--keep-alive-timeout`, `--max-requests-per-connection`
+- [x] 369 tests passing (unit + integration)
+- Brotli excluded: C extension re-enables GIL on 3.14t (compression remains zstd > gzip)
+- App factory support deferred to Phase 4
 
 ### 7.4 v0.4.0 (Phase 4: It's Fast)
 
+- App factory support: `pounce "myapp:create_app()"` (deferred from Phase 3)
 - Benchmark suite with reproducible results
 - Competitive with uvicorn on single-worker throughput
 - Demonstrably faster on multi-worker nogil (threads vs processes)
@@ -370,9 +379,10 @@ Pounce deliberately does not:
    expose connection count, request count, and latency histogram via an optional endpoint or
    callback. Or leave it entirely to middleware in the ASGI app.
 
-5. **Should pounce support hot reload for production?** Graceful restart (new workers start,
-   old workers drain) is useful for zero-downtime deploys. This is different from dev-mode
-   file-watching reload. Worth considering for phase 2.
+5. **~~Should pounce support hot reload for production?~~** **Resolved: dev reload implemented
+   in Phase 3.** `--reload` enables a poll-based file watcher that triggers graceful worker
+   restarts on source changes. This is dev-mode only. Production hot reload (zero-downtime
+   deploys with new workers draining old ones) remains a future consideration.
 
 6. **Should pounce explore `concurrent.interpreters` as a third worker model?**
    Subinterpreters (PEP 734, new in 3.14) offer isolation without fork overhead — no memory
@@ -381,8 +391,8 @@ Pounce deliberately does not:
    (`str | bytes | int | float | bool | None | tuple | Queue | memoryview`), not all
    PyPI packages support it yet. Worth exploring as Phase 5 once the ecosystem matures.
 
-7. **Should brotli be a core optional extra or left to middleware?** `Accept-Encoding: br`
-   is universally supported in browsers, and brotli offers better compression ratios than
-   gzip. But brotli requires a C extension (`brotli` or `brotlicffi`), which contradicts
-   the pure-Python philosophy. Leaning toward offering it as `pounce[br]` — explicit opt-in,
-   not forced on anyone.
+7. **~~Should brotli be a core optional extra or left to middleware?~~** **Resolved: excluded.**
+   `brotli` and `brotlicffi` are C extensions that re-enable the GIL on Python 3.14t,
+   defeating pounce's core value proposition of free-threading. Compression remains
+   `zstd > gzip > identity`. If a pure-Python brotli implementation emerges in the future,
+   this decision can be revisited.

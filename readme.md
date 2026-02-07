@@ -13,11 +13,12 @@ fork, no GIL, no per-process memory duplication. On Python 3.14t (free-threading
 threads run N asyncio event loops in parallel, all sharing immutable config and route tables
 with zero synchronization overhead.
 
-**Status:** Phase 2 complete — multi-worker ASGI server with automatic GIL detection
-(threads on 3.14t, processes on GIL builds), supervisor with health monitoring and crash
-restart, connection backpressure, `SO_REUSEPORT` kernel-level load balancing, plus all
-Phase 1 features (HTTP/1.1, zstd/gzip compression, Server-Timing, streaming-first pipeline,
-ASGI lifespan, CLI). 253 tests passing. See [ROADMAP.md](ROADMAP.md) for the full vision.
+**Status:** Phase 3 complete — full protocol support: WebSocket via wsproto, HTTP/2 via h2
+with stream multiplexing, TLS termination with ALPN negotiation, WebSocket over HTTP/2
+(RFC 8441), Priority Signals (RFC 9218), 103 Early Hints, dev reload (`--reload`),
+keep-alive tuning, plus all Phase 1/2 features (HTTP/1.1, multi-worker, zstd/gzip
+compression, Server-Timing, streaming-first pipeline, supervisor, ASGI lifespan, CLI).
+369 tests passing. See [ROADMAP.md](ROADMAP.md) for the full vision.
 
 ## Key Ideas
 
@@ -27,8 +28,8 @@ ASGI lifespan, CLI). 253 tests passing. See [ROADMAP.md](ROADMAP.md) for the ful
   readable. Uses `h11` for HTTP parsing because that problem is solved.
 - **Typed end-to-end.** Frozen config, typed ASGI definitions, zero `type: ignore` comments.
   `ty` passes clean.
-- **One dependency.** `h11` for HTTP/1.1 parsing. HTTP/2 (`h2`) and WebSocket (`wsproto`)
-  are optional extras.
+- **One dependency.** `h11` for HTTP/1.1 parsing. HTTP/2 (`h2`), WebSocket (`wsproto`),
+  and TLS (`truststore`) are optional extras. Install `pounce[full]` for everything.
 - **Chirp companion.** Built to serve chirp apps natively, but works with any ASGI framework.
 
 ## Requirements
@@ -59,6 +60,8 @@ pounce.run(
 ```bash
 pounce myapp:app
 pounce myapp:app --host 0.0.0.0 --port 8000 --workers 4
+pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem
+pounce myapp:app --reload  # dev mode — auto-restart on source changes
 ```
 
 ## How It Works

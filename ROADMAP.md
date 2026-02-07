@@ -99,31 +99,35 @@ pounce/
 │
 │   # Primitives (leaf nodes, no internal deps)
 ├── _types.py                # ASGI type definitions (Scope, Receive, Send)
-├── _errors.py               # PounceError hierarchy (ParseError, SupervisorError, etc.)
+├── _errors.py               # PounceError hierarchy (ParseError, TLSError, ReloadError, etc.)
 ├── _timing.py               # Monotonic clock utilities, Server-Timing builder
 ├── _importer.py             # Resolve "myapp:app" → ASGI callable
 ├── _compression.py          # Content-encoding negotiation (zstd/gzip/identity)
 ├── _runtime.py              # GIL detection, worker mode, default worker count
+├── _priority.py             # HTTP Priority Signals (RFC 9218) — parse, schedule
+├── _reload.py               # File watcher for dev mode (--reload)
 ├── config.py                # ServerConfig — frozen dataclass, resolve_workers()
 │
 │   # Core modules
-├── server.py                # Server — single-worker fast path + supervisor delegation
+├── server.py                # Server — single/multi worker, reload loop, TLS
 ├── supervisor.py            # Supervisor — spawn/monitor/restart workers (thread/process)
-├── worker.py                # Worker — asyncio event loop, accept, dispatch, backpressure
+├── worker.py                # Worker — asyncio loop, H1/H2/WS dispatch, backpressure
 │
 ├── protocols/
 │   ├── _base.py             # ProtocolHandler Protocol, event types, Connection
-│   ├── h1.py                # HTTP/1.1 via h11 (phase 1)
-│   ├── h2.py                # HTTP/2 via h2 (phase 3)
-│   └── ws.py                # WebSocket via wsproto (phase 3)
+│   ├── h1.py                # HTTP/1.1 via h11
+│   ├── h2.py                # HTTP/2 via h2 (optional)
+│   └── ws.py                # WebSocket via wsproto (optional)
 │
 ├── asgi/
-│   ├── bridge.py            # ASGI scope/receive/send construction
+│   ├── bridge.py            # HTTP/1.1 ASGI scope/receive/send
+│   ├── h2_bridge.py         # HTTP/2 ASGI scope/receive/send (per-stream)
+│   ├── ws_bridge.py         # WebSocket ASGI scope/receive/send
 │   └── lifespan.py          # ASGI lifespan protocol
 │
 ├── net/
 │   ├── listener.py          # Socket bind, SO_REUSEPORT, accept
-│   └── tls.py               # TLS context (phase 3)
+│   └── tls.py               # TLS context creation, ALPN, truststore
 │
 ├── logging.py               # Access log + error log
 └── _cli.py                  # CLI entry point (argparse)
@@ -291,7 +295,7 @@ pounce (the server)
 ```
 pip install pounce[h2]       # h2 — HTTP/2 protocol support
 pip install pounce[ws]       # wsproto — WebSocket support
-pip install pounce[tls]      # truststore — TLS termination
+pip install pounce[tls]      # truststore — system TLS certificate stores
 pip install pounce[full]     # All of the above
 ```
 
@@ -303,6 +307,7 @@ pip install pounce[full]     # All of the above
 | httptools | C binding; h11 is debuggable (httptools available in phase 4) |
 | anyio | Not needed; server uses asyncio directly |
 | click | CLI uses stdlib argparse |
+| brotli / brotlicffi | C extension that re-enables the GIL on 3.14t, defeating free-threading |
 
 ---
 
@@ -398,21 +403,46 @@ Multi-worker mode with automatic GIL detection.
 
 **Test coverage:** 253 tests (unit + integration) + 7 benchmark tests, all passing.
 
-### Phase 3: It's Complete
+### Phase 3: It's Complete ✓
 
 Full protocol support — HTTP/2, WebSocket, TLS, modern HTTP features.
 
-- [ ] WebSocket upgrade and lifecycle via wsproto (optional dep)
-- [ ] HTTP/2 via h2 library (optional dep)
-- [ ] RFC 8441: WebSocket over HTTP/2 (multiplexed WS on single TCP connection)
-- [ ] RFC 9218: Priority Signals for H2 response scheduling (urgency/incremental)
-- [ ] 103 Early Hints (HTTP/2+ only, `Link` header preloading)
-- [ ] ALPN negotiation for automatic H1/H2 selection
-- [ ] TLS termination via stdlib ssl + optional truststore
-- [ ] Optional brotli content-encoding (`pounce[br]`)
-- [ ] Keep-alive tuning and connection limits
-- [ ] CLI: `--reload` for development file watching
+**Protocol support:**
+
+- [x] WebSocket upgrade and lifecycle via wsproto (optional dep)
+- [x] HTTP/2 via h2 library (optional dep) with stream multiplexing
+- [x] RFC 8441: WebSocket over HTTP/2 (Extended CONNECT, multiplexed WS streams)
+- [x] RFC 9218: Priority Signals for H2 response scheduling (urgency/incremental)
+- [x] 103 Early Hints (H2 sends informational headers; H1 silently skips)
+- [x] ALPN negotiation for automatic H1/H2 protocol selection
+
+**TLS:**
+
+- [x] TLS termination via stdlib `ssl` + optional `truststore`
+- [x] CLI: `--ssl-certfile`, `--ssl-keyfile`
+
+**Connection management:**
+
+- [x] Keep-alive tuning: `--keep-alive-timeout`, `--max-requests-per-connection`
+- [x] Config validation for keep-alive and max-requests fields
+
+**Developer experience:**
+
+- [x] Dev reload: `--reload` flag with file watcher (poll-based, threaded)
+- [x] Single-worker reload: shutdown → recreate → restart loop
+- [x] Multi-worker reload: `Supervisor.restart_workers()` for graceful restart
+- [x] Startup banner shows TLS, reload, keep-alive tuning status
+
+**Excluded (intentional):**
+
+- Brotli content-encoding — `brotli`/`brotlicffi` are C extensions that re-enable the
+  GIL on Python 3.14t, defeating free-threading. Compression remains `zstd > gzip > identity`.
+
+**Deferred to Phase 4:**
+
 - [ ] App factory support: `pounce "myapp:create_app()"`
+
+**Test coverage:** 369 tests (unit + integration), all passing.
 
 ### Phase 4: It's Fast
 

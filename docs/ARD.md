@@ -1,8 +1,8 @@
 # Architecture Design Document: Pounce
 
-**Version**: 0.1.0-dev
+**Version**: 0.3.0-dev
 **Date**: 2026-02-07
-**Status**: Phase 2 implemented
+**Status**: Phase 3 implemented
 
 ---
 
@@ -56,8 +56,13 @@
     │  │  └──────┬──────┘  │  │
     │  │         │          │  │
     │  │  ┌──────▼──────┐  │  │
-    │  │  │  H1 Protocol │  │  │
-    │  │  │  (h11)       │  │  │
+    │  │  │  TLS (opt)   │  │  │
+    │  │  │  + ALPN      │  │  │
+    │  │  └──────┬──────┘  │  │
+    │  │         │          │  │
+    │  │  ┌──────▼──────┐  │  │
+    │  │  │  Protocol    │  │  │
+    │  │  │  H1/H2/WS    │  │  │
     │  │  └──────┬──────┘  │  │
     │  │         │          │  │
     │  │  ┌──────▼──────┐  │  │
@@ -130,9 +135,9 @@ connections from accept to close.
 **Components:**
 - `ProtocolHandler` — Protocol (structural type) defining the sans-I/O contract
 - `H1Protocol` — HTTP/1.1 via h11 (implements `ProtocolHandler`)
-- `H2Protocol` — HTTP/2 via h2 (phase 3, optional, implements `ProtocolHandler`)
-- `WSProtocol` — WebSocket via wsproto (phase 3, optional, implements `ProtocolHandler`)
-- `ASGIBridge` — constructs scope, receive, send for the application
+- `H2Connection` — HTTP/2 via h2 (optional, sans-I/O wrapper with stream multiplexing)
+- `WSProtocol` — WebSocket via wsproto (optional, sans-I/O framing)
+- `ASGIBridge` — `bridge.py` (H1), `h2_bridge.py` (H2), `ws_bridge.py` (WS)
 
 **Constraints:**
 - Sans-I/O design: protocol handlers process bytes, produce bytes
@@ -183,7 +188,10 @@ class ConnectionClosed:
 class Upgraded:
     protocol: str  # "websocket", "h2c"
 
-type ProtocolEvent = RequestReceived | BodyReceived | ConnectionClosed | Upgraded
+type ProtocolEvent = (
+    RequestReceived | BodyReceived | ConnectionClosed | Upgraded
+    | WebSocketConnected | WebSocketDataReceived | WebSocketDisconnected
+)
 ```
 
 #### 3.4c Connection Abstraction
@@ -273,6 +281,67 @@ exits.
            ▼
     Keep-alive? → loop back to parse
     Close? → close socket
+```
+
+### 4.2b Connection Flow (HTTP/2)
+
+```
+    Client connects (TCP + TLS)
+           │
+           ▼
+    ┌──────────────┐
+    │  TLS + ALPN   │  ALPN negotiates "h2"
+    └──────┬───────┘
+           │
+           ▼
+    ┌──────────────┐
+    │  H2Connection │  h2 state machine: preface → streams
+    │  (h2 lib)     │  Multiplexed streams on single connection
+    └──────┬───────┘
+           │ for each stream:
+           ▼
+    ┌──────────────┐
+    │  ASGI Bridge  │  build_h2_scope() per stream
+    │  (h2_bridge)  │  Concurrent stream tasks
+    └──────┬───────┘
+           │
+           ▼
+    ┌──────────────┐
+    │  ASGI App     │  app(scope, receive, send) per stream
+    └──────────────┘
+```
+
+### 4.2c Connection Flow (WebSocket over HTTP/1.1)
+
+```
+    Client sends HTTP/1.1 upgrade request
+           │
+           ▼
+    ┌──────────────┐
+    │  H1Protocol   │  Detects Connection: Upgrade + Upgrade: websocket
+    └──────┬───────┘
+           │
+           ▼
+    ┌──────────────┐
+    │  101 Response │  Manual HTTP 101 Switching Protocols response
+    └──────┬───────┘
+           │
+           ▼
+    ┌──────────────┐
+    │  WSProtocol   │  wsproto framing (binary/text/close/ping/pong)
+    │  (wsproto)    │
+    └──────┬───────┘
+           │
+           ▼
+    ┌──────────────┐
+    │  ASGI Bridge  │  build_ws_scope() → websocket ASGI lifecycle
+    │  (ws_bridge)  │  connect → accept → send/receive → close
+    └──────┬───────┘
+           │
+           ▼
+    ┌──────────────┐
+    │  ASGI App     │  websocket scope app(scope, receive, send)
+    └──────────────┘
 ```
 
 **Streaming responses** (SSE, chunked HTML, AI token streams) keep the connection open
@@ -430,7 +499,7 @@ Pounce negotiates response compression using Python 3.14's stdlib — no externa
 dependencies for zstd or gzip.
 
 ```
-    Client: Accept-Encoding: zstd, gzip;q=0.8, br;q=0.9
+    Client: Accept-Encoding: zstd, gzip;q=0.8
                     │
                     ▼
     ┌───────────────────────────┐
@@ -439,9 +508,8 @@ dependencies for zstd or gzip.
     │   Parse Accept-Encoding   │
     │   Waterfall:              │
     │   1. zstd  (stdlib)       │
-    │   2. br    (optional dep) │
-    │   3. gzip  (stdlib)       │
-    │   4. identity (no-op)     │
+    │   2. gzip  (stdlib)       │
+    │   3. identity (no-op)     │
     └─────────┬─────────────────┘
               │
               ▼
@@ -463,8 +531,8 @@ dependencies for zstd or gzip.
 - `compression.zstd` (PEP 784, Python 3.14 stdlib) — best ratio/speed trade-off, ~76%
   browser support (Chrome 123+, Firefox 126+, Safari 26.0+ partial)
 - `zlib` (stdlib) — gzip/deflate, universal fallback
-- `brotli` or `brotlicffi` (optional `pounce[br]`) — best compression ratio, universal
-  browser support, but requires C extension
+- Brotli intentionally excluded — `brotli`/`brotlicffi` are C extensions that re-enable
+  the GIL on Python 3.14t, defeating pounce's free-threading architecture
 - Compressor instances are created per-request, never shared across connections or workers
 - Streaming responses are compressed chunk-by-chunk, not buffered-then-compressed
 
@@ -611,37 +679,47 @@ class H1Protocol:
         self._conn.start_next_cycle()
 ```
 
-### 6.3 Future Protocols
+### 6.3 Protocol Negotiation (Phase 3 — Implemented)
 
-HTTP/2 (`h2`) and WebSocket (`wsproto`) follow the same sans-I/O pattern. They can be
-added as optional protocol handlers without changing the worker or ASGI bridge layers.
+HTTP/2 (`h2`) and WebSocket (`wsproto`) follow the same sans-I/O pattern and are
+integrated as optional protocol handlers without changing the worker's core structure.
+
+**ALPN-based negotiation (TLS connections):**
 
 ```python
-# Phase 3: protocol negotiation
-if connection.is_h2():
-    protocol = H2Protocol(config)
-elif connection.is_websocket_upgrade():
-    protocol = WSProtocol(config)
-else:
-    protocol = H1Protocol(config)
+# Worker._handle_connection — ALPN check for HTTP/2
+ssl_obj = writer.get_extra_info("ssl_object")
+if ssl_obj and ssl_obj.selected_alpn_protocol() == "h2":
+    await self._handle_h2_connection(reader, writer)
+    return
 ```
 
-**RFC 8441 — WebSocket over HTTP/2.** WebSocket connections can be multiplexed over a
-single HTTP/2 TCP connection via the Extended CONNECT method. When pounce supports both
-H2 and WebSocket (phase 3), it should handle the `SETTINGS_ENABLE_CONNECT_PROTOCOL`
-parameter and bootstrap WS streams within an H2 connection. This eliminates the need for
-a separate TCP connection per WebSocket.
+**Header-based negotiation (HTTP/1.1 connections):**
 
-**RFC 9218 — Extensible Priority Signals.** Browsers send a `Priority` header with
-urgency and incremental hints (e.g., CSS is urgent, images are incremental). HTTP/2 adds
-`PRIORITY_UPDATE` frames for reprioritization after the initial request. Pounce's H2
-implementation should respect these signals when scheduling response frame delivery.
+```python
+# Worker._handle_connection — WebSocket upgrade detection
+if _is_websocket_upgrade(request):
+    await self._handle_websocket(reader, writer, request)
+    return
+# Otherwise: standard HTTP/1.1 keep-alive loop
+```
+
+**RFC 8441 — WebSocket over HTTP/2.** Implemented. `H2Connection` enables
+`SETTINGS_ENABLE_CONNECT_PROTOCOL` and detects Extended CONNECT requests with
+`:protocol = websocket`, emitting `H2WebSocketRequest` events. The worker dispatches
+these to `_handle_h2_websocket_stream()` which manages WS framing within the H2 stream.
+
+**RFC 9218 — Extensible Priority Signals.** Implemented. `_priority.py` provides
+`parse_priority()` for the `Priority` header (urgency 0-7, incremental boolean) and
+`PriorityScheduler` with a min-heap for urgency-based DATA frame scheduling.
+
+**103 Early Hints.** Implemented. The H2 ASGI bridge sends informational headers when
+`status == 103` without marking the response as started, allowing multiple early hints
+before the final response. The H1 bridge silently skips 103 responses.
 
 **RFC 9842 — Compression Dictionary Transport.** Standardized September 2025. Enables
-delta compression using shared dictionaries with Brotli and Zstandard — if the client
-already has `app.v1.js`, the server sends only the diff to `app.v2.js`. This is
-experimental and would require an ASGI extension for the application to declare available
-dictionaries. Future exploration only.
+delta compression using shared dictionaries with Brotli and Zstandard. This is
+experimental and would require an ASGI extension. Future exploration only.
 
 ---
 
@@ -657,6 +735,8 @@ dictionaries. Future exploration only.
            ├── pounce/_errors.py           (no internal deps; PounceError hierarchy)
            ├── pounce/_timing.py           (no internal deps; monotonic clock, Server-Timing)
            ├── pounce/_importer.py         (no internal deps; "myapp:app" → callable)
+           ├── pounce/_priority.py         (no internal deps; RFC 9218 Priority Signals)
+           ├── pounce/_reload.py           (no internal deps; file watcher for --reload)
            │
            │  ── Protocol contracts (depends only on primitives) ────
            │
@@ -680,6 +760,8 @@ dictionaries. Future exploration only.
            │      ├── pounce/config.py
            │      ├── pounce/supervisor.py
            │      ├── pounce/_importer.py
+           │      ├── pounce/_reload.py
+           │      ├── pounce/net/tls.py
            │      └── pounce/_types.py
            │
            ├── pounce/supervisor.py
@@ -693,7 +775,11 @@ dictionaries. Future exploration only.
            │      ├── pounce/_timing.py
            │      ├── pounce/_compression.py
            │      ├── pounce/protocols/h1.py
+           │      ├── pounce/protocols/h2.py
+           │      ├── pounce/protocols/ws.py
            │      ├── pounce/asgi/bridge.py
+           │      ├── pounce/asgi/h2_bridge.py
+           │      ├── pounce/asgi/ws_bridge.py
            │      ├── pounce/net/listener.py
            │      └── pounce/logging.py
            │
@@ -701,13 +787,15 @@ dictionaries. Future exploration only.
            │
            ├── pounce/asgi/
            │      ├── bridge.py            (depends on _types.py, _timing.py)
+           │      ├── h2_bridge.py         (depends on _types.py; per-stream H2 ASGI)
+           │      ├── ws_bridge.py         (depends on _types.py; WebSocket ASGI lifecycle)
            │      └── lifespan.py          (depends on _types.py, _errors.py)
            │
            │  ── Network subsystem ─────────────────────────────────
            │
            ├── pounce/net/
            │      ├── listener.py          (depends on config.py)
-           │      └── tls.py              (depends on config.py)
+           │      └── tls.py              (depends on config.py, _errors.py)
            │
            └── pounce/logging.py           (depends on config.py)
 ```
@@ -808,18 +896,25 @@ with full context:
 ### 9.3 Startup Banner
 
 ```
-Pounce v0.1.0 (Python 3.14.0t, free-threading)
+Pounce v0.3.0 (Python 3.14.0t, free-threading)
 ├─ Workers: 4 (threads)
-├─ Listening: http://0.0.0.0:8000
+├─ Listening: https://0.0.0.0:8000
 ├─ App: myapp:app
+├─ TLS: enabled
+├─ Reload: enabled (watching for changes)
+├─ Keep-alive timeout: 10.0s
+├─ Max requests/connection: 1000
 └─ Press Ctrl+C to stop
 ```
+
+TLS, reload, and keep-alive tuning lines appear only when the respective features are
+enabled or set to non-default values.
 
 ---
 
 ## 10. Testing Strategy
 
-**Current state:** 188 tests passing (Phase 1).
+**Current state:** 369 tests passing (Phase 3).
 
 ### 10.1 Unit Tests (Protocol Layer)
 
@@ -878,11 +973,27 @@ def test_get_hello(hello_app):
 - `start_worker()` — spin up a worker in a background thread
 - `send_raw_request()` — send raw HTTP bytes and capture response
 
-### 10.5 Future: Stress Tests (Phase 2)
+### 10.5 Unit Tests (Phase 3 Additions)
 
-Concurrent load tests to verify thread safety on 3.14t with multi-worker mode.
+- TLS: context creation, secure defaults, ALPN protocols, missing cert handling, truststore
+- WebSocket: `WSProtocol` framing, `build_ws_accept_key`, `build_101_response`, ASGI bridge,
+  `_is_websocket_upgrade` header detection (case-insensitive, missing header variants)
+- HTTP/2: `H2Connection` init, preface, request/response lifecycle, multiplexed streams,
+  stream reset, GOAWAY handling
+- Priority Signals: `parse_priority` parsing, `PriorityScheduler` urgency-based ordering
+- Dev Reload: `_snapshot`, `detect_changes`, file creation/modification/deletion, exclude
+  patterns for `__pycache__`, `.git`, etc.
+- Config validation: `keep_alive_timeout > 0`, `max_requests_per_connection >= 0`
+- Error hierarchy: `TLSError`, `ReloadError` inheritance and status codes
+- Supervisor: `restart_workers()` event clearing, worker joining, respawn logic
+- Package exports: all Phase 3 symbols from `protocols`, `asgi`, `net`, `_errors`
 
-### 10.6 Future: Benchmark Tests (Phase 4)
+### 10.6 Integration Tests (Phase 3 Additions)
+
+- CLI flag parsing: `--ssl-certfile`, `--ssl-keyfile`, `--reload`, `--keep-alive-timeout`,
+  `--max-requests-per-connection`
+
+### 10.7 Future: Benchmark Tests (Phase 4)
 
 Reproducible throughput measurements vs Uvicorn and Granian.
 

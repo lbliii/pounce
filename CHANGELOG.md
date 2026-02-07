@@ -9,6 +9,111 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+**Phase 3: It's Complete** — full protocol support, TLS, WebSocket, HTTP/2, modern HTTP features.
+
+#### TLS Termination
+
+- `net/tls.py` — `create_tls_context()` for stdlib `ssl.SSLContext` with secure defaults
+  (TLSv1.2+, no compression), ALPN protocol advertisement (`h2`, `http/1.1`), optional
+  `truststore` integration for system certificate stores
+- `is_tls_configured()` helper for conditional context creation
+- CLI flags: `--ssl-certfile`, `--ssl-keyfile`
+- `TLSError` added to error hierarchy
+- Startup banner shows `tls: enabled` when active
+
+#### WebSocket Protocol
+
+- `protocols/ws.py` — `WSProtocol` sans-I/O wrapper around wsproto for server-side
+  WebSocket framing. Manual `101 Switching Protocols` HTTP response construction
+  (wsproto 1.x expects HTTP upgrade handled externally)
+- `build_ws_accept_key()` for RFC 6455 `Sec-WebSocket-Accept` computation
+- `build_101_response()` for raw HTTP upgrade response bytes
+- `asgi/ws_bridge.py` — `build_ws_scope()`, `create_ws_receive()`, `create_ws_send()`
+  for full ASGI WebSocket lifecycle (`websocket.connect`, `websocket.accept`,
+  `websocket.send`, `websocket.close`)
+- New event types: `WebSocketConnected`, `WebSocketDataReceived`, `WebSocketDisconnected`
+
+#### HTTP/2 Protocol
+
+- `protocols/h2.py` — `H2Connection` sans-I/O wrapper around the h2 library. Stream
+  multiplexing, per-stream event types (`H2RequestReceived`, `H2BodyReceived`,
+  `H2StreamReset`, `H2GoAway`, `H2WindowUpdated`, `H2WebSocketRequest`), flow control,
+  GOAWAY handling
+- `asgi/h2_bridge.py` — `build_h2_scope()`, `create_h2_receive()`, `create_h2_send()`
+  for per-stream ASGI dispatch with concurrent stream tasks
+- ALPN negotiation in worker: `selected_alpn_protocol() == "h2"` → H2 connection handler
+- `SETTINGS_ENABLE_CONNECT_PROTOCOL` for RFC 8441 WebSocket over HTTP/2
+
+#### Protocol Negotiation
+
+- Worker dynamically branches connections based on ALPN result (H2) or HTTP/1.1 upgrade
+  headers (WebSocket), falling through to standard HTTP/1.1 keep-alive loop
+- `_is_websocket_upgrade()` helper: detects `Connection: Upgrade` + `Upgrade: websocket`
+
+#### WebSocket over HTTP/2 (RFC 8441)
+
+- Extended CONNECT detection in `H2Connection.receive_data()`: `:method = CONNECT` +
+  `:protocol = websocket` emits `H2WebSocketRequest` event
+- `_handle_h2_websocket_stream()` in worker manages WS framing within H2 streams
+
+#### Priority Signals (RFC 9218)
+
+- `_priority.py` — `parse_priority()` for `Priority` header parsing (urgency 0-7,
+  incremental boolean), `StreamPriority` dataclass, `PriorityScheduler` min-heap for
+  urgency-based DATA frame scheduling
+
+#### 103 Early Hints
+
+- H2 ASGI bridge: `status == 103` in `http.response.start` sends informational headers
+  without marking response as started (allows multiple early hints before final response)
+- H1 ASGI bridge: silently skips `status == 103` (browser support inconsistent over H1)
+
+#### Dev Reload
+
+- `_reload.py` — file watcher with polling: `_snapshot()`, `detect_changes()`,
+  `watch_for_changes()` with configurable interval and stop event
+- Excludes `__pycache__`, `.git`, `.venv`, `node_modules`, etc.
+- Watches `.py`, `.yaml`, `.toml`, `.json`, `.cfg`, `.ini` extensions
+- Single-worker mode: restart loop (shutdown → recreate socket → restart asyncio)
+- Multi-worker mode: `Supervisor.restart_workers()` drains all workers, clears shutdown
+  event, respawns fresh workers
+- CLI flag: `--reload`
+- `ReloadError` added to error hierarchy
+- Startup banner shows `reload: enabled` when active
+
+#### Keep-Alive Tuning
+
+- `max_requests_per_connection` config field (0 = unlimited): enforced in the HTTP/1.1
+  keep-alive loop — closes connection after N requests
+- CLI flags: `--keep-alive-timeout`, `--max-requests-per-connection`
+- Config validation: `keep_alive_timeout > 0`, `max_requests_per_connection >= 0`
+- Startup banner shows non-default keep-alive and max-requests values
+
+#### Package Wiring
+
+- `protocols/__init__.py` — re-exports `WSProtocol`, `H2Connection`, all H2 event types
+- `asgi/__init__.py` — re-exports WS and H2 bridge functions
+- `net/__init__.py` — re-exports `create_tls_context`, `is_tls_configured`
+
+#### Tests (369 passing — unit + integration)
+
+- TLS: context creation, secure defaults, ALPN, missing cert handling, truststore
+- WebSocket: `WSProtocol` framing, `build_ws_accept_key`, `build_101_response`,
+  `build_ws_scope`, `_is_websocket_upgrade` header detection
+- HTTP/2: `H2Connection` init, request/response lifecycle, multiplexed streams,
+  stream reset, GOAWAY
+- Priority Signals: `parse_priority`, `PriorityScheduler` urgency ordering
+- Dev Reload: `_snapshot`, `detect_changes`, file creation/modification/deletion,
+  exclude patterns
+- Compression: updated for Brotli exclusion (GIL-incompatible on 3.14t)
+- Config: validation for `keep_alive_timeout` and `max_requests_per_connection`
+- Supervisor: `restart_workers()` event clearing and worker joining
+- CLI: Phase 3 flag parsing (TLS, reload, keep-alive, max-requests)
+- Package exports: Phase 3 protocol, ASGI, net, and error exports
+- Error hierarchy: `TLSError` and `ReloadError`
+
+---
+
 **Phase 2: It Scales** — multi-worker mode with automatic GIL detection.
 
 #### Runtime Detection
