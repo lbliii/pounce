@@ -1,8 +1,8 @@
 # Architecture Design Document: Pounce
 
-**Version**: 0.1.0-draft
+**Version**: 0.1.0-dev
 **Date**: 2026-02-07
-**Status**: Draft
+**Status**: Phase 1 implemented
 
 ---
 
@@ -372,24 +372,31 @@ Each worker is self-contained:
 
 ```python
 class Worker:
-    """A single worker with its own asyncio event loop."""
+    """A single worker with its own asyncio event loop.
 
-    def __init__(self, config: ServerConfig, app: ASGIApp) -> None:
-        self._config = config  # Shared, frozen
-        self._app = app        # Shared, read-only reference
-        self._connections: set[Connection] = set()  # Per-worker, mutable
+    Accepts connections and handles them through the full pipeline:
+    parse → scope → negotiate compression → ASGI app → response → log.
+    """
+
+    def __init__(self, config: ServerConfig, app: ASGIApp, sock: socket.socket) -> None:
+        self._config = config           # Shared, frozen
+        self._app = app                 # Shared, read-only reference
+        self._sock = sock               # Bound, listening socket
+        self._shutdown_event = asyncio.Event()
+        self._active_connections = 0    # Per-worker, mutable
 
     def run(self) -> None:
         """Start the event loop and serve forever."""
         asyncio.run(self._serve())
 
     async def _serve(self) -> None:
-        """Accept connections and handle them."""
+        """Accept connections until shutdown is signaled."""
         server = await asyncio.start_server(
-            self._handle_connection,
-            sock=self._socket,
+            self._handle_connection, sock=self._sock
         )
-        ...
+        await self._shutdown_event.wait()
+        server.close()
+        await server.wait_closed()
 ```
 
 Workers own:
@@ -558,21 +565,32 @@ Pounce wraps h11 in `H1Protocol`:
 
 ```python
 class H1Protocol:
-    """HTTP/1.1 protocol handler wrapping h11."""
+    """HTTP/1.1 protocol handler wrapping h11.
 
-    def __init__(self, config: ServerConfig) -> None:
-        self._conn = h11.Connection(h11.SERVER)
-        self._config = config
+    Implements the ProtocolHandler contract. Each instance manages a single
+    TCP connection through one or more request-response cycles (keep-alive).
+    """
 
-    def receive_data(self, data: bytes) -> list[h11.Event]:
-        """Feed bytes from socket, return parsed events."""
+    def __init__(self, *, max_incomplete_event_size: int | None = None) -> None:
+        kwargs = {}
+        if max_incomplete_event_size is not None:
+            kwargs["max_incomplete_event_size"] = max_incomplete_event_size
+        self._conn = h11.Connection(h11.SERVER, **kwargs)
+
+    def receive_data(self, data: bytes) -> list[ProtocolEvent]:
+        """Feed bytes from socket, return typed protocol events."""
         self._conn.receive_data(data)
         events = []
         while True:
             event = self._conn.next_event()
             if event is h11.NEED_DATA or event is h11.PAUSED:
                 break
-            events.append(event)
+            if isinstance(event, h11.Request):
+                events.append(RequestReceived(...))
+            elif isinstance(event, h11.Data):
+                events.append(BodyReceived(data=event.data, more=True))
+            elif isinstance(event, h11.EndOfMessage):
+                events.append(BodyReceived(data=b"", more=False))
         return events
 
     def send_response(self, status: int, headers: list[tuple[bytes, bytes]]) -> bytes:
@@ -581,9 +599,16 @@ class H1Protocol:
 
     def send_body(self, data: bytes, more: bool = False) -> bytes:
         """Serialize response body chunk."""
-        if more:
-            return self._conn.send(h11.Data(data=data))
-        return self._conn.send(h11.Data(data=data)) + self._conn.send(h11.EndOfMessage())
+        parts = []
+        if data:
+            parts.append(self._conn.send(h11.Data(data=data)))
+        if not more:
+            parts.append(self._conn.send(h11.EndOfMessage()))
+        return b"".join(parts)
+
+    def start_new_cycle(self) -> None:
+        """Reset for next request on keep-alive."""
+        self._conn.start_next_cycle()
 ```
 
 ### 6.3 Future Protocols
@@ -794,55 +819,72 @@ Pounce v0.1.0 (Python 3.14.0t, free-threading)
 
 ## 10. Testing Strategy
 
+**Current state:** 188 tests passing (Phase 1).
+
 ### 10.1 Unit Tests (Protocol Layer)
 
 Sans-I/O protocol handlers are tested by feeding bytes and asserting output:
 
 ```python
-def test_h1_simple_request():
-    proto = H1Protocol(config)
-    events = proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
-    assert len(events) == 2  # Request + EndOfMessage
+def test_h1_simple_get():
+    proto = H1Protocol()
+    raw = b"GET /hello HTTP/1.1\r\nHost: localhost\r\n\r\n"
+    events = proto.receive_data(raw)
+    assert isinstance(events[0], RequestReceived)
     assert events[0].method == b"GET"
+    assert events[0].target == b"/hello"
 ```
 
-### 10.2 Integration Tests (Full Stack)
+### 10.2 Unit Tests (ASGI Bridge)
 
-Start a pounce server in a thread, make HTTP requests, assert responses:
+Bridge tests verify scope construction, streaming send, and header injection:
 
 ```python
-async def test_hello_world():
-    async with pounce_server(hello_app, port=0) as server:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"http://localhost:{server.port}/")
-            assert response.status_code == 200
-            assert response.text == "Hello, World!"
+async def test_compression_injection():
+    proto = H1Protocol()
+    proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+    transport = FakeTransport()
+    compressor = GzipCompressor()
+    send = create_send(proto, transport, compressor=compressor)
+    await send({"type": "http.response.start", "status": 200, "headers": [...]})
+    await send({"type": "http.response.body", "body": b"hello" * 100})
+    assert b"content-encoding: gzip" in bytes(transport.data)
 ```
 
-### 10.3 Stress Tests
+### 10.3 Integration Tests (Full Stack)
 
-Concurrent load tests to verify thread safety on 3.14t:
+Start a pounce worker in a background thread, send raw HTTP via socket:
 
 ```python
-@pytest.mark.slow
-async def test_concurrent_requests():
-    async with pounce_server(hello_app, workers=4, port=0) as server:
-        async with httpx.AsyncClient() as client:
-            tasks = [client.get(f"http://localhost:{server.port}/") for _ in range(10_000)]
-            responses = await asyncio.gather(*tasks)
-            assert all(r.status_code == 200 for r in responses)
+def test_get_hello(hello_app):
+    worker, sock, thread = start_worker(hello_app)
+    addr = sock.getsockname()
+    response = send_raw_request(
+        addr, b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+    )
+    assert b"200" in response
+    assert b"Hello, World!" in response
+    worker.shutdown()
 ```
 
-### 10.4 Benchmark Tests
+### 10.4 Shared Test Fixtures
 
-Reproducible throughput measurements:
+`tests/conftest.py` provides reusable ASGI apps (with lifespan support) and helpers:
 
-```python
-@pytest.mark.benchmark
-def test_throughput_single_worker(benchmark):
-    # Measure requests/second for a minimal ASGI app
-    ...
-```
+- `hello_app` — returns "Hello, World!"
+- `echo_app` — returns method + path
+- `streaming_app` — chunked response in 3 parts
+- `error_app` — always raises RuntimeError
+- `start_worker()` — spin up a worker in a background thread
+- `send_raw_request()` — send raw HTTP bytes and capture response
+
+### 10.5 Future: Stress Tests (Phase 2)
+
+Concurrent load tests to verify thread safety on 3.14t with multi-worker mode.
+
+### 10.6 Future: Benchmark Tests (Phase 4)
+
+Reproducible throughput measurements vs Uvicorn and Granian.
 
 ---
 

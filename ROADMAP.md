@@ -307,38 +307,39 @@ pip install pounce[full]     # All of the above
 
 ## Phased Roadmap
 
-### Phase 1: It Runs
+### Phase 1: It Runs ✓
 
 The minimal viable server. One worker, HTTP/1.1, ASGI compliance, 2026-native features.
 
 **Primitives and contracts (bottom-up foundation):**
 
-- [ ] `_errors.py` — `PounceError` hierarchy: `ParseError`, `TimeoutError`, `LimitError`,
+- [x] `_errors.py` — `PounceError` hierarchy: `ParseError`, `TimeoutError`, `LimitError`,
   `AppError`, `LifespanError`
-- [ ] `_timing.py` — monotonic clock utilities, `Server-Timing` header builder
-- [ ] `_importer.py` — resolve `"myapp:app"` strings to ASGI callables
-- [ ] `_compression.py` — content-encoding negotiation (`zstd > gzip > identity`)
-- [ ] `protocols/_base.py` — `ProtocolHandler` Protocol, `ProtocolEvent` union types
-  (`RequestReceived`, `BodyReceived`, `ConnectionClosed`, `Upgraded`), `Connection`
-  dataclass
-- [ ] `config.py` — `ServerConfig` frozen dataclass with `root_path`, `server_timing`,
+- [x] `_timing.py` — monotonic clock utilities, `Server-Timing` header builder
+- [x] `_importer.py` — resolve `"myapp:app"` strings to ASGI callables
+- [x] `_compression.py` — content-encoding negotiation (`zstd > gzip > identity`)
+- [x] `protocols/_base.py` — `ProtocolHandler` Protocol, `ProtocolEvent` union types
+  (`RequestReceived`, `BodyReceived`, `ConnectionClosed`, `Upgraded`)
+- [x] `config.py` — `ServerConfig` frozen dataclass with `root_path`, `server_timing`,
   `compression` fields
 
 **Server core:**
 
-- [ ] Socket bind and accept via asyncio
-- [ ] HTTP/1.1 parsing via h11 (implements `ProtocolHandler`)
-- [ ] ASGI bridge (scope, receive, send) with streaming-first response pipeline
-- [ ] ASGI lifespan protocol (startup/shutdown)
-- [ ] `pounce.run("app:app")` programmatic API
-- [ ] Zstd content-encoding via stdlib `compression.zstd`
-- [ ] Content negotiation pipeline (`Accept-Encoding` parsing, quality waterfall)
-- [ ] Server-Timing header auto-injection (when `config.server_timing = True`)
-- [ ] Access logging (method, path, status, timing)
-- [ ] Graceful shutdown on SIGINT/SIGTERM
-- [ ] Error responses (400 for malformed, 500 for server errors)
-- [ ] Request size limits (headers and body)
-- [ ] CLI: `pounce myapp:app --host --port --log-level`
+- [x] Socket bind and accept via asyncio
+- [x] HTTP/1.1 parsing via h11 (implements `ProtocolHandler`)
+- [x] ASGI bridge (scope, receive, send) with streaming-first response pipeline
+- [x] ASGI lifespan protocol (startup/shutdown)
+- [x] `pounce.run("app:app")` programmatic API
+- [x] Zstd content-encoding via stdlib `compression.zstd`
+- [x] Content negotiation pipeline (`Accept-Encoding` parsing, quality waterfall)
+- [x] Server-Timing header auto-injection (when `config.server_timing = True`)
+- [x] Access logging (method, path, status, timing)
+- [x] Graceful shutdown on SIGINT/SIGTERM
+- [x] Error responses (400 for malformed, 500 for server errors)
+- [x] Request size limits (headers and body)
+- [x] CLI: `pounce myapp:app --host --port --log-level`
+
+**Test coverage:** 188 tests (unit + integration), all passing.
 
 ### Phase 2: It Scales
 
