@@ -5,7 +5,8 @@ Manages the ASGI lifespan protocol — sends startup/shutdown events to the
 application and waits for completion. Used as an async context manager so
 the server can bracket its run loop with lifespan events.
 
-Handles apps that don't support lifespan (catches and ignores the error).
+Handles apps that don't support lifespan — whether they raise an
+exception or silently return for non-HTTP scopes.
 
 """
 
@@ -32,8 +33,8 @@ async def run_lifespan(
     lifespan.startup.complete, yields control to the caller, then sends
     lifespan.shutdown on exit.
 
-    If the app doesn't support lifespan (raises an exception during
-    startup), the lifespan is treated as a no-op.
+    If the app doesn't support lifespan (raises an exception or returns
+    silently during startup), the lifespan is treated as a no-op.
 
     Args:
         app: The ASGI application.
@@ -81,10 +82,16 @@ async def run_lifespan(
         try:
             await app(scope, receive, send)
         except Exception:
-            # App doesn't support lifespan — treat as no-op
+            # App raised during lifespan — not unusual, many apps
+            # don't implement the lifespan protocol at all.
+            pass
+        finally:
+            # If the app returned or raised without completing startup,
+            # treat it as "lifespan not supported" and unblock the server.
+            # This handles frameworks (like chirp) that silently return
+            # for non-HTTP scopes instead of raising.
             if not startup_complete.is_set():
                 startup_complete.set()
-        finally:
             app_finished.set()
 
     task = asyncio.create_task(_run_app())

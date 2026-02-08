@@ -42,6 +42,16 @@ async def _no_lifespan_app(scope: Scope, receive: Receive, send: Send) -> None:
         raise TypeError("This app doesn't support lifespan")
 
 
+async def _silent_return_app(scope: Scope, receive: Receive, send: Send) -> None:
+    """ASGI app that silently returns for non-HTTP scopes (like chirp).
+
+    This pattern is common: the app only handles ``scope["type"] == "http"``
+    and returns without sending any lifespan messages.
+    """
+    if scope["type"] != "http":
+        return
+
+
 async def _slow_shutdown_app(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI app with slow shutdown (for timeout testing)."""
     assert scope["type"] == "lifespan"
@@ -117,6 +127,18 @@ class TestLifespanNotSupported:
         config = ServerConfig()
         async with run_lifespan(_no_lifespan_app, config):
             pass  # Should not raise
+
+    @pytest.mark.asyncio
+    async def test_silent_return_is_noop(self):
+        """App that returns without raising for non-HTTP scopes (chirp pattern).
+
+        Some frameworks check ``scope["type"] != "http"`` and return silently
+        instead of raising. The server must not deadlock waiting for a
+        startup.complete that will never arrive.
+        """
+        config = ServerConfig()
+        async with run_lifespan(_silent_return_app, config):
+            pass  # Must not hang
 
 
 class TestLifespanShutdownTimeout:
