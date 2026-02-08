@@ -36,22 +36,24 @@ from pounce.asgi.bridge import (
     SendState,
     build_scope,
     create_disconnect_receive,
-    create_empty_receive,
-    create_receive,
     create_receive_with_disconnect,
     create_send,
 )
 from pounce.config import ServerConfig
 from pounce.lifecycle import (
-    ConnectionClosed as LifecycleConnectionClosed,
-    ConnectionOpened,
     ClientDisconnected,
+    ConnectionOpened,
     LifecycleCollector,
     NoopCollector,
     RequestStarted,
     ResponseCompleted,
-    monotonic_ns as lifecycle_ns,
     next_connection_id,
+)
+from pounce.lifecycle import (
+    ConnectionClosed as LifecycleConnectionClosed,
+)
+from pounce.lifecycle import (
+    monotonic_ns as lifecycle_ns,
 )
 from pounce.logging import access_log
 from pounce.protocols._base import (
@@ -109,18 +111,18 @@ class Worker:
     """
 
     __slots__ = (
-        "_config",
-        "_app",
-        "_sock",
-        "_worker_id",
-        "_ext_shutdown",
-        "_async_shutdown",
-        "_loop",
         "_active_connections",
-        "_max_connections",
-        "_ssl_context",
-        "_logger",
+        "_app",
+        "_async_shutdown",
+        "_config",
+        "_ext_shutdown",
         "_lifecycle",
+        "_logger",
+        "_loop",
+        "_max_connections",
+        "_sock",
+        "_ssl_context",
+        "_worker_id",
     )
 
     def __init__(
@@ -419,7 +421,7 @@ class Worker:
                         reader.read(65536),
                         timeout=self._config.keep_alive_timeout,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     close_reason = "timeout"
                     break  # Keep-alive timeout — close connection
                 except (ConnectionError, OSError):
@@ -584,10 +586,8 @@ class Worker:
         ))
 
         # Flush the writer
-        try:
+        with contextlib.suppress(ConnectionError, OSError):
             await writer.drain()
-        except (ConnectionError, OSError):
-            pass
 
         # Access log
         if self._config.access_log:
@@ -630,10 +630,8 @@ class Worker:
                 self._logger.exception(
                     "ASGI app error on %s %s", scope["method"], scope["path"]
                 )
-                try:
+                with contextlib.suppress(Exception):
                     await self._send_error(writer, proto, 500, "Internal Server Error")
-                except Exception:
-                    pass
                 if send_state.status == 0:
                     send_state.status = 500
 
@@ -717,7 +715,7 @@ class Worker:
                             reader.read(65536),
                             timeout=self._config.request_timeout,
                         )
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         await body_queue.put(BodyReceived(data=b"", more=False))
                         return
                     except (ConnectionError, OSError):
@@ -756,10 +754,8 @@ class Worker:
                 self._logger.exception(
                     "ASGI app error on %s %s", scope["method"], scope["path"]
                 )
-                try:
+                with contextlib.suppress(Exception):
                     await self._send_error(writer, proto, 500, "Internal Server Error")
-                except Exception:
-                    pass
                 if send_state.status == 0:
                     send_state.status = 500
 
