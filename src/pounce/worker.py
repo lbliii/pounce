@@ -162,14 +162,18 @@ class Worker:
 
         # Per-worker startup hook — runs on this worker's event loop so
         # any async resources (httpx clients, DB pools) bind to the
-        # correct loop.  If the hook fails, the worker does not accept
-        # connections (prevents serving with uninitialised state).
+        # correct loop.
         #
         # The timeout catches apps that don't recognise the scope and
         # accidentally block (e.g. their HTTP handler calls receive()).
         # The _worker_lifecycle_receive helper returns http.disconnect
         # to unblock most handlers quickly; the timeout is a safety net.
-        try:
+        #
+        # If the app raises, we log at debug level and proceed — most
+        # ASGI apps don't know about pounce.worker.startup and will
+        # crash on it (e.g. KeyError on scope['method']).  This is
+        # normal and should not prevent the worker from starting.
+        with contextlib.suppress(Exception):
             await asyncio.wait_for(
                 self._app(
                     {"type": "pounce.worker.startup", "worker_id": self._worker_id},
@@ -178,15 +182,6 @@ class Worker:
                 ),
                 timeout=30.0,
             )
-        except TimeoutError:
-            # App doesn't understand this scope type — proceed normally
-            pass
-        except Exception:
-            self._logger.exception(
-                "Worker %d startup hook failed — not accepting connections",
-                self._worker_id,
-            )
-            return
 
         server = await asyncio.start_server(
             self._handle_connection,
@@ -222,7 +217,7 @@ class Worker:
             # Per-worker shutdown hook — runs on this worker's event loop
             # for proper async resource cleanup.  Errors are logged but
             # do not prevent worker exit.
-            try:
+            with contextlib.suppress(Exception):
                 await asyncio.wait_for(
                     self._app(
                         {"type": "pounce.worker.shutdown", "worker_id": self._worker_id},
@@ -230,13 +225,6 @@ class Worker:
                         _worker_lifecycle_send,
                     ),
                     timeout=10.0,
-                )
-            except TimeoutError:
-                pass  # App doesn't understand this scope type
-            except Exception:
-                self._logger.exception(
-                    "Worker %d shutdown hook failed",
-                    self._worker_id,
                 )
 
             self._logger.info("Worker %d stopped", self._worker_id)

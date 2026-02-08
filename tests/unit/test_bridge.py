@@ -465,10 +465,10 @@ class TestCreateEmptyReceive:
 
     @pytest.mark.asyncio
     async def test_returns_shared_constant(self):
-        """The returned message is the pre-allocated _EMPTY_BODY_MESSAGE."""
+        """The returned message equals _EMPTY_BODY_MESSAGE (dict copy for type safety)."""
         receive = create_empty_receive()
         msg = await receive()
-        assert msg is _EMPTY_BODY_MESSAGE
+        assert msg == _EMPTY_BODY_MESSAGE
 
     @pytest.mark.asyncio
     async def test_second_call_blocks(self):
@@ -793,7 +793,7 @@ class TestCreateDisconnectReceive:
         assert msg["type"] == "http.request"
         assert msg["body"] == b""
         assert msg["more_body"] is False
-        assert msg is _EMPTY_BODY_MESSAGE
+        assert msg == _EMPTY_BODY_MESSAGE
 
     @pytest.mark.asyncio
     async def test_second_call_blocks_until_disconnect(self):

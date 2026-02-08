@@ -148,6 +148,10 @@ browser DevTools.
   `ty` passes clean.
 - **One dependency.** `h11` for HTTP/1.1 parsing. HTTP/2 (`h2`), WebSocket (`wsproto`),
   TLS (`truststore`), and httptools (`pounce[fast]`) are optional extras.
+- **Observable.** Every connection and request produces structured lifecycle events —
+  frozen dataclasses with nanosecond timestamps. Plug in a `LifecycleCollector` to capture
+  latency distributions, connection counts, and error rates without touching logging or
+  middleware. Zero overhead when no collector is attached.
 - **Chirp companion.** Built to serve Chirp apps natively, but works with any ASGI framework.
 
 ---

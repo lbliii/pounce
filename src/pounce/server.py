@@ -24,6 +24,7 @@ from pounce._runtime import WorkerMode, detect_worker_mode, is_gil_enabled
 from pounce._types import ASGIApp
 from pounce.asgi.lifespan import run_lifespan
 from pounce.config import ServerConfig
+from pounce.lifecycle import LifecycleCollector
 from pounce.logging import configure_logging
 from pounce.net.listener import create_listener, create_listeners
 from pounce.net.tls import create_tls_context, is_tls_configured
@@ -66,7 +67,7 @@ class Server:
         config: ServerConfig,
         app: ASGIApp,
         *,
-        lifecycle_collector: object | None = None,
+        lifecycle_collector: LifecycleCollector | None = None,
     ) -> None:
         self._config = config
         self._app = app

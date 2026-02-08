@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Connection Lifecycle Events
+
+- Structured, immutable event types for every stage of a connection's lifecycle:
+  `ConnectionOpened`, `RequestStarted`, `ResponseCompleted`, `RequestFailed`,
+  `ConnectionClosed` — all frozen dataclasses with nanosecond monotonic timestamps
+- `LifecycleCollector` protocol — any object with a `record(event)` method can receive
+  lifecycle events. `NoopCollector` (default) discards events with zero overhead.
+  `BufferedCollector` stores events in a thread-safe deque for inspection
+- `Server` and `Supervisor` now accept an optional `lifecycle_collector` parameter and
+  forward it to every `Worker` they spawn. This enables external systems (e.g. Purr's
+  `StackCollector`) to receive connection-level telemetry from all workers through a
+  single collector instance
+- Events are designed for aggregation and observability, not logging — use them to build
+  latency distributions, connection counts, error rate dashboards, or full-stack event
+  traces
+
 #### Per-Worker Lifecycle Scopes
 
 - Worker sends `pounce.worker.startup` scope to the ASGI app before accepting connections,

@@ -53,6 +53,9 @@ def with_lifespan(handler: Callable[..., object]) -> ASGIApp:
                     await send({"type": "lifespan.shutdown.complete"})
                     return
             return
+        if scope["type"] != "http":
+            # Silently ignore unknown scope types (e.g. pounce.worker.startup)
+            return
         await handler(scope, receive, send)
 
     return _app

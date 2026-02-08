@@ -29,6 +29,7 @@ from pounce._errors import SupervisorError
 from pounce._runtime import WorkerMode, detect_worker_mode
 from pounce._types import ASGIApp
 from pounce.config import ServerConfig
+from pounce.lifecycle import LifecycleCollector
 from pounce.worker import Worker
 
 logger = logging.getLogger("pounce.supervisor")
@@ -86,7 +87,7 @@ class Supervisor:
         *,
         mode: WorkerMode | None = None,
         ssl_context: ssl.SSLContext | None = None,
-        lifecycle_collector: object | None = None,
+        lifecycle_collector: LifecycleCollector | None = None,
     ) -> None:
         self._config = config
         self._app = app
