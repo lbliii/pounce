@@ -5,13 +5,12 @@ Configures stdlib logging with pounce-specific formatting. Provides a
 structured access log function for request/response metrics.
 
 Format:
-    {timestamp} {level} {client} - "{method} {path} HTTP/1.1" {status} {bytes} {duration}ms
+    {timestamp} {level} {client} - "{method} {path} HTTP/{version}" {status} {bytes} {duration}ms
 
 """
 
 import logging
 import sys
-from datetime import datetime, timezone
 
 from pounce.config import ServerConfig
 
@@ -53,6 +52,8 @@ def access_log(
     bytes_sent: int,
     duration_ms: float,
     client: str,
+    *,
+    http_version: str = "1.1",
 ) -> None:
     """Log an access log entry for a completed request.
 
@@ -63,13 +64,15 @@ def access_log(
         bytes_sent: Number of response body bytes sent.
         duration_ms: Request duration in milliseconds.
         client: Client address string (e.g., "127.0.0.1:5000").
+        http_version: Protocol version string (e.g., "1.1", "2").
 
     """
     access_logger.info(
-        '%s - "%s %s HTTP/1.1" %d %d %.1fms',
+        '%s - "%s %s HTTP/%s" %d %d %.1fms',
         client,
         method,
         path,
+        http_version,
         status,
         bytes_sent,
         duration_ms,

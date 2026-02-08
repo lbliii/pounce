@@ -21,6 +21,7 @@ import logging
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
+from pounce.asgi.bridge import SendState
 from pounce.asgi.h2_bridge import build_h2_scope, create_h2_receive, create_h2_send
 from pounce.asgi.ws_bridge import build_ws_scope
 from pounce.config import ServerConfig
@@ -116,15 +117,14 @@ async def handle_h2_connection(
 
         receive = create_h2_receive(body_queue)
         app_start = monotonic_ns()
+        send_state = SendState()
         send = create_h2_send(
-            h2_conn, stream_id, writer,
+            h2_conn, stream_id, writer, send_state,
             timing=timing, compressor=compressor,
         )
 
-        status = 500
         try:
             await app(scope, receive, send)
-            status = 200
         except Exception:
             logger.exception(
                 "ASGI app error on H2 stream %d %s %s",
@@ -141,7 +141,8 @@ async def handle_h2_connection(
                 writer.write(h2_conn.data_to_send())
             except Exception:
                 pass
-            status = 500
+            if send_state.status == 0:
+                send_state.status = 500
         finally:
             h2_conn.remove_stream(stream_id)
             stream_tasks.pop(stream_id, None)
@@ -156,7 +157,10 @@ async def handle_h2_connection(
             duration = elapsed_ms(request_start)
             target = request.target.decode("ascii", errors="replace")
             method = request.method.decode("ascii", errors="replace")
-            access_log(method, target, status, 0, duration, client_str)
+            access_log(
+                method, target, send_state.status, send_state.bytes_sent,
+                duration, client_str, http_version="2",
+            )
 
     try:
         while not h2_conn.is_closed:

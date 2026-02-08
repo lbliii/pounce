@@ -17,6 +17,7 @@ Phase 4 hot-path optimizations:
 """
 
 import asyncio
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote
 
@@ -24,6 +25,18 @@ from pounce._compression import Compressor
 from pounce._timing import ServerTiming
 from pounce.config import ServerConfig
 from pounce.protocols._base import BodyReceived, ProtocolHandler, RequestReceived
+
+
+@dataclass(slots=True)
+class SendState:
+    """Mutable holder for response metrics populated by the send callable.
+
+    The worker reads these after the ASGI app completes to get the actual
+    HTTP status code and byte count for access logging.
+    """
+
+    status: int = 0
+    bytes_sent: int = 0
 
 # ---------------------------------------------------------------------------
 # Pre-computed constants — allocated once at import, shared across workers
@@ -149,6 +162,7 @@ _COALESCE_THRESHOLD = 16384  # 16 KB
 def create_send(
     protocol: ProtocolHandler,
     writer: asyncio.StreamWriter,
+    state: SendState,
     *,
     timing: ServerTiming | None = None,
     compressor: Compressor | None = None,
@@ -166,6 +180,7 @@ def create_send(
     Args:
         protocol: Protocol handler for serialization.
         writer: Asyncio stream writer for the connection.
+        state: Mutable holder populated with response status and byte count.
         timing: Optional Server-Timing header builder.
         compressor: Optional content compressor for the response.
 
@@ -193,6 +208,7 @@ def create_send(
                 return
 
             response_started = True
+            state.status = status
             headers: list[tuple[bytes, bytes]] = [
                 (name if isinstance(name, bytes) else name.encode(),
                  value if isinstance(value, bytes) else value.encode())
@@ -261,5 +277,8 @@ def create_send(
 
             if not more_body:
                 response_complete = True
+                state.bytes_sent += len(body)
+            else:
+                state.bytes_sent += len(body)
 
     return send

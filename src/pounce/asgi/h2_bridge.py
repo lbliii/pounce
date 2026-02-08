@@ -17,6 +17,7 @@ from typing import Any
 
 from pounce._compression import Compressor
 from pounce._timing import ServerTiming
+from pounce.asgi.bridge import SendState
 from pounce.config import ServerConfig
 from pounce.protocols._base import RequestReceived
 
@@ -81,6 +82,7 @@ def create_h2_send(
     h2_conn: Any,  # H2Connection — Any to avoid import cycle
     stream_id: int,
     writer: asyncio.StreamWriter,
+    state: SendState,
     *,
     timing: ServerTiming | None = None,
     compressor: Compressor | None = None,
@@ -94,6 +96,7 @@ def create_h2_send(
         h2_conn: The H2Connection managing this connection.
         stream_id: The h2 stream identifier for this request.
         writer: The asyncio StreamWriter for the TCP connection.
+        state: Mutable holder populated with response status and byte count.
         timing: Optional Server-Timing builder.
         compressor: Optional compressor for response body.
 
@@ -122,6 +125,7 @@ def create_h2_send(
                 return  # Don't mark response_started yet
 
             response_started = True
+            state.status = status
 
             # Inject Content-Encoding if compressing
             if compressor is not None:
@@ -165,6 +169,7 @@ def create_h2_send(
             h2_conn.send_data(stream_id, body, end_stream=end_stream)
             _flush(h2_conn, writer)
 
+            state.bytes_sent += len(body)
             if not more_body:
                 response_complete = True
 

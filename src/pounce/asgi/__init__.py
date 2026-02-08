@@ -11,12 +11,13 @@ Modules:
 
 """
 
-from pounce.asgi.bridge import build_scope, create_receive, create_send
+from pounce.asgi.bridge import SendState, build_scope, create_receive, create_send
 from pounce.asgi.h2_bridge import build_h2_scope, create_h2_receive, create_h2_send
 from pounce.asgi.lifespan import run_lifespan
 from pounce.asgi.ws_bridge import build_ws_scope, create_ws_receive, create_ws_send
 
 __all__ = [
+    "SendState",
     "build_h2_scope",
     "build_scope",
     "build_ws_scope",
