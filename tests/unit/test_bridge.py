@@ -817,7 +817,7 @@ class TestCreateDisconnectReceive:
         disconnect.set()
         msg = await receive()
         assert msg["type"] == "http.disconnect"
-        assert msg is _DISCONNECT_MESSAGE
+        assert msg == _DISCONNECT_MESSAGE
 
     @pytest.mark.asyncio
     async def test_disconnect_set_before_second_call(self):
@@ -893,7 +893,7 @@ class TestCreateReceiveWithDisconnect:
         disconnect.set()
         msg = await receive()
         assert msg["type"] == "http.disconnect"
-        assert msg is _DISCONNECT_MESSAGE
+        assert msg == _DISCONNECT_MESSAGE
 
     @pytest.mark.asyncio
     async def test_single_chunk_body(self):

@@ -66,6 +66,9 @@ async def app(scope: Scope, receive: Receive, send: Send) -> None:
                 return
         return
 
+    if scope["type"] != "http":
+        return
+
     await receive()
 
     # SSE responses must not be compressed (breaks streaming in most clients).

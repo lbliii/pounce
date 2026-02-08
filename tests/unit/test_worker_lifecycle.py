@@ -213,7 +213,7 @@ class TestUnrecognizedScopeGraceful:
 
     @pytest.mark.asyncio
     async def test_app_raises_on_unknown_scope(self):
-        """App that raises TypeError on non-HTTP scopes is handled."""
+        """App that raises TypeError on non-HTTP scopes still starts."""
 
         async def strict_app(scope: Scope, receive: Receive, send: Send) -> None:
             if scope["type"] == "lifespan":
@@ -236,9 +236,14 @@ class TestUnrecognizedScopeGraceful:
         thread = threading.Thread(target=worker.run, daemon=True)
         thread.start()
 
-        # Worker should exit (startup scope raises)
+        # Worker should still be alive — startup scope exceptions are suppressed
+        # so that apps which don't understand pounce.worker.startup proceed normally.
+        import time
+
+        time.sleep(0.5)
+        assert thread.is_alive()
+        worker.shutdown()
         thread.join(timeout=3)
-        assert not thread.is_alive()
         sock.close()
 
 
