@@ -1,0 +1,45 @@
+# External References Configuration
+# ==================================
+
+external_refs:
+  # Links to related projects in the Bengal ecosystem
+  bengal:
+    url: "https://lbliii.github.io/bengal"
+    description: "Bengal static site generator"
+
+  kida:
+    url: "https://lbliii.github.io/kida"
+    description: "Kida template engine"
+
+  rosettes:
+    url: "https://lbliii.github.io/rosettes"
+    description: "Rosettes syntax highlighter"
+
+  patitas:
+    url: "https://lbliii.github.io/patitas"
+    description: "Patitas Markdown parser"
+
+  chirp:
+    url: "https://lbliii.github.io/chirp"
+    description: "Chirp web framework"
+
+  purr:
+    url: "https://lbliii.github.io/purr"
+    description: "Purr content runtime"
+
+  # External documentation
+  asgi:
+    url: "https://asgi.readthedocs.io/"
+    description: "ASGI specification"
+
+  h11:
+    url: "https://h11.readthedocs.io/"
+    description: "h11 HTTP/1.1 library"
+
+  pep703:
+    url: "https://peps.python.org/pep-0703/"
+    description: "PEP 703 — Free-threading CPython"
+
+  pep784:
+    url: "https://peps.python.org/pep-0784/"
+    description: "PEP 784 — Adding zstd to the stdlib"

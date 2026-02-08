@@ -27,7 +27,7 @@ from pounce.logging import configure_logging
 from pounce.net.listener import create_listener, create_listeners
 from pounce.net.tls import create_tls_context, is_tls_configured
 from pounce.supervisor import Supervisor
-from pounce.worker import Worker
+from pounce.worker import Worker, _worker_lifecycle_receive, _worker_lifecycle_send
 
 logger = logging.getLogger("pounce")
 
@@ -247,6 +247,24 @@ class Server:
         )
 
         async with run_lifespan(self._app, self._config):
+            # Per-worker startup — in single-worker mode there's one
+            # "worker" sharing the main event loop.  Send the scope so
+            # @app.on_worker_startup hooks fire just like multi-worker.
+            try:
+                await asyncio.wait_for(
+                    self._app(
+                        {"type": "pounce.worker.startup", "worker_id": 0},
+                        _worker_lifecycle_receive,
+                        _worker_lifecycle_send,
+                    ),
+                    timeout=30.0,
+                )
+            except TimeoutError:
+                pass  # App doesn't handle this scope type
+            except Exception:
+                logger.exception("Worker startup hook failed")
+                return
+
             server = await asyncio.start_server(
                 worker._handle_connection,
                 sock=sock,
@@ -273,6 +291,22 @@ class Server:
                         "Shutdown timeout (%.1fs) — forcing remaining connections closed",
                         timeout,
                     )
+
+                # Per-worker shutdown — clean up worker-scoped resources
+                try:
+                    await asyncio.wait_for(
+                        self._app(
+                            {"type": "pounce.worker.shutdown", "worker_id": 0},
+                            _worker_lifecycle_receive,
+                            _worker_lifecycle_send,
+                        ),
+                        timeout=10.0,
+                    )
+                except TimeoutError:
+                    pass
+                except Exception:
+                    logger.exception("Worker shutdown hook failed")
+
                 self._loop = None
 
     # ------------------------------------------------------------------

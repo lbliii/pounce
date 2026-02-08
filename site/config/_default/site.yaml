@@ -1,0 +1,12 @@
+# Pounce Documentation Site Configuration
+# ==========================================
+
+site:
+  title: "Pounce"
+  # baseurl set in environments/production.yaml for GitHub Pages
+  logo_text: "⟩⟩·"
+  description: "A free-threading-native ASGI server for Python 3.14t"
+  language: "en"
+
+# Template Engine
+template_engine: kida

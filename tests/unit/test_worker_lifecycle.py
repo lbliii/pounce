@@ -6,16 +6,20 @@ Covers:
 - Startup failure prevents the worker from accepting connections.
 - Shutdown failure is logged but does not prevent worker exit.
 - Apps that raise on unknown scope types are handled gracefully.
+- Single-worker mode (via Server) sends worker scopes.
 """
 
 import asyncio
+import socket
 import threading
+import time
 
 import pytest
 
 from pounce._types import Receive, Scope, Send
 from pounce.config import ServerConfig
 from pounce.net.listener import create_listener
+from pounce.server import Server
 from pounce.worker import Worker
 
 
@@ -237,3 +241,43 @@ class TestUnrecognizedScopeGraceful:
         thread.join(timeout=3)
         assert not thread.is_alive()
         sock.close()
+
+
+class TestSingleWorkerLifecycle:
+    """Server single-worker mode sends worker lifecycle scopes."""
+
+    @pytest.mark.asyncio
+    async def test_single_worker_sends_both_scopes(self):
+        """In single-worker mode, worker startup and shutdown scopes fire."""
+        events: list[str] = []
+
+        async def app(scope: Scope, receive: Receive, send: Send) -> None:
+            if scope["type"] == "pounce.worker.startup":
+                events.append("startup")
+                return
+            if scope["type"] == "pounce.worker.shutdown":
+                events.append("shutdown")
+                return
+            if scope["type"] == "lifespan":
+                while True:
+                    msg = await receive()
+                    if msg["type"] == "lifespan.startup":
+                        await send({"type": "lifespan.startup.complete"})
+                    elif msg["type"] == "lifespan.shutdown":
+                        await send({"type": "lifespan.shutdown.complete"})
+                        return
+
+        config = ServerConfig(host="127.0.0.1", port=0, access_log=False)
+        server = Server(config, app)
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+
+        # Give the server time to start
+        await asyncio.sleep(0.5)
+
+        assert "startup" in events
+
+        server.shutdown()
+        thread.join(timeout=3)
+
+        assert events == ["startup", "shutdown"]
