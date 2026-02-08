@@ -162,15 +162,51 @@ def create_ws_send(
 
         elif msg_type == "websocket.close":
             closed = True
-            code = message.get("code", 1000)
-            reason = message.get("reason", "")
-            raw = ws_protocol.close(code=code, reason=reason)
-            writer.write(raw)
-            await writer.drain()
+            if not accepted:
+                # Reject before upgrade: send HTTP 403 instead of WS close frame
+                raw = (
+                    b"HTTP/1.1 403 Forbidden\r\n"
+                    b"content-type: text/plain\r\n"
+                    b"content-length: 9\r\n"
+                    b"connection: close\r\n"
+                    b"\r\n"
+                    b"Forbidden"
+                )
+                writer.write(raw)
+                await writer.drain()
+            else:
+                code = message.get("code", 1000)
+                reason = message.get("reason", "")
+                raw = ws_protocol.close(code=code, reason=reason)
+                writer.write(raw)
+                await writer.drain()
             close_event.set()
 
         elif msg_type == "websocket.http.response.start":
             # WebSocket rejection — send HTTP response instead of upgrade
-            close_event.set()
+            closed = True
+            status = message.get("status", 403)
+            headers: list[tuple[bytes, bytes]] = [
+                (
+                    name if isinstance(name, bytes) else name.encode(),
+                    value if isinstance(value, bytes) else value.encode(),
+                )
+                for name, value in message.get("headers", [])
+            ]
+            parts = [f"HTTP/1.1 {status} Rejected\r\n".encode()]
+            for name, value in headers:
+                parts.extend((name, b": ", value, b"\r\n"))
+            parts.append(b"\r\n")
+            writer.write(b"".join(parts))
+
+        elif msg_type == "websocket.http.response.body":
+            # Body of an HTTP rejection response
+            body = message.get("body", b"")
+            if body:
+                writer.write(body)
+            more_body = message.get("more_body", False)
+            if not more_body:
+                await writer.drain()
+                close_event.set()
 
     return send

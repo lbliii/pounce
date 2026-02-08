@@ -18,6 +18,7 @@ Phase 4 hot-path optimizations:
 
 import asyncio
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 from urllib.parse import unquote
 
@@ -46,11 +47,12 @@ _ASGI_SPEC: dict[str, str] = {"version": "3.0", "spec_version": "2.4"}
 
 # Pre-built terminal body message for bodyless requests (GET, HEAD, etc.)
 # Avoids asyncio.Queue entirely for the common no-body case.
-_EMPTY_BODY_MESSAGE: dict[str, Any] = {
+# Read-only via MappingProxyType so misbehaving apps can't corrupt it.
+_EMPTY_BODY_MESSAGE: MappingProxyType[str, Any] = MappingProxyType({
     "type": "http.request",
     "body": b"",
     "more_body": False,
-}
+})
 
 
 def build_scope(
@@ -157,6 +159,11 @@ def create_empty_receive() -> Any:
 # Threshold for write coalescing: if head + body fit in this many bytes,
 # combine them into a single write()/syscall.
 _COALESCE_THRESHOLD = 16384  # 16 KB
+
+# Back-pressure threshold: drain the transport buffer when it exceeds
+# this size.  Prevents unbounded memory growth when the client reads
+# slowly during streaming responses.
+_DRAIN_THRESHOLD = 65536  # 64 KB
 
 
 def create_send(
@@ -275,10 +282,15 @@ def create_send(
             elif raw:
                 writer.write(raw)
 
+            # Back-pressure: drain when the transport buffer is large.
+            # Avoids unbounded memory growth for streaming responses
+            # with slow clients, without penalizing small responses.
+            transport = writer.transport
+            if transport is not None and transport.get_write_buffer_size() > _DRAIN_THRESHOLD:
+                await writer.drain()
+
+            state.bytes_sent += len(body)
             if not more_body:
                 response_complete = True
-                state.bytes_sent += len(body)
-            else:
-                state.bytes_sent += len(body)
 
     return send

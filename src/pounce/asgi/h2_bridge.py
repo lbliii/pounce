@@ -166,8 +166,34 @@ def create_h2_send(
                 body = compressor.flush()
 
             end_stream = not more_body
-            h2_conn.send_data(stream_id, body, end_stream=end_stream)
-            _flush(h2_conn, writer)
+
+            # Respect H2 flow control: split large bodies into
+            # window-sized chunks to avoid FlowControlError.
+            remaining = body
+            while remaining:
+                window = h2_conn.local_flow_control_window(stream_id)
+                if window <= 0:
+                    # Window exhausted — flush and wait for WINDOW_UPDATE
+                    _flush(h2_conn, writer)
+                    await writer.drain()
+                    continue
+                chunk_size = min(len(remaining), window)
+                is_last = end_stream and chunk_size == len(remaining)
+                h2_conn.send_data(
+                    stream_id, remaining[:chunk_size], end_stream=is_last,
+                )
+                remaining = remaining[chunk_size:]
+                _flush(h2_conn, writer)
+
+            if not body and end_stream:
+                # Empty body with end_stream — send zero-length DATA
+                h2_conn.send_data(stream_id, b"", end_stream=True)
+                _flush(h2_conn, writer)
+
+            # Back-pressure: drain when the transport buffer is large
+            transport = writer.transport
+            if transport is not None and transport.get_write_buffer_size() > 65536:
+                await writer.drain()
 
             state.bytes_sent += len(body)
             if not more_body:
