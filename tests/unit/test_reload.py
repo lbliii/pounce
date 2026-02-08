@@ -6,6 +6,7 @@ from pathlib import Path
 
 from pounce._reload import (
     _EXCLUDE_DIRS,
+    _WATCH_EXTENSIONS,
     _should_watch,
     _snapshot,
     detect_changes,
@@ -126,3 +127,50 @@ class TestExcludeDirs:
         assert "node_modules" in _EXCLUDE_DIRS
         assert ".venv" in _EXCLUDE_DIRS
         assert "venv" in _EXCLUDE_DIRS
+
+
+class TestExtraExtensions:
+    """Extra extensions are merged with the built-in set."""
+
+    def test_html_not_watched_by_default(self) -> None:
+        assert _should_watch(Path("index.html")) is False
+
+    def test_html_watched_with_extra(self) -> None:
+        extra = _WATCH_EXTENSIONS | frozenset({".html"})
+        assert _should_watch(Path("index.html"), extra) is True
+
+    def test_css_watched_with_extra(self) -> None:
+        extra = _WATCH_EXTENSIONS | frozenset({".css"})
+        assert _should_watch(Path("style.css"), extra) is True
+
+    def test_extra_extensions_merged_in_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = Path(tmpdir)
+            (p / "app.py").write_text("# code")
+            (p / "index.html").write_text("<h1>Hi</h1>")
+            (p / "style.css").write_text("body {}")
+
+            # Default: only .py
+            default = _snapshot([p])
+            assert str(p / "app.py") in default
+            assert str(p / "index.html") not in default
+
+            # With extras: .py + .html + .css
+            ext = _WATCH_EXTENSIONS | frozenset({".html", ".css"})
+            extended = _snapshot([p], ext)
+            assert str(p / "app.py") in extended
+            assert str(p / "index.html") in extended
+            assert str(p / "style.css") in extended
+
+    def test_extra_extensions_in_detect_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = Path(tmpdir)
+            ext = _WATCH_EXTENSIONS | frozenset({".html"})
+
+            snapshot = _snapshot([p], ext)
+
+            # Create an HTML file
+            (p / "page.html").write_text("<p>Hello</p>")
+
+            changed, _ = detect_changes([p], snapshot, ext)
+            assert str(p / "page.html") in changed

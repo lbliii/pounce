@@ -73,11 +73,11 @@ Pounce handles thread safety for its own internals. For your ASGI application:
 
 :::{tip}
 If your app works correctly with Uvicorn's multi-process mode, it will work with Pounce's thread mode — the isolation model is the same (per-request scope, no shared mutable state in the framework bridge).
-:::{/tip}
+:::
 
 :::{warning}
 If your app uses global mutable state (module-level dicts, caches without locks), you'll need to add synchronization for free-threading builds. This is a Python-wide concern, not Pounce-specific.
-:::{/warning}
+:::
 
 ## See Also
 

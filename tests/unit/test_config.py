@@ -64,6 +64,14 @@ class TestServerConfigDefaults:
         config = ServerConfig()
         assert config.reload is False
 
+    def test_default_reload_include(self):
+        config = ServerConfig()
+        assert config.reload_include == ()
+
+    def test_default_reload_dirs(self):
+        config = ServerConfig()
+        assert config.reload_dirs == ()
+
     def test_default_h11(self):
         config = ServerConfig()
         assert config.h11_max_incomplete_event_size is None
@@ -123,6 +131,14 @@ class TestServerConfigOverrides:
         )
         assert config.ssl_certfile == "/path/to/cert.pem"
         assert config.ssl_keyfile == "/path/to/key.pem"
+
+    def test_custom_reload_include(self):
+        config = ServerConfig(reload_include=(".html", ".css", ".md"))
+        assert config.reload_include == (".html", ".css", ".md")
+
+    def test_custom_reload_dirs(self):
+        config = ServerConfig(reload_dirs=("./templates", "./static"))
+        assert config.reload_dirs == ("./templates", "./static")
 
     def test_custom_max_requests_per_connection(self):
         config = ServerConfig(max_requests_per_connection=1000)

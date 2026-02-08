@@ -39,6 +39,20 @@ def main(args: list[str] | None = None) -> None:
         sys.stderr.write(f"Error: {exc}\n")
         sys.exit(1)
 
+    # Parse reload extensions (comma-separated, e.g. ".html,.css,.md")
+    reload_include: tuple[str, ...] = ()
+    if parsed.reload_include:
+        reload_include = tuple(
+            ext.strip() if ext.strip().startswith(".") else f".{ext.strip()}"
+            for ext in parsed.reload_include.split(",")
+            if ext.strip()
+        )
+
+    # Parse reload directories (comma-separated)
+    reload_dirs: tuple[str, ...] = ()
+    if parsed.reload_dir:
+        reload_dirs = tuple(d.strip() for d in parsed.reload_dir if d.strip())
+
     # Build config from CLI arguments
     config = ServerConfig(
         host=parsed.host,
@@ -52,6 +66,8 @@ def main(args: list[str] | None = None) -> None:
         ssl_certfile=parsed.ssl_certfile,
         ssl_keyfile=parsed.ssl_keyfile,
         reload=parsed.reload,
+        reload_include=reload_include,
+        reload_dirs=reload_dirs,
         keep_alive_timeout=parsed.keep_alive_timeout,
         max_requests_per_connection=parsed.max_requests_per_connection,
     )
@@ -153,6 +169,23 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Enable auto-reload on source file changes (development mode)",
+    )
+    parser.add_argument(
+        "--reload-include",
+        default=None,
+        help=(
+            "Extra file extensions to watch when --reload is active "
+            '(comma-separated, e.g. ".html,.css,.md")'
+        ),
+    )
+    parser.add_argument(
+        "--reload-dir",
+        action="append",
+        default=None,
+        help=(
+            "Extra directory to watch when --reload is active "
+            "(can be repeated, e.g. --reload-dir ./templates --reload-dir ./static)"
+        ),
     )
     parser.add_argument(
         "--keep-alive-timeout",

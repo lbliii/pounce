@@ -38,7 +38,7 @@ Pounce's protocol system is modular by design. Each protocol handler is a self-c
 
 :::{note}
 The protocol handler interface is internal and may change between releases. If you're building a custom protocol handler, pin your Pounce version.
-:::{/note}
+:::
 
 ## See Also
 

@@ -74,7 +74,7 @@ On GIL builds, each worker is a separate process:
 
 :::{tip}
 Start with `--workers 0` (auto-detect) and monitor. Adjust based on actual CPU utilization and latency metrics.
-:::{/tip}
+:::
 
 ## Health Monitoring
 

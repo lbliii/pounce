@@ -187,10 +187,14 @@ class Server:
             reload_requested.set()
             self.shutdown()
 
+        watch_dirs = [Path.cwd(), *(Path(d).resolve() for d in self._config.reload_dirs)]
         watcher = threading.Thread(
             target=watch_for_changes,
-            args=([Path.cwd()], _on_change),
-            kwargs={"stop_event": stop_watcher},
+            args=(watch_dirs, _on_change),
+            kwargs={
+                "stop_event": stop_watcher,
+                "extra_extensions": self._config.reload_include,
+            },
             daemon=True,
         )
         watcher.start()
@@ -380,10 +384,14 @@ class Server:
             def _on_change() -> None:
                 supervisor_ref.restart_workers()
 
+            watch_dirs = [Path.cwd(), *(Path(d).resolve() for d in self._config.reload_dirs)]
             watcher = threading.Thread(
                 target=watch_for_changes,
-                args=([Path.cwd()], _on_change),
-                kwargs={"stop_event": stop_watcher},
+                args=(watch_dirs, _on_change),
+                kwargs={
+                    "stop_event": stop_watcher,
+                    "extra_extensions": self._config.reload_include,
+                },
                 daemon=True,
             )
             watcher.start()

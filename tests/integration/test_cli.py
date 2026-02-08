@@ -80,6 +80,42 @@ class TestCLIParser:
         parsed = parser.parse_args(["myapp:app", "--reload"])
         assert parsed.reload is True
 
+    def test_reload_include_flag(self):
+        parser = _build_parser()
+        parsed = parser.parse_args(
+            ["myapp:app", "--reload", "--reload-include", ".html,.css,.md"]
+        )
+        assert parsed.reload_include == ".html,.css,.md"
+
+    def test_reload_dir_flag_single(self):
+        parser = _build_parser()
+        parsed = parser.parse_args(
+            ["myapp:app", "--reload", "--reload-dir", "./templates"]
+        )
+        assert parsed.reload_dir == ["./templates"]
+
+    def test_reload_dir_flag_multiple(self):
+        parser = _build_parser()
+        parsed = parser.parse_args(
+            [
+                "myapp:app",
+                "--reload",
+                "--reload-dir", "./templates",
+                "--reload-dir", "./static",
+            ]
+        )
+        assert parsed.reload_dir == ["./templates", "./static"]
+
+    def test_reload_include_default_none(self):
+        parser = _build_parser()
+        parsed = parser.parse_args(["myapp:app"])
+        assert parsed.reload_include is None
+
+    def test_reload_dir_default_none(self):
+        parser = _build_parser()
+        parsed = parser.parse_args(["myapp:app"])
+        assert parsed.reload_dir is None
+
     def test_phase3_keepalive_args(self):
         parser = _build_parser()
         parsed = parser.parse_args(

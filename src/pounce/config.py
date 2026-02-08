@@ -62,6 +62,8 @@ class ServerConfig:
 
     # Development
     reload: bool = False
+    reload_include: tuple[str, ...] = ()  # Extra file extensions to watch (e.g. ".html", ".css")
+    reload_dirs: tuple[str, ...] = ()  # Extra directories to watch alongside cwd
 
     # h11 tuning
     h11_max_incomplete_event_size: int | None = None  # None = h11 default (16 KB)

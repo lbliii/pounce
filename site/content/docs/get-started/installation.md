@@ -16,7 +16,7 @@ category: onboarding
 
 :::{note}
 Pounce works on both GIL and free-threading builds. On GIL builds, multi-worker mode uses processes instead of threads — same API, same config.
-:::{/note}
+:::
 
 ## Install
 

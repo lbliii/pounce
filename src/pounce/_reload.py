@@ -56,17 +56,20 @@ _WATCH_EXTENSIONS: frozenset[str] = frozenset(
 )
 
 
-def _should_watch(path: Path) -> bool:
+def _should_watch(path: Path, extensions: frozenset[str] = _WATCH_EXTENSIONS) -> bool:
     """Check if a path should be watched for changes."""
     # Skip excluded directories
     for part in path.parts:
         if part in _EXCLUDE_DIRS:
             return False
     # Only watch specific extensions
-    return path.suffix in _WATCH_EXTENSIONS
+    return path.suffix in extensions
 
 
-def _snapshot(directories: list[Path]) -> dict[str, float]:
+def _snapshot(
+    directories: list[Path],
+    extensions: frozenset[str] = _WATCH_EXTENSIONS,
+) -> dict[str, float]:
     """Take a snapshot of file modification times.
 
     Returns:
@@ -78,7 +81,7 @@ def _snapshot(directories: list[Path]) -> dict[str, float]:
         if not directory.is_dir():
             continue
         for path in directory.rglob("*"):
-            if path.is_file() and _should_watch(path):
+            if path.is_file() and _should_watch(path, extensions):
                 with contextlib.suppress(OSError):
                     snapshot[str(path)] = path.stat().st_mtime
     return snapshot
@@ -87,18 +90,20 @@ def _snapshot(directories: list[Path]) -> dict[str, float]:
 def detect_changes(
     directories: list[Path],
     previous: dict[str, float],
+    extensions: frozenset[str] = _WATCH_EXTENSIONS,
 ) -> tuple[set[str], dict[str, float]]:
     """Compare current state against a previous snapshot.
 
     Args:
         directories: Directories to scan.
         previous: Previous snapshot from ``_snapshot()``.
+        extensions: File extensions to watch.
 
     Returns:
         Tuple of (changed_files, new_snapshot).
 
     """
-    current = _snapshot(directories)
+    current = _snapshot(directories, extensions)
     changed: set[str] = set()
 
     # Check for new or modified files
@@ -120,6 +125,7 @@ def watch_for_changes(
     *,
     interval: float = 1.0,
     stop_event: threading.Event | None = None,
+    extra_extensions: tuple[str, ...] = (),
 ) -> None:
     """Poll directories for changes and call callback on detection.
 
@@ -132,18 +138,23 @@ def watch_for_changes(
         callback: Called (with no args) when changes are detected.
         interval: Polling interval in seconds (default: 1.0).
         stop_event: Optional threading.Event to stop the watcher.
+        extra_extensions: Additional file extensions to watch beyond
+            the built-in set (e.g. ``(".html", ".css", ".md")``).
 
     """
     if stop_event is None:
         stop_event = threading.Event()
 
+    extensions = _WATCH_EXTENSIONS | frozenset(extra_extensions) if extra_extensions else _WATCH_EXTENSIONS
+
     logger.info(
-        "Watching %d directories for changes (interval: %.1fs)",
+        "Watching %d directories for changes (interval: %.1fs, extensions: %d)",
         len(directories),
         interval,
+        len(extensions),
     )
 
-    snapshot = _snapshot(directories)
+    snapshot = _snapshot(directories, extensions)
 
     while not stop_event.is_set():
         # Use stop_event.wait() instead of time.sleep() for instant
@@ -151,7 +162,7 @@ def watch_for_changes(
         if stop_event.wait(timeout=interval):
             break
 
-        changed, snapshot = detect_changes(directories, snapshot)
+        changed, snapshot = detect_changes(directories, snapshot, extensions)
         if changed:
             # Log the first few changed files
             file_list = sorted(changed)[:5]

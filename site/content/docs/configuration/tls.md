@@ -34,7 +34,7 @@ pounce.run(
 
 :::{note}
 Both `ssl_certfile` and `ssl_keyfile` must be provided together. Setting only one raises `ValueError`.
-:::{/note}
+:::
 
 ## Self-Signed Certificates (Development)
 
