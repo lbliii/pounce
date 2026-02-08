@@ -70,6 +70,7 @@ class Supervisor:
 
     __slots__ = (
         "_app",
+        "_app_path",
         "_config",
         "_effective_workers",
         "_handles",
@@ -88,9 +89,11 @@ class Supervisor:
         mode: WorkerMode | None = None,
         ssl_context: ssl.SSLContext | None = None,
         lifecycle_collector: LifecycleCollector | None = None,
+        app_path: str | None = None,
     ) -> None:
         self._config = config
         self._app = app
+        self._app_path = app_path
         self._mode: WorkerMode = mode or detect_worker_mode()
         self._shutdown_event = threading.Event()
         self._handles: list[_WorkerHandle] = []
@@ -157,12 +160,25 @@ class Supervisor:
         """Gracefully restart all workers (for dev reload).
 
         Signals all running workers to stop, waits for them to drain,
-        clears the shutdown event, and spawns fresh workers. Process-based
-        workers get a fresh module import; thread-based workers reuse the
-        existing app object but reinitialise their async loops.
+        clears the shutdown event, and spawns fresh workers.
+
+        When an ``app_path`` was provided and workers run as threads,
+        the app module is reimported so that code changes on disk take
+        effect.  Process-based workers get fresh imports automatically
+        on fork and don't need explicit reimport.
 
         """
         logger.info("Restarting %d worker(s)...", self._effective_workers)
+
+        # Reimport the app to pick up code changes (thread mode only —
+        # process mode forks a new interpreter with a clean module cache).
+        if self._app_path and self._mode == "thread":
+            try:
+                from pounce._importer import reimport_app
+
+                self._app = reimport_app(self._app_path)
+            except Exception:
+                logger.exception("Reload failed — restarting with previous version")
 
         # Signal all workers to stop
         self._shutdown_event.set()

@@ -56,8 +56,9 @@ def main(args: list[str] | None = None) -> None:
         max_requests_per_connection=parsed.max_requests_per_connection,
     )
 
-    # Run the server
-    server = Server(config, app)
+    # Run the server — pass the original import string so that the reload
+    # loop can reimport a fresh app after code changes on disk.
+    server = Server(config, app, app_path=parsed.app)
     server.run()
 
 

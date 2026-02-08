@@ -53,6 +53,7 @@ class Server:
 
     __slots__ = (
         "_app",
+        "_app_path",
         "_async_shutdown",
         "_config",
         "_lifecycle_collector",
@@ -67,10 +68,12 @@ class Server:
         config: ServerConfig,
         app: ASGIApp,
         *,
+        app_path: str | None = None,
         lifecycle_collector: LifecycleCollector | None = None,
     ) -> None:
         self._config = config
         self._app = app
+        self._app_path = app_path
         self._lifecycle_collector = lifecycle_collector
         self._ssl_context = None
         self._shutdown_event = threading.Event()
@@ -218,6 +221,15 @@ class Server:
 
                 if reload_requested.is_set():
                     logger.info("Reloading...")
+                    if self._app_path:
+                        try:
+                            from pounce._importer import reimport_app
+
+                            self._app = reimport_app(self._app_path)
+                        except Exception:
+                            logger.exception(
+                                "Reload failed — serving previous version"
+                            )
                     continue
                 break
         finally:
@@ -352,6 +364,7 @@ class Server:
             mode=mode,
             ssl_context=self._ssl_context,
             lifecycle_collector=self._lifecycle_collector,
+            app_path=self._app_path,
         )
 
         # Start file watcher for reload mode
