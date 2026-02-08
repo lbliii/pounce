@@ -73,22 +73,62 @@ class ServerConfig:
     ssl_certfile: str | None = None
     ssl_keyfile: str | None = None
 
+    _VALID_LOG_LEVELS: frozenset[str] = frozenset(
+        {"debug", "info", "warning", "error", "critical"}
+    )
+
     def __post_init__(self) -> None:
         """Validate configuration values."""
-        if self.workers < 0:
-            msg = f"workers must be >= 0 (got {self.workers})"
+        if not self.host:
+            msg = "host must be a non-empty string"
             raise ValueError(msg)
         if self.port < 0 or self.port > 65535:
             msg = f"port must be 0-65535 (got {self.port})"
             raise ValueError(msg)
+        if self.workers < 0:
+            msg = f"workers must be >= 0 (got {self.workers})"
+            raise ValueError(msg)
+        if self.backlog <= 0:
+            msg = f"backlog must be > 0 (got {self.backlog})"
+            raise ValueError(msg)
         if self.keep_alive_timeout <= 0:
             msg = f"keep_alive_timeout must be > 0 (got {self.keep_alive_timeout})"
+            raise ValueError(msg)
+        if self.request_timeout <= 0:
+            msg = f"request_timeout must be > 0 (got {self.request_timeout})"
+            raise ValueError(msg)
+        if self.shutdown_timeout <= 0:
+            msg = f"shutdown_timeout must be > 0 (got {self.shutdown_timeout})"
+            raise ValueError(msg)
+        if self.max_request_size <= 0:
+            msg = f"max_request_size must be > 0 (got {self.max_request_size})"
+            raise ValueError(msg)
+        if self.max_header_size <= 0:
+            msg = f"max_header_size must be > 0 (got {self.max_header_size})"
+            raise ValueError(msg)
+        if self.max_headers <= 0:
+            msg = f"max_headers must be > 0 (got {self.max_headers})"
+            raise ValueError(msg)
+        if self.max_connections < 0:
+            msg = f"max_connections must be >= 0 (got {self.max_connections})"
             raise ValueError(msg)
         if self.max_requests_per_connection < 0:
             msg = (
                 f"max_requests_per_connection must be >= 0 "
                 f"(got {self.max_requests_per_connection})"
             )
+            raise ValueError(msg)
+        if self.compression_min_size < 0:
+            msg = f"compression_min_size must be >= 0 (got {self.compression_min_size})"
+            raise ValueError(msg)
+        if self.log_level.lower() not in self._VALID_LOG_LEVELS:
+            msg = (
+                f"log_level must be one of {sorted(self._VALID_LOG_LEVELS)} "
+                f"(got {self.log_level!r})"
+            )
+            raise ValueError(msg)
+        if (self.ssl_certfile is None) != (self.ssl_keyfile is None):
+            msg = "ssl_certfile and ssl_keyfile must both be set or both be None"
             raise ValueError(msg)
 
     def resolve_workers(self) -> int:

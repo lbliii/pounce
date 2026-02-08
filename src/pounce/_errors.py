@@ -6,7 +6,7 @@ code for automatic error response generation.
 
 Error categories:
 - ParseError: malformed HTTP from the client (400)
-- TimeoutError: request or keep-alive timeout (408)
+- RequestTimeoutError: request or keep-alive timeout (408)
 - LimitError: headers or body exceed configured limits (413/431)
 - AppError: the ASGI application raised an exception (500)
 - LifespanError: lifespan startup or shutdown failure (500)
@@ -35,20 +35,24 @@ class ParseError(PounceError):
     status_code: int = 400
 
 
-class TimeoutError(PounceError):
-    """Request or keep-alive timeout exceeded."""
+class RequestTimeoutError(PounceError):
+    """Request or keep-alive timeout exceeded.
+
+    Named ``RequestTimeoutError`` to avoid shadowing the builtin
+    ``TimeoutError`` (which is a subclass of ``OSError``).
+    """
 
     status_code: int = 408
 
 
 class LimitError(PounceError):
-    """Request headers or body exceed configured size limits."""
+    """Request headers or body exceed configured size limits.
+
+    Default status is 413 (Content Too Large). Pass ``status_code=431``
+    for header-specific limits (Request Header Fields Too Large).
+    """
 
     status_code: int = 413
-
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
-        # 431 for header-specific limits, 413 for body
-        super().__init__(message, status_code=status_code)
 
 
 class AppError(PounceError):

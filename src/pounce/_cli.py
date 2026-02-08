@@ -27,6 +27,11 @@ def main(args: list[str] | None = None) -> None:
     parser = _build_parser()
     parsed = parser.parse_args(args)
 
+    # Ensure current directory is on sys.path so that local modules
+    # can be imported (e.g., ``pounce myapp:app`` from the project dir).
+    if "" not in sys.path and "." not in sys.path:
+        sys.path.insert(0, ".")
+
     # Resolve the ASGI app
     try:
         app = import_app(parsed.app)
@@ -70,6 +75,13 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    from pounce import __version__
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
     parser.add_argument(
         "app",
         help="ASGI application (e.g., 'myapp:app' or 'myapp:create_app()')",

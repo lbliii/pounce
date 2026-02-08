@@ -30,13 +30,50 @@ Part of the Bengal ecosystem:
 # PEP 703: Declare this module as free-threading safe
 _Py_mod_gil = 0
 
-__version__ = "0.4.0-dev"
+try:
+    from importlib.metadata import version as _get_pkg_version
+
+    __version__ = _get_pkg_version("bengal-pounce")
+except Exception:  # Package not installed in editable/dist mode
+    __version__ = "0.0.0-dev"
+
+from typing import TypedDict, Unpack
 
 from pounce._types import ASGIApp, Receive, Scope, Send
 from pounce.config import ServerConfig
 
 
-def run(app: str, **kwargs) -> None:  # noqa: ANN003
+class ServerConfigKwargs(TypedDict, total=False):
+    """Typed keyword arguments matching ``ServerConfig`` fields."""
+
+    host: str
+    port: int
+    workers: int
+    backlog: int
+    keep_alive_timeout: float
+    request_timeout: float
+    shutdown_timeout: float
+    max_request_size: int
+    max_header_size: int
+    max_headers: int
+    max_connections: int
+    max_requests_per_connection: int
+    access_log: bool
+    log_level: str
+    server_header: str
+    date_header: bool
+    root_path: str
+    compression: bool
+    compression_min_size: int
+    server_timing: bool
+    reload: bool
+    h11_max_incomplete_event_size: int | None
+    trusted_hosts: tuple[str, ...]
+    ssl_certfile: str | None
+    ssl_keyfile: str | None
+
+
+def run(app: str, **kwargs: Unpack[ServerConfigKwargs]) -> None:
     """Start a pounce server.
 
     Args:
