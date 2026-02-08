@@ -221,28 +221,49 @@ class TestBufferedCollector:
         collector = BufferedCollector()
         ts = monotonic_ns()
 
-        collector.record(ConnectionOpened(
-            connection_id=1, worker_id=0,
-            client_addr="127.0.0.1", client_port=5000,
-            server_addr="0.0.0.0", server_port=8000,
-            protocol="h1", timestamp_ns=ts,
-        ))
-        collector.record(RequestStarted(
-            connection_id=1, worker_id=0,
-            method="GET", path="/", http_version="1.1",
-            timestamp_ns=ts,
-        ))
-        collector.record(ResponseCompleted(
-            connection_id=1, worker_id=0,
-            status=200, bytes_sent=256, duration_ms=5.0,
-            timestamp_ns=ts,
-        ))
-        collector.record(ConnectionClosed(
-            connection_id=1, worker_id=0,
-            requests_served=1, total_bytes_sent=256,
-            duration_ms=10.0, reason="complete",
-            timestamp_ns=ts,
-        ))
+        collector.record(
+            ConnectionOpened(
+                connection_id=1,
+                worker_id=0,
+                client_addr="127.0.0.1",
+                client_port=5000,
+                server_addr="0.0.0.0",
+                server_port=8000,
+                protocol="h1",
+                timestamp_ns=ts,
+            )
+        )
+        collector.record(
+            RequestStarted(
+                connection_id=1,
+                worker_id=0,
+                method="GET",
+                path="/",
+                http_version="1.1",
+                timestamp_ns=ts,
+            )
+        )
+        collector.record(
+            ResponseCompleted(
+                connection_id=1,
+                worker_id=0,
+                status=200,
+                bytes_sent=256,
+                duration_ms=5.0,
+                timestamp_ns=ts,
+            )
+        )
+        collector.record(
+            ConnectionClosed(
+                connection_id=1,
+                worker_id=0,
+                requests_served=1,
+                total_bytes_sent=256,
+                duration_ms=10.0,
+                reason="complete",
+                timestamp_ns=ts,
+            )
+        )
 
         events = collector.flush()
         assert len(events) == 4

@@ -27,6 +27,7 @@ chirp = pytest.importorskip("chirp")
 
 _REQUEST = b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
 
+
 def _send_raw_request(addr: tuple[str, int], request: bytes, timeout: float = 3.0) -> bytes:
     """Send a raw HTTP request and return the full response."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -47,9 +48,11 @@ def _send_raw_request(addr: tuple[str, int], request: bytes, timeout: float = 3.
     finally:
         sock.close()
 
+
 # ---------------------------------------------------------------------------
 # Test
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.benchmark
 @pytest.mark.timeout(15)

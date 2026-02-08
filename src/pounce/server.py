@@ -32,6 +32,7 @@ from pounce.worker import Worker, _worker_lifecycle_receive, _worker_lifecycle_s
 
 logger = logging.getLogger("pounce")
 
+
 class Server:
     """Top-level server that orchestrates the full lifecycle.
 
@@ -246,7 +247,9 @@ class Server:
                 loop.add_signal_handler(sig, _on_signal)
 
         worker = Worker(
-            self._config, self._app, sock,
+            self._config,
+            self._app,
+            sock,
             worker_id=0,
             ssl_context=self._ssl_context,
             lifecycle_collector=self._lifecycle_collector,
@@ -289,7 +292,8 @@ class Server:
                 timeout = self._config.shutdown_timeout
                 try:
                     await asyncio.wait_for(
-                        server.wait_closed(), timeout=timeout,
+                        server.wait_closed(),
+                        timeout=timeout,
                     )
                     logger.info("All connections drained")
                 except TimeoutError:
@@ -342,7 +346,10 @@ class Server:
         )
 
         self._supervisor = Supervisor(
-            self._config, self._app, mode=mode, ssl_context=self._ssl_context,
+            self._config,
+            self._app,
+            mode=mode,
+            ssl_context=self._ssl_context,
             lifecycle_collector=self._lifecycle_collector,
         )
 
@@ -449,9 +456,7 @@ class Server:
         if self._config.keep_alive_timeout != 5.0:
             lines.append(f"  -> keep-alive: {self._config.keep_alive_timeout}s")
         if self._config.max_requests_per_connection > 0:
-            lines.append(
-                f"  -> max-requests/conn: {self._config.max_requests_per_connection}"
-            )
+            lines.append(f"  -> max-requests/conn: {self._config.max_requests_per_connection}")
         lines.append("")
 
         sys.stderr.write("\n".join(lines) + "\n")
@@ -475,6 +480,7 @@ class Server:
                 closed.add(fd)
                 with contextlib.suppress(OSError):
                     sock.close()
+
 
 def _get_version() -> str:
     """Get the pounce version string."""

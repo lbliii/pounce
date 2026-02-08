@@ -41,15 +41,19 @@ def _make_lifespan_tracking_app(
 
         await receive()
         body = b"ok"
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-length", b"2")],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": body,
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", b"2")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": body,
+            }
+        )
 
     return _app
 
@@ -74,9 +78,7 @@ def _run_server_background(
             configure_logging(config)
             worker = Worker(config, app, sock, worker_id=0)
             async with run_lifespan(app, config):
-                srv = await asyncio.start_server(
-                    worker._handle_connection, sock=sock
-                )
+                srv = await asyncio.start_server(worker._handle_connection, sock=sock)
                 while not stop_event.is_set():
                     await asyncio.sleep(0.05)
                 srv.close()
@@ -151,11 +153,13 @@ class TestProgrammaticShutdown:
                 return
 
             await receive()
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-length", b"2")],
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-length", b"2")],
+                }
+            )
             await send({"type": "http.response.body", "body": b"ok"})
 
         config = ServerConfig(host="127.0.0.1", port=0, access_log=False)

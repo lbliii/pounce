@@ -40,9 +40,11 @@ logger = logging.getLogger("pounce.protocols.ws")
 # WebSocket magic GUID (RFC 6455 Section 4.2.2)
 _WS_MAGIC = b"258EAFA5-E914-47DA-95CA-5AB5353BE70A"
 
+
 def is_wsproto_available() -> bool:
     """Check if wsproto is installed."""
     return _HAS_WSPROTO
+
 
 def build_ws_accept_key(ws_key: bytes) -> bytes:
     """Compute the Sec-WebSocket-Accept value for the handshake.
@@ -56,6 +58,7 @@ def build_ws_accept_key(ws_key: bytes) -> bytes:
     """
     digest = hashlib.sha1(ws_key.strip() + _WS_MAGIC).digest()
     return base64.b64encode(digest)
+
 
 def build_101_response(
     ws_key: bytes,
@@ -89,6 +92,7 @@ def build_101_response(
     lines.append(b"")
     return b"\r\n".join(lines)
 
+
 class WSProtocol:
     """WebSocket protocol handler backed by wsproto.
 
@@ -115,8 +119,7 @@ class WSProtocol:
     def __init__(self, *, subprotocol: str | None = None) -> None:
         if not _HAS_WSPROTO:
             raise RuntimeError(
-                "WebSocket support requires wsproto. "
-                "Install with: pip install pounce[ws]"
+                "WebSocket support requires wsproto. Install with: pip install pounce[ws]"
             )
         # Server-side connection — starts in OPEN state in wsproto 1.x
         self._conn = wsproto.connection.Connection(
@@ -144,8 +147,10 @@ class WSProtocol:
         outbound_parts: list[bytes] = []
 
         for ws_event in self._conn.events():
-            if isinstance(ws_event, (wsproto.events.TextMessage, wsproto.events.BytesMessage)):
+            if isinstance(ws_event, wsproto.events.TextMessage):
                 events.append(WebSocketDataReceived(data=ws_event.data))
+            elif isinstance(ws_event, wsproto.events.BytesMessage):
+                events.append(WebSocketDataReceived(data=bytes(ws_event.data)))
 
             elif isinstance(ws_event, wsproto.events.CloseConnection):
                 code = ws_event.code or 1000

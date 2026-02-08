@@ -22,6 +22,7 @@ from pounce.config import ServerConfig
 
 logger = logging.getLogger("pounce.lifespan")
 
+
 @asynccontextmanager
 async def run_lifespan(
     app: ASGIApp,
@@ -105,7 +106,8 @@ async def run_lifespan(
 
         if startup_failed:
             raise LifespanError(
-                f"Lifespan startup failed: {failure_message}" if failure_message
+                f"Lifespan startup failed: {failure_message}"
+                if failure_message
                 else "Lifespan startup failed"
             )
 

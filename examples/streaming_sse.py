@@ -29,6 +29,7 @@ type Send = Any
 # SSE formatting helpers
 # ---------------------------------------------------------------------------
 
+
 def _sse_event(event: str, data: str, event_id: int | None = None) -> bytes:
     """Format a single SSE event as bytes.
 
@@ -44,12 +45,14 @@ def _sse_event(event: str, data: str, event_id: int | None = None) -> bytes:
     parts.append("")
     return "\n".join(parts).encode()
 
+
 # ---------------------------------------------------------------------------
 # ASGI app
 # ---------------------------------------------------------------------------
 
 _HEARTBEAT_INTERVAL = 1.0  # seconds
 _MESSAGE_INTERVAL = 3.0  # seconds
+
 
 async def app(scope: Scope, receive: Receive, send: Send) -> None:
     """Stream SSE events until the client disconnects."""
@@ -112,7 +115,7 @@ async def app(scope: Scope, receive: Receive, send: Send) -> None:
             )
             await asyncio.sleep(_HEARTBEAT_INTERVAL)
 
-    except (asyncio.CancelledError, ConnectionError, OSError):
+    except asyncio.CancelledError, ConnectionError, OSError:
         # Client disconnected — graceful exit.
         pass
 

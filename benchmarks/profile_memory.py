@@ -60,6 +60,7 @@ def get_rss_mb() -> float:
     usage = resource.getrusage(resource.RUSAGE_SELF)
     # ru_maxrss is in bytes on Linux, kilobytes on macOS
     import sys
+
     if sys.platform == "darwin":
         return usage.ru_maxrss / (1024 * 1024)
     return usage.ru_maxrss / 1024
@@ -77,6 +78,7 @@ def get_rss_bytes() -> int:
     # macOS fallback
     usage = resource.getrusage(resource.RUSAGE_SELF)
     import sys
+
     if sys.platform == "darwin":
         return usage.ru_maxrss  # Already in bytes on macOS
     return usage.ru_maxrss * 1024
@@ -106,7 +108,7 @@ async def _fire_requests(
                 await reader.read(4096)
                 writer.close()
                 await writer.wait_closed()
-            except (ConnectionError, OSError):
+            except ConnectionError, OSError:
                 pass
 
     tasks = [asyncio.create_task(_one()) for _ in range(count)]
@@ -135,7 +137,9 @@ def start_workers(
     threads: list[threading.Thread] = []
     for i in range(count):
         worker = Worker(
-            config, app, sock,
+            config,
+            app,
+            sock,
             worker_id=i,
             shutdown_event=shutdown,
         )
@@ -162,6 +166,7 @@ def profile_memory(
 
     if use_tracemalloc:
         import tracemalloc
+
         tracemalloc.start(25)
 
     # Measure baseline
@@ -192,6 +197,7 @@ def profile_memory(
     tracemalloc_top: list[str] = []
     if use_tracemalloc:
         import tracemalloc
+
         snapshot = tracemalloc.take_snapshot()
         top_stats = snapshot.statistics("lineno")[:10]
         tracemalloc_top = [str(stat) for stat in top_stats]
@@ -226,8 +232,12 @@ def profile_memory(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Pounce memory profiler")
     parser.add_argument("--workers", type=int, default=4, help="Worker count (default: 4)")
-    parser.add_argument("--duration", type=int, default=10, help="Duration in seconds (default: 10)")
-    parser.add_argument("--tracemalloc", action="store_true", help="Enable tracemalloc for allocation tracking")
+    parser.add_argument(
+        "--duration", type=int, default=10, help="Duration in seconds (default: 10)"
+    )
+    parser.add_argument(
+        "--tracemalloc", action="store_true", help="Enable tracemalloc for allocation tracking"
+    )
     args = parser.parse_args()
 
     import sys

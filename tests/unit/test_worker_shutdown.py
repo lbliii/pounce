@@ -13,6 +13,7 @@ from tests.conftest import _wait_for_ready
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 async def _hello_app(scope: Scope, receive: Receive, send: Send) -> None:
     """Minimal ASGI app for testing."""
     if scope["type"] == "lifespan":
@@ -27,15 +28,18 @@ async def _hello_app(scope: Scope, receive: Receive, send: Send) -> None:
 
     await receive()
     body = b"Hello, World!"
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [
-            (b"content-type", b"text/plain"),
-            (b"content-length", str(len(body)).encode()),
-        ],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/plain"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+    )
     await send({"type": "http.response.body", "body": body})
+
 
 def _start_worker(
     app: ASGIApp,
@@ -62,6 +66,7 @@ def _start_worker(
     _wait_for_ready(sock.getsockname())
     return worker, sock, thread
 
+
 def _send_request(addr: tuple[str, int]) -> bytes:
     """Send a simple GET request and return the response."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -82,9 +87,11 @@ def _send_request(addr: tuple[str, int]) -> bytes:
     finally:
         sock.close()
 
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestWorkerExternalShutdown:
     """Worker responds to an external threading.Event for shutdown."""
@@ -92,7 +99,8 @@ class TestWorkerExternalShutdown:
     def test_external_event_shuts_down_worker(self):
         ext_event = threading.Event()
         _worker, sock, thread = _start_worker(
-            _hello_app, shutdown_event=ext_event,
+            _hello_app,
+            shutdown_event=ext_event,
         )
         addr = sock.getsockname()
 
@@ -123,6 +131,7 @@ class TestWorkerExternalShutdown:
         finally:
             sock.close()
 
+
 class TestWorkerIdentity:
     """Worker ID is used for log differentiation."""
 
@@ -146,12 +155,14 @@ class TestWorkerIdentity:
         finally:
             sock.close()
 
+
 class TestWorkerBackpressure:
     """Worker rejects connections when at capacity."""
 
     def test_accepts_under_limit(self):
         worker, sock, thread = _start_worker(
-            _hello_app, max_connections=100,
+            _hello_app,
+            max_connections=100,
         )
         addr = sock.getsockname()
 
@@ -166,7 +177,8 @@ class TestWorkerBackpressure:
     def test_no_limit_when_zero(self):
         """max_connections=0 means unlimited."""
         worker, sock, thread = _start_worker(
-            _hello_app, max_connections=0,
+            _hello_app,
+            max_connections=0,
         )
         addr = sock.getsockname()
 
@@ -178,6 +190,7 @@ class TestWorkerBackpressure:
             thread.join(timeout=3.0)
             sock.close()
 
+
 class TestWorkerBridgeShutdown:
     """The bridge task translates threading.Event to asyncio shutdown."""
 
@@ -185,7 +198,8 @@ class TestWorkerBridgeShutdown:
         """Worker stops when external threading.Event is set."""
         ext_event = threading.Event()
         _worker, sock, thread = _start_worker(
-            _hello_app, shutdown_event=ext_event,
+            _hello_app,
+            shutdown_event=ext_event,
         )
         addr = sock.getsockname()
 

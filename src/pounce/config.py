@@ -38,7 +38,7 @@ class ServerConfig:
 
     # Limits
     max_request_size: int = 1_048_576  # 1 MB
-    max_header_size: int = 65_536      # 64 KB
+    max_header_size: int = 65_536  # 64 KB
     max_headers: int = 100
     max_connections: int = 10_000
     max_requests_per_connection: int = 0  # 0 = unlimited
@@ -73,9 +73,7 @@ class ServerConfig:
     ssl_certfile: str | None = None
     ssl_keyfile: str | None = None
 
-    _VALID_LOG_LEVELS: frozenset[str] = frozenset(
-        {"debug", "info", "warning", "error", "critical"}
-    )
+    _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error", "critical"})
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
@@ -114,8 +112,7 @@ class ServerConfig:
             raise ValueError(msg)
         if self.max_requests_per_connection < 0:
             msg = (
-                f"max_requests_per_connection must be >= 0 "
-                f"(got {self.max_requests_per_connection})"
+                f"max_requests_per_connection must be >= 0 (got {self.max_requests_per_connection})"
             )
             raise ValueError(msg)
         if self.compression_min_size < 0:

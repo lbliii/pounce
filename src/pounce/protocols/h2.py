@@ -24,10 +24,10 @@ from pounce.protocols._base import (
 )
 
 try:
-    import h2.config  # type: ignore[import-untyped]
-    import h2.connection  # type: ignore[import-untyped]
-    import h2.events  # type: ignore[import-untyped]
-    import h2.exceptions  # type: ignore[import-untyped]
+    import h2.config
+    import h2.connection
+    import h2.events
+    import h2.exceptions
 
     _HAS_H2 = True
 except ImportError:
@@ -35,13 +35,16 @@ except ImportError:
 
 logger = logging.getLogger("pounce.protocols.h2")
 
+
 def is_h2_available() -> bool:
     """Check if h2 is installed."""
     return _HAS_H2
 
+
 # ---------------------------------------------------------------------------
 # H2 Stream Events — wrapper around pounce events with stream context
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class H2RequestReceived:
@@ -55,6 +58,7 @@ class H2RequestReceived:
     stream_id: int
     request: RequestReceived
 
+
 @dataclass(frozen=True, slots=True)
 class H2BodyReceived:
     """HTTP/2 request body data received on a stream.
@@ -66,6 +70,7 @@ class H2BodyReceived:
 
     stream_id: int
     body: BodyReceived
+
 
 @dataclass(frozen=True, slots=True)
 class H2StreamReset:
@@ -79,6 +84,7 @@ class H2StreamReset:
     stream_id: int
     error_code: int
 
+
 @dataclass(frozen=True, slots=True)
 class H2GoAway:
     """Remote sent GOAWAY — no new streams, finish existing ones.
@@ -91,6 +97,7 @@ class H2GoAway:
     last_stream_id: int
     error_code: int
 
+
 @dataclass(frozen=True, slots=True)
 class H2WindowUpdated:
     """Flow control window was updated — may resume sending.
@@ -100,6 +107,7 @@ class H2WindowUpdated:
     """
 
     stream_id: int
+
 
 @dataclass(frozen=True, slots=True)
 class H2WebSocketRequest:
@@ -118,6 +126,7 @@ class H2WebSocketRequest:
     request: RequestReceived
     ws_path: bytes
 
+
 type H2Event = (
     H2RequestReceived
     | H2BodyReceived
@@ -131,6 +140,7 @@ type H2Event = (
 # Per-stream state
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class _StreamState:
     """Mutable per-stream tracking within an H2Connection."""
@@ -138,9 +148,11 @@ class _StreamState:
     headers_received: bool = False
     ended: bool = False
 
+
 # ---------------------------------------------------------------------------
 # H2Connection — manages the full HTTP/2 connection
 # ---------------------------------------------------------------------------
+
 
 class H2Connection:
     """HTTP/2 connection state machine backed by the h2 library.
@@ -168,10 +180,7 @@ class H2Connection:
 
     def __init__(self, *, client_side: bool = False) -> None:
         if not _HAS_H2:
-            raise RuntimeError(
-                "HTTP/2 support requires h2. "
-                "Install with: pip install pounce[h2]"
-            )
+            raise RuntimeError("HTTP/2 support requires h2. Install with: pip install pounce[h2]")
         config = h2.config.H2Configuration(
             client_side=client_side,
             header_encoding="utf-8",
@@ -194,10 +203,13 @@ class H2Connection:
         # SETTINGS_ENABLE_CONNECT_PROTOCOL = 0x8
         try:
             import h2.settings
-            self._conn.update_settings({
-                h2.settings.SettingCodes.ENABLE_CONNECT_PROTOCOL: 1,
-            })
-        except (AttributeError, Exception):
+
+            self._conn.update_settings(
+                {
+                    h2.settings.SettingCodes.ENABLE_CONNECT_PROTOCOL: 1,
+                }
+            )
+        except AttributeError, Exception:
             # Older h2 versions may not support this setting
             pass
 
@@ -247,9 +259,7 @@ class H2Connection:
                         headers_list.append((name_bytes, value_bytes))
 
                 # Add host header from :authority if not present
-                if authority and not any(
-                    n == b"host" for n, _ in headers_list
-                ):
+                if authority and not any(n == b"host" for n, _ in headers_list):
                     headers_list.insert(0, (b"host", authority))
 
                 request = RequestReceived(
@@ -262,35 +272,45 @@ class H2Connection:
 
                 # RFC 8441: Extended CONNECT with :protocol = websocket
                 if method == b"CONNECT" and h2_protocol == b"websocket":
-                    pounce_events.append(H2WebSocketRequest(
-                        stream_id=stream_id,
-                        request=request,
-                        ws_path=target,
-                    ))
+                    pounce_events.append(
+                        H2WebSocketRequest(
+                            stream_id=stream_id,
+                            request=request,
+                            ws_path=target,
+                        )
+                    )
                 else:
-                    pounce_events.append(H2RequestReceived(
-                        stream_id=stream_id, request=request,
-                    ))
+                    pounce_events.append(
+                        H2RequestReceived(
+                            stream_id=stream_id,
+                            request=request,
+                        )
+                    )
 
                     # If stream ended with headers (GET, HEAD, etc.)
                     if event.stream_ended is not None:
                         self._streams[stream_id].ended = True
-                        pounce_events.append(H2BodyReceived(
-                            stream_id=stream_id,
-                            body=BodyReceived(data=b"", more=False),
-                        ))
+                        pounce_events.append(
+                            H2BodyReceived(
+                                stream_id=stream_id,
+                                body=BodyReceived(data=b"", more=False),
+                            )
+                        )
 
             elif isinstance(event, h2.events.DataReceived):
                 stream_id = event.stream_id
                 # Acknowledge the data for flow control
                 self._conn.acknowledge_received_data(
-                    event.flow_controlled_length, stream_id,
+                    event.flow_controlled_length,
+                    stream_id,
                 )
                 more = event.stream_ended is None
-                pounce_events.append(H2BodyReceived(
-                    stream_id=stream_id,
-                    body=BodyReceived(data=event.data, more=more),
-                ))
+                pounce_events.append(
+                    H2BodyReceived(
+                        stream_id=stream_id,
+                        body=BodyReceived(data=event.data, more=more),
+                    )
+                )
                 if not more and stream_id in self._streams:
                     self._streams[stream_id].ended = True
 
@@ -300,23 +320,29 @@ class H2Connection:
                     state = self._streams[stream_id]
                     if not state.ended:
                         state.ended = True
-                        pounce_events.append(H2BodyReceived(
-                            stream_id=stream_id,
-                            body=BodyReceived(data=b"", more=False),
-                        ))
+                        pounce_events.append(
+                            H2BodyReceived(
+                                stream_id=stream_id,
+                                body=BodyReceived(data=b"", more=False),
+                            )
+                        )
 
             elif isinstance(event, h2.events.StreamReset):
                 stream_id = event.stream_id
-                pounce_events.append(H2StreamReset(
-                    stream_id=stream_id,
-                    error_code=event.error_code,
-                ))
+                pounce_events.append(
+                    H2StreamReset(
+                        stream_id=stream_id,
+                        error_code=event.error_code,
+                    )
+                )
                 self._streams.pop(stream_id, None)
 
             elif isinstance(event, h2.events.WindowUpdated):
-                pounce_events.append(H2WindowUpdated(
-                    stream_id=event.stream_id,
-                ))
+                pounce_events.append(
+                    H2WindowUpdated(
+                        stream_id=event.stream_id,
+                    )
+                )
 
             elif isinstance(event, h2.events.RemoteSettingsChanged):
                 # Settings are handled automatically by h2
@@ -324,10 +350,12 @@ class H2Connection:
 
             elif isinstance(event, h2.events.ConnectionTerminated):
                 self._closed = True
-                pounce_events.append(H2GoAway(
-                    last_stream_id=event.last_stream_id,
-                    error_code=event.error_code,
-                ))
+                pounce_events.append(
+                    H2GoAway(
+                        last_stream_id=event.last_stream_id or 0,
+                        error_code=event.error_code or 0,
+                    )
+                )
 
         return pounce_events
 
@@ -354,13 +382,17 @@ class H2Connection:
             (":status", str(status)),
         ]
         for name, value in headers:
-            h2_headers.append((
-                name.decode("ascii", errors="replace"),
-                value.decode("ascii", errors="replace"),
-            ))
+            h2_headers.append(
+                (
+                    name.decode("ascii", errors="replace"),
+                    value.decode("ascii", errors="replace"),
+                )
+            )
 
         self._conn.send_headers(
-            stream_id, h2_headers, end_stream=end_stream,
+            stream_id,
+            h2_headers,
+            end_stream=end_stream,
         )
 
     def send_data(

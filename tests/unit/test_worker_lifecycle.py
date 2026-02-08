@@ -214,6 +214,7 @@ class TestUnrecognizedScopeGraceful:
     @pytest.mark.asyncio
     async def test_app_raises_on_unknown_scope(self):
         """App that raises TypeError on non-HTTP scopes is handled."""
+
         async def strict_app(scope: Scope, receive: Receive, send: Send) -> None:
             if scope["type"] == "lifespan":
                 while True:

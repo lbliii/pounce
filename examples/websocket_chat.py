@@ -63,7 +63,9 @@ class _Room:
         self._clients: dict[asyncio.Queue[str | None], asyncio.AbstractEventLoop] = {}
 
     def join(
-        self, queue: asyncio.Queue[str | None], loop: asyncio.AbstractEventLoop,
+        self,
+        queue: asyncio.Queue[str | None],
+        loop: asyncio.AbstractEventLoop,
     ) -> None:
         """Add a client to the room."""
         with self._lock:
@@ -77,9 +79,7 @@ class _Room:
     def broadcast(self, message: str, *, sender: asyncio.Queue[str | None]) -> None:
         """Send *message* to every client except *sender*."""
         with self._lock:
-            targets = [
-                (q, loop) for q, loop in self._clients.items() if q is not sender
-            ]
+            targets = [(q, loop) for q, loop in self._clients.items() if q is not sender]
         for queue, loop in targets:
             with contextlib.suppress(RuntimeError):
                 loop.call_soon_threadsafe(queue.put_nowait, message)
@@ -220,14 +220,16 @@ async def app(scope: Scope, receive: Receive, send: Send) -> None:
     # --- HTTP — serve the chat page -----------------------------------------
     if scope["type"] == "http":
         await receive()
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [
-                (b"content-type", b"text/html; charset=utf-8"),
-                (b"content-length", str(len(_HTML)).encode()),
-            ],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"text/html; charset=utf-8"),
+                    (b"content-length", str(len(_HTML)).encode()),
+                ],
+            }
+        )
         await send({"type": "http.response.body", "body": _HTML})
         return
 

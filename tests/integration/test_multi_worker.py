@@ -27,6 +27,7 @@ from tests.conftest import _wait_for_ready, send_raw_request
 # Test ASGI apps
 # ---------------------------------------------------------------------------
 
+
 async def _hello_app(scope: Scope, receive: Receive, send: Send) -> None:
     """Minimal app that returns Hello + the worker thread name."""
     if scope["type"] == "lifespan":
@@ -42,19 +43,23 @@ async def _hello_app(scope: Scope, receive: Receive, send: Send) -> None:
     await receive()
     thread_name = threading.current_thread().name
     body = f"Hello from {thread_name}".encode()
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [
-            (b"content-type", b"text/plain"),
-            (b"content-length", str(len(body)).encode()),
-        ],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/plain"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+    )
     await send({"type": "http.response.body", "body": body})
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _send_request(addr: tuple[str, int]) -> bytes:
     """Send a simple GET request and return the response."""
@@ -62,6 +67,7 @@ def _send_request(addr: tuple[str, int]) -> bytes:
         addr,
         b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
+
 
 def _start_supervisor(
     app: ASGIApp,
@@ -91,9 +97,11 @@ def _start_supervisor(
 
     return sup, sockets, t, addr
 
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestMultiWorkerServing:
     """Multiple workers serve concurrent requests correctly."""
@@ -133,6 +141,7 @@ class TestMultiWorkerServing:
                 with contextlib.suppress(Exception):
                     s.close()
 
+
 class TestMultiWorkerShutdown:
     """Supervisor graceful shutdown drains all workers."""
 
@@ -169,6 +178,7 @@ class TestMultiWorkerShutdown:
                 with contextlib.suppress(Exception):
                     s.close()
 
+
 class TestSupervisorMode:
     """Supervisor correctly reports its mode."""
 
@@ -182,6 +192,7 @@ class TestSupervisorMode:
 # ---------------------------------------------------------------------------
 # Full Server multi-worker shutdown (exercises signal handler path)
 # ---------------------------------------------------------------------------
+
 
 def _make_lifespan_tracking_app(
     events: list[str],
@@ -203,11 +214,13 @@ def _make_lifespan_tracking_app(
 
         await receive()
         body = b"ok"
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-length", b"2")],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", b"2")],
+            }
+        )
         await send({"type": "http.response.body", "body": body})
 
     return _app
@@ -227,7 +240,10 @@ class TestMultiWorkerServerShutdown:
         events: list[str] = []
         app = _make_lifespan_tracking_app(events)
         config = ServerConfig(
-            host="127.0.0.1", port=0, workers=2, access_log=False,
+            host="127.0.0.1",
+            port=0,
+            workers=2,
+            access_log=False,
         )
         server = Server(config, app)
 
@@ -253,7 +269,10 @@ class TestMultiWorkerServerShutdown:
         events: list[str] = []
         app = _make_lifespan_tracking_app(events)
         config = ServerConfig(
-            host="127.0.0.1", port=0, workers=2, access_log=False,
+            host="127.0.0.1",
+            port=0,
+            workers=2,
+            access_log=False,
         )
         server = Server(config, app)
 
@@ -272,19 +291,19 @@ class TestMultiWorkerServerShutdown:
 
         # No pounce worker threads should remain
         pounce_threads = [
-            t for t in threading.enumerate()
-            if t.name.startswith("pounce-worker-") and t.is_alive()
+            t for t in threading.enumerate() if t.name.startswith("pounce-worker-") and t.is_alive()
         ]
-        assert pounce_threads == [], (
-            f"Orphaned worker threads: {[t.name for t in pounce_threads]}"
-        )
+        assert pounce_threads == [], f"Orphaned worker threads: {[t.name for t in pounce_threads]}"
 
     def test_server_shutdown_is_idempotent(self):
         """Calling shutdown() multiple times does not raise."""
         events: list[str] = []
         app = _make_lifespan_tracking_app(events)
         config = ServerConfig(
-            host="127.0.0.1", port=0, workers=2, access_log=False,
+            host="127.0.0.1",
+            port=0,
+            workers=2,
+            access_log=False,
         )
         server = Server(config, app)
 

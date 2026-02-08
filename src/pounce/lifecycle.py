@@ -26,6 +26,7 @@ from typing import Protocol
 # Event types — frozen, slotted, serializable
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, slots=True)
 class ConnectionOpened:
     """A new TCP connection was accepted."""
@@ -89,17 +90,14 @@ class ConnectionClosed:
 
 # Union of all lifecycle event types
 type LifecycleEvent = (
-    ConnectionOpened
-    | RequestStarted
-    | ResponseCompleted
-    | ClientDisconnected
-    | ConnectionClosed
+    ConnectionOpened | RequestStarted | ResponseCompleted | ClientDisconnected | ConnectionClosed
 )
 
 
 # ---------------------------------------------------------------------------
 # Collector protocol and implementations
 # ---------------------------------------------------------------------------
+
 
 class LifecycleCollector(Protocol):
     """Interface for consuming lifecycle events.

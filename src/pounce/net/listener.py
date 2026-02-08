@@ -24,6 +24,7 @@ from pounce.config import ServerConfig
 
 logger = logging.getLogger("pounce.net")
 
+
 def create_listener(config: ServerConfig) -> socket.socket:
     """Create and bind a single server socket from configuration.
 
@@ -38,6 +39,7 @@ def create_listener(config: ServerConfig) -> socket.socket:
 
     """
     return _bind_socket(config)
+
 
 def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
     """Create server sockets for *count* workers.
@@ -92,9 +94,11 @@ def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
     )
     return [shared] * count
 
+
 def has_so_reuseport() -> bool:
     """Check if SO_REUSEPORT is available on this platform."""
     return hasattr(socket, "SO_REUSEPORT") and sys.platform != "win32"
+
 
 def _bind_socket(config: ServerConfig) -> socket.socket:
     """Create, configure, bind, and listen on a single TCP socket.
@@ -107,7 +111,8 @@ def _bind_socket(config: ServerConfig) -> socket.socket:
     """
     # Resolve host to get the correct address family
     infos = socket.getaddrinfo(
-        config.host, config.port,
+        config.host,
+        config.port,
         family=socket.AF_UNSPEC,
         type=socket.SOCK_STREAM,
         flags=socket.AI_PASSIVE,
@@ -156,8 +161,7 @@ def _bind_socket(config: ServerConfig) -> socket.socket:
         sock.close()
         if exc.errno == errno.EADDRINUSE or "already in use" in str(exc).lower():
             raise OSError(
-                f"Address {config.host}:{config.port} is already in use. "
-                "Is another server running?"
+                f"Address {config.host}:{config.port} is already in use. Is another server running?"
             ) from exc
         if exc.errno == errno.EACCES:
             raise OSError(

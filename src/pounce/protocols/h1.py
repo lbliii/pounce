@@ -9,6 +9,8 @@ All state is per-connection, per-request-cycle. No shared mutable state.
 
 """
 
+from typing import Any
+
 import h11
 
 from pounce._errors import ParseError
@@ -73,9 +75,7 @@ class H1Protocol:
                     RequestReceived(
                         method=event.method,
                         target=event.target,
-                        headers=tuple(
-                            (name, value) for name, value in event.headers
-                        ),
+                        headers=tuple((name, value) for name, value in event.headers),
                         http_version=event.http_version.decode("ascii"),
                     )
                 )
@@ -88,9 +88,7 @@ class H1Protocol:
 
         return events
 
-    def send_response(
-        self, status: int, headers: list[tuple[bytes, bytes]]
-    ) -> bytes:
+    def send_response(self, status: int, headers: list[tuple[bytes, bytes]]) -> bytes:
         """Serialize a response status line and headers into bytes.
 
         Args:
@@ -105,7 +103,7 @@ class H1Protocol:
             status_code=status,
             headers=headers,
         )
-        return self._conn.send(response)  # type: ignore[return-value]
+        return self._conn.send(response)
 
     def send_body(self, data: bytes, more: bool = False) -> bytes:
         """Serialize a response body chunk into bytes.
@@ -120,9 +118,9 @@ class H1Protocol:
         """
         parts: list[bytes] = []
         if data:
-            parts.append(self._conn.send(h11.Data(data=data)))  # type: ignore[arg-type]
+            parts.append(self._conn.send(h11.Data(data=data)))
         if not more:
-            parts.append(self._conn.send(h11.EndOfMessage()))  # type: ignore[arg-type]
+            parts.append(self._conn.send(h11.EndOfMessage()))
         return b"".join(parts)
 
     def start_new_cycle(self) -> None:
@@ -132,19 +130,19 @@ class H1Protocol:
     # -- Introspection ------------------------------------------------------
 
     @property
-    def their_state(self) -> h11._state.HasReason | type:
+    def their_state(self) -> Any:
         """Current h11 client-side state (for diagnostics)."""
-        return self._conn.their_state  # type: ignore[return-value]
+        return self._conn.their_state
 
     @property
-    def our_state(self) -> h11._state.HasReason | type:
+    def our_state(self) -> Any:
         """Current h11 server-side state (for diagnostics)."""
-        return self._conn.our_state  # type: ignore[return-value]
+        return self._conn.our_state
 
     @property
     def client_is_waiting_for_100_continue(self) -> bool:
         """True if the client sent Expect: 100-continue."""
-        return self._conn.client_is_waiting_for_100_continue  # type: ignore[return-value]
+        return self._conn.client_is_waiting_for_100_continue
 
     def has_pending_data(self) -> bool:
         """True if h11 has buffered data from a pipelined request.

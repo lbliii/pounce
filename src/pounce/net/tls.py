@@ -27,6 +27,7 @@ try:
 except ImportError:
     _HAS_TRUSTSTORE = False
 
+
 def create_tls_context(config: ServerConfig) -> ssl.SSLContext:
     """Build an ``ssl.SSLContext`` from server configuration.
 
@@ -78,6 +79,7 @@ def create_tls_context(config: ServerConfig) -> ssl.SSLContext:
 
     return ctx
 
+
 def _build_alpn_protocols() -> list[str]:
     """Return the ALPN protocol list based on available optional deps.
 
@@ -89,7 +91,7 @@ def _build_alpn_protocols() -> list[str]:
 
     # Check if h2 is available
     try:
-        import h2  # type: ignore[import-untyped]  # noqa: F401
+        import h2  # noqa: F401
 
         protocols.append("h2")
     except ImportError:
@@ -97,6 +99,7 @@ def _build_alpn_protocols() -> list[str]:
 
     protocols.append("http/1.1")
     return protocols
+
 
 def is_tls_configured(config: ServerConfig) -> bool:
     """Return True if TLS is configured in the server config."""

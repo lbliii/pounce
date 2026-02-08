@@ -28,6 +28,7 @@ pytestmark = pytest.mark.skipif(
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _ws_upgrade_request() -> RequestReceived:
     """Build a minimal WebSocket upgrade request."""
     return RequestReceived(
@@ -42,6 +43,7 @@ def _ws_upgrade_request() -> RequestReceived:
         ),
         http_version="1.1",
     )
+
 
 def _make_client_server():
     """Create a paired client/server for roundtrip tests.
@@ -60,9 +62,11 @@ def _make_client_server():
 
     return client, server
 
+
 # ---------------------------------------------------------------------------
 # WSProtocol tests
 # ---------------------------------------------------------------------------
+
 
 class TestWSProtocol:
     def test_init(self) -> None:
@@ -115,9 +119,7 @@ class TestWSProtocol:
         """Simulate a client sending a text message to the server."""
         client, server = _make_client_server()
 
-        client_bytes = client.send(
-            wsproto.events.TextMessage(data="hello from client")
-        )
+        client_bytes = client.send(wsproto.events.TextMessage(data="hello from client"))
 
         events, _outbound = server.receive_data(client_bytes)
         assert len(events) == 1
@@ -129,9 +131,7 @@ class TestWSProtocol:
         client, server = _make_client_server()
 
         payload = b"\x00\x01\x02\x03"
-        client_bytes = client.send(
-            wsproto.events.BytesMessage(data=payload)
-        )
+        client_bytes = client.send(wsproto.events.BytesMessage(data=payload))
 
         events, _outbound = server.receive_data(client_bytes)
         assert len(events) == 1
@@ -142,9 +142,7 @@ class TestWSProtocol:
         """Simulate a client-initiated close."""
         client, server = _make_client_server()
 
-        client_bytes = client.send(
-            wsproto.events.CloseConnection(code=1000, reason="bye")
-        )
+        client_bytes = client.send(wsproto.events.CloseConnection(code=1000, reason="bye"))
 
         events, _outbound = server.receive_data(client_bytes)
         assert len(events) == 1
@@ -158,9 +156,7 @@ class TestWSProtocol:
         client, server = _make_client_server()
 
         for i in range(5):
-            client_bytes = client.send(
-                wsproto.events.TextMessage(data=f"msg-{i}")
-            )
+            client_bytes = client.send(wsproto.events.TextMessage(data=f"msg-{i}"))
             events, _outbound = server.receive_data(client_bytes)
             assert len(events) == 1
             assert isinstance(events[0], WebSocketDataReceived)
@@ -170,17 +166,17 @@ class TestWSProtocol:
         """Receiving a ping produces outbound pong bytes."""
         client, server = _make_client_server()
 
-        client_bytes = client.send(
-            wsproto.events.Ping(payload=b"ping-payload")
-        )
+        client_bytes = client.send(wsproto.events.Ping(payload=b"ping-payload"))
 
         events, outbound = server.receive_data(client_bytes)
         assert len(events) == 0  # Pings are handled internally
         assert len(outbound) > 0  # Pong response generated
 
+
 # ---------------------------------------------------------------------------
 # Handshake helpers
 # ---------------------------------------------------------------------------
+
 
 class TestHandshakeHelpers:
     def test_build_ws_accept_key(self) -> None:
@@ -191,6 +187,7 @@ class TestHandshakeHelpers:
         assert key == b"IWFl7jb/cQr6GRUcc1Ks8TkMANA="
         # Must be valid base64
         import base64
+
         base64.b64decode(key)  # Should not raise
 
     def test_build_101_response(self) -> None:
@@ -211,15 +208,18 @@ class TestHandshakeHelpers:
         )
         assert b"Sec-WebSocket-Protocol: graphql-ws" in raw
 
+
 class TestWSProtocolAvailability:
     def test_is_wsproto_available(self) -> None:
         from pounce.protocols.ws import is_wsproto_available
 
         assert is_wsproto_available() is True
 
+
 # ---------------------------------------------------------------------------
 # WebSocket event types
 # ---------------------------------------------------------------------------
+
 
 class TestWSEventTypes:
     def test_ws_connected(self) -> None:
@@ -243,9 +243,11 @@ class TestWSEventTypes:
         assert event.code == 1000
         assert event.reason == "normal"
 
+
 # ---------------------------------------------------------------------------
 # WebSocket ASGI bridge tests
 # ---------------------------------------------------------------------------
+
 
 class TestWSBridge:
     def test_build_ws_scope(self) -> None:
@@ -255,7 +257,8 @@ class TestWSBridge:
         request = _ws_upgrade_request()
         config = ServerConfig()
         scope = build_ws_scope(
-            request, config,
+            request,
+            config,
             client=("127.0.0.1", 54321),
             server=("127.0.0.1", 8000),
         )
@@ -278,7 +281,8 @@ class TestWSBridge:
         )
         config = ServerConfig()
         scope = build_ws_scope(
-            request, config,
+            request,
+            config,
             client=("127.0.0.1", 54321),
             server=("127.0.0.1", 8000),
         )
@@ -301,7 +305,8 @@ class TestWSBridge:
         )
         config = ServerConfig()
         scope = build_ws_scope(
-            request, config,
+            request,
+            config,
             client=("127.0.0.1", 54321),
             server=("127.0.0.1", 8000),
         )
@@ -323,18 +328,21 @@ class TestWSBridge:
             ssl_keyfile="/path/to/key.pem",
         )
         scope = build_ws_scope(
-            request, config,
+            request,
+            config,
             client=("127.0.0.1", 54321),
             server=("127.0.0.1", 8000),
         )
 
         assert scope["scheme"] == "wss"
 
+
 class TestIsWebSocketUpgrade:
     """Tests for _is_websocket_upgrade() header detection."""
 
     def test_valid_upgrade(self):
         from pounce.worker import _is_websocket_upgrade
+
         request = RequestReceived(
             method=b"GET",
             target=b"/ws",
@@ -350,6 +358,7 @@ class TestIsWebSocketUpgrade:
 
     def test_missing_connection_header(self):
         from pounce.worker import _is_websocket_upgrade
+
         request = RequestReceived(
             method=b"GET",
             target=b"/ws",
@@ -363,6 +372,7 @@ class TestIsWebSocketUpgrade:
 
     def test_missing_upgrade_header(self):
         from pounce.worker import _is_websocket_upgrade
+
         request = RequestReceived(
             method=b"GET",
             target=b"/ws",
@@ -376,6 +386,7 @@ class TestIsWebSocketUpgrade:
 
     def test_case_insensitive(self):
         from pounce.worker import _is_websocket_upgrade
+
         request = RequestReceived(
             method=b"GET",
             target=b"/ws",
@@ -389,6 +400,7 @@ class TestIsWebSocketUpgrade:
 
     def test_normal_http_request(self):
         from pounce.worker import _is_websocket_upgrade
+
         request = RequestReceived(
             method=b"GET",
             target=b"/api/data",
@@ -402,6 +414,7 @@ class TestIsWebSocketUpgrade:
 
     def test_upgrade_but_not_websocket(self):
         from pounce.worker import _is_websocket_upgrade
+
         request = RequestReceived(
             method=b"GET",
             target=b"/h2c",

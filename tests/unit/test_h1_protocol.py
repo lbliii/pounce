@@ -61,9 +61,7 @@ class TestH1ReceiveData:
 
     def test_request_headers(self):
         proto = H1Protocol()
-        raw = _make_request(
-            "GET", "/", headers={"host": "example.com", "accept": "text/html"}
-        )
+        raw = _make_request("GET", "/", headers={"host": "example.com", "accept": "text/html"})
         events = proto.receive_data(raw)
         req = events[0]
         assert isinstance(req, RequestReceived)

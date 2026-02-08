@@ -108,14 +108,16 @@ class Router:
         # No route matched — 404
         await receive()
         body = json.dumps({"error": "not found", "path": request_path}).encode()
-        await send({
-            "type": "http.response.start",
-            "status": 404,
-            "headers": [
-                (b"content-type", b"application/json; charset=utf-8"),
-                (b"content-length", str(len(body)).encode()),
-            ],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 404,
+                "headers": [
+                    (b"content-type", b"application/json; charset=utf-8"),
+                    (b"content-length", str(len(body)).encode()),
+                ],
+            }
+        )
         await send({"type": "http.response.body", "body": body})
 
 
@@ -167,9 +169,7 @@ def with_timing(inner: ASGIApp) -> ASGIApp:
             if message["type"] == "http.response.start":
                 elapsed_ms = (time.monotonic() - start) * 1000
                 headers = list(message.get("headers", []))
-                headers.append(
-                    (b"x-response-time", f"{elapsed_ms:.2f}ms".encode())
-                )
+                headers.append((b"x-response-time", f"{elapsed_ms:.2f}ms".encode()))
                 message = {**message, "headers": headers}
             await original_send(message)
 
@@ -207,19 +207,18 @@ def _json_response(
 async def index(scope: Scope, receive: Receive, send: Send) -> None:
     """Welcome page with available routes."""
     await receive()
-    body, headers = _json_response({
-        "server": "pounce",
-        "example": "mini_router",
-        "routes": [
-            "GET /",
-            "GET /users/{id}",
-            "POST /echo",
-        ],
-        "note": (
-            "This is ~50 lines of routing on raw ASGI. "
-            "For real apps, use chirp."
-        ),
-    })
+    body, headers = _json_response(
+        {
+            "server": "pounce",
+            "example": "mini_router",
+            "routes": [
+                "GET /",
+                "GET /users/{id}",
+                "POST /echo",
+            ],
+            "note": ("This is ~50 lines of routing on raw ASGI. For real apps, use chirp."),
+        }
+    )
     await send({"type": "http.response.start", "status": 200, "headers": headers})
     await send({"type": "http.response.body", "body": body})
 
@@ -255,10 +254,12 @@ async def echo(scope: Scope, receive: Receive, send: Send) -> None:
             break
 
     request_body = b"".join(chunks)
-    body, headers = _json_response({
-        "echoed_bytes": len(request_body),
-        "body": request_body.decode("utf-8", errors="replace"),
-    })
+    body, headers = _json_response(
+        {
+            "echoed_bytes": len(request_body),
+            "body": request_body.decode("utf-8", errors="replace"),
+        }
+    )
     await send({"type": "http.response.start", "status": 200, "headers": headers})
     await send({"type": "http.response.body", "body": body})
 

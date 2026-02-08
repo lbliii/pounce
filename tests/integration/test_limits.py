@@ -20,11 +20,13 @@ async def _ok_app(scope: Scope, receive: Receive, send: Send) -> None:
         if not msg.get("more_body", False):
             break
     resp = b"ok"
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [(b"content-length", str(len(resp)).encode())],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-length", str(len(resp)).encode())],
+        }
+    )
     await send({"type": "http.response.body", "body": resp})
 
 
@@ -32,13 +34,16 @@ async def _ok_app(scope: Scope, receive: Receive, send: Send) -> None:
 # max_requests_per_connection
 # ---------------------------------------------------------------------------
 
+
 class TestMaxRequestsPerConnection:
     """max_requests_per_connection enforcement."""
 
     def test_connection_closed_after_max_requests(self):
         """After max_requests_per_connection requests, connection closes."""
         config = ServerConfig(
-            host="127.0.0.1", port=0, access_log=False,
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
             max_requests_per_connection=2,
         )
         worker, sock, thread = start_worker(_ok_app, config=config)
@@ -51,9 +56,7 @@ class TestMaxRequestsPerConnection:
                 tcp.connect(addr)
 
                 # First request
-                tcp.sendall(
-                    b"GET /1 HTTP/1.1\r\nHost: localhost\r\n\r\n"
-                )
+                tcp.sendall(b"GET /1 HTTP/1.1\r\nHost: localhost\r\n\r\n")
                 time.sleep(0.2)
                 resp1 = b""
                 try:
@@ -67,9 +70,7 @@ class TestMaxRequestsPerConnection:
                 assert b"200" in resp1
 
                 # Second request (should be the last on this connection)
-                tcp.sendall(
-                    b"GET /2 HTTP/1.1\r\nHost: localhost\r\n\r\n"
-                )
+                tcp.sendall(b"GET /2 HTTP/1.1\r\nHost: localhost\r\n\r\n")
                 time.sleep(0.2)
                 resp2 = b""
                 try:
@@ -94,13 +95,16 @@ class TestMaxRequestsPerConnection:
 # request_timeout
 # ---------------------------------------------------------------------------
 
+
 class TestRequestTimeout:
     """request_timeout enforcement."""
 
     def test_slow_body_times_out(self):
         """A request body that never completes should eventually be handled."""
         config = ServerConfig(
-            host="127.0.0.1", port=0, access_log=False,
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
             request_timeout=0.5,
         )
         worker, sock, thread = start_worker(_ok_app, config=config)
@@ -113,11 +117,7 @@ class TestRequestTimeout:
                 tcp.connect(addr)
                 # Send headers claiming a large body, then send nothing
                 tcp.sendall(
-                    b"POST / HTTP/1.1\r\n"
-                    b"Host: localhost\r\n"
-                    b"Content-Length: 999999\r\n"
-                    b"\r\n"
-                    b"partial"
+                    b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 999999\r\n\r\npartial"
                 )
                 # Wait — the server should timeout and close the connection
                 time.sleep(1.5)
@@ -129,7 +129,7 @@ class TestRequestTimeout:
                         if not chunk:
                             break
                         resp += chunk
-                except (TimeoutError, ConnectionError, OSError):
+                except TimeoutError, ConnectionError, OSError:
                     pass
                 # The connection should have been closed
                 # (either 200 with partial body, timeout, or connection reset)
@@ -145,6 +145,7 @@ class TestRequestTimeout:
 # Oversized request headers (h11_max_incomplete_event_size)
 # ---------------------------------------------------------------------------
 
+
 class TestOversizedHeaders:
     """Requests with headers exceeding the configured limit are rejected.
 
@@ -156,7 +157,9 @@ class TestOversizedHeaders:
     def test_oversized_partial_header_rejected(self):
         """Sending a partial request that overflows the buffer is rejected."""
         config = ServerConfig(
-            host="127.0.0.1", port=0, access_log=False,
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
             h11_max_incomplete_event_size=256,  # Very small limit
         )
         worker, sock, thread = start_worker(_ok_app, config=config)
@@ -185,7 +188,7 @@ class TestOversizedHeaders:
                         if not chunk:
                             break
                         resp += chunk
-                except (TimeoutError, ConnectionError, OSError):
+                except TimeoutError, ConnectionError, OSError:
                     pass
 
                 # Worker should respond with 400 or close the connection
@@ -200,19 +203,16 @@ class TestOversizedHeaders:
     def test_normal_header_accepted(self):
         """A request within the header size limit is accepted normally."""
         config = ServerConfig(
-            host="127.0.0.1", port=0, access_log=False,
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
             h11_max_incomplete_event_size=65536,
         )
         worker, sock, thread = start_worker(_ok_app, config=config)
         addr = sock.getsockname()
 
         try:
-            request = (
-                b"GET / HTTP/1.1\r\n"
-                b"Host: localhost\r\n"
-                b"Connection: close\r\n"
-                b"\r\n"
-            )
+            request = b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
             response = send_raw_request(addr, request)
             assert b"200" in response
         finally:
@@ -225,13 +225,16 @@ class TestOversizedHeaders:
 # max_connections enforcement
 # ---------------------------------------------------------------------------
 
+
 class TestMaxConnections:
     """Worker rejects connections when at max_connections capacity."""
 
     def test_connection_rejected_at_limit(self):
         """When max_connections is reached, new connections are closed."""
         config = ServerConfig(
-            host="127.0.0.1", port=0, access_log=False,
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
         )
         # Start worker with max_connections=1 via start_worker's helper
         import threading
@@ -269,9 +272,9 @@ class TestMaxConnections:
                     # Server closes immediately when at capacity
                     # so we expect empty data or connection reset
                     assert data == b"" or data is None
-                except (ConnectionError, OSError):
+                except ConnectionError, OSError:
                     pass  # Also fine — connection was rejected
-            except (ConnectionRefusedError, OSError):
+            except ConnectionRefusedError, OSError:
                 pass  # Server didn't accept at all
             finally:
                 tcp2.close()
@@ -287,6 +290,7 @@ class TestMaxConnections:
 # ---------------------------------------------------------------------------
 # ServerConfig validation enforcement
 # ---------------------------------------------------------------------------
+
 
 class TestConfigValidation:
     """ServerConfig rejects invalid values at construction time."""

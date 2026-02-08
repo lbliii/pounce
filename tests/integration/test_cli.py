@@ -1,6 +1,5 @@
 """Integration tests for pounce._cli — command-line interface."""
 
-
 import pytest
 
 from pounce._cli import _build_parser, main
@@ -29,17 +28,24 @@ class TestCLIParser:
 
     def test_custom_args(self):
         parser = _build_parser()
-        parsed = parser.parse_args([
-            "myapp.web:create_app()",
-            "--host", "0.0.0.0",
-            "--port", "9000",
-            "--workers", "4",
-            "--log-level", "debug",
-            "--root-path", "/api",
-            "--no-compression",
-            "--server-timing",
-            "--no-access-log",
-        ])
+        parsed = parser.parse_args(
+            [
+                "myapp.web:create_app()",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "9000",
+                "--workers",
+                "4",
+                "--log-level",
+                "debug",
+                "--root-path",
+                "/api",
+                "--no-compression",
+                "--server-timing",
+                "--no-access-log",
+            ]
+        )
         assert parsed.app == "myapp.web:create_app()"
         assert parsed.host == "0.0.0.0"
         assert parsed.port == 9000
@@ -57,11 +63,15 @@ class TestCLIParser:
 
     def test_phase3_tls_args(self):
         parser = _build_parser()
-        parsed = parser.parse_args([
-            "myapp:app",
-            "--ssl-certfile", "/path/to/cert.pem",
-            "--ssl-keyfile", "/path/to/key.pem",
-        ])
+        parsed = parser.parse_args(
+            [
+                "myapp:app",
+                "--ssl-certfile",
+                "/path/to/cert.pem",
+                "--ssl-keyfile",
+                "/path/to/key.pem",
+            ]
+        )
         assert parsed.ssl_certfile == "/path/to/cert.pem"
         assert parsed.ssl_keyfile == "/path/to/key.pem"
 
@@ -72,11 +82,15 @@ class TestCLIParser:
 
     def test_phase3_keepalive_args(self):
         parser = _build_parser()
-        parsed = parser.parse_args([
-            "myapp:app",
-            "--keep-alive-timeout", "30.0",
-            "--max-requests-per-connection", "1000",
-        ])
+        parsed = parser.parse_args(
+            [
+                "myapp:app",
+                "--keep-alive-timeout",
+                "30.0",
+                "--max-requests-per-connection",
+                "1000",
+            ]
+        )
         assert parsed.keep_alive_timeout == 30.0
         assert parsed.max_requests_per_connection == 1000
 
@@ -118,15 +132,18 @@ class TestPublicAPI:
 
     def test_import_run(self):
         from pounce import run
+
         assert callable(run)
 
     def test_import_server_config(self):
         from pounce import ServerConfig
+
         config = ServerConfig()
         assert config.host == "127.0.0.1"
         assert config.port == 8000
 
     def test_import_version(self):
         from pounce import __version__
+
         assert isinstance(__version__, str)
         assert "0.4.0" in __version__

@@ -34,7 +34,8 @@ from pounce.protocols._base import (
 
 
 def _get_header_from_tuple(
-    headers: tuple[tuple[bytes, bytes], ...], name: bytes,
+    headers: tuple[tuple[bytes, bytes], ...],
+    name: bytes,
 ) -> bytes | None:
     """Get a header value by lowercase name from a headers tuple."""
     name_lower = name.lower()
@@ -119,8 +120,12 @@ async def handle_h2_connection(
         app_start = monotonic_ns()
         send_state = SendState()
         send = create_h2_send(
-            h2_conn, stream_id, writer, send_state,
-            timing=timing, compressor=compressor,
+            h2_conn,
+            stream_id,
+            writer,
+            send_state,
+            timing=timing,
+            compressor=compressor,
         )
 
         try:
@@ -128,15 +133,20 @@ async def handle_h2_connection(
         except Exception:
             logger.exception(
                 "ASGI app error on H2 stream %d %s %s",
-                stream_id, scope["method"], scope["path"],
+                stream_id,
+                scope["method"],
+                scope["path"],
             )
             try:
                 h2_conn.send_response_headers(
-                    stream_id, 500,
+                    stream_id,
+                    500,
                     [(b"content-type", b"text/plain")],
                 )
                 h2_conn.send_data(
-                    stream_id, b"Internal Server Error", end_stream=True,
+                    stream_id,
+                    b"Internal Server Error",
+                    end_stream=True,
                 )
                 writer.write(h2_conn.data_to_send())
             except Exception:
@@ -158,8 +168,13 @@ async def handle_h2_connection(
             target = request.target.decode("ascii", errors="replace")
             method = request.method.decode("ascii", errors="replace")
             access_log(
-                method, target, send_state.status, send_state.bytes_sent,
-                duration, client_str, http_version="2",
+                method,
+                target,
+                send_state.status,
+                send_state.bytes_sent,
+                duration,
+                client_str,
+                http_version="2",
             )
 
     try:
@@ -171,7 +186,7 @@ async def handle_h2_connection(
                 )
             except TimeoutError:
                 break
-            except (ConnectionError, OSError):
+            except ConnectionError, OSError:
                 break
 
             if not data:
@@ -196,10 +211,17 @@ async def handle_h2_connection(
                     ws_queue: asyncio.Queue[dict] = asyncio.Queue()
                     ws_task = asyncio.create_task(
                         handle_h2_websocket_stream(
-                            app, config, logger,
-                            h2_conn, event.stream_id,
-                            event.request, ws_queue, writer,
-                            client, server, client_str,
+                            app,
+                            config,
+                            logger,
+                            h2_conn,
+                            event.stream_id,
+                            event.request,
+                            ws_queue,
+                            writer,
+                            client,
+                            server,
+                            client_str,
                         )
                     )
                     stream_tasks[event.stream_id] = (ws_task, ws_queue)
@@ -208,11 +230,13 @@ async def handle_h2_connection(
                     pair = stream_tasks.get(event.stream_id)
                     if pair is not None:
                         _, bq = pair
-                        await bq.put({
-                            "type": "http.request",
-                            "body": event.body.data,
-                            "more_body": event.body.more,
-                        })
+                        await bq.put(
+                            {
+                                "type": "http.request",
+                                "body": event.body.data,
+                                "more_body": event.body.more,
+                            }
+                        )
 
                 elif isinstance(event, H2StreamReset):
                     pair = stream_tasks.pop(event.stream_id, None)
@@ -224,7 +248,7 @@ async def handle_h2_connection(
 
             try:
                 await writer.drain()
-            except (ConnectionError, OSError):
+            except ConnectionError, OSError:
                 break
 
     finally:
@@ -282,9 +306,7 @@ async def handle_h2_websocket_stream(
     from pounce.protocols.ws import WSProtocol, is_wsproto_available
 
     if not is_wsproto_available():
-        logger.warning(
-            "WebSocket over H2 requested but wsproto not installed"
-        )
+        logger.warning("WebSocket over H2 requested but wsproto not installed")
         return
 
     ws_proto = WSProtocol()
@@ -339,7 +361,8 @@ async def handle_h2_websocket_stream(
             await app(scope, _ws_receive, _ws_send)
         except Exception:
             logger.exception(
-                "ASGI app error on H2 WebSocket stream %d", stream_id,
+                "ASGI app error on H2 WebSocket stream %d",
+                stream_id,
             )
 
     # Process incoming H2 data frames as WebSocket frames
@@ -359,27 +382,35 @@ async def handle_h2_websocket_stream(
                 for ws_event in events:
                     if isinstance(ws_event, WebSocketDataReceived):
                         if isinstance(ws_event.data, str):
-                            await receive_queue.put({
-                                "type": "websocket.receive",
-                                "text": ws_event.data,
-                            })
+                            await receive_queue.put(
+                                {
+                                    "type": "websocket.receive",
+                                    "text": ws_event.data,
+                                }
+                            )
                         else:
-                            await receive_queue.put({
-                                "type": "websocket.receive",
-                                "bytes": ws_event.data,
-                            })
+                            await receive_queue.put(
+                                {
+                                    "type": "websocket.receive",
+                                    "bytes": ws_event.data,
+                                }
+                            )
                     elif isinstance(ws_event, WebSocketDisconnected):
-                        await receive_queue.put({
-                            "type": "websocket.disconnect",
-                            "code": ws_event.code,
-                        })
+                        await receive_queue.put(
+                            {
+                                "type": "websocket.disconnect",
+                                "code": ws_event.code,
+                            }
+                        )
                         return
 
             if not msg.get("more_body", True):
-                await receive_queue.put({
-                    "type": "websocket.disconnect",
-                    "code": 1000,
-                })
+                await receive_queue.put(
+                    {
+                        "type": "websocket.disconnect",
+                        "code": 1000,
+                    }
+                )
                 return
 
     app_task = asyncio.create_task(_run_app())
@@ -396,5 +427,6 @@ async def handle_h2_websocket_stream(
                 await task
     except Exception:
         logger.exception(
-            "Unhandled error on H2 WebSocket from %s", client_str,
+            "Unhandled error on H2 WebSocket from %s",
+            client_str,
         )

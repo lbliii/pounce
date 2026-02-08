@@ -92,9 +92,7 @@ class H1HttpToolsProtocol:
 
     def __init__(self, *, max_incomplete_event_size: int | None = None) -> None:
         if not _httptools_available:
-            raise RuntimeError(
-                "httptools is not installed. Install with: pip install pounce[fast]"
-            )
+            raise RuntimeError("httptools is not installed. Install with: pip install pounce[fast]")
         self._events: list[ProtocolEvent] = []
         self._current_url: bytes = b""
         self._current_headers: list[tuple[bytes, bytes]] = []
@@ -105,7 +103,7 @@ class H1HttpToolsProtocol:
         self._chunked: bool = False
         self._max_size: int | None = max_incomplete_event_size
         self._header_bytes: int = 0
-        self._parser = httptools.HttpRequestParser(self)  # type: ignore[attr-defined]
+        self._parser = httptools.HttpRequestParser(self)
 
     # -- httptools callbacks ------------------------------------------------
 
@@ -179,9 +177,9 @@ class H1HttpToolsProtocol:
             self._parser.feed_data(data)
         except LimitError:
             raise  # Propagate size limit errors as-is
-        except httptools.HttpParserError as exc:  # type: ignore[attr-defined]
+        except httptools.HttpParserError as exc:
             raise ParseError(str(exc)) from exc
-        except httptools.HttpParserCallbackError as exc:  # type: ignore[attr-defined]
+        except httptools.HttpParserCallbackError as exc:
             # Callback errors wrap the original exception; unwrap LimitError
             if isinstance(exc.__cause__, LimitError):
                 raise exc.__cause__ from exc
@@ -191,9 +189,7 @@ class H1HttpToolsProtocol:
         self._events = []
         return result
 
-    def send_response(
-        self, status: int, headers: list[tuple[bytes, bytes]]
-    ) -> bytes:
+    def send_response(self, status: int, headers: list[tuple[bytes, bytes]]) -> bytes:
         """Serialize a response status line and headers into bytes.
 
         httptools only parses — response serialization is hand-crafted

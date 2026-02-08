@@ -45,14 +45,10 @@ def import_app(app_path: str) -> ASGIApp:
     module_path, _, attr_path = app_path.partition(":")
 
     if not module_path:
-        raise ValueError(
-            f"Invalid app path {app_path!r}. Module name is empty."
-        )
+        raise ValueError(f"Invalid app path {app_path!r}. Module name is empty.")
 
     if not attr_path:
-        raise ValueError(
-            f"Invalid app path {app_path!r}. Attribute name is empty."
-        )
+        raise ValueError(f"Invalid app path {app_path!r}. Attribute name is empty.")
 
     # Detect factory pattern: "module:factory()"
     is_factory = attr_path.endswith("()")
@@ -60,17 +56,13 @@ def import_app(app_path: str) -> ASGIApp:
         attr_path = attr_path[:-2]
 
     if not attr_path:
-        raise ValueError(
-            f"Invalid app path {app_path!r}. Attribute name is empty."
-        )
+        raise ValueError(f"Invalid app path {app_path!r}. Attribute name is empty.")
 
     # Import the module
     try:
         module = importlib.import_module(module_path)
     except ImportError as exc:
-        raise ImportError(
-            f"Could not import module {module_path!r}. {exc}"
-        ) from exc
+        raise ImportError(f"Could not import module {module_path!r}. {exc}") from exc
 
     # Resolve the attribute (supports dotted paths like "sub.app")
     obj: Any = module
@@ -86,8 +78,7 @@ def import_app(app_path: str) -> ASGIApp:
     if is_factory:
         if not callable(obj):
             raise TypeError(
-                f"Factory {module_path}:{attr_path} is not callable "
-                f"(got {type(obj).__name__})."
+                f"Factory {module_path}:{attr_path} is not callable (got {type(obj).__name__})."
             )
         obj = obj()
 

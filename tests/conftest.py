@@ -24,6 +24,7 @@ from pounce.worker import Worker
 # Lifespan decorator — DRYs the 12-line lifespan boilerplate
 # ---------------------------------------------------------------------------
 
+
 def with_lifespan(handler: Callable[..., object]) -> ASGIApp:
     """Wrap a simple HTTP handler with standard lifespan support.
 
@@ -40,6 +41,7 @@ def with_lifespan(handler: Callable[..., object]) -> ASGIApp:
             await send({"type": "http.response.body", "body": b"ok"})
 
     """
+
     @functools.wraps(handler)
     async def _app(scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "lifespan":
@@ -60,133 +62,164 @@ def with_lifespan(handler: Callable[..., object]) -> ASGIApp:
 # ASGI test apps (using @with_lifespan to avoid boilerplate)
 # ---------------------------------------------------------------------------
 
+
 @with_lifespan
 async def _hello_app(scope: Scope, receive: Receive, send: Send) -> None:
     """Minimal ASGI app that returns 'Hello, World!'."""
     await receive()
     body = b"Hello, World!"
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [
-            (b"content-type", b"text/plain"),
-            (b"content-length", str(len(body)).encode()),
-        ],
-    })
-    await send({
-        "type": "http.response.body",
-        "body": body,
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/plain"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+    )
+    await send(
+        {
+            "type": "http.response.body",
+            "body": body,
+        }
+    )
+
 
 @with_lifespan
 async def _echo_app(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI app that echoes the request path and method."""
     await receive()
     body = f"{scope['method']} {scope['path']}".encode()
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [
-            (b"content-type", b"text/plain"),
-            (b"content-length", str(len(body)).encode()),
-        ],
-    })
-    await send({
-        "type": "http.response.body",
-        "body": body,
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/plain"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+    )
+    await send(
+        {
+            "type": "http.response.body",
+            "body": body,
+        }
+    )
+
 
 @with_lifespan
 async def _streaming_app(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI app that streams response body in chunks."""
     await receive()
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [
-            (b"content-type", b"text/plain"),
-            (b"transfer-encoding", b"chunked"),
-        ],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/plain"),
+                (b"transfer-encoding", b"chunked"),
+            ],
+        }
+    )
     for i in range(3):
-        await send({
-            "type": "http.response.body",
-            "body": f"chunk{i}".encode(),
-            "more_body": i < 2,
-        })
+        await send(
+            {
+                "type": "http.response.body",
+                "body": f"chunk{i}".encode(),
+                "more_body": i < 2,
+            }
+        )
+
 
 @with_lifespan
 async def _error_app(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI app that raises an exception."""
     raise RuntimeError("App crashed!")
 
+
 @with_lifespan
 async def _sse_app(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI app that streams SSE events until the client disconnects."""
     await receive()
 
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [
-            (b"content-type", b"text/event-stream"),
-            (b"cache-control", b"no-cache"),
-            (b"connection", b"keep-alive"),
-        ],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/event-stream"),
+                (b"cache-control", b"no-cache"),
+                (b"connection", b"keep-alive"),
+            ],
+        }
+    )
 
     tick = 0
     try:
         while True:
             chunk = f"data: tick {tick}\n\n".encode()
-            await send({
-                "type": "http.response.body",
-                "body": chunk,
-                "more_body": True,
-            })
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": chunk,
+                    "more_body": True,
+                }
+            )
             tick += 1
             await asyncio.sleep(0.05)
-    except (asyncio.CancelledError, ConnectionError, OSError):
+    except asyncio.CancelledError, ConnectionError, OSError:
         pass
 
-    await send({
-        "type": "http.response.body",
-        "body": b"",
-        "more_body": False,
-    })
+    await send(
+        {
+            "type": "http.response.body",
+            "body": b"",
+            "more_body": False,
+        }
+    )
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def hello_app() -> ASGIApp:
     """Minimal ASGI app that returns 'Hello, World!'."""
     return _hello_app
 
+
 @pytest.fixture
 def echo_app() -> ASGIApp:
     """ASGI app that echoes method and path."""
     return _echo_app
+
 
 @pytest.fixture
 def streaming_app() -> ASGIApp:
     """ASGI app that streams chunked responses."""
     return _streaming_app
 
+
 @pytest.fixture
 def error_app() -> ASGIApp:
     """ASGI app that always raises."""
     return _error_app
+
 
 @pytest.fixture
 def sse_app() -> ASGIApp:
     """ASGI app that streams SSE events."""
     return _sse_app
 
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _wait_for_ready(addr: tuple[str, int], *, timeout: float = 3.0) -> None:
     """Retry-connect until the worker is accepting connections.
@@ -201,7 +234,7 @@ def _wait_for_ready(addr: tuple[str, int], *, timeout: float = 3.0) -> None:
             probe.connect(addr)
             probe.close()
             return
-        except (ConnectionRefusedError, OSError):
+        except ConnectionRefusedError, OSError:
             time.sleep(0.02)
     msg = f"Worker at {addr} did not become ready within {timeout}s"
     raise RuntimeError(msg)
@@ -230,6 +263,7 @@ def send_raw_request(
         return response
     finally:
         sock.close()
+
 
 def start_worker(
     app: ASGIApp,

@@ -15,26 +15,29 @@ from pounce.supervisor import Supervisor, _WorkerHandle
 
 
 def _wait_for_handles(
-    sup: Supervisor, count: int, *, timeout: float = 3.0,
+    sup: Supervisor,
+    count: int,
+    *,
+    timeout: float = 3.0,
 ) -> None:
     """Poll until the supervisor has ``count`` alive worker handles."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if (
-            len(sup._handles) >= count
-            and all(h.target.is_alive() for h in sup._handles[:count])
-        ):
+        if len(sup._handles) >= count and all(h.target.is_alive() for h in sup._handles[:count]):
             return
         time.sleep(0.05)
     msg = f"Supervisor did not spawn {count} alive handles within {timeout}s"
     raise RuntimeError(msg)
 
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 async def _noop_app(scope: Scope, receive: Receive, send: Send) -> None:
     """Minimal ASGI app that does nothing."""
+
 
 def _make_sockets(count: int) -> list[socket.socket]:
     """Create ephemeral sockets for testing."""
@@ -48,9 +51,11 @@ def _make_sockets(count: int) -> list[socket.socket]:
         sockets.append(sock)
     return sockets
 
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestSupervisorInit:
     """Supervisor initialisation and mode detection."""
@@ -80,6 +85,7 @@ class TestSupervisorInit:
         sup = Supervisor(config, _noop_app)
         assert sup.worker_count >= 1
 
+
 class TestSupervisorSocketValidation:
     """Supervisor validates that socket count matches worker count."""
 
@@ -94,6 +100,7 @@ class TestSupervisorSocketValidation:
             for s in sockets:
                 s.close()
 
+
 class TestSupervisorShutdown:
     """Supervisor shutdown coordination."""
 
@@ -103,6 +110,7 @@ class TestSupervisorShutdown:
         assert not sup._shutdown_event.is_set()
         sup.shutdown()
         assert sup._shutdown_event.is_set()
+
 
 class TestSupervisorThreadMode:
     """Supervisor runs workers as threads and shuts down cleanly."""
@@ -136,6 +144,7 @@ class TestSupervisorThreadMode:
         for s in set(sockets):
             with contextlib.suppress(Exception):
                 s.close()
+
 
 class TestSupervisorRespawn:
     """Supervisor respawn logic and restart budget."""
@@ -213,6 +222,7 @@ class TestSupervisorRespawn:
                 with contextlib.suppress(Exception):
                     s.close()
 
+
 class TestSupervisorRestartWorkers:
     """Supervisor restart_workers() logic (unit-level, no real workers)."""
 
@@ -265,6 +275,7 @@ class TestSupervisorRestartWorkers:
                 with contextlib.suppress(Exception):
                     s.close()
 
+
 class TestSupervisorPerWorkerConnections:
     """Supervisor calculates per-worker connection limits."""
 
@@ -279,6 +290,7 @@ class TestSupervisorPerWorkerConnections:
         config = ServerConfig(workers=4, max_connections=0)
         sup = Supervisor(config, _noop_app, mode="thread")
         assert config.max_connections // sup.worker_count == 0
+
 
 class TestWorkerHandle:
     """_WorkerHandle tracks metadata about a running worker."""

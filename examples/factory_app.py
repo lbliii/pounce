@@ -51,14 +51,18 @@ def create_app(greeting: str = "Hello from factory!") -> Any:
             return
 
         await receive()
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": headers,
-        })
-        await send({
-            "type": "http.response.body",
-            "body": body,
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": headers,
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": body,
+            }
+        )
 
     return app

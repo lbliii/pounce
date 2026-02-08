@@ -40,6 +40,7 @@ class SendState:
     status: int = 0
     bytes_sent: int = 0
 
+
 # ---------------------------------------------------------------------------
 # Pre-computed constants — allocated once at import, shared across workers
 # ---------------------------------------------------------------------------
@@ -47,17 +48,21 @@ class SendState:
 # Pre-built terminal body message for bodyless requests (GET, HEAD, etc.)
 # Avoids asyncio.Queue entirely for the common no-body case.
 # Read-only via MappingProxyType so misbehaving apps can't corrupt it.
-_EMPTY_BODY_MESSAGE: MappingProxyType[str, Any] = MappingProxyType({
-    "type": "http.request",
-    "body": b"",
-    "more_body": False,
-})
+_EMPTY_BODY_MESSAGE: MappingProxyType[str, Any] = MappingProxyType(
+    {
+        "type": "http.request",
+        "body": b"",
+        "more_body": False,
+    }
+)
 
 # Pre-built disconnect message — ASGI spec §2.1.3.
 # Returned by disconnect-aware receive callables when the client drops.
-_DISCONNECT_MESSAGE: MappingProxyType[str, Any] = MappingProxyType({
-    "type": "http.disconnect",
-})
+_DISCONNECT_MESSAGE: MappingProxyType[str, Any] = MappingProxyType(
+    {
+        "type": "http.disconnect",
+    }
+)
 
 
 def build_scope(
@@ -131,11 +136,11 @@ def create_empty_receive() -> Receive:
         nonlocal called
         if not called:
             called = True
-            return _EMPTY_BODY_MESSAGE
+            return dict(_EMPTY_BODY_MESSAGE)
         # Block forever — the app shouldn't call receive() again
         # after getting more_body=False.
         await asyncio.Event().wait()
-        return _EMPTY_BODY_MESSAGE  # unreachable, keeps type checker happy
+        return dict(_EMPTY_BODY_MESSAGE)  # unreachable, keeps type checker happy
 
     return receive
 
@@ -164,10 +169,10 @@ def create_disconnect_receive(
         nonlocal called
         if not called:
             called = True
-            return _EMPTY_BODY_MESSAGE
+            return dict(_EMPTY_BODY_MESSAGE)
         # Wait until client disconnects
         await disconnect.wait()
-        return _DISCONNECT_MESSAGE
+        return dict(_DISCONNECT_MESSAGE)
 
     return receive
 
@@ -206,7 +211,7 @@ def create_receive_with_disconnect(
             }
         # Body done — wait for disconnect
         await disconnect.wait()
-        return _DISCONNECT_MESSAGE
+        return dict(_DISCONNECT_MESSAGE)
 
     return receive
 
@@ -272,8 +277,10 @@ def create_send(
             response_started = True
             state.status = status
             headers: list[tuple[bytes, bytes]] = [
-                (name if isinstance(name, bytes) else name.encode(),
-                 value if isinstance(value, bytes) else value.encode())
+                (
+                    name if isinstance(name, bytes) else name.encode(),
+                    value if isinstance(value, bytes) else value.encode(),
+                )
                 for name, value in message.get("headers", [])
             ]
 
@@ -286,13 +293,9 @@ def create_send(
 
             # Inject Content-Encoding if compressing
             if compressor is not None:
-                headers.append(
-                    (b"content-encoding", compressor.encoding.encode("ascii"))
-                )
+                headers.append((b"content-encoding", compressor.encoding.encode("ascii")))
                 # Remove content-length since compressed size differs
-                headers = [
-                    (n, v) for n, v in headers if n.lower() != b"content-length"
-                ]
+                headers = [(n, v) for n, v in headers if n.lower() != b"content-length"]
 
             # Auto-inject chunked transfer encoding when the ASGI app
             # doesn't provide Content-Length.  Without either CL or
@@ -300,12 +303,8 @@ def create_send(
             # to delimit response boundaries — the browser hangs.
             # This matches Uvicorn / Hypercorn behaviour and is the
             # standard expectation of any ASGI framework.
-            has_content_length = any(
-                n.lower() == b"content-length" for n, _ in headers
-            )
-            has_transfer_encoding = any(
-                n.lower() == b"transfer-encoding" for n, _ in headers
-            )
+            has_content_length = any(n.lower() == b"content-length" for n, _ in headers)
+            has_transfer_encoding = any(n.lower() == b"transfer-encoding" for n, _ in headers)
             if not has_content_length and not has_transfer_encoding:
                 headers.append((b"transfer-encoding", b"chunked"))
 
@@ -322,13 +321,9 @@ def create_send(
 
         elif msg_type == "http.response.body":
             if not response_started:
-                raise RuntimeError(
-                    "Received http.response.body before http.response.start"
-                )
+                raise RuntimeError("Received http.response.body before http.response.start")
             if response_complete:
-                raise RuntimeError(
-                    "Received http.response.body after response is complete"
-                )
+                raise RuntimeError("Received http.response.body after response is complete")
 
             # Defense-in-depth: if the client already disconnected, skip
             # the write entirely.  This prevents asyncio's transport from

@@ -188,14 +188,16 @@ async def app(scope: Scope, receive: Receive, send: Send) -> None:
     # GET / — serve the upload form
     if method == "GET" and path == "/":
         await receive()
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [
-                (b"content-type", b"text/html; charset=utf-8"),
-                (b"content-length", str(len(_HTML)).encode()),
-            ],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"text/html; charset=utf-8"),
+                    (b"content-length", str(len(_HTML)).encode()),
+                ],
+            }
+        )
         await send({"type": "http.response.body", "body": _HTML})
         return
 
@@ -234,20 +236,24 @@ async def app(scope: Scope, receive: Receive, send: Send) -> None:
         }
 
         body, headers = _json_response(result)
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": headers,
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": headers,
+            }
+        )
         await send({"type": "http.response.body", "body": body})
         return
 
     # Everything else — 404
     await receive()
     body, headers = _json_response({"error": "not found"})
-    await send({
-        "type": "http.response.start",
-        "status": 404,
-        "headers": headers,
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 404,
+            "headers": headers,
+        }
+    )
     await send({"type": "http.response.body", "body": body})

@@ -29,7 +29,8 @@ from pounce.protocols._base import (
 
 
 def _get_header_from_tuple(
-    headers: tuple[tuple[bytes, bytes], ...], name: bytes,
+    headers: tuple[tuple[bytes, bytes], ...],
+    name: bytes,
 ) -> bytes | None:
     """Get a header value by lowercase name from a headers tuple."""
     name_lower = name.lower()
@@ -75,9 +76,7 @@ async def handle_websocket(
     from pounce.protocols.ws import WSProtocol, is_wsproto_available
 
     if not is_wsproto_available():
-        logger.warning(
-            "WebSocket upgrade requested but wsproto not installed"
-        )
+        logger.warning("WebSocket upgrade requested but wsproto not installed")
         return
 
     request_start = monotonic_ns()
@@ -99,7 +98,9 @@ async def handle_websocket(
     receive_queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
     receive = create_ws_receive(receive_queue)
     send = create_ws_send(
-        writer, ws_proto, ws_key,
+        writer,
+        ws_proto,
+        ws_key,
         accept_event=accept_event,
         close_event=close_event,
     )
@@ -112,9 +113,7 @@ async def handle_websocket(
         try:
             await app(scope, receive, send)
         except Exception:
-            logger.exception(
-                "ASGI app error on WebSocket %s", scope["path"]
-            )
+            logger.exception("ASGI app error on WebSocket %s", scope["path"])
 
     async def _read_frames() -> None:
         """Read WebSocket frames from the client and push to queue."""
@@ -130,7 +129,7 @@ async def handle_websocket(
                     )
                 except TimeoutError:
                     break
-                except (ConnectionError, OSError):
+                except ConnectionError, OSError:
                     break
 
                 if not data:
@@ -143,28 +142,36 @@ async def handle_websocket(
                 for event in events:
                     if isinstance(event, WebSocketDataReceived):
                         if isinstance(event.data, str):
-                            await receive_queue.put({
-                                "type": "websocket.receive",
-                                "text": event.data,
-                            })
+                            await receive_queue.put(
+                                {
+                                    "type": "websocket.receive",
+                                    "text": event.data,
+                                }
+                            )
                         else:
-                            await receive_queue.put({
-                                "type": "websocket.receive",
-                                "bytes": event.data,
-                            })
+                            await receive_queue.put(
+                                {
+                                    "type": "websocket.receive",
+                                    "bytes": event.data,
+                                }
+                            )
                     elif isinstance(event, WebSocketDisconnected):
-                        await receive_queue.put({
-                            "type": "websocket.disconnect",
-                            "code": event.code,
-                        })
+                        await receive_queue.put(
+                            {
+                                "type": "websocket.disconnect",
+                                "code": event.code,
+                            }
+                        )
                         return
         finally:
             # Ensure the app unblocks if still waiting on receive
             if not close_event.is_set():
-                await receive_queue.put({
-                    "type": "websocket.disconnect",
-                    "code": 1006,
-                })
+                await receive_queue.put(
+                    {
+                        "type": "websocket.disconnect",
+                        "code": 1006,
+                    }
+                )
 
     app_task = asyncio.create_task(_run_app())
     reader_task = asyncio.create_task(_read_frames())
@@ -180,9 +187,7 @@ async def handle_websocket(
             with contextlib.suppress(asyncio.CancelledError):
                 await task
     except Exception:
-        logger.exception(
-            "Unhandled error on WebSocket from %s", client_str
-        )
+        logger.exception("Unhandled error on WebSocket from %s", client_str)
 
     # Access log
     if config.access_log:

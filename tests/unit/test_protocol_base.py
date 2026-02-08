@@ -113,9 +113,7 @@ class TestProtocolHandlerConformance:
             def receive_data(self, data: bytes) -> list:
                 return []
 
-            def send_response(
-                self, status: int, headers: list[tuple[bytes, bytes]]
-            ) -> bytes:
+            def send_response(self, status: int, headers: list[tuple[bytes, bytes]]) -> bytes:
                 return b""
 
             def send_body(self, data: bytes, more: bool = False) -> bytes:
@@ -132,6 +130,7 @@ class TestProtocolHandlerConformance:
         class Incomplete:
             def receive_data(self, data: bytes) -> list:
                 return []
+
             # Missing other methods
 
         handler = Incomplete()

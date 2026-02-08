@@ -56,6 +56,7 @@ class TestCreateListeners:
         with pytest.raises(ValueError, match="count must be >= 1"):
             create_listeners(config, -1)
 
+
 class TestSocketStrategy:
     """create_listeners() picks the right strategy per platform."""
 
@@ -86,6 +87,7 @@ class TestSocketStrategy:
         finally:
             for s in sockets:
                 s.close()
+
 
 class TestHasSoReuseport:
     """has_so_reuseport() detects platform capability."""

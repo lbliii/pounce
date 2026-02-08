@@ -25,6 +25,7 @@ _HEADERS = [
     (b"content-length", b"13"),
 ]
 
+
 async def app(scope: Scope, receive: Receive, send: Send) -> None:
     """Return ``Hello, World!`` for every HTTP request."""
     # ASGI servers send lifespan events before any HTTP traffic.

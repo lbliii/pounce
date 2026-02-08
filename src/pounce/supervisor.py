@@ -38,6 +38,7 @@ _MAX_RESTARTS = 5
 _RESTART_WINDOW = 60.0  # seconds
 _HEALTH_CHECK_INTERVAL = 1.0  # seconds
 
+
 class _WorkerHandle:
     """Metadata about a running worker (thread or process)."""
 
@@ -49,6 +50,7 @@ class _WorkerHandle:
         self.started_at = time.monotonic()
         self.restart_count = 0
         self.restarts: list[float] = []  # timestamps of recent restarts
+
 
 class Supervisor:
     """Spawn and supervise N workers as threads or processes.
@@ -122,10 +124,7 @@ class Supervisor:
 
         """
         if len(sockets) != self._effective_workers:
-            msg = (
-                f"Expected {self._effective_workers} sockets, "
-                f"got {len(sockets)}"
-            )
+            msg = f"Expected {self._effective_workers} sockets, got {len(sockets)}"
             raise SupervisorError(msg)
 
         self._sockets = sockets
@@ -245,9 +244,7 @@ class Supervisor:
         now = time.monotonic()
 
         # Prune old restarts outside the window
-        handle.restarts = [
-            t for t in handle.restarts if now - t < _RESTART_WINDOW
-        ]
+        handle.restarts = [t for t in handle.restarts if now - t < _RESTART_WINDOW]
 
         if len(handle.restarts) >= _MAX_RESTARTS:
             logger.error(
@@ -348,6 +345,7 @@ class Supervisor:
         ``supervisor.shutdown()`` instead.
 
         """
+
         def _handle_signal(signum: int, _frame: object) -> None:
             sig_name = signal.Signals(signum).name
             logger.info("Received %s — initiating shutdown", sig_name)
@@ -356,6 +354,7 @@ class Supervisor:
         for sig in (signal.SIGINT, signal.SIGTERM):
             with contextlib.suppress(OSError, ValueError):
                 signal.signal(sig, _handle_signal)
+
 
 def _target_id(target: threading.Thread | multiprocessing.Process) -> str:
     """Return an identifier string for a thread or process."""

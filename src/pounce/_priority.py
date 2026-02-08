@@ -31,6 +31,7 @@ class StreamPriority:
     urgency: int = 3
     incremental: bool = False
 
+
 def parse_priority(value: bytes | str) -> StreamPriority:
     """Parse an RFC 9218 Priority header value.
 
@@ -72,6 +73,7 @@ def parse_priority(value: bytes | str) -> StreamPriority:
             incremental = True
 
     return StreamPriority(urgency=urgency, incremental=incremental)
+
 
 class PriorityScheduler:
     """Priority-based scheduler for HTTP/2 stream writes.

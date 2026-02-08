@@ -28,6 +28,7 @@ from pounce.worker import Worker
 # SSE app (inlined — same as conftest but self-contained for benchmark)
 # ---------------------------------------------------------------------------
 
+
 async def _sse_app(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI app that streams SSE events every 50ms."""
     if scope["type"] == "lifespan":
@@ -42,46 +43,49 @@ async def _sse_app(scope: Scope, receive: Receive, send: Send) -> None:
 
     await receive()
 
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [
-            (b"content-type", b"text/event-stream"),
-            (b"cache-control", b"no-cache"),
-            (b"connection", b"keep-alive"),
-        ],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/event-stream"),
+                (b"cache-control", b"no-cache"),
+                (b"connection", b"keep-alive"),
+            ],
+        }
+    )
 
     tick = 0
     try:
         while True:
             chunk = f"data: tick {tick}\n\n".encode()
-            await send({
-                "type": "http.response.body",
-                "body": chunk,
-                "more_body": True,
-            })
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": chunk,
+                    "more_body": True,
+                }
+            )
             tick += 1
             await asyncio.sleep(0.05)
-    except (asyncio.CancelledError, ConnectionError, OSError):
+    except asyncio.CancelledError, ConnectionError, OSError:
         pass
 
-    await send({
-        "type": "http.response.body",
-        "body": b"",
-        "more_body": False,
-    })
+    await send(
+        {
+            "type": "http.response.body",
+            "body": b"",
+            "more_body": False,
+        }
+    )
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-_SSE_REQUEST = (
-    b"GET /events HTTP/1.1\r\n"
-    b"Host: localhost\r\n"
-    b"Accept: text/event-stream\r\n"
-    b"\r\n"
-)
+_SSE_REQUEST = b"GET /events HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\n\r\n"
+
 
 def _get_rss_mb() -> float:
     """Return the current process RSS in megabytes."""
@@ -91,6 +95,7 @@ def _get_rss_mb() -> float:
         return rss / (1024 * 1024)
     return rss / 1024
 
+
 def _create_socket() -> socket.socket:
     """Create a bound, listening, non-blocking socket on an ephemeral port."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -99,6 +104,7 @@ def _create_socket() -> socket.socket:
     sock.listen(2048)
     sock.setblocking(False)
     return sock
+
 
 async def _hold_sse_connection(
     addr: tuple[str, int],
@@ -127,9 +133,10 @@ async def _hold_sse_connection(
 
         writer.close()
         await writer.wait_closed()
-    except (ConnectionError, OSError):
+    except ConnectionError, OSError:
         pass
     return event_count
+
 
 # ---------------------------------------------------------------------------
 # Benchmark
@@ -138,6 +145,7 @@ async def _hold_sse_connection(
 _NUM_CONNECTIONS = 100
 _HOLD_DURATION = 10.0  # seconds
 _RSS_GROWTH_LIMIT_MB = 50.0  # generous ceiling for CI environments
+
 
 @pytest.mark.benchmark
 @pytest.mark.timeout(60)
@@ -159,7 +167,9 @@ def test_sse_stress_no_leak() -> None:
     threads: list[threading.Thread] = []
     for i in range(2):
         worker = Worker(
-            config, _sse_app, sock,
+            config,
+            _sse_app,
+            sock,
             worker_id=i,
             shutdown_event=shutdown,
             max_connections=250,
@@ -219,6 +229,5 @@ def test_sse_stress_no_leak() -> None:
 
     # Memory growth should be bounded
     assert rss_growth < _RSS_GROWTH_LIMIT_MB, (
-        f"RSS grew {rss_growth:.1f}MB during SSE stress test "
-        f"(limit: {_RSS_GROWTH_LIMIT_MB}MB)"
+        f"RSS grew {rss_growth:.1f}MB during SSE stress test (limit: {_RSS_GROWTH_LIMIT_MB}MB)"
     )

@@ -50,6 +50,7 @@ def build_h2_scope(
         root_path=config.root_path,
     )
 
+
 def create_h2_receive(
     body_queue: asyncio.Queue[dict[str, Any]],
 ) -> Receive:
@@ -63,6 +64,7 @@ def create_h2_receive(
         return await body_queue.get()
 
     return receive
+
 
 def create_h2_send(
     h2_conn: H2Connection,
@@ -122,12 +124,8 @@ def create_h2_send(
 
             # Inject Content-Encoding if compressing
             if compressor is not None:
-                headers.append(
-                    (b"content-encoding", compressor.encoding.encode("ascii"))
-                )
-                headers = [
-                    (n, v) for n, v in headers if n.lower() != b"content-length"
-                ]
+                headers.append((b"content-encoding", compressor.encoding.encode("ascii")))
+                headers = [(n, v) for n, v in headers if n.lower() != b"content-length"]
 
             # Inject Server-Timing header
             if timing is not None:
@@ -140,13 +138,9 @@ def create_h2_send(
 
         elif message["type"] == "http.response.body":
             if not response_started:
-                raise RuntimeError(
-                    "Received http.response.body before http.response.start"
-                )
+                raise RuntimeError("Received http.response.body before http.response.start")
             if response_complete:
-                raise RuntimeError(
-                    "Received http.response.body after response is complete"
-                )
+                raise RuntimeError("Received http.response.body after response is complete")
 
             body: bytes = message.get("body", b"")
             more_body: bool = message.get("more_body", False)
@@ -175,7 +169,9 @@ def create_h2_send(
                 chunk_size = min(len(remaining), window)
                 is_last = end_stream and chunk_size == len(remaining)
                 h2_conn.send_data(
-                    stream_id, remaining[:chunk_size], end_stream=is_last,
+                    stream_id,
+                    remaining[:chunk_size],
+                    end_stream=is_last,
                 )
                 remaining = remaining[chunk_size:]
                 _flush(h2_conn, writer)
@@ -195,6 +191,7 @@ def create_h2_send(
                 response_complete = True
 
     return send
+
 
 def _flush(h2_conn: H2Connection, writer: asyncio.StreamWriter) -> None:
     """Write pending h2 output bytes to the transport."""

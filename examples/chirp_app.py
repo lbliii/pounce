@@ -26,10 +26,12 @@ except ImportError as exc:
 
 app = chirp.App()
 
+
 @app.route("/")
 def index() -> str:
     """Home page."""
     return "Hello from chirp, served by pounce!"
+
 
 @app.route("/health")
 def health() -> dict[str, str]:

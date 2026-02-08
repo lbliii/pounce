@@ -30,7 +30,7 @@ from pounce._compression import Compressor, create_compressor, negotiate_encodin
 from pounce._errors import ParseError
 from pounce._h2_handler import handle_h2_connection
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
-from pounce._types import ASGIApp
+from pounce._types import ASGIApp, Receive, Send
 from pounce._ws_handler import handle_websocket
 from pounce.asgi.bridge import (
     SendState,
@@ -74,7 +74,8 @@ except ImportError:
 
 
 def _create_h1_protocol(
-    *, max_incomplete_event_size: int | None = None,
+    *,
+    max_incomplete_event_size: int | None = None,
 ) -> H1Protocol:
     """Create the best available HTTP/1.1 protocol handler.
 
@@ -200,9 +201,7 @@ class Worker:
         # trigger shutdown from its own thread.
         bridge_task: asyncio.Task[None] | None = None
         if self._ext_shutdown is not None:
-            bridge_task = asyncio.create_task(
-                self._bridge_shutdown(self._ext_shutdown)
-            )
+            bridge_task = asyncio.create_task(self._bridge_shutdown(self._ext_shutdown))
 
         try:
             await self._async_shutdown.wait()
@@ -217,7 +216,7 @@ class Worker:
             try:
                 server.close()
                 await server.wait_closed()
-            except (ValueError, OSError):
+            except ValueError, OSError:
                 pass  # fd already closed by another worker sharing the socket
 
             # Per-worker shutdown hook — runs on this worker's event loop
@@ -236,7 +235,8 @@ class Worker:
                 pass  # App doesn't understand this scope type
             except Exception:
                 self._logger.exception(
-                    "Worker %d shutdown hook failed", self._worker_id,
+                    "Worker %d shutdown hook failed",
+                    self._worker_id,
                 )
 
             self._logger.info("Worker %d stopped", self._worker_id)
@@ -305,7 +305,11 @@ class Worker:
         client = (peername[0], peername[1]) if peername else ("unknown", 0)
         client_str = f"{client[0]}:{client[1]}"
         server_addr = writer.get_extra_info("sockname")
-        server = (server_addr[0], server_addr[1]) if server_addr else (self._config.host, self._config.port)
+        server = (
+            (server_addr[0], server_addr[1])
+            if server_addr
+            else (self._config.host, self._config.port)
+        )
 
         # Determine protocol and emit ConnectionOpened
         detected_protocol = "h1"
@@ -316,38 +320,50 @@ class Worker:
             alpn = ssl_object.selected_alpn_protocol()
             if alpn == "h2":
                 detected_protocol = "h2"
-                self._lifecycle.record(ConnectionOpened(
-                    connection_id=conn_id,
-                    worker_id=self._worker_id,
-                    client_addr=client[0],
-                    client_port=client[1],
-                    server_addr=server[0],
-                    server_port=server[1],
-                    protocol="h2",
-                    timestamp_ns=conn_start,
-                ))
+                self._lifecycle.record(
+                    ConnectionOpened(
+                        connection_id=conn_id,
+                        worker_id=self._worker_id,
+                        client_addr=client[0],
+                        client_port=client[1],
+                        server_addr=server[0],
+                        server_port=server[1],
+                        protocol="h2",
+                        timestamp_ns=conn_start,
+                    )
+                )
                 try:
                     await handle_h2_connection(
-                        self._app, self._config, self._logger,
-                        reader, writer, client, server, client_str,
+                        self._app,
+                        self._config,
+                        self._logger,
+                        reader,
+                        writer,
+                        client,
+                        server,
+                        client_str,
                     )
                 except Exception:
                     self._logger.exception(
-                        "Unhandled error on H2 connection from %s", client_str,
+                        "Unhandled error on H2 connection from %s",
+                        client_str,
                     )
                 finally:
                     self._active_connections -= 1
-                    self._lifecycle.record(LifecycleConnectionClosed(
-                        connection_id=conn_id,
-                        worker_id=self._worker_id,
-                        requests_served=0,
-                        total_bytes_sent=0,
-                        duration_ms=round(
-                            (lifecycle_ns() - conn_start) / 1_000_000, 1,
-                        ),
-                        reason="complete",
-                        timestamp_ns=lifecycle_ns(),
-                    ))
+                    self._lifecycle.record(
+                        LifecycleConnectionClosed(
+                            connection_id=conn_id,
+                            worker_id=self._worker_id,
+                            requests_served=0,
+                            total_bytes_sent=0,
+                            duration_ms=round(
+                                (lifecycle_ns() - conn_start) / 1_000_000,
+                                1,
+                            ),
+                            reason="complete",
+                            timestamp_ns=lifecycle_ns(),
+                        )
+                    )
                     try:
                         writer.close()
                         await writer.wait_closed()
@@ -355,16 +371,18 @@ class Worker:
                         pass
                 return
 
-        self._lifecycle.record(ConnectionOpened(
-            connection_id=conn_id,
-            worker_id=self._worker_id,
-            client_addr=client[0],
-            client_port=client[1],
-            server_addr=server[0],
-            server_port=server[1],
-            protocol=detected_protocol,
-            timestamp_ns=conn_start,
-        ))
+        self._lifecycle.record(
+            ConnectionOpened(
+                connection_id=conn_id,
+                worker_id=self._worker_id,
+                client_addr=client[0],
+                client_port=client[1],
+                server_addr=server[0],
+                server_port=server[1],
+                protocol=detected_protocol,
+                timestamp_ns=conn_start,
+            )
+        )
 
         proto = _create_h1_protocol(
             max_incomplete_event_size=self._config.h11_max_incomplete_event_size,
@@ -401,12 +419,25 @@ class Worker:
                         # Check for WebSocket upgrade
                         if _is_websocket_upgrade(event):
                             await handle_websocket(
-                                self._app, self._config, self._logger,
-                                event, reader, writer, client, server, client_str,
+                                self._app,
+                                self._config,
+                                self._logger,
+                                event,
+                                reader,
+                                writer,
+                                client,
+                                server,
+                                client_str,
                             )
                             return True  # WS takes over
                         await self._handle_request(
-                            event, proto, reader, writer, client, server, client_str,
+                            event,
+                            proto,
+                            reader,
+                            writer,
+                            client,
+                            server,
+                            client_str,
                             initial_body=initial_body,
                             connection_id=conn_id,
                         )
@@ -424,7 +455,7 @@ class Worker:
                 except TimeoutError:
                     close_reason = "timeout"
                     break  # Keep-alive timeout — close connection
-                except (ConnectionError, OSError):
+                except ConnectionError, OSError:
                     close_reason = "client_disconnect"
                     break
 
@@ -464,17 +495,20 @@ class Worker:
             self._logger.exception("Unhandled error on connection from %s", client_str)
         finally:
             self._active_connections -= 1
-            self._lifecycle.record(LifecycleConnectionClosed(
-                connection_id=conn_id,
-                worker_id=self._worker_id,
-                requests_served=request_count,
-                total_bytes_sent=total_bytes,
-                duration_ms=round(
-                    (lifecycle_ns() - conn_start) / 1_000_000, 1,
-                ),
-                reason=close_reason,
-                timestamp_ns=lifecycle_ns(),
-            ))
+            self._lifecycle.record(
+                LifecycleConnectionClosed(
+                    connection_id=conn_id,
+                    worker_id=self._worker_id,
+                    requests_served=request_count,
+                    total_bytes_sent=total_bytes,
+                    duration_ms=round(
+                        (lifecycle_ns() - conn_start) / 1_000_000,
+                        1,
+                    ),
+                    reason=close_reason,
+                    timestamp_ns=lifecycle_ns(),
+                )
+            )
             try:
                 writer.close()
                 await writer.wait_closed()
@@ -501,14 +535,16 @@ class Worker:
         """Process a single HTTP request through the ASGI pipeline."""
         request_start = monotonic_ns()
 
-        self._lifecycle.record(RequestStarted(
-            connection_id=connection_id,
-            worker_id=self._worker_id,
-            method=request.method.decode("ascii", errors="replace"),
-            path=request.target.decode("ascii", errors="replace"),
-            http_version=request.http_version,
-            timestamp_ns=request_start,
-        ))
+        self._lifecycle.record(
+            RequestStarted(
+                connection_id=connection_id,
+                worker_id=self._worker_id,
+                method=request.method.decode("ascii", errors="replace"),
+                path=request.target.decode("ascii", errors="replace"),
+                http_version=request.http_version,
+                timestamp_ns=request_start,
+            )
+        )
 
         # Build ASGI scope
         scope = build_scope(request, self._config, client, server)
@@ -523,7 +559,8 @@ class Worker:
         compressor: Compressor | None = None
         if self._config.compression:
             accept_encoding = _get_header_from_tuple(
-                request.headers, b"accept-encoding",
+                request.headers,
+                b"accept-encoding",
             )
             if accept_encoding:
                 encoding = negotiate_encoding(accept_encoding)
@@ -560,15 +597,30 @@ class Worker:
         # first to complete, cancel the other.
         if body_complete:
             await self._run_with_disconnect_monitor(
-                scope, receive, send, send_state,
-                reader, writer, proto, disconnect,
+                scope,
+                receive,
+                send,
+                send_state,
+                reader,
+                writer,
+                proto,
+                disconnect,
                 connection_id=connection_id,
             )
         else:
             # Body still arriving — read concurrently with the app.
+            # body_queue is guaranteed non-None here because initial_body
+            # was truthy but body_complete stayed False.
+            assert body_queue is not None
             await self._run_with_body_reader(
-                scope, receive, send, send_state,
-                body_queue, proto, reader, writer,
+                scope,
+                receive,
+                send,
+                send_state,
+                body_queue,
+                proto,
+                reader,
+                writer,
                 disconnect=disconnect,
             )
 
@@ -576,14 +628,16 @@ class Worker:
             timing.add("app", elapsed_ms(app_start))
 
         # Record response lifecycle event
-        self._lifecycle.record(ResponseCompleted(
-            connection_id=connection_id,
-            worker_id=self._worker_id,
-            status=send_state.status,
-            bytes_sent=send_state.bytes_sent,
-            duration_ms=elapsed_ms(request_start),
-            timestamp_ns=lifecycle_ns(),
-        ))
+        self._lifecycle.record(
+            ResponseCompleted(
+                connection_id=connection_id,
+                worker_id=self._worker_id,
+                status=send_state.status,
+                bytes_sent=send_state.bytes_sent,
+                duration_ms=elapsed_ms(request_start),
+                timestamp_ns=lifecycle_ns(),
+            )
+        )
 
         # Flush the writer
         with contextlib.suppress(ConnectionError, OSError):
@@ -596,15 +650,20 @@ class Worker:
             method = request.method.decode("ascii", errors="replace")
             http_version = scope.get("http_version", "1.1")
             access_log(
-                method, target, send_state.status, send_state.bytes_sent,
-                duration, client_str, http_version=http_version,
+                method,
+                target,
+                send_state.status,
+                send_state.bytes_sent,
+                duration,
+                client_str,
+                http_version=http_version,
             )
 
     async def _run_with_disconnect_monitor(
         self,
         scope: dict,
-        receive: object,
-        send: object,
+        receive: Receive,
+        send: Send,
         send_state: SendState,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
@@ -627,18 +686,14 @@ class Worker:
             try:
                 await self._app(scope, receive, send)
             except Exception:
-                self._logger.exception(
-                    "ASGI app error on %s %s", scope["method"], scope["path"]
-                )
+                self._logger.exception("ASGI app error on %s %s", scope["method"], scope["path"])
                 with contextlib.suppress(Exception):
                     await self._send_error(writer, proto, 500, "Internal Server Error")
                 if send_state.status == 0:
                     send_state.status = 500
 
         app_task = asyncio.create_task(_run_app())
-        monitor_task = asyncio.create_task(
-            self._monitor_disconnect(reader, disconnect)
-        )
+        monitor_task = asyncio.create_task(self._monitor_disconnect(reader, disconnect))
 
         try:
             done, pending = await asyncio.wait(
@@ -648,12 +703,14 @@ class Worker:
 
             # If the monitor won (client disconnected), emit event
             if monitor_task in done and app_task not in done:
-                self._lifecycle.record(ClientDisconnected(
-                    connection_id=connection_id,
-                    worker_id=self._worker_id,
-                    during_streaming=send_state.bytes_sent > 0,
-                    timestamp_ns=lifecycle_ns(),
-                ))
+                self._lifecycle.record(
+                    ClientDisconnected(
+                        connection_id=connection_id,
+                        worker_id=self._worker_id,
+                        during_streaming=send_state.bytes_sent > 0,
+                        timestamp_ns=lifecycle_ns(),
+                    )
+                )
 
             for task in pending:
                 task.cancel()
@@ -678,8 +735,8 @@ class Worker:
     async def _run_with_body_reader(
         self,
         scope: dict,
-        receive: object,
-        send: object,
+        receive: Receive,
+        send: Send,
         send_state: SendState,
         body_queue: asyncio.Queue[BodyReceived],
         proto: H1Protocol,
@@ -718,7 +775,7 @@ class Worker:
                     except TimeoutError:
                         await body_queue.put(BodyReceived(data=b"", more=False))
                         return
-                    except (ConnectionError, OSError):
+                    except ConnectionError, OSError:
                         await body_queue.put(BodyReceived(data=b"", more=False))
                         return
 
@@ -751,9 +808,7 @@ class Worker:
             try:
                 await self._app(scope, receive, send)
             except Exception:
-                self._logger.exception(
-                    "ASGI app error on %s %s", scope["method"], scope["path"]
-                )
+                self._logger.exception("ASGI app error on %s %s", scope["method"], scope["path"])
                 with contextlib.suppress(Exception):
                     await self._send_error(writer, proto, 500, "Internal Server Error")
                 if send_state.status == 0:
@@ -820,7 +875,7 @@ class Worker:
                 if not data:
                     # Client disconnected — EOF
                     break
-        except (ConnectionError, OSError):
+        except ConnectionError, OSError:
             pass
         finally:
             disconnect.set()
@@ -877,6 +932,7 @@ async def _worker_lifecycle_send(message: dict[str, Any]) -> None:
 # Module-level helpers
 # ---------------------------------------------------------------------------
 
+
 def _is_websocket_upgrade(request: RequestReceived) -> bool:
     """Check if the request is a WebSocket upgrade.
 
@@ -895,8 +951,10 @@ def _is_websocket_upgrade(request: RequestReceived) -> bool:
 
     return has_upgrade_connection and has_websocket_upgrade
 
+
 def _get_header_from_tuple(
-    headers: tuple[tuple[bytes, bytes], ...], name: bytes,
+    headers: tuple[tuple[bytes, bytes], ...],
+    name: bytes,
 ) -> bytes | None:
     """Get a header value by lowercase name from a headers tuple.
 

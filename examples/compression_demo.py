@@ -75,6 +75,7 @@ _BODY = json.dumps(_DATA, indent=2).encode()
 # ASGI app
 # ---------------------------------------------------------------------------
 
+
 async def app(scope: Scope, receive: Receive, send: Send) -> None:
     """Return a JSON payload large enough for pounce to compress."""
     if scope["type"] == "lifespan":

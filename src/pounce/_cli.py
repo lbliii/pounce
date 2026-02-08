@@ -60,6 +60,7 @@ def main(args: list[str] | None = None) -> None:
     server = Server(config, app)
     server.run()
 
+
 def _build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for the pounce CLI."""
     parser = argparse.ArgumentParser(

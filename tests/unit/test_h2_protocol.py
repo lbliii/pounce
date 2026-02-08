@@ -16,6 +16,7 @@ pytestmark = pytest.mark.skipif(
     reason="h2 not installed",
 )
 
+
 def _make_client_server():
     """Create a paired client/server H2 connection.
 
@@ -28,7 +29,8 @@ def _make_client_server():
     server_preface = server.data_to_send()
 
     client_config = h2.config.H2Configuration(
-        client_side=True, header_encoding="utf-8",
+        client_side=True,
+        header_encoding="utf-8",
     )
     client = h2.connection.H2Connection(config=client_config)
     client.initiate_connection()
@@ -38,6 +40,7 @@ def _make_client_server():
     server.receive_data(client.data_to_send())
 
     return client, server
+
 
 class TestH2Connection:
     def test_init(self) -> None:
@@ -173,16 +176,16 @@ class TestH2Connection:
 
         # Server sends response
         server.send_response_headers(
-            1, 200, [(b"content-type", b"text/plain")],
+            1,
+            200,
+            [(b"content-type", b"text/plain")],
         )
         server.send_data(1, b"Hello!", end_stream=True)
         response_data = server.data_to_send()
 
         # Client receives response
         client_events = client.receive_data(response_data)
-        response_received = [
-            e for e in client_events if isinstance(e, h2.events.ResponseReceived)
-        ]
+        response_received = [e for e in client_events if isinstance(e, h2.events.ResponseReceived)]
         assert len(response_received) == 1
         headers_dict = dict(response_received[0].headers)
         assert headers_dict[":status"] == "200"
@@ -254,6 +257,7 @@ class TestH2Connection:
         # :authority should be mapped to host header
         headers_dict = dict(req_events[0].request.headers)
         assert headers_dict[b"host"] == b"example.com"
+
 
 class TestH2Availability:
     def test_is_h2_available(self) -> None:

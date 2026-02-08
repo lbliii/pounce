@@ -116,7 +116,7 @@ def _start_server(
             s = socket.create_connection(("127.0.0.1", port), timeout=0.5)
             s.close()
             return proc
-        except (ConnectionRefusedError, OSError):
+        except ConnectionRefusedError, OSError:
             time.sleep(0.2)
             if proc.poll() is not None:
                 _, stderr = proc.communicate()
@@ -152,7 +152,7 @@ def _find_load_tool() -> str:
                 timeout=5,
             )
             return tool
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except FileNotFoundError, subprocess.TimeoutExpired:
             continue
     print(
         "Error: Neither 'wrk' nor 'hey' found on PATH.\n"
@@ -197,9 +197,12 @@ def _run_hey(
     """Run hey and parse the output."""
     cmd = [
         "hey",
-        "-z", f"{duration}s",
-        "-c", str(connections),
-        "-m", method,
+        "-z",
+        f"{duration}s",
+        "-c",
+        str(connections),
+        "-m",
+        method,
         url,
     ]
     if body_size and method == "POST":
@@ -352,11 +355,16 @@ def run_benchmark(
     # --- Pounce ---
     print(f"\n  Starting pounce ({workload}, {workers} workers)...")
     pounce_cmd = [
-        sys.executable, "-m", "pounce",
+        sys.executable,
+        "-m",
+        "pounce",
         wl["app"],
-        "--host", "127.0.0.1",
-        "--port", str(port),
-        "--workers", str(workers),
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--workers",
+        str(workers),
         "--no-access-log",
         "--no-compression",
     ]
@@ -373,15 +381,17 @@ def run_benchmark(
             method=method,
             body_size=body_size,
         )
-        results.append(BenchmarkResult(
-            server="pounce",
-            workload=workload,
-            workers=workers,
-            duration_s=duration,
-            threads=threads,
-            connections=connections,
-            **raw,
-        ))
+        results.append(
+            BenchmarkResult(
+                server="pounce",
+                workload=workload,
+                workers=workers,
+                duration_s=duration,
+                threads=threads,
+                connections=connections,
+                **raw,
+            )
+        )
     finally:
         _stop_server(pounce_proc)
 
@@ -390,11 +400,16 @@ def run_benchmark(
         uvicorn_port = port + 1
         print(f"\n  Starting uvicorn ({workload}, {workers} workers)...")
         uvicorn_cmd = [
-            sys.executable, "-m", "uvicorn",
+            sys.executable,
+            "-m",
+            "uvicorn",
             wl["app"],
-            "--host", "127.0.0.1",
-            "--port", str(uvicorn_port),
-            "--workers", str(workers),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(uvicorn_port),
+            "--workers",
+            str(workers),
             "--no-access-log",
         ]
         try:
@@ -410,15 +425,17 @@ def run_benchmark(
                 method=method,
                 body_size=body_size,
             )
-            results.append(BenchmarkResult(
-                server="uvicorn",
-                workload=workload,
-                workers=workers,
-                duration_s=duration,
-                threads=threads,
-                connections=connections,
-                **raw,
-            ))
+            results.append(
+                BenchmarkResult(
+                    server="uvicorn",
+                    workload=workload,
+                    workers=workers,
+                    duration_s=duration,
+                    threads=threads,
+                    connections=connections,
+                    **raw,
+                )
+            )
             _stop_server(uvicorn_proc)
         except (RuntimeError, FileNotFoundError) as exc:
             print(f"  Uvicorn comparison skipped: {exc}", file=sys.stderr)
@@ -479,10 +496,16 @@ def main() -> None:
         help="Workload to benchmark (default: hello)",
     )
     parser.add_argument("--workers", type=int, default=1, help="Worker count (default: 1)")
-    parser.add_argument("--duration", type=int, default=10, help="Test duration in seconds (default: 10)")
+    parser.add_argument(
+        "--duration", type=int, default=10, help="Test duration in seconds (default: 10)"
+    )
     parser.add_argument("--threads", type=int, default=4, help="wrk/hey thread count (default: 4)")
-    parser.add_argument("--connections", type=int, default=100, help="Concurrent connections (default: 100)")
-    parser.add_argument("--compare", action="store_true", help="Also benchmark uvicorn for comparison")
+    parser.add_argument(
+        "--connections", type=int, default=100, help="Concurrent connections (default: 100)"
+    )
+    parser.add_argument(
+        "--compare", action="store_true", help="Also benchmark uvicorn for comparison"
+    )
     parser.add_argument("--output", type=str, default=None, help="Save results to JSON file")
     args = parser.parse_args()
 

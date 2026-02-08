@@ -86,10 +86,12 @@ class TestBuildScope:
 
     def test_headers_as_bytes(self):
         scope = build_scope(
-            _request(headers=(
-                (b"host", b"example.com"),
-                (b"accept", b"text/html"),
-            )),
+            _request(
+                headers=(
+                    (b"host", b"example.com"),
+                    (b"accept", b"text/html"),
+                )
+            ),
             ServerConfig(),
             client=("127.0.0.1", 5000),
             server=("0.0.0.0", 8000),
@@ -217,15 +219,19 @@ class TestCreateSend:
         transport = _FakeTransport()
         send = create_send(proto, transport, SendState())
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", b"text/plain"), (b"content-length", b"5")],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b"hello",
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain"), (b"content-length", b"5")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"hello",
+            }
+        )
 
         output = bytes(transport.data)
         assert b"200" in output
@@ -239,26 +245,32 @@ class TestCreateSend:
         transport = _FakeTransport()
         send = create_send(proto, transport, SendState())
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"transfer-encoding", b"chunked")],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"transfer-encoding", b"chunked")],
+            }
+        )
 
         # Each chunk written immediately — streaming-first
-        await send({
-            "type": "http.response.body",
-            "body": b"chunk1",
-            "more_body": True,
-        })
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"chunk1",
+                "more_body": True,
+            }
+        )
         after_chunk1 = len(transport.data)
         assert after_chunk1 > 0  # Written immediately
 
-        await send({
-            "type": "http.response.body",
-            "body": b"chunk2",
-            "more_body": False,
-        })
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"chunk2",
+                "more_body": False,
+            }
+        )
         assert len(transport.data) > after_chunk1
 
     @pytest.mark.asyncio
@@ -270,15 +282,19 @@ class TestCreateSend:
         compressor = GzipCompressor()
         send = create_send(proto, transport, SendState(), compressor=compressor)
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", b"text/plain")],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b"hello world" * 100,
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"hello world" * 100,
+            }
+        )
 
         output = bytes(transport.data)
         assert b"content-encoding: gzip" in output
@@ -296,15 +312,19 @@ class TestCreateSend:
         timing.add("app", 12.1)
         send = create_send(proto, transport, SendState(), timing=timing)
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-length", b"2")],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b"ok",
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", b"2")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"ok",
+            }
+        )
 
         output = bytes(transport.data)
         assert b"server-timing: parse;dur=0.3, app;dur=12.1" in output
@@ -318,10 +338,12 @@ class TestCreateSend:
         send = create_send(proto, transport, SendState())
 
         with pytest.raises(RuntimeError, match=r"before http\.response\.start"):
-            await send({
-                "type": "http.response.body",
-                "body": b"oops",
-            })
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"oops",
+                }
+            )
 
     @pytest.mark.asyncio
     async def test_body_after_complete_raises(self):
@@ -331,20 +353,26 @@ class TestCreateSend:
         transport = _FakeTransport()
         send = create_send(proto, transport, SendState())
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-length", b"2")],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b"ok",
-        })
-        with pytest.raises(RuntimeError, match="after response is complete"):
-            await send({
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", b"2")],
+            }
+        )
+        await send(
+            {
                 "type": "http.response.body",
-                "body": b"extra",
-            })
+                "body": b"ok",
+            }
+        )
+        with pytest.raises(RuntimeError, match="after response is complete"):
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"extra",
+                }
+            )
 
     @pytest.mark.asyncio
     async def test_sse_content_type_disables_compression(self):
@@ -356,21 +384,25 @@ class TestCreateSend:
         compressor = GzipCompressor()
         send = create_send(proto, transport, SendState(), compressor=compressor)
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [
-                (b"content-type", b"text/event-stream; charset=utf-8"),
-                (b"cache-control", b"no-cache"),
-            ],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"text/event-stream; charset=utf-8"),
+                    (b"cache-control", b"no-cache"),
+                ],
+            }
+        )
 
-        sse_data = b"event: heartbeat\ndata: {\"tick\": 1}\n\n"
-        await send({
-            "type": "http.response.body",
-            "body": sse_data,
-            "more_body": True,
-        })
+        sse_data = b'event: heartbeat\ndata: {"tick": 1}\n\n'
+        await send(
+            {
+                "type": "http.response.body",
+                "body": sse_data,
+                "more_body": True,
+            }
+        )
 
         output = bytes(transport.data)
         # Compression headers must not be present
@@ -388,27 +420,33 @@ class TestCreateSend:
         compressor = GzipCompressor()
         send = create_send(proto, transport, SendState(), compressor=compressor)
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", b"text/plain")],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
 
         # First streaming chunk
-        await send({
-            "type": "http.response.body",
-            "body": b"chunk one data here",
-            "more_body": True,
-        })
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"chunk one data here",
+                "more_body": True,
+            }
+        )
         after_chunk1 = len(transport.data)
         assert after_chunk1 > 0  # Data written immediately (not buffered)
 
         # Second streaming chunk — transport should grow
-        await send({
-            "type": "http.response.body",
-            "body": b"chunk two data here",
-            "more_body": True,
-        })
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"chunk two data here",
+                "more_body": True,
+            }
+        )
         after_chunk2 = len(transport.data)
         assert after_chunk2 > after_chunk1  # sync_flush emitted data
 
@@ -468,18 +506,22 @@ class TestWriteCoalescing:
         transport = _FakeTransport()
         send = create_send(proto, transport, SendState())
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", b"text/plain"), (b"content-length", b"5")],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain"), (b"content-length", b"5")],
+            }
+        )
         # Head is buffered — no writes yet
         assert transport.write_count == 0
 
-        await send({
-            "type": "http.response.body",
-            "body": b"hello",
-        })
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"hello",
+            }
+        )
         # Head + body coalesced into a single write
         assert transport.write_count == 1
         output = bytes(transport.data)
@@ -498,20 +540,24 @@ class TestWriteCoalescing:
         # Body larger than _COALESCE_THRESHOLD (16 KB)
         large_body = b"x" * (_COALESCE_THRESHOLD + 1)
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [
-                (b"content-type", b"text/plain"),
-                (b"content-length", str(len(large_body)).encode()),
-            ],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"text/plain"),
+                    (b"content-length", str(len(large_body)).encode()),
+                ],
+            }
+        )
         assert transport.write_count == 0
 
-        await send({
-            "type": "http.response.body",
-            "body": large_body,
-        })
+        await send(
+            {
+                "type": "http.response.body",
+                "body": large_body,
+            }
+        )
         # Head and body written separately
         assert transport.write_count == 2
 
@@ -524,27 +570,33 @@ class TestWriteCoalescing:
         transport = _FakeTransport()
         send = create_send(proto, transport, SendState())
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"transfer-encoding", b"chunked")],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"transfer-encoding", b"chunked")],
+            }
+        )
         assert transport.write_count == 0
 
         # First small chunk — coalesced with head
-        await send({
-            "type": "http.response.body",
-            "body": b"first",
-            "more_body": True,
-        })
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"first",
+                "more_body": True,
+            }
+        )
         assert transport.write_count == 1  # head + first chunk
 
         # Second chunk — standalone write
-        await send({
-            "type": "http.response.body",
-            "body": b"second",
-            "more_body": False,
-        })
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"second",
+                "more_body": False,
+            }
+        )
         assert transport.write_count == 2  # second chunk separate
 
 
@@ -565,21 +617,27 @@ class TestAutoChunkedEncoding:
         transport = _FakeTransport()
         send = create_send(proto, transport, SendState())
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", b"text/html")],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b"<h1>hello</h1>",
-            "more_body": True,
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b"",
-            "more_body": False,
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/html")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"<h1>hello</h1>",
+                "more_body": True,
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"",
+                "more_body": False,
+            }
+        )
 
         output = bytes(transport.data)
         assert b"chunked" in output.lower()
@@ -598,18 +656,22 @@ class TestAutoChunkedEncoding:
         transport = _FakeTransport()
         send = create_send(proto, transport, SendState())
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [
-                (b"content-type", b"text/plain"),
-                (b"content-length", b"5"),
-            ],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b"hello",
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"text/plain"),
+                    (b"content-length", b"5"),
+                ],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"hello",
+            }
+        )
 
         output = bytes(transport.data)
         assert b"content-length" in output.lower()
@@ -624,19 +686,23 @@ class TestAutoChunkedEncoding:
         transport = _FakeTransport()
         send = create_send(proto, transport, SendState())
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [
-                (b"content-type", b"text/html"),
-                (b"transfer-encoding", b"chunked"),
-            ],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b"ok",
-            "more_body": False,
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"text/html"),
+                    (b"transfer-encoding", b"chunked"),
+                ],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"ok",
+                "more_body": False,
+            }
+        )
 
         output = bytes(transport.data)
         # Should appear exactly once
@@ -653,19 +719,23 @@ class TestAutoChunkedEncoding:
         state = SendState()
         send = create_send(proto, transport, state)
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", b"text/html; charset=utf-8")],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/html; charset=utf-8")],
+            }
+        )
 
         chunks = [b"<html>", b"<body>hello</body>", b"</html>"]
         for i, chunk in enumerate(chunks):
-            await send({
-                "type": "http.response.body",
-                "body": chunk,
-                "more_body": i < len(chunks) - 1,
-            })
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": chunk,
+                    "more_body": i < len(chunks) - 1,
+                }
+            )
 
         output = bytes(transport.data)
         # All original data present within chunked frames
@@ -881,11 +951,13 @@ class TestSendGuardClosedWriter:
         transport = _FakeTransport()
         send = create_send(proto, transport, SendState())
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", b"text/plain")],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
 
         # Now test with a closing writer — create a new send
         closing_transport = _ClosingFakeTransport()
@@ -894,17 +966,21 @@ class TestSendGuardClosedWriter:
         proto2.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
         send2 = create_send(proto2, closing_transport, state)
 
-        await send2({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", b"text/plain")],
-        })
+        await send2(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
         # Body should be silently skipped — no writes, no errors
-        await send2({
-            "type": "http.response.body",
-            "body": b"should not be written",
-            "more_body": True,
-        })
+        await send2(
+            {
+                "type": "http.response.body",
+                "body": b"should not be written",
+                "more_body": True,
+            }
+        )
         assert closing_transport.write_count == 0
         assert len(closing_transport.data) == 0
 
@@ -917,14 +993,18 @@ class TestSendGuardClosedWriter:
         transport = _FakeTransport()
         send = create_send(proto, transport, SendState())
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", b"text/plain"), (b"content-length", b"5")],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b"hello",
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain"), (b"content-length", b"5")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"hello",
+            }
+        )
         assert transport.write_count > 0
         assert b"hello" in bytes(transport.data)

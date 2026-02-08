@@ -125,9 +125,7 @@ class TestStreamingDisconnect:
                 app_finished.set()
 
         # Start the app
-        app_task = asyncio.create_task(
-            streaming_app({}, receive, None)
-        )
+        app_task = asyncio.create_task(streaming_app({}, receive, None))
 
         # Wait for app to start
         await asyncio.wait_for(app_started.wait(), timeout=1.0)

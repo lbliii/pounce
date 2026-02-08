@@ -30,10 +30,12 @@ async def _failing_startup_app(scope: Scope, receive: Receive, send: Send) -> No
 
     message = await receive()
     if message["type"] == "lifespan.startup":
-        await send({
-            "type": "lifespan.startup.failed",
-            "message": "Database connection refused",
-        })
+        await send(
+            {
+                "type": "lifespan.startup.failed",
+                "message": "Database connection refused",
+            }
+        )
 
 
 async def _no_lifespan_app(scope: Scope, receive: Receive, send: Send) -> None:

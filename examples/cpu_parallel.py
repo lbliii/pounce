@@ -36,6 +36,7 @@ type Send = Any
 # CPU each request consumes.  1000 iterations ≈ 0.5-1ms on modern hardware.
 _ITERATIONS = 1000
 
+
 def _cpu_work(iterations: int) -> bytes:
     """Burn CPU by iteratively hashing.
 
@@ -48,9 +49,11 @@ def _cpu_work(iterations: int) -> bytes:
         digest = hashlib.sha256(digest).digest()
     return digest.hex().encode()
 
+
 # Pre-build the response template
 _PREFIX = b'{"iterations": ' + str(_ITERATIONS).encode() + b', "digest": "'
 _SUFFIX = b'"}\n'
+
 
 async def app(scope: Scope, receive: Receive, send: Send) -> None:
     """Do CPU work per request, return the result as JSON."""

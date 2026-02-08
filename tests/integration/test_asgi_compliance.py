@@ -45,9 +45,7 @@ async def _scope_inspector_app(scope: Scope, receive: Receive, send: Send) -> No
     serializable: dict = {}
     for key, value in scope.items():
         if key == "headers":
-            serializable[key] = [
-                [h[0].decode("latin-1"), h[1].decode("latin-1")] for h in value
-            ]
+            serializable[key] = [[h[0].decode("latin-1"), h[1].decode("latin-1")] for h in value]
         elif isinstance(value, bytes):
             serializable[key] = value.decode("latin-1")
         elif isinstance(value, tuple):
@@ -56,14 +54,16 @@ async def _scope_inspector_app(scope: Scope, receive: Receive, send: Send) -> No
             serializable[key] = value
 
     body = json.dumps(serializable).encode()
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [
-            (b"content-type", b"application/json"),
-            (b"content-length", str(len(body)).encode()),
-        ],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+    )
     await send({"type": "http.response.body", "body": body})
 
 
@@ -86,14 +86,16 @@ async def _body_echo_app(scope: Scope, receive: Receive, send: Send) -> None:
         if not message.get("more_body", False):
             break
 
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [
-            (b"content-type", b"application/octet-stream"),
-            (b"content-length", str(len(body)).encode()),
-        ],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"application/octet-stream"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+    )
     await send({"type": "http.response.body", "body": body})
 
 
@@ -111,14 +113,16 @@ async def _method_echo_app(scope: Scope, receive: Receive, send: Send) -> None:
 
     await receive()
     body = scope["method"].encode()
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [
-            (b"content-type", b"text/plain"),
-            (b"content-length", str(len(body)).encode()),
-        ],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/plain"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+    )
     await send({"type": "http.response.body", "body": body})
 
 
@@ -144,14 +148,16 @@ async def _receive_inspector_app(scope: Scope, receive: Receive, send: Send) -> 
             serializable[key] = value
 
     body = json.dumps(serializable).encode()
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [
-            (b"content-type", b"application/json"),
-            (b"content-length", str(len(body)).encode()),
-        ],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+    )
     await send({"type": "http.response.body", "body": body})
 
 
@@ -169,14 +175,16 @@ async def _keepalive_counter_app(scope: Scope, receive: Receive, send: Send) -> 
 
     await receive()
     body = b"ok"
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [
-            (b"content-type", b"text/plain"),
-            (b"content-length", str(len(body)).encode()),
-        ],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/plain"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+    )
     await send({"type": "http.response.body", "body": body})
 
 
@@ -194,30 +202,38 @@ async def _head_app(scope: Scope, receive: Receive, send: Send) -> None:
 
     await receive()
     # HEAD should still send headers with content-length
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [
-            (b"content-type", b"text/plain"),
-            (b"content-length", b"13"),
-        ],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/plain"),
+                (b"content-length", b"13"),
+            ],
+        }
+    )
     await send({"type": "http.response.body", "body": b""})
 
 
 async def _lifespan_shutdown_failed_app(
-    scope: Scope, receive: Receive, send: Send,
+    scope: Scope,
+    receive: Receive,
+    send: Send,
 ) -> None:
     """App that fails during lifespan shutdown."""
     if scope["type"] != "lifespan":
         await receive()
         body = b"ok"
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", b"text/plain"),
-                        (b"content-length", str(len(body)).encode())],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"text/plain"),
+                    (b"content-length", str(len(body)).encode()),
+                ],
+            }
+        )
         await send({"type": "http.response.body", "body": body})
         return
 
@@ -226,10 +242,12 @@ async def _lifespan_shutdown_failed_app(
         if message["type"] == "lifespan.startup":
             await send({"type": "lifespan.startup.complete"})
         elif message["type"] == "lifespan.shutdown":
-            await send({
-                "type": "lifespan.shutdown.failed",
-                "message": "cleanup error",
-            })
+            await send(
+                {
+                    "type": "lifespan.shutdown.failed",
+                    "message": "cleanup error",
+                }
+            )
             return
 
 
@@ -265,8 +283,8 @@ def _parse_scope(response: bytes) -> dict:
             size = int(remaining[:size_end], 16)
             if size == 0:
                 break
-            chunks.append(remaining[size_end + 2: size_end + 2 + size])
-            remaining = remaining[size_end + 2 + size + 2:]
+            chunks.append(remaining[size_end + 2 : size_end + 2 + size])
+            remaining = remaining[size_end + 2 + size + 2 :]
         body = b"".join(chunks)
     return json.loads(body)
 
@@ -286,6 +304,7 @@ def _send_persistent(
             sock.sendall(request)
             # Small delay to ensure response arrives
             import time
+
             time.sleep(0.1)
             try:
                 while True:
@@ -319,13 +338,19 @@ class TestHTTPScopeCompleteness:
             )
             scope = _parse_scope(response)
             required = {
-                "type", "asgi", "http_version", "method", "path",
-                "raw_path", "query_string", "root_path", "headers",
-                "server", "client",
+                "type",
+                "asgi",
+                "http_version",
+                "method",
+                "path",
+                "raw_path",
+                "query_string",
+                "root_path",
+                "headers",
+                "server",
+                "client",
             }
-            assert required.issubset(scope.keys()), (
-                f"Missing scope keys: {required - scope.keys()}"
-            )
+            assert required.issubset(scope.keys()), f"Missing scope keys: {required - scope.keys()}"
         finally:
             worker.shutdown()
             thread.join(timeout=2)
@@ -463,7 +488,10 @@ class TestHTTPScopeCompleteness:
     def test_root_path_from_config(self):
         """scope['root_path'] reflects server config."""
         config = ServerConfig(
-            host="127.0.0.1", port=0, access_log=False, root_path="/api/v1",
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
+            root_path="/api/v1",
         )
         worker, sock, thread = start_worker(_scope_inspector_app, config=config)
         addr = sock.getsockname()
@@ -782,6 +810,7 @@ class TestResponseProtocol:
 
     def test_streaming_more_body_true(self):
         """more_body=True keeps the response open for additional chunks."""
+
         async def streaming_app(scope: Scope, receive: Receive, send: Send) -> None:
             if scope["type"] == "lifespan":
                 while True:
@@ -793,17 +822,21 @@ class TestResponseProtocol:
                         return
                 return
             await receive()
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-type", b"text/plain")],
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
             for i in range(5):
-                await send({
-                    "type": "http.response.body",
-                    "body": f"part{i}".encode(),
-                    "more_body": i < 4,
-                })
+                await send(
+                    {
+                        "type": "http.response.body",
+                        "body": f"part{i}".encode(),
+                        "more_body": i < 4,
+                    }
+                )
 
         worker, sock, thread = start_worker(streaming_app)
         addr = sock.getsockname()
@@ -839,6 +872,7 @@ class TestResponseProtocol:
 
     def test_status_codes_preserved(self):
         """Various HTTP status codes are passed through correctly."""
+
         async def status_app(scope: Scope, receive: Receive, send: Send) -> None:
             if scope["type"] == "lifespan":
                 while True:
@@ -851,11 +885,13 @@ class TestResponseProtocol:
                 return
             await receive()
             # Return 201 Created
-            await send({
-                "type": "http.response.start",
-                "status": 201,
-                "headers": [(b"content-type", b"text/plain")],
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 201,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
             await send({"type": "http.response.body", "body": b"created"})
 
         worker, sock, thread = start_worker(status_app)
@@ -873,6 +909,7 @@ class TestResponseProtocol:
 
     def test_custom_response_headers(self):
         """Response headers set by the app are sent to the client."""
+
         async def header_app(scope: Scope, receive: Receive, send: Send) -> None:
             if scope["type"] == "lifespan":
                 while True:
@@ -884,15 +921,17 @@ class TestResponseProtocol:
                         return
                 return
             await receive()
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [
-                    (b"content-type", b"text/plain"),
-                    (b"x-custom-header", b"custom-value"),
-                    (b"content-length", b"2"),
-                ],
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"text/plain"),
+                        (b"x-custom-header", b"custom-value"),
+                        (b"content-length", b"2"),
+                    ],
+                }
+            )
             await send({"type": "http.response.body", "body": b"ok"})
 
         worker, sock, thread = start_worker(header_app)
@@ -928,10 +967,9 @@ class TestKeepAlive:
             tcp.connect(addr)
 
             # First request — keep-alive (default for HTTP/1.1)
-            tcp.sendall(
-                b"GET /first HTTP/1.1\r\nHost: localhost\r\n\r\n"
-            )
+            tcp.sendall(b"GET /first HTTP/1.1\r\nHost: localhost\r\n\r\n")
             import time
+
             time.sleep(0.3)
             resp1 = b""
             try:
@@ -947,9 +985,7 @@ class TestKeepAlive:
             assert b"/first" in resp1
 
             # Second request on same connection
-            tcp.sendall(
-                b"GET /second HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
-            )
+            tcp.sendall(b"GET /second HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
             time.sleep(0.3)
             resp2 = b""
             try:
@@ -979,9 +1015,7 @@ class TestKeepAlive:
         tcp.settimeout(2.0)
         try:
             tcp.connect(addr)
-            tcp.sendall(
-                b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
-            )
+            tcp.sendall(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
             response = b""
             try:
                 while True:
@@ -998,7 +1032,7 @@ class TestKeepAlive:
             try:
                 extra = tcp.recv(4096)
                 assert extra == b""  # Connection closed by server
-            except (ConnectionError, OSError, TimeoutError):
+            except ConnectionError, OSError, TimeoutError:
                 pass  # Also acceptable — connection is dead
 
         finally:
@@ -1026,6 +1060,7 @@ class TestKeepAlive:
                 b"\r\n" + payload
             )
             import time
+
             time.sleep(0.3)
             resp1 = b""
             try:
@@ -1041,12 +1076,7 @@ class TestKeepAlive:
             assert payload in resp1
 
             # Second request — GET on same connection (Connection: close)
-            tcp.sendall(
-                b"GET /second HTTP/1.1\r\n"
-                b"Host: localhost\r\n"
-                b"Connection: close\r\n"
-                b"\r\n"
-            )
+            tcp.sendall(b"GET /second HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
             time.sleep(0.3)
             resp2 = b""
             try:
@@ -1077,6 +1107,7 @@ class TestErrorHandling:
 
     def test_app_exception_returns_500(self):
         """Unhandled app exception produces a 500 response."""
+
         async def crash_app(scope: Scope, receive: Receive, send: Send) -> None:
             if scope["type"] == "lifespan":
                 while True:
@@ -1130,7 +1161,9 @@ class TestLifespanCompliance:
         captured_scope: dict = {}
 
         async def capture_scope_app(
-            scope: Scope, receive: Receive, send: Send,
+            scope: Scope,
+            receive: Receive,
+            send: Send,
         ) -> None:
             if scope["type"] == "lifespan":
                 captured_scope.update(scope)
@@ -1165,7 +1198,9 @@ class TestLifespanCompliance:
         events: list[str] = []
 
         async def ordered_app(
-            scope: Scope, receive: Receive, send: Send,
+            scope: Scope,
+            receive: Receive,
+            send: Send,
         ) -> None:
             if scope["type"] == "lifespan":
                 while True:
@@ -1191,19 +1226,26 @@ class TestLifespanCompliance:
 
     def test_no_lifespan_app_works(self):
         """Apps that don't support lifespan should still work."""
+
         async def no_lifespan_app(
-            scope: Scope, receive: Receive, send: Send,
+            scope: Scope,
+            receive: Receive,
+            send: Send,
         ) -> None:
             if scope["type"] == "lifespan":
                 raise NotImplementedError("No lifespan")
             await receive()
             body = b"works"
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-type", b"text/plain"),
-                            (b"content-length", str(len(body)).encode())],
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"text/plain"),
+                        (b"content-length", str(len(body)).encode()),
+                    ],
+                }
+            )
             await send({"type": "http.response.body", "body": body})
 
         worker, sock, thread = start_worker(no_lifespan_app)
@@ -1222,25 +1264,32 @@ class TestLifespanCompliance:
 
     def test_lifespan_startup_failed(self):
         """lifespan.startup.failed must prevent the server from serving."""
+
         async def failing_app(
-            scope: Scope, receive: Receive, send: Send,
+            scope: Scope,
+            receive: Receive,
+            send: Send,
         ) -> None:
             if scope["type"] == "lifespan":
                 while True:
                     msg = await receive()
                     if msg["type"] == "lifespan.startup":
-                        await send({
-                            "type": "lifespan.startup.failed",
-                            "message": "database unavailable",
-                        })
+                        await send(
+                            {
+                                "type": "lifespan.startup.failed",
+                                "message": "database unavailable",
+                            }
+                        )
                         return
                 return
             await receive()
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [],
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [],
+                }
+            )
             await send({"type": "http.response.body", "body": b"should not reach"})
 
         from pounce._errors import LifespanError
@@ -1270,8 +1319,11 @@ class TestCompressionWithBody:
         worker, sock, thread = start_worker(
             _body_echo_app,
             config=ServerConfig(
-                host="127.0.0.1", port=0, access_log=False,
-                compression=True, compression_min_size=1,
+                host="127.0.0.1",
+                port=0,
+                access_log=False,
+                compression=True,
+                compression_min_size=1,
             ),
         )
         addr = sock.getsockname()
@@ -1293,7 +1345,7 @@ class TestCompressionWithBody:
             # Extract the gzip body after the blank line separator
             body_start = response.find(b"\r\n\r\n")
             assert body_start != -1
-            raw_body = response[body_start + 4:]
+            raw_body = response[body_start + 4 :]
             # The body may be chunked — strip chunk framing if present
             if b"transfer-encoding: chunked" in response.lower():
                 # Simple dechunk: find the actual gzip data
@@ -1307,7 +1359,7 @@ class TestCompressionWithBody:
                     chunk_size = int(raw_body[pos:end], 16)
                     if chunk_size == 0:
                         break
-                    dechunked += raw_body[end + 2:end + 2 + chunk_size]
+                    dechunked += raw_body[end + 2 : end + 2 + chunk_size]
                     pos = end + 2 + chunk_size + 2
                 raw_body = dechunked
 
@@ -1323,7 +1375,9 @@ class TestCompressionWithBody:
         worker, sock, thread = start_worker(
             _body_echo_app,
             config=ServerConfig(
-                host="127.0.0.1", port=0, access_log=False,
+                host="127.0.0.1",
+                port=0,
+                access_log=False,
                 compression=True,
             ),
         )

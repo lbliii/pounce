@@ -13,6 +13,7 @@ from typing import Literal
 
 WorkerMode = Literal["thread", "process"]
 
+
 def is_gil_enabled() -> bool:
     """Check whether the GIL is active in the current interpreter.
 
@@ -23,6 +24,7 @@ def is_gil_enabled() -> bool:
     """
     return getattr(sys, "_is_gil_enabled", lambda: True)()
 
+
 def detect_worker_mode() -> WorkerMode:
     """Choose the worker spawning strategy based on GIL state.
 
@@ -32,6 +34,7 @@ def detect_worker_mode() -> WorkerMode:
 
     """
     return "process" if is_gil_enabled() else "thread"
+
 
 def default_worker_count() -> int:
     """Return a sensible default worker count based on available CPUs.

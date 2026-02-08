@@ -69,11 +69,7 @@ class TestFactoryPattern:
         # Create a temporary module with a factory function
         mod_file = tmp_path / "fakefactory.py"
         mod_file.write_text(
-            "async def create_app():\n"
-            "    pass\n"
-            "\n"
-            "def make_app():\n"
-            "    return create_app\n"
+            "async def create_app():\n    pass\n\ndef make_app():\n    return create_app\n"
         )
         monkeypatch.syspath_prepend(str(tmp_path))
         # Ensure fresh import
@@ -82,6 +78,7 @@ class TestFactoryPattern:
         result = import_app("fakefactory:make_app()")
         # The factory was called, returning create_app
         import fakefactory
+
         assert result is fakefactory.create_app
 
     def test_empty_factory_name_raises(self):

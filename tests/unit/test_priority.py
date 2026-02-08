@@ -49,6 +49,7 @@ class TestParsePriority:
         assert p.urgency == 2
         assert p.incremental is True
 
+
 class TestStreamPriority:
     def test_defaults(self) -> None:
         p = StreamPriority()
@@ -61,6 +62,7 @@ class TestStreamPriority:
         p = StreamPriority()
         with pytest.raises(AttributeError):
             p.urgency = 0  # type: ignore[misc]
+
 
 class TestPriorityScheduler:
     def test_empty_scheduler(self) -> None:

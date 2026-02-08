@@ -19,37 +19,42 @@ from pathlib import Path
 logger = logging.getLogger("pounce.reload")
 
 # Directories to always exclude from watching
-_EXCLUDE_DIRS: frozenset[str] = frozenset({
-    "__pycache__",
-    ".git",
-    ".hg",
-    ".svn",
-    "node_modules",
-    ".venv",
-    "venv",
-    ".env",
-    "env",
-    ".tox",
-    ".nox",
-    ".mypy_cache",
-    ".ruff_cache",
-    ".pytest_cache",
-    "dist",
-    "build",
-    ".eggs",
-})
+_EXCLUDE_DIRS: frozenset[str] = frozenset(
+    {
+        "__pycache__",
+        ".git",
+        ".hg",
+        ".svn",
+        "node_modules",
+        ".venv",
+        "venv",
+        ".env",
+        "env",
+        ".tox",
+        ".nox",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".pytest_cache",
+        "dist",
+        "build",
+        ".eggs",
+    }
+)
 
 # File extensions to watch
-_WATCH_EXTENSIONS: frozenset[str] = frozenset({
-    ".py",
-    ".pyi",
-    ".yaml",
-    ".yml",
-    ".toml",
-    ".json",
-    ".cfg",
-    ".ini",
-})
+_WATCH_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".py",
+        ".pyi",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".json",
+        ".cfg",
+        ".ini",
+    }
+)
+
 
 def _should_watch(path: Path) -> bool:
     """Check if a path should be watched for changes."""
@@ -59,6 +64,7 @@ def _should_watch(path: Path) -> bool:
             return False
     # Only watch specific extensions
     return path.suffix in _WATCH_EXTENSIONS
+
 
 def _snapshot(directories: list[Path]) -> dict[str, float]:
     """Take a snapshot of file modification times.
@@ -76,6 +82,7 @@ def _snapshot(directories: list[Path]) -> dict[str, float]:
                 with contextlib.suppress(OSError):
                     snapshot[str(path)] = path.stat().st_mtime
     return snapshot
+
 
 def detect_changes(
     directories: list[Path],
@@ -106,6 +113,7 @@ def detect_changes(
 
     return changed, current
 
+
 def watch_for_changes(
     directories: list[Path],
     callback: Callable[[], None],
@@ -131,7 +139,8 @@ def watch_for_changes(
 
     logger.info(
         "Watching %d directories for changes (interval: %.1fs)",
-        len(directories), interval,
+        len(directories),
+        interval,
     )
 
     snapshot = _snapshot(directories)

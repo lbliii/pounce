@@ -29,6 +29,7 @@ class TestIsGilEnabled:
             result = is_gil_enabled()
             assert result is True
 
+
 class TestDetectWorkerMode:
     """detect_worker_mode() chooses threads vs processes based on GIL."""
 
@@ -39,6 +40,7 @@ class TestDetectWorkerMode:
     def test_process_on_gil(self):
         with patch("pounce._runtime.is_gil_enabled", return_value=True):
             assert detect_worker_mode() == "process"
+
 
 class TestDefaultWorkerCount:
     """default_worker_count() returns a sensible CPU-based default."""

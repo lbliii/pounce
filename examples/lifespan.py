@@ -36,6 +36,7 @@ _started_at: float = 0.0
 # ASGI app
 # ---------------------------------------------------------------------------
 
+
 async def app(scope: Scope, receive: Receive, send: Send) -> None:
     """Count requests and report uptime.
 

@@ -30,6 +30,7 @@ try:
 except ImportError:
     _HAS_ZSTD = False
 
+
 # Encoding priority — highest to lowest preference
 def _build_encoding_priority() -> tuple[str, ...]:
     """Build encoding priority based on available libraries."""
@@ -39,7 +40,9 @@ def _build_encoding_priority() -> tuple[str, ...]:
     encodings.append("gzip")
     return tuple(encodings)
 
+
 _ENCODING_PRIORITY: tuple[str, ...] = _build_encoding_priority()
+
 
 class Compressor(Protocol):
     """Contract for content encoders."""
@@ -82,6 +85,7 @@ class Compressor(Protocol):
         """The Content-Encoding value for this compressor (e.g., 'gzip')."""
         ...
 
+
 class GzipCompressor:
     """Gzip compressor using stdlib zlib.
 
@@ -109,6 +113,7 @@ class GzipCompressor:
     def encoding(self) -> str:
         return "gzip"
 
+
 class ZstdCompressor:
     """Zstd compressor using Python 3.14 stdlib compression.zstd.
 
@@ -121,9 +126,7 @@ class ZstdCompressor:
 
     def __init__(self, *, level: int = 3) -> None:
         if not _HAS_ZSTD:
-            raise RuntimeError(
-                "Zstd compression requires Python 3.14+ with compression.zstd"
-            )
+            raise RuntimeError("Zstd compression requires Python 3.14+ with compression.zstd")
         self._compressor = _zstd.ZstdCompressor(level=level)
 
     def compress(self, data: bytes) -> bytes:
@@ -138,6 +141,7 @@ class ZstdCompressor:
     @property
     def encoding(self) -> str:
         return "zstd"
+
 
 def negotiate_encoding(accept_encoding: bytes | str) -> str | None:
     """Parse Accept-Encoding and return the best supported encoding.
@@ -195,6 +199,7 @@ def negotiate_encoding(accept_encoding: bytes | str) -> str | None:
             return encoding
 
     return None
+
 
 def create_compressor(encoding: str) -> Compressor:
     """Create a compressor instance for the given encoding.

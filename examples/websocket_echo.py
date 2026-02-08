@@ -48,15 +48,17 @@ async def app(scope: Scope, receive: Receive, send: Send) -> None:
     if scope["type"] == "http":
         await receive()
         body = b"This endpoint expects a WebSocket connection.\n"
-        await send({
-            "type": "http.response.start",
-            "status": 426,
-            "headers": [
-                (b"content-type", b"text/plain"),
-                (b"content-length", str(len(body)).encode()),
-                (b"upgrade", b"websocket"),
-            ],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 426,
+                "headers": [
+                    (b"content-type", b"text/plain"),
+                    (b"content-length", str(len(body)).encode()),
+                    (b"upgrade", b"websocket"),
+                ],
+            }
+        )
         await send({"type": "http.response.body", "body": body})
         return
 
@@ -84,15 +86,19 @@ async def app(scope: Scope, receive: Receive, send: Send) -> None:
                 data = message.get("bytes")
 
                 if text is not None:
-                    await send({
-                        "type": "websocket.send",
-                        "text": f"echo: {text}",
-                    })
+                    await send(
+                        {
+                            "type": "websocket.send",
+                            "text": f"echo: {text}",
+                        }
+                    )
                 elif data is not None:
-                    await send({
-                        "type": "websocket.send",
-                        "bytes": data,
-                    })
+                    await send(
+                        {
+                            "type": "websocket.send",
+                            "bytes": data,
+                        }
+                    )
     except Exception:
         pass
 

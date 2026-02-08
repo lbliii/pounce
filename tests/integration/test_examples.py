@@ -25,6 +25,7 @@ _GET_SSE = (
 # Tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.timeout(10)
 def test_hello_example() -> None:
     """examples/hello.py returns 200 with Hello, World!"""
@@ -42,6 +43,7 @@ def test_hello_example() -> None:
         thread.join(timeout=3)
         sock.close()
 
+
 @pytest.mark.timeout(10)
 def test_lifespan_example() -> None:
     """examples/lifespan.py returns 200 with a request counter."""
@@ -58,6 +60,7 @@ def test_lifespan_example() -> None:
         worker.shutdown()
         thread.join(timeout=3)
         sock.close()
+
 
 @pytest.mark.timeout(15)
 def test_streaming_sse_example() -> None:
@@ -97,6 +100,7 @@ def test_streaming_sse_example() -> None:
         thread.join(timeout=3)
         sock.close()
 
+
 @pytest.mark.timeout(10)
 def test_compression_demo_example() -> None:
     """examples/compression_demo.py returns 200 with JSON payload."""
@@ -118,6 +122,7 @@ def test_compression_demo_example() -> None:
         thread.join(timeout=3)
         sock.close()
 
+
 @pytest.mark.timeout(10)
 def test_cpu_parallel_example() -> None:
     """examples/cpu_parallel.py returns 200 with a hash digest."""
@@ -136,6 +141,7 @@ def test_cpu_parallel_example() -> None:
         thread.join(timeout=3)
         sock.close()
 
+
 @pytest.mark.timeout(10)
 def test_factory_app_example() -> None:
     """examples/factory_app.py create_app() returns a working ASGI app."""
@@ -153,6 +159,7 @@ def test_factory_app_example() -> None:
         worker.shutdown()
         thread.join(timeout=3)
         sock.close()
+
 
 @pytest.mark.timeout(10)
 def test_factory_app_via_importer() -> None:
@@ -174,6 +181,7 @@ def test_factory_app_via_importer() -> None:
         thread.join(timeout=3)
         sock.close()
 
+
 @pytest.mark.timeout(15)
 def test_chirp_app_example() -> None:
     """examples/chirp_app.py returns 200 with chirp response."""
@@ -194,6 +202,7 @@ def test_chirp_app_example() -> None:
         thread.join(timeout=3)
         sock.close()
 
+
 @pytest.mark.timeout(10)
 def test_websocket_echo_http_fallback() -> None:
     """examples/websocket_echo.py returns 426 for plain HTTP requests."""
@@ -211,6 +220,7 @@ def test_websocket_echo_http_fallback() -> None:
         thread.join(timeout=3)
         sock.close()
 
+
 @pytest.mark.timeout(10)
 def test_programmatic_server_example() -> None:
     """examples/programmatic_server.py app returns 200."""
@@ -227,6 +237,7 @@ def test_programmatic_server_example() -> None:
         worker.shutdown()
         thread.join(timeout=3)
         sock.close()
+
 
 @pytest.mark.timeout(10)
 def test_websocket_chat_serves_html() -> None:
@@ -246,6 +257,7 @@ def test_websocket_chat_serves_html() -> None:
         thread.join(timeout=3)
         sock.close()
 
+
 @pytest.mark.timeout(10)
 def test_file_upload_serves_html() -> None:
     """examples/file_upload.py GET / returns 200 with the upload form."""
@@ -263,6 +275,7 @@ def test_file_upload_serves_html() -> None:
         worker.shutdown()
         thread.join(timeout=3)
         sock.close()
+
 
 @pytest.mark.timeout(10)
 def test_file_upload_post() -> None:
@@ -292,6 +305,7 @@ def test_file_upload_post() -> None:
         thread.join(timeout=3)
         sock.close()
 
+
 @pytest.mark.timeout(10)
 def test_mini_router_index() -> None:
     """examples/mini_router.py GET / returns 200 with routes JSON."""
@@ -309,6 +323,7 @@ def test_mini_router_index() -> None:
         worker.shutdown()
         thread.join(timeout=3)
         sock.close()
+
 
 @pytest.mark.timeout(10)
 def test_mini_router_user() -> None:
@@ -328,6 +343,7 @@ def test_mini_router_user() -> None:
         worker.shutdown()
         thread.join(timeout=3)
         sock.close()
+
 
 @pytest.mark.timeout(10)
 def test_mini_router_404() -> None:

@@ -47,9 +47,7 @@ def build_ws_scope(
     subprotocols: list[str] = []
     for name, value in request.headers:
         if name.lower() == b"sec-websocket-protocol":
-            subprotocols = [
-                p.strip() for p in value.decode("ascii", errors="replace").split(",")
-            ]
+            subprotocols = [p.strip() for p in value.decode("ascii", errors="replace").split(",")]
             break
 
     scheme = "wss" if config.ssl_certfile else "ws"
@@ -64,6 +62,7 @@ def build_ws_scope(
     )
     scope["subprotocols"] = subprotocols
     return scope
+
 
 def create_ws_receive(
     events: asyncio.Queue[dict[str, Any]],
@@ -85,6 +84,7 @@ def create_ws_receive(
         return await events.get()
 
     return receive
+
 
 def create_ws_send(
     writer: asyncio.StreamWriter,
@@ -131,13 +131,9 @@ def create_ws_send(
 
         elif msg_type == "websocket.send":
             if not accepted:
-                raise RuntimeError(
-                    "Cannot send WebSocket data before websocket.accept"
-                )
+                raise RuntimeError("Cannot send WebSocket data before websocket.accept")
             if closed:
-                raise RuntimeError(
-                    "Cannot send WebSocket data after websocket.close"
-                )
+                raise RuntimeError("Cannot send WebSocket data after websocket.close")
 
             # Text or binary — use wsproto for framing
             data = message.get("text")
