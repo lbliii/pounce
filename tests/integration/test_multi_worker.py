@@ -12,11 +12,13 @@ supervisor unit tests.
 
 import socket
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from pounce._types import ASGIApp, Receive, Scope, Send
 from pounce.config import ServerConfig
 from pounce.net.listener import create_listeners
+from pounce.server import Server
 from pounce.supervisor import Supervisor
 from tests.conftest import _wait_for_ready, send_raw_request
 
@@ -182,3 +184,130 @@ class TestSupervisorMode:
         sup = Supervisor(config, _hello_app, mode="thread")
         assert sup.mode == "thread"
         assert sup.worker_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Full Server multi-worker shutdown (exercises signal handler path)
+# ---------------------------------------------------------------------------
+
+def _make_lifespan_tracking_app(
+    events: list[str],
+) -> ASGIApp:
+    """Create an ASGI app that records lifespan events to the given list."""
+
+    async def _app(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "lifespan":
+            while True:
+                message = await receive()
+                if message["type"] == "lifespan.startup":
+                    events.append("startup")
+                    await send({"type": "lifespan.startup.complete"})
+                elif message["type"] == "lifespan.shutdown":
+                    events.append("shutdown")
+                    await send({"type": "lifespan.shutdown.complete"})
+                    return
+            return
+
+        await receive()
+        body = b"ok"
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-length", b"2")],
+        })
+        await send({"type": "http.response.body", "body": body})
+
+    return _app
+
+
+class TestMultiWorkerServerShutdown:
+    """Full Server multi-worker shutdown via server.shutdown().
+
+    Exercises the coordinated shutdown path: Server signals the
+    supervisor, supervisor drains workers, lifespan shutdown runs,
+    asyncio.run() completes normally — no orphaned executor threads.
+    """
+
+    def test_server_shutdown_fires_lifespan_events(self):
+        """server.shutdown() triggers coordinated multi-worker shutdown
+        with lifespan startup and shutdown events in order."""
+        events: list[str] = []
+        app = _make_lifespan_tracking_app(events)
+        config = ServerConfig(
+            host="127.0.0.1", port=0, workers=2, access_log=False,
+        )
+        server = Server(config, app)
+
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+
+        # Wait for lifespan startup
+        deadline = time.monotonic() + 5.0
+        while "startup" not in events:
+            if time.monotonic() > deadline:
+                raise AssertionError("Multi-worker server did not start within 5s")
+            time.sleep(0.05)
+
+        # Trigger graceful shutdown
+        server.shutdown()
+        thread.join(timeout=10.0)
+
+        assert not thread.is_alive(), "Server did not stop after shutdown()"
+        assert events == ["startup", "shutdown"]
+
+    def test_server_shutdown_no_orphaned_threads(self):
+        """After shutdown, no pounce worker threads remain alive."""
+        events: list[str] = []
+        app = _make_lifespan_tracking_app(events)
+        config = ServerConfig(
+            host="127.0.0.1", port=0, workers=2, access_log=False,
+        )
+        server = Server(config, app)
+
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+
+        # Wait for lifespan startup
+        deadline = time.monotonic() + 5.0
+        while "startup" not in events:
+            if time.monotonic() > deadline:
+                raise AssertionError("Multi-worker server did not start within 5s")
+            time.sleep(0.05)
+
+        server.shutdown()
+        thread.join(timeout=10.0)
+
+        # No pounce worker threads should remain
+        pounce_threads = [
+            t for t in threading.enumerate()
+            if t.name.startswith("pounce-worker-") and t.is_alive()
+        ]
+        assert pounce_threads == [], (
+            f"Orphaned worker threads: {[t.name for t in pounce_threads]}"
+        )
+
+    def test_server_shutdown_is_idempotent(self):
+        """Calling shutdown() multiple times does not raise."""
+        events: list[str] = []
+        app = _make_lifespan_tracking_app(events)
+        config = ServerConfig(
+            host="127.0.0.1", port=0, workers=2, access_log=False,
+        )
+        server = Server(config, app)
+
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+
+        deadline = time.monotonic() + 5.0
+        while "startup" not in events:
+            if time.monotonic() > deadline:
+                raise AssertionError("Multi-worker server did not start within 5s")
+            time.sleep(0.05)
+
+        # Call shutdown multiple times — should not raise
+        server.shutdown()
+        server.shutdown()
+        server.shutdown()
+        thread.join(timeout=10.0)
+
+        assert not thread.is_alive()

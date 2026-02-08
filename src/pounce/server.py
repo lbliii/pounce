@@ -330,8 +330,12 @@ class Server:
         try:
             asyncio.run(self._run_lifespan_then_supervise(self._supervisor, sockets))
         except KeyboardInterrupt:
-            pass
+            # Signal handler couldn't be installed (Windows, non-main
+            # thread) — ensure the supervisor knows about the interrupt.
+            self._supervisor.shutdown()
         finally:
+            # Idempotent — no-op if the supervisor already finished.
+            self._supervisor.shutdown()
             if stop_watcher is not None:
                 stop_watcher.set()
             self._close_sockets(sockets)
@@ -342,12 +346,36 @@ class Server:
         supervisor: Supervisor,
         sockets: list[socket.socket],
     ) -> None:
-        """Run lifespan in the main thread, then hand off to supervisor."""
+        """Run lifespan in the main thread, then hand off to supervisor.
+
+        Installs asyncio signal handlers so SIGINT/SIGTERM trigger a
+        coordinated graceful shutdown through the supervisor instead of
+        a raw ``KeyboardInterrupt``.  On the first signal the supervisor
+        drains workers; a second signal removes the handler so the
+        default ``KeyboardInterrupt`` forces an immediate exit.
+
+        """
+        loop = asyncio.get_running_loop()
+
+        def _on_signal() -> None:
+            supervisor.shutdown()
+            # Second signal gets default handling (hard exit)
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                try:
+                    loop.remove_signal_handler(sig)
+                except (NotImplementedError, RuntimeError):
+                    pass
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, _on_signal)
+            except (NotImplementedError, RuntimeError):
+                pass  # Windows or non-main thread
+
         async with run_lifespan(self._app, self._config):
             # The supervisor blocks (it runs its own watchdog loop), so
             # we run it in a thread executor to keep the asyncio loop
             # alive for lifespan shutdown.
-            loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, supervisor.run, sockets)
 
     # ------------------------------------------------------------------

@@ -336,7 +336,15 @@ class Supervisor:
     # ------------------------------------------------------------------
 
     def _install_signals(self) -> None:
-        """Install SIGINT/SIGTERM handlers to trigger graceful shutdown."""
+        """Install SIGINT/SIGTERM handlers to trigger graceful shutdown.
+
+        Only effective when the supervisor runs on the main thread (e.g.,
+        direct testing).  In production the supervisor runs inside a
+        ``run_in_executor`` thread, so ``signal.signal()`` will fail
+        silently.  ``Server`` installs asyncio signal handlers that call
+        ``supervisor.shutdown()`` instead.
+
+        """
         def _handle_signal(signum: int, _frame: object) -> None:
             sig_name = signal.Signals(signum).name
             logger.info("Received %s — initiating shutdown", sig_name)
