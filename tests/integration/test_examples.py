@@ -227,3 +227,123 @@ def test_programmatic_server_example() -> None:
         worker.shutdown()
         thread.join(timeout=3)
         sock.close()
+
+@pytest.mark.timeout(10)
+def test_websocket_chat_serves_html() -> None:
+    """examples/websocket_chat.py GET / returns 200 with the chat HTML page."""
+    from examples.websocket_chat import app
+
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+
+    try:
+        response = send_raw_request(addr, _GET)
+        assert b"HTTP/1.1 200" in response
+        assert b"text/html" in response
+        assert b"pounce chat" in response
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
+
+@pytest.mark.timeout(10)
+def test_file_upload_serves_html() -> None:
+    """examples/file_upload.py GET / returns 200 with the upload form."""
+    from examples.file_upload import app
+
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+
+    try:
+        response = send_raw_request(addr, _GET)
+        assert b"HTTP/1.1 200" in response
+        assert b"text/html" in response
+        assert b"file upload" in response
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
+
+@pytest.mark.timeout(10)
+def test_file_upload_post() -> None:
+    """examples/file_upload.py POST /upload returns 200 with byte stats."""
+    from examples.file_upload import app
+
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+
+    body = b"hello pounce upload test"
+    request = (
+        b"POST /upload HTTP/1.1\r\n"
+        b"Host: localhost\r\n"
+        b"Content-Type: application/octet-stream\r\n"
+        b"Content-Length: " + str(len(body)).encode() + b"\r\n"
+        b"Connection: close\r\n"
+        b"\r\n" + body
+    )
+
+    try:
+        response = send_raw_request(addr, request)
+        assert b"HTTP/1.1 200" in response
+        assert b'"bytes_received"' in response
+        assert b'"chunks"' in response
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
+
+@pytest.mark.timeout(10)
+def test_mini_router_index() -> None:
+    """examples/mini_router.py GET / returns 200 with routes JSON."""
+    from examples.mini_router import app
+
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+
+    try:
+        response = send_raw_request(addr, _GET)
+        assert b"HTTP/1.1 200" in response
+        assert b"application/json" in response
+        assert b"mini_router" in response
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
+
+@pytest.mark.timeout(10)
+def test_mini_router_user() -> None:
+    """examples/mini_router.py GET /users/42 returns 200 with user data."""
+    from examples.mini_router import app
+
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+
+    request = b"GET /users/42 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+
+    try:
+        response = send_raw_request(addr, request)
+        assert b"HTTP/1.1 200" in response
+        assert b"Douglas Adams" in response
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
+
+@pytest.mark.timeout(10)
+def test_mini_router_404() -> None:
+    """examples/mini_router.py GET /nonexistent returns 404."""
+    from examples.mini_router import app
+
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+
+    request = b"GET /nonexistent HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+
+    try:
+        response = send_raw_request(addr, request)
+        assert b"HTTP/1.1 404" in response
+        assert b"not found" in response
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
