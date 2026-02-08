@@ -193,3 +193,37 @@ def test_chirp_app_example() -> None:
         worker.shutdown()
         thread.join(timeout=3)
         sock.close()
+
+@pytest.mark.timeout(10)
+def test_websocket_echo_http_fallback() -> None:
+    """examples/websocket_echo.py returns 426 for plain HTTP requests."""
+    from examples.websocket_echo import app
+
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+
+    try:
+        response = send_raw_request(addr, _GET)
+        assert b"426" in response
+        assert b"WebSocket" in response
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
+
+@pytest.mark.timeout(10)
+def test_programmatic_server_example() -> None:
+    """examples/programmatic_server.py app returns 200."""
+    from examples.programmatic_server import app
+
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+
+    try:
+        response = send_raw_request(addr, _GET)
+        assert b"HTTP/1.1 200" in response
+        assert b"Hello from programmatic server!" in response
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
