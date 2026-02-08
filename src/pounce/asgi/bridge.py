@@ -53,6 +53,12 @@ _EMPTY_BODY_MESSAGE: MappingProxyType[str, Any] = MappingProxyType({
     "more_body": False,
 })
 
+# Pre-built disconnect message — ASGI spec §2.1.3.
+# Returned by disconnect-aware receive callables when the client drops.
+_DISCONNECT_MESSAGE: MappingProxyType[str, Any] = MappingProxyType({
+    "type": "http.disconnect",
+})
+
 
 def build_scope(
     request: RequestReceived,
@@ -130,6 +136,77 @@ def create_empty_receive() -> Receive:
         # after getting more_body=False.
         await asyncio.Event().wait()
         return _EMPTY_BODY_MESSAGE  # unreachable, keeps type checker happy
+
+    return receive
+
+
+def create_disconnect_receive(
+    disconnect: asyncio.Event,
+) -> Receive:
+    """Create a receive callable that delivers ``http.disconnect``.
+
+    For bodyless requests (GET, HEAD, etc.): returns the empty body message
+    on first call, then waits for the disconnect event before returning
+    ``http.disconnect``.  This allows ASGI apps (e.g. Chirp's SSE handler)
+    to detect client disconnects and stop producing events.
+
+    Args:
+        disconnect: Event set by the connection monitor when the client
+            closes the socket.
+
+    Returns:
+        Async callable conforming to the ASGI Receive protocol.
+
+    """
+    called = False
+
+    async def receive() -> dict[str, Any]:
+        nonlocal called
+        if not called:
+            called = True
+            return _EMPTY_BODY_MESSAGE
+        # Wait until client disconnects
+        await disconnect.wait()
+        return _DISCONNECT_MESSAGE
+
+    return receive
+
+
+def create_receive_with_disconnect(
+    body_events: asyncio.Queue[BodyReceived],
+    disconnect: asyncio.Event,
+) -> Receive:
+    """Create a receive callable that delivers body events then ``http.disconnect``.
+
+    Used when the request has a body (POST, PUT, etc.).  Delivers body chunks
+    from the queue until the body is complete, then waits for the disconnect
+    event and returns ``http.disconnect``.
+
+    Args:
+        body_events: Queue of body events from the protocol layer.
+        disconnect: Event set by the connection monitor when the client
+            closes the socket.
+
+    Returns:
+        Async callable conforming to the ASGI Receive protocol.
+
+    """
+    body_done = False
+
+    async def receive() -> dict[str, Any]:
+        nonlocal body_done
+        if not body_done:
+            event = await body_events.get()
+            if not event.more:
+                body_done = True
+            return {
+                "type": "http.request",
+                "body": event.data,
+                "more_body": event.more,
+            }
+        # Body done — wait for disconnect
+        await disconnect.wait()
+        return _DISCONNECT_MESSAGE
 
     return receive
 
@@ -216,9 +293,21 @@ def create_send(
                 headers = [
                     (n, v) for n, v in headers if n.lower() != b"content-length"
                 ]
-                # Use chunked transfer encoding
-                if not any(n.lower() == b"transfer-encoding" for n, _ in headers):
-                    headers.append((b"transfer-encoding", b"chunked"))
+
+            # Auto-inject chunked transfer encoding when the ASGI app
+            # doesn't provide Content-Length.  Without either CL or
+            # chunked TE, HTTP/1.1 keep-alive connections have no way
+            # to delimit response boundaries — the browser hangs.
+            # This matches Uvicorn / Hypercorn behaviour and is the
+            # standard expectation of any ASGI framework.
+            has_content_length = any(
+                n.lower() == b"content-length" for n, _ in headers
+            )
+            has_transfer_encoding = any(
+                n.lower() == b"transfer-encoding" for n, _ in headers
+            )
+            if not has_content_length and not has_transfer_encoding:
+                headers.append((b"transfer-encoding", b"chunked"))
 
             # Inject Server-Timing header
             if timing is not None:
@@ -240,6 +329,14 @@ def create_send(
                 raise RuntimeError(
                     "Received http.response.body after response is complete"
                 )
+
+            # Defense-in-depth: if the client already disconnected, skip
+            # the write entirely.  This prevents asyncio's transport from
+            # logging ``socket.send() raised exception.`` for every chunk
+            # written to a dead connection during the race window between
+            # disconnect detection and app cancellation.
+            if writer.is_closing():
+                return
 
             body: bytes = message.get("body", b"")
             more_body: bool = message.get("more_body", False)

@@ -19,6 +19,7 @@ on core lifecycle and HTTP/1.1 handling.
 """
 
 import asyncio
+import contextlib
 import logging
 import socket
 import ssl
@@ -30,7 +31,15 @@ from pounce._h2_handler import handle_h2_connection
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
 from pounce._ws_handler import handle_websocket
-from pounce.asgi.bridge import SendState, build_scope, create_empty_receive, create_receive, create_send
+from pounce.asgi.bridge import (
+    SendState,
+    build_scope,
+    create_disconnect_receive,
+    create_empty_receive,
+    create_receive,
+    create_receive_with_disconnect,
+    create_send,
+)
 from pounce.config import ServerConfig
 from pounce.logging import access_log
 from pounce.protocols._base import (
@@ -390,8 +399,10 @@ class Worker:
                     compressor = create_compressor(encoding)
 
         # Determine body status and create receive callable.
-        # For bodyless requests (most GET/HEAD), use the fast-path
-        # receive that returns a static message — no asyncio.Queue.
+        # All paths now create a disconnect event so the ASGI app can
+        # receive ``http.disconnect`` when the client drops — critical
+        # for streaming/SSE responses.
+        disconnect = asyncio.Event()
         body_complete = False
         body_queue: asyncio.Queue[BodyReceived] | None = None
 
@@ -402,39 +413,30 @@ class Worker:
                 await body_queue.put(body_event)
                 if not body_event.more:
                     body_complete = True
-            receive = create_receive(body_queue)
+            receive = create_receive_with_disconnect(body_queue, disconnect)
         else:
             # No body events — bodyless request (GET/HEAD).
-            # Use the fast-path: no Queue, static message.
-            receive = create_empty_receive()
+            receive = create_disconnect_receive(disconnect)
             body_complete = True
 
         app_start = monotonic_ns()
         send_state = SendState()
         send = create_send(proto, writer, send_state, timing=timing, compressor=compressor)
 
-        # Call the ASGI app
+        # Call the ASGI app with concurrent disconnect monitoring.
+        # Mirrors the WebSocket handler pattern: two tasks, wait for
+        # first to complete, cancel the other.
         if body_complete:
-            # Fast path: entire body (or no body) already available.
-            # No concurrent reading needed — just run the app.
-            try:
-                await self._app(scope, receive, send)
-            except Exception:
-                self._logger.exception(
-                    "ASGI app error on %s %s", scope["method"], scope["path"]
-                )
-                try:
-                    await self._send_error(writer, proto, 500, "Internal Server Error")
-                except Exception:
-                    pass
-                if send_state.status == 0:
-                    send_state.status = 500
+            await self._run_with_disconnect_monitor(
+                scope, receive, send, send_state,
+                reader, writer, proto, disconnect,
+            )
         else:
             # Body still arriving — read concurrently with the app.
-            # Same pattern as WebSocket: two tasks, wait for first to finish.
             await self._run_with_body_reader(
                 scope, receive, send, send_state,
                 body_queue, proto, reader, writer,
+                disconnect=disconnect,
             )
 
         if timing:
@@ -457,6 +459,71 @@ class Worker:
                 duration, client_str, http_version=http_version,
             )
 
+    async def _run_with_disconnect_monitor(
+        self,
+        scope: dict,
+        receive: object,
+        send: object,
+        send_state: SendState,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        proto: H1Protocol,
+        disconnect: asyncio.Event,
+    ) -> None:
+        """Run the ASGI app with concurrent client disconnect monitoring.
+
+        For bodyless requests (GET/HEAD) where the body is already complete.
+        Spawns a monitor task that reads from the socket to detect client
+        disconnect, and cancels the app task when the client drops.
+
+        Mirrors the WebSocket handler's concurrent-task pattern.
+
+        """
+
+        async def _run_app() -> None:
+            try:
+                await self._app(scope, receive, send)
+            except Exception:
+                self._logger.exception(
+                    "ASGI app error on %s %s", scope["method"], scope["path"]
+                )
+                try:
+                    await self._send_error(writer, proto, 500, "Internal Server Error")
+                except Exception:
+                    pass
+                if send_state.status == 0:
+                    send_state.status = 500
+
+        app_task = asyncio.create_task(_run_app())
+        monitor_task = asyncio.create_task(
+            self._monitor_disconnect(reader, disconnect)
+        )
+
+        try:
+            done, pending = await asyncio.wait(
+                {app_task, monitor_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+
+            # Propagate app exceptions for status tracking
+            if app_task in done:
+                try:
+                    app_task.result()
+                except Exception:
+                    if send_state.status == 0:
+                        send_state.status = 500
+        except Exception:
+            self._logger.exception(
+                "Unhandled error during request handling for %s",
+                scope.get("path", "?"),
+            )
+            if send_state.status == 0:
+                send_state.status = 500
+
     async def _run_with_body_reader(
         self,
         scope: dict,
@@ -467,6 +534,8 @@ class Worker:
         proto: H1Protocol,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
+        *,
+        disconnect: asyncio.Event | None = None,
     ) -> None:
         """Run the ASGI app while concurrently reading request body.
 
@@ -477,6 +546,12 @@ class Worker:
         The actual HTTP status is captured in *send_state* by the send
         callable; this method only sets 500 as a fallback when the app
         raises without having started a response.
+
+        Args:
+            disconnect: Optional event to set when the reader detects
+                client disconnect (EOF or connection error).  When
+                provided, this signals the disconnect-aware receive
+                callable so the ASGI app receives ``http.disconnect``.
 
         """
 
@@ -515,6 +590,11 @@ class Worker:
                 # Ensure the app unblocks if cancelled
                 await body_queue.put(BodyReceived(data=b"", more=False))
                 raise
+            finally:
+                # Signal disconnect so the ASGI app's receive() returns
+                # http.disconnect after the body is complete.
+                if disconnect is not None:
+                    disconnect.set()
 
         async def _run_app() -> None:
             try:
@@ -540,10 +620,8 @@ class Worker:
             )
             for task in pending:
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
 
             # If the reader finished first, wait for the app to complete
             if app_task not in done:
@@ -566,6 +644,37 @@ class Worker:
             )
             if send_state.status == 0:
                 send_state.status = 500
+
+    # ------------------------------------------------------------------
+    # Client disconnect monitoring
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _monitor_disconnect(
+        reader: asyncio.StreamReader,
+        disconnect: asyncio.Event,
+    ) -> None:
+        """Monitor the TCP connection for client disconnect.
+
+        Reads from the socket to detect when the client closes the
+        connection (EOF or error).  Sets *disconnect* to signal the
+        ASGI ``receive()`` callable, which unblocks any app waiting
+        for ``http.disconnect``.
+
+        This mirrors the WebSocket handler's frame-reader pattern but
+        only watches for connection close — no data is expected.
+
+        """
+        try:
+            while True:
+                data = await reader.read(1)
+                if not data:
+                    # Client disconnected — EOF
+                    break
+        except (ConnectionError, OSError):
+            pass
+        finally:
+            disconnect.set()
 
     # ------------------------------------------------------------------
     # Error responses

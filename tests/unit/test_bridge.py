@@ -14,10 +14,13 @@ from pounce._timing import ServerTiming
 from pounce.asgi.bridge import (
     SendState,
     _COALESCE_THRESHOLD,
+    _DISCONNECT_MESSAGE,
     _EMPTY_BODY_MESSAGE,
     build_scope,
+    create_disconnect_receive,
     create_empty_receive,
     create_receive,
+    create_receive_with_disconnect,
     create_send,
 )
 from pounce.config import ServerConfig
@@ -182,7 +185,8 @@ class _FakeTransport:
     """Fake asyncio.StreamWriter that captures writes.
 
     Mimics the subset of ``asyncio.StreamWriter`` used by
-    ``create_send``: ``.write()``, ``.transport``, and ``.drain()``.
+    ``create_send``: ``.write()``, ``.transport``, ``.is_closing()``,
+    and ``.drain()``.
     """
 
     def __init__(self) -> None:
@@ -193,6 +197,9 @@ class _FakeTransport:
     def write(self, data: bytes) -> None:
         self.data.extend(data)
         self.write_count += 1
+
+    def is_closing(self) -> bool:
+        return False
 
     async def drain(self) -> None:
         """No-op drain for tests."""
@@ -541,6 +548,135 @@ class TestWriteCoalescing:
         assert transport.write_count == 2  # second chunk separate
 
 
+class TestAutoChunkedEncoding:
+    """Auto-inject Transfer-Encoding: chunked when no Content-Length.
+
+    Without either Content-Length or chunked TE, HTTP/1.1 keep-alive
+    connections have no way to delimit response boundaries — the
+    browser hangs waiting for more data.
+    """
+
+    @pytest.mark.asyncio
+    async def test_auto_chunked_when_no_content_length(self):
+        """Responses without Content-Length get automatic chunked encoding."""
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        send = create_send(proto, transport, SendState())
+
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", b"text/html")],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": b"<h1>hello</h1>",
+            "more_body": True,
+        })
+        await send({
+            "type": "http.response.body",
+            "body": b"",
+            "more_body": False,
+        })
+
+        output = bytes(transport.data)
+        assert b"chunked" in output.lower()
+        assert b"transfer-encoding" in output.lower()
+        # Chunked framing: body wrapped in hex-size lines
+        assert b"e\r\n<h1>hello</h1>\r\n" in output
+        # Terminator present
+        assert b"0\r\n\r\n" in output
+
+    @pytest.mark.asyncio
+    async def test_no_auto_chunked_when_content_length_present(self):
+        """Responses WITH Content-Length do not get chunked injected."""
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        send = create_send(proto, transport, SendState())
+
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/plain"),
+                (b"content-length", b"5"),
+            ],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": b"hello",
+        })
+
+        output = bytes(transport.data)
+        assert b"content-length" in output.lower()
+        assert b"transfer-encoding" not in output.lower()
+
+    @pytest.mark.asyncio
+    async def test_no_duplicate_when_app_provides_chunked(self):
+        """If the app already sets Transfer-Encoding: chunked, don't duplicate."""
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        send = create_send(proto, transport, SendState())
+
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/html"),
+                (b"transfer-encoding", b"chunked"),
+            ],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": b"ok",
+            "more_body": False,
+        })
+
+        output = bytes(transport.data)
+        # Should appear exactly once
+        count = output.lower().count(b"transfer-encoding")
+        assert count == 1
+
+    @pytest.mark.asyncio
+    async def test_streaming_without_content_length_is_chunked(self):
+        """Multi-chunk streaming response without CL gets proper chunked framing."""
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        state = SendState()
+        send = create_send(proto, transport, state)
+
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", b"text/html; charset=utf-8")],
+        })
+
+        chunks = [b"<html>", b"<body>hello</body>", b"</html>"]
+        for i, chunk in enumerate(chunks):
+            await send({
+                "type": "http.response.body",
+                "body": chunk,
+                "more_body": i < len(chunks) - 1,
+            })
+
+        output = bytes(transport.data)
+        # All original data present within chunked frames
+        assert b"<html>" in output
+        assert b"<body>hello</body>" in output
+        assert b"</html>" in output
+        # Properly terminated
+        assert b"0\r\n\r\n" in output
+        assert state.bytes_sent == sum(len(c) for c in chunks)
+
+
 class TestCreateH1Protocol:
     """_create_h1_protocol() selects the best available HTTP/1.1 backend."""
 
@@ -573,3 +709,222 @@ class TestCreateH1Protocol:
 
         # h11 stores this on its Connection object
         assert proto._conn._max_incomplete_event_size == 8192
+
+
+class TestCreateDisconnectReceive:
+    """create_disconnect_receive() delivers empty body then http.disconnect."""
+
+    @pytest.mark.asyncio
+    async def test_first_call_returns_empty_body(self):
+        """First call returns the pre-built empty body message."""
+        disconnect = asyncio.Event()
+        receive = create_disconnect_receive(disconnect)
+        msg = await receive()
+        assert msg["type"] == "http.request"
+        assert msg["body"] == b""
+        assert msg["more_body"] is False
+        assert msg is _EMPTY_BODY_MESSAGE
+
+    @pytest.mark.asyncio
+    async def test_second_call_blocks_until_disconnect(self):
+        """Second call blocks until the disconnect event fires."""
+        disconnect = asyncio.Event()
+        receive = create_disconnect_receive(disconnect)
+        await receive()  # first call — returns immediately
+
+        # Second call should block; verify with a short timeout
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(receive(), timeout=0.05)
+
+    @pytest.mark.asyncio
+    async def test_returns_disconnect_after_event(self):
+        """After disconnect event fires, returns http.disconnect."""
+        disconnect = asyncio.Event()
+        receive = create_disconnect_receive(disconnect)
+        await receive()  # consume empty body
+
+        # Set disconnect and verify the message
+        disconnect.set()
+        msg = await receive()
+        assert msg["type"] == "http.disconnect"
+        assert msg is _DISCONNECT_MESSAGE
+
+    @pytest.mark.asyncio
+    async def test_disconnect_set_before_second_call(self):
+        """If disconnect fires before second call, returns immediately."""
+        disconnect = asyncio.Event()
+        receive = create_disconnect_receive(disconnect)
+        await receive()
+
+        disconnect.set()
+        msg = await asyncio.wait_for(receive(), timeout=0.1)
+        assert msg["type"] == "http.disconnect"
+
+    @pytest.mark.asyncio
+    async def test_independent_instances(self):
+        """Each create_disconnect_receive() returns an independent callable."""
+        d1 = asyncio.Event()
+        d2 = asyncio.Event()
+        recv1 = create_disconnect_receive(d1)
+        recv2 = create_disconnect_receive(d2)
+
+        msg1 = await recv1()
+        msg2 = await recv2()
+        assert msg1["more_body"] is False
+        assert msg2["more_body"] is False
+
+        # Setting d1 should not affect recv2
+        d1.set()
+        result = await recv1()
+        assert result["type"] == "http.disconnect"
+
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(recv2(), timeout=0.05)
+
+
+class TestCreateReceiveWithDisconnect:
+    """create_receive_with_disconnect() delivers body events then http.disconnect."""
+
+    @pytest.mark.asyncio
+    async def test_body_events_flow_through(self):
+        """Body events are returned as http.request messages."""
+        disconnect = asyncio.Event()
+        queue: asyncio.Queue[BodyReceived] = asyncio.Queue()
+        receive = create_receive_with_disconnect(queue, disconnect)
+
+        await queue.put(BodyReceived(data=b"chunk1", more=True))
+        await queue.put(BodyReceived(data=b"chunk2", more=False))
+
+        msg1 = await receive()
+        assert msg1["type"] == "http.request"
+        assert msg1["body"] == b"chunk1"
+        assert msg1["more_body"] is True
+
+        msg2 = await receive()
+        assert msg2["type"] == "http.request"
+        assert msg2["body"] == b"chunk2"
+        assert msg2["more_body"] is False
+
+    @pytest.mark.asyncio
+    async def test_disconnect_after_body_complete(self):
+        """After body complete, waits for disconnect then returns http.disconnect."""
+        disconnect = asyncio.Event()
+        queue: asyncio.Queue[BodyReceived] = asyncio.Queue()
+        receive = create_receive_with_disconnect(queue, disconnect)
+
+        await queue.put(BodyReceived(data=b"all", more=False))
+        await receive()  # consume body
+
+        # Should block until disconnect
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(receive(), timeout=0.05)
+
+        # Now signal disconnect
+        disconnect.set()
+        msg = await receive()
+        assert msg["type"] == "http.disconnect"
+        assert msg is _DISCONNECT_MESSAGE
+
+    @pytest.mark.asyncio
+    async def test_single_chunk_body(self):
+        """Single-chunk body works correctly."""
+        disconnect = asyncio.Event()
+        queue: asyncio.Queue[BodyReceived] = asyncio.Queue()
+        receive = create_receive_with_disconnect(queue, disconnect)
+
+        await queue.put(BodyReceived(data=b"hello", more=False))
+        msg = await receive()
+        assert msg["body"] == b"hello"
+        assert msg["more_body"] is False
+
+        disconnect.set()
+        msg = await receive()
+        assert msg["type"] == "http.disconnect"
+
+
+class _ClosingFakeInnerTransport:
+    """Fake transport that reports as closing."""
+
+    def get_write_buffer_size(self) -> int:
+        return 0
+
+
+class _ClosingFakeTransport:
+    """Fake StreamWriter that reports is_closing() = True."""
+
+    def __init__(self) -> None:
+        self.data = bytearray()
+        self.write_count = 0
+        self.transport = _ClosingFakeInnerTransport()
+
+    def write(self, data: bytes) -> None:
+        self.data.extend(data)
+        self.write_count += 1
+
+    def is_closing(self) -> bool:
+        return True
+
+    async def drain(self) -> None:
+        """No-op drain for tests."""
+
+
+class TestSendGuardClosedWriter:
+    """send() silently returns when the writer is closing."""
+
+    @pytest.mark.asyncio
+    async def test_body_skipped_when_writer_closing(self):
+        """http.response.body is silently discarded when writer.is_closing()."""
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        # Use a regular transport for the start message, then swap to closing
+        transport = _FakeTransport()
+        send = create_send(proto, transport, SendState())
+
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", b"text/plain")],
+        })
+
+        # Now test with a closing writer — create a new send
+        closing_transport = _ClosingFakeTransport()
+        state = SendState()
+        proto2 = H1Protocol()
+        proto2.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        send2 = create_send(proto2, closing_transport, state)
+
+        await send2({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", b"text/plain")],
+        })
+        # Body should be silently skipped — no writes, no errors
+        await send2({
+            "type": "http.response.body",
+            "body": b"should not be written",
+            "more_body": True,
+        })
+        assert closing_transport.write_count == 0
+        assert len(closing_transport.data) == 0
+
+    @pytest.mark.asyncio
+    async def test_body_not_skipped_when_writer_open(self):
+        """http.response.body proceeds normally when writer is not closing."""
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        send = create_send(proto, transport, SendState())
+
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", b"text/plain"), (b"content-length", b"5")],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": b"hello",
+        })
+        assert transport.write_count > 0
+        assert b"hello" in bytes(transport.data)
