@@ -66,8 +66,8 @@ async def app(scope: Scope, receive: Receive, send: Send) -> None:
     await receive()
 
     # SSE responses must not be compressed (breaks streaming in most clients).
-    # pounce skips compression for text/event-stream automatically when the
-    # response is chunked.
+    # pounce automatically disables compression when it detects a
+    # text/event-stream content type in the response headers.
     await send(
         {
             "type": "http.response.start",
