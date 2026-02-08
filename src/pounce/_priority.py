@@ -15,6 +15,7 @@ This module provides:
 """
 
 import heapq
+import threading
 from dataclasses import dataclass, field
 
 
@@ -72,7 +73,6 @@ def parse_priority(value: bytes | str) -> StreamPriority:
 
     return StreamPriority(urgency=urgency, incremental=incremental)
 
-@dataclass(slots=True)
 class PriorityScheduler:
     """Priority-based scheduler for HTTP/2 stream writes.
 
@@ -81,13 +81,18 @@ class PriorityScheduler:
     streams are served first. Among same-urgency streams, incremental
     streams can interleave while non-incremental streams are sequential.
 
-    All operations are O(log n) via a min-heap.
+    All operations are O(log n) via a min-heap. Thread-safe: a lock
+    protects all mutable state for correctness under free-threading.
 
     """
 
-    _priorities: dict[int, StreamPriority] = field(default_factory=dict)
-    _pending: list[tuple[int, int, int]] = field(default_factory=list)
-    _counter: int = 0
+    __slots__ = ("_priorities", "_pending", "_counter", "_lock")
+
+    def __init__(self) -> None:
+        self._priorities: dict[int, StreamPriority] = {}
+        self._pending: list[tuple[int, int, int]] = []
+        self._counter: int = 0
+        self._lock = threading.Lock()
 
     def set_priority(self, stream_id: int, priority: StreamPriority) -> None:
         """Set or update the priority for a stream.
@@ -97,11 +102,13 @@ class PriorityScheduler:
             priority: The parsed priority for this stream.
 
         """
-        self._priorities[stream_id] = priority
+        with self._lock:
+            self._priorities[stream_id] = priority
 
     def get_priority(self, stream_id: int) -> StreamPriority:
         """Get the priority for a stream (default: urgency=3, not incremental)."""
-        return self._priorities.get(stream_id, StreamPriority())
+        with self._lock:
+            return self._priorities.get(stream_id, StreamPriority())
 
     def schedule(self, stream_id: int) -> None:
         """Mark a stream as ready to send data.
@@ -110,12 +117,13 @@ class PriorityScheduler:
             stream_id: The stream that has data to write.
 
         """
-        priority = self.get_priority(stream_id)
-        self._counter += 1
-        heapq.heappush(
-            self._pending,
-            (priority.urgency, self._counter, stream_id),
-        )
+        with self._lock:
+            priority = self._priorities.get(stream_id, StreamPriority())
+            self._counter += 1
+            heapq.heappush(
+                self._pending,
+                (priority.urgency, self._counter, stream_id),
+            )
 
     def next_stream(self) -> int | None:
         """Get the next stream that should write data.
@@ -125,12 +133,13 @@ class PriorityScheduler:
             if no streams are pending.
 
         """
-        while self._pending:
-            _, _, stream_id = heapq.heappop(self._pending)
-            # Stream may have been removed since scheduling
-            if stream_id in self._priorities:
-                return stream_id
-        return None
+        with self._lock:
+            while self._pending:
+                _, _, stream_id = heapq.heappop(self._pending)
+                # Stream may have been removed since scheduling
+                if stream_id in self._priorities:
+                    return stream_id
+            return None
 
     def remove_stream(self, stream_id: int) -> None:
         """Remove a stream from the scheduler.
@@ -139,24 +148,17 @@ class PriorityScheduler:
             stream_id: The stream to remove.
 
         """
-        self._priorities.pop(stream_id, None)
-
-    def update_priority(self, stream_id: int, priority: StreamPriority) -> None:
-        """Update priority mid-flight (e.g., from PRIORITY_UPDATE frame).
-
-        Args:
-            stream_id: The stream to update.
-            priority: New priority.
-
-        """
-        self._priorities[stream_id] = priority
+        with self._lock:
+            self._priorities.pop(stream_id, None)
 
     @property
     def has_pending(self) -> bool:
         """True if any streams are waiting to send."""
-        return len(self._pending) > 0
+        with self._lock:
+            return len(self._pending) > 0
 
     @property
     def stream_count(self) -> int:
         """Number of tracked streams."""
-        return len(self._priorities)
+        with self._lock:
+            return len(self._priorities)
