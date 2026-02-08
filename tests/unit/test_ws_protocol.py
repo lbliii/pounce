@@ -119,7 +119,7 @@ class TestWSProtocol:
             wsproto.events.TextMessage(data="hello from client")
         )
 
-        events, outbound = server.receive_data(client_bytes)
+        events, _outbound = server.receive_data(client_bytes)
         assert len(events) == 1
         assert isinstance(events[0], WebSocketDataReceived)
         assert events[0].data == "hello from client"
@@ -133,7 +133,7 @@ class TestWSProtocol:
             wsproto.events.BytesMessage(data=payload)
         )
 
-        events, outbound = server.receive_data(client_bytes)
+        events, _outbound = server.receive_data(client_bytes)
         assert len(events) == 1
         assert isinstance(events[0], WebSocketDataReceived)
         assert events[0].data == payload
@@ -146,7 +146,7 @@ class TestWSProtocol:
             wsproto.events.CloseConnection(code=1000, reason="bye")
         )
 
-        events, outbound = server.receive_data(client_bytes)
+        events, _outbound = server.receive_data(client_bytes)
         assert len(events) == 1
         assert isinstance(events[0], WebSocketDisconnected)
         assert events[0].code == 1000
@@ -161,7 +161,7 @@ class TestWSProtocol:
             client_bytes = client.send(
                 wsproto.events.TextMessage(data=f"msg-{i}")
             )
-            events, outbound = server.receive_data(client_bytes)
+            events, _outbound = server.receive_data(client_bytes)
             assert len(events) == 1
             assert isinstance(events[0], WebSocketDataReceived)
             assert events[0].data == f"msg-{i}"

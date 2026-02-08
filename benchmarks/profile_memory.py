@@ -180,7 +180,7 @@ def profile_memory(
 
     print(f"  Sending {waves} waves of {requests_per_wave} requests...")
 
-    for wave in range(waves):
+    for _wave in range(waves):
         asyncio.run(_fire_requests(addr, requests_per_wave, concurrency))
         current_rss = get_rss_bytes()
         rss_samples.append(current_rss)

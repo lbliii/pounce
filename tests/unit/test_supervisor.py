@@ -1,5 +1,6 @@
 """Tests for pounce.supervisor — worker lifecycle management."""
 
+import contextlib
 import socket
 import threading
 import time
@@ -133,10 +134,8 @@ class TestSupervisorThreadMode:
 
         # Clean up
         for s in set(sockets):
-            try:
+            with contextlib.suppress(Exception):
                 s.close()
-            except Exception:
-                pass
 
 class TestSupervisorRespawn:
     """Supervisor respawn logic and restart budget."""
@@ -164,10 +163,8 @@ class TestSupervisorRespawn:
             sup.shutdown()
             t.join(timeout=5.0)
             for s in set(sockets):
-                try:
+                with contextlib.suppress(Exception):
                     s.close()
-                except Exception:
-                    pass
 
     def test_restart_budget_exhaustion(self):
         """_respawn_worker stops after max restarts within the window."""
@@ -213,10 +210,8 @@ class TestSupervisorRespawn:
             sup.shutdown()
             time.sleep(0.5)
             for s in sup._sockets:
-                try:
+                with contextlib.suppress(Exception):
                     s.close()
-                except Exception:
-                    pass
 
 class TestSupervisorRestartWorkers:
     """Supervisor restart_workers() logic (unit-level, no real workers)."""
@@ -245,10 +240,8 @@ class TestSupervisorRestartWorkers:
                 assert mock_spawn.call_count == 2
         finally:
             for s in sockets:
-                try:
+                with contextlib.suppress(Exception):
                     s.close()
-                except Exception:
-                    pass
 
     def test_restart_joins_old_workers(self):
         """restart_workers() joins existing workers before respawning."""
@@ -269,10 +262,8 @@ class TestSupervisorRestartWorkers:
                 mock_thread.join.assert_called_once()
         finally:
             for s in sockets:
-                try:
+                with contextlib.suppress(Exception):
                     s.close()
-                except Exception:
-                    pass
 
 class TestSupervisorPerWorkerConnections:
     """Supervisor calculates per-worker connection limits."""

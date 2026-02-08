@@ -68,7 +68,7 @@ class TestH1ReceiveData:
         req = events[0]
         assert isinstance(req, RequestReceived)
 
-        header_dict = {name: value for name, value in req.headers}
+        header_dict = dict(req.headers)
         assert header_dict[b"host"] == b"example.com"
         assert header_dict[b"accept"] == b"text/html"
 

@@ -16,7 +16,7 @@ from pounce.protocols._base import (
 # Skip entire module if httptools is not installed
 httptools = pytest.importorskip("httptools")
 
-from pounce.protocols.h1_httptools import H1HttpToolsProtocol, is_httptools_available
+from pounce.protocols.h1_httptools import H1HttpToolsProtocol, is_httptools_available  # noqa: E402
 
 
 def _make_request(

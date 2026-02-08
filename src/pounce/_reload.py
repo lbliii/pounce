@@ -9,6 +9,7 @@ Uses stdlib ``pathlib`` + polling. Ignores ``__pycache__``, ``.git``,
 
 """
 
+import contextlib
 import logging
 import os
 import threading
@@ -72,10 +73,8 @@ def _snapshot(directories: list[Path]) -> dict[str, float]:
             continue
         for path in directory.rglob("*"):
             if path.is_file() and _should_watch(path):
-                try:
+                with contextlib.suppress(OSError):
                     snapshot[str(path)] = path.stat().st_mtime
-                except OSError:
-                    pass
     return snapshot
 
 def detect_changes(

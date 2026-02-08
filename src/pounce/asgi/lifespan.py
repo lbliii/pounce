@@ -13,7 +13,7 @@ exception or silently return for non-HTTP scopes.
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 from pounce._errors import LifespanError
@@ -133,7 +133,5 @@ async def run_lifespan(
         # Cancel the app task if still running
         if not task.done():
             task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass

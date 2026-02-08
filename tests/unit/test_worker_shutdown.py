@@ -91,7 +91,7 @@ class TestWorkerExternalShutdown:
 
     def test_external_event_shuts_down_worker(self):
         ext_event = threading.Event()
-        worker, sock, thread = _start_worker(
+        _worker, sock, thread = _start_worker(
             _hello_app, shutdown_event=ext_event,
         )
         addr = sock.getsockname()
@@ -184,7 +184,7 @@ class TestWorkerBridgeShutdown:
     def test_bridge_detects_external_event(self):
         """Worker stops when external threading.Event is set."""
         ext_event = threading.Event()
-        worker, sock, thread = _start_worker(
+        _worker, sock, thread = _start_worker(
             _hello_app, shutdown_event=ext_event,
         )
         addr = sock.getsockname()

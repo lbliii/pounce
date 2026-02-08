@@ -10,6 +10,7 @@ supervisor unit tests.
 
 """
 
+import contextlib
 import socket
 import threading
 import time
@@ -109,10 +110,8 @@ class TestMultiWorkerServing:
             sup.shutdown()
             thread.join(timeout=5.0)
             for s in set(sockets):
-                try:
+                with contextlib.suppress(Exception):
                     s.close()
-                except Exception:
-                    pass
 
     def test_concurrent_requests(self):
         """Multiple concurrent requests should all succeed."""
@@ -131,10 +130,8 @@ class TestMultiWorkerServing:
             sup.shutdown()
             thread.join(timeout=5.0)
             for s in set(sockets):
-                try:
+                with contextlib.suppress(Exception):
                     s.close()
-                except Exception:
-                    pass
 
 class TestMultiWorkerShutdown:
     """Supervisor graceful shutdown drains all workers."""
@@ -154,14 +151,12 @@ class TestMultiWorkerShutdown:
             assert not thread.is_alive()
         finally:
             for s in set(sockets):
-                try:
+                with contextlib.suppress(Exception):
                     s.close()
-                except Exception:
-                    pass
 
     def test_all_workers_alive_before_shutdown(self):
         """All worker handles should be alive before shutdown."""
-        sup, sockets, thread, addr = _start_supervisor(_hello_app, 2)
+        sup, sockets, thread, _addr = _start_supervisor(_hello_app, 2)
 
         try:
             # Verify workers are alive
@@ -171,10 +166,8 @@ class TestMultiWorkerShutdown:
             sup.shutdown()
             thread.join(timeout=5.0)
             for s in set(sockets):
-                try:
+                with contextlib.suppress(Exception):
                     s.close()
-                except Exception:
-                    pass
 
 class TestSupervisorMode:
     """Supervisor correctly reports its mode."""

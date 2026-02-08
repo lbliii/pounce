@@ -32,7 +32,7 @@ def _make_client_server():
     )
     client = h2.connection.H2Connection(config=client_config)
     client.initiate_connection()
-    client_preface = client.receive_data(server_preface)
+    client.receive_data(server_preface)
 
     # Feed client preface to server
     server.receive_data(client.data_to_send())

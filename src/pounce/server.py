@@ -13,6 +13,7 @@ Signal handling: SIGINT/SIGTERM trigger graceful shutdown.
 """
 
 import asyncio
+import contextlib
 import logging
 import signal
 import socket
@@ -52,15 +53,23 @@ class Server:
         "_app",
         "_async_shutdown",
         "_config",
+        "_lifecycle_collector",
         "_loop",
         "_shutdown_event",
         "_ssl_context",
         "_supervisor",
     )
 
-    def __init__(self, config: ServerConfig, app: ASGIApp) -> None:
+    def __init__(
+        self,
+        config: ServerConfig,
+        app: ASGIApp,
+        *,
+        lifecycle_collector: object | None = None,
+    ) -> None:
         self._config = config
         self._app = app
+        self._lifecycle_collector = lifecycle_collector
         self._ssl_context = None
         self._shutdown_event = threading.Event()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -123,10 +132,8 @@ class Server:
         loop = self._loop
         async_shutdown = self._async_shutdown
         if loop is not None and async_shutdown is not None:
-            try:
+            with contextlib.suppress(RuntimeError):
                 loop.call_soon_threadsafe(async_shutdown.set)
-            except RuntimeError:
-                pass  # Loop already closed
 
     # ------------------------------------------------------------------
     # Single-worker fast path (no supervisor overhead)
@@ -235,15 +242,14 @@ class Server:
         # NotImplementedError: Windows.
         # RuntimeError: non-main thread or non-main interpreter (Python 3.14t).
         for sig in (signal.SIGINT, signal.SIGTERM):
-            try:
+            with contextlib.suppress(NotImplementedError, RuntimeError):
                 loop.add_signal_handler(sig, _on_signal)
-            except (NotImplementedError, RuntimeError):
-                pass
 
         worker = Worker(
             self._config, self._app, sock,
             worker_id=0,
             ssl_context=self._ssl_context,
+            lifecycle_collector=self._lifecycle_collector,
         )
 
         async with run_lifespan(self._app, self._config):
@@ -337,6 +343,7 @@ class Server:
 
         self._supervisor = Supervisor(
             self._config, self._app, mode=mode, ssl_context=self._ssl_context,
+            lifecycle_collector=self._lifecycle_collector,
         )
 
         # Start file watcher for reload mode
@@ -395,16 +402,12 @@ class Server:
             supervisor.shutdown()
             # Second signal gets default handling (hard exit)
             for sig in (signal.SIGINT, signal.SIGTERM):
-                try:
+                with contextlib.suppress(NotImplementedError, RuntimeError):
                     loop.remove_signal_handler(sig)
-                except (NotImplementedError, RuntimeError):
-                    pass
 
         for sig in (signal.SIGINT, signal.SIGTERM):
-            try:
+            with contextlib.suppress(NotImplementedError, RuntimeError):
                 loop.add_signal_handler(sig, _on_signal)
-            except (NotImplementedError, RuntimeError):
-                pass  # Windows or non-main thread
 
         async with run_lifespan(self._app, self._config):
             # The supervisor blocks (it runs its own watchdog loop), so
@@ -470,10 +473,8 @@ class Server:
                 continue  # socket already closed
             if fd != -1 and fd not in closed:
                 closed.add(fd)
-                try:
+                with contextlib.suppress(OSError):
                     sock.close()
-                except OSError:
-                    pass  # already closed by another worker
 
 def _get_version() -> str:
     """Get the pounce version string."""

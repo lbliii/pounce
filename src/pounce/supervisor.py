@@ -16,6 +16,7 @@ Responsibilities:
 
 """
 
+import contextlib
 import logging
 import multiprocessing
 import signal
@@ -69,6 +70,7 @@ class Supervisor:
         "_config",
         "_effective_workers",
         "_handles",
+        "_lifecycle_collector",
         "_mode",
         "_shutdown_event",
         "_sockets",
@@ -82,6 +84,7 @@ class Supervisor:
         *,
         mode: WorkerMode | None = None,
         ssl_context: ssl.SSLContext | None = None,
+        lifecycle_collector: object | None = None,
     ) -> None:
         self._config = config
         self._app = app
@@ -91,6 +94,7 @@ class Supervisor:
         self._sockets: list[socket.socket] = []
         self._effective_workers = config.resolve_workers()
         self._ssl_context = ssl_context
+        self._lifecycle_collector = lifecycle_collector
 
     @property
     def mode(self) -> WorkerMode:
@@ -203,6 +207,7 @@ class Supervisor:
             shutdown_event=self._shutdown_event,
             max_connections=per_worker_max,
             ssl_context=self._ssl_context,
+            lifecycle_collector=self._lifecycle_collector,
         )
 
         if self._mode == "thread":
@@ -349,11 +354,8 @@ class Supervisor:
             self._shutdown_event.set()
 
         for sig in (signal.SIGINT, signal.SIGTERM):
-            try:
+            with contextlib.suppress(OSError, ValueError):
                 signal.signal(sig, _handle_signal)
-            except (OSError, ValueError):
-                # Cannot install signal handlers from non-main threads
-                pass
 
 def _target_id(target: threading.Thread | multiprocessing.Process) -> str:
     """Return an identifier string for a thread or process."""

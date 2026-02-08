@@ -121,7 +121,7 @@ def _start_server(
             if proc.poll() is not None:
                 _, stderr = proc.communicate()
                 print(f"  Server exited prematurely: {stderr.decode()}", file=sys.stderr)
-                raise RuntimeError("Server failed to start")
+                raise RuntimeError("Server failed to start") from None
 
     proc.terminate()
     raise RuntimeError(f"Server did not start within {timeout}s")
@@ -297,7 +297,7 @@ def _parse_hey_output(output: str) -> dict:
             result["req_per_sec"] = float(line.split(":")[1].strip())
 
         if line.startswith("Average:"):
-            val = float(line.split(":")[1].strip().rstrip("secs "))
+            val = float(line.split(":")[1].strip().removesuffix("secs").strip())
             result["avg_latency_ms"] = val * 1000
 
         if "50%" in line and "in" not in line:

@@ -32,6 +32,7 @@ Or use websocat:
 """
 
 import asyncio
+import contextlib
 import logging
 import threading
 from typing import Any
@@ -80,12 +81,8 @@ class _Room:
                 (q, loop) for q, loop in self._clients.items() if q is not sender
             ]
         for queue, loop in targets:
-            try:
+            with contextlib.suppress(RuntimeError):
                 loop.call_soon_threadsafe(queue.put_nowait, message)
-            except RuntimeError:
-                # Event loop closed — client disconnected between snapshot
-                # and delivery.  Safe to ignore.
-                pass
 
     @property
     def size(self) -> int:
@@ -278,10 +275,8 @@ async def app(scope: Scope, receive: Receive, send: Send) -> None:
         # Unblock the relay task so it can exit.
         inbox.put_nowait(None)
         relay_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await relay_task
-        except asyncio.CancelledError:
-            pass
         log.info("client left (%d connected)", _room.size)
 
     await send({"type": "websocket.close", "code": 1000})

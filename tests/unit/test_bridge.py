@@ -317,7 +317,7 @@ class TestCreateSend:
         transport = _FakeTransport()
         send = create_send(proto, transport, SendState())
 
-        with pytest.raises(RuntimeError, match="before http.response.start"):
+        with pytest.raises(RuntimeError, match=r"before http\.response\.start"):
             await send({
                 "type": "http.response.body",
                 "body": b"oops",

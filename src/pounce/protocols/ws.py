@@ -144,7 +144,7 @@ class WSProtocol:
         outbound_parts: list[bytes] = []
 
         for ws_event in self._conn.events():
-            if isinstance(ws_event, wsproto.events.TextMessage) or isinstance(ws_event, wsproto.events.BytesMessage):
+            if isinstance(ws_event, (wsproto.events.TextMessage, wsproto.events.BytesMessage)):
                 events.append(WebSocketDataReceived(data=ws_event.data))
 
             elif isinstance(ws_event, wsproto.events.CloseConnection):

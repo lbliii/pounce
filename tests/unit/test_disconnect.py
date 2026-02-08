@@ -6,6 +6,7 @@ Covers:
 """
 
 import asyncio
+import contextlib
 
 import pytest
 
@@ -112,16 +113,14 @@ class TestStreamingDisconnect:
             producer_task = asyncio.create_task(produce())
 
             try:
-                done, pending = await asyncio.wait(
+                _done, pending = await asyncio.wait(
                     {monitor_task, producer_task},
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 for task in pending:
                     task.cancel()
-                    try:
+                    with contextlib.suppress(asyncio.CancelledError):
                         await task
-                    except asyncio.CancelledError:
-                        pass
             finally:
                 app_finished.set()
 

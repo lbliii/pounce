@@ -14,6 +14,7 @@ The worker receives a socket and does not know which strategy was used.
 
 """
 
+import contextlib
 import errno
 import logging
 import socket
@@ -67,7 +68,7 @@ def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
         sockets: list[socket.socket] = []
         try:
             for _ in range(count):
-                sockets.append(_bind_socket(config))
+                sockets.append(_bind_socket(config))  # noqa: PERF401
         except Exception:
             # Clean up any sockets that were successfully created
             for s in sockets:
@@ -130,10 +131,8 @@ def _bind_socket(config: ServerConfig) -> socket.socket:
 
         # Enable dual-stack on IPv6 sockets where supported
         if af == socket.AF_INET6:
-            try:
+            with contextlib.suppress(AttributeError, OSError):
                 sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
-            except (AttributeError, OSError):
-                pass  # Dual-stack not available on this platform
 
         # SO_REUSEPORT allows multiple sockets to bind to the same port
         if has_so_reuseport():

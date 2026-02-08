@@ -24,7 +24,7 @@ class TestIsGilEnabled:
 
     def test_fallback_when_no_attribute(self):
         """Python < 3.13 doesn't have sys._is_gil_enabled."""
-        with patch("pounce._runtime.sys", spec=[]) as mock_sys:
+        with patch("pounce._runtime.sys", spec=[]):
             # No _is_gil_enabled attribute — should default to True (GIL)
             result = is_gil_enabled()
             assert result is True

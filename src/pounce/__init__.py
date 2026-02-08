@@ -37,10 +37,10 @@ try:
 except Exception:  # Package not installed in editable/dist mode
     __version__ = "0.0.0-dev"
 
-from typing import TypedDict, Unpack
+from typing import TypedDict, Unpack  # noqa: E402
 
-from pounce._types import ASGIApp, Receive, Scope, Send
-from pounce.config import ServerConfig
+from pounce._types import ASGIApp, Receive, Scope, Send  # noqa: E402
+from pounce.config import ServerConfig  # noqa: E402
 
 
 class ServerConfigKwargs(TypedDict, total=False):

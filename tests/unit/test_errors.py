@@ -1,5 +1,7 @@
 """Tests for pounce._errors — error hierarchy and status code mapping."""
 
+import pytest
+
 from pounce._errors import (
     AppError,
     LifespanError,
@@ -112,7 +114,6 @@ class TestErrorMessages:
         assert err.args == ("unhandled",)
 
     def test_catch_as_pounce_error(self):
-        try:
+        with pytest.raises(PounceError) as exc_info:
             raise ParseError("test")
-        except PounceError as exc:
-            assert exc.status_code == 400
+        assert exc_info.value.status_code == 400
