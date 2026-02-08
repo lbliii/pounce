@@ -339,6 +339,72 @@ class TestCreateSend:
                 "body": b"extra",
             })
 
+    @pytest.mark.asyncio
+    async def test_sse_content_type_disables_compression(self):
+        """text/event-stream responses skip compression entirely."""
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        compressor = GzipCompressor()
+        send = create_send(proto, transport, SendState(), compressor=compressor)
+
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/event-stream; charset=utf-8"),
+                (b"cache-control", b"no-cache"),
+            ],
+        })
+
+        sse_data = b"event: heartbeat\ndata: {\"tick\": 1}\n\n"
+        await send({
+            "type": "http.response.body",
+            "body": sse_data,
+            "more_body": True,
+        })
+
+        output = bytes(transport.data)
+        # Compression headers must not be present
+        assert b"content-encoding" not in output.lower()
+        # Raw SSE text must be visible (not compressed)
+        assert b"event: heartbeat" in output
+
+    @pytest.mark.asyncio
+    async def test_streaming_compression_produces_output_per_chunk(self):
+        """Each streaming chunk with compression produces output immediately."""
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        compressor = GzipCompressor()
+        send = create_send(proto, transport, SendState(), compressor=compressor)
+
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", b"text/plain")],
+        })
+
+        # First streaming chunk
+        await send({
+            "type": "http.response.body",
+            "body": b"chunk one data here",
+            "more_body": True,
+        })
+        after_chunk1 = len(transport.data)
+        assert after_chunk1 > 0  # Data written immediately (not buffered)
+
+        # Second streaming chunk — transport should grow
+        await send({
+            "type": "http.response.body",
+            "body": b"chunk two data here",
+            "more_body": True,
+        })
+        after_chunk2 = len(transport.data)
+        assert after_chunk2 > after_chunk1  # sync_flush emitted data
+
 
 class TestCreateEmptyReceive:
     """create_empty_receive() fast-path for bodyless requests."""

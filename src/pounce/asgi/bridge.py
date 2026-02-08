@@ -180,7 +180,7 @@ def create_send(
     pending_head: bytes = b""
 
     async def send(message: dict[str, Any]) -> None:
-        nonlocal response_started, response_complete, pending_head
+        nonlocal response_started, response_complete, pending_head, compressor
 
         msg_type = message["type"]
 
@@ -199,6 +199,13 @@ def create_send(
                  value if isinstance(value, bytes) else value.encode())
                 for name, value in message.get("headers", [])
             ]
+
+            # SSE must not be compressed — EventSource API doesn't support it
+            if compressor is not None:
+                for name, value in headers:
+                    if name == b"content-type" and b"text/event-stream" in value:
+                        compressor = None
+                        break
 
             # Inject Content-Encoding if compressing
             if compressor is not None:
@@ -241,6 +248,8 @@ def create_send(
                 body = compressor.compress(body)
                 if not more_body:
                     body += compressor.flush()
+                else:
+                    body += compressor.sync_flush()
             elif compressor is not None and not more_body:
                 body = compressor.flush()
 
