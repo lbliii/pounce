@@ -24,6 +24,7 @@ import logging
 import socket
 import ssl
 import threading
+from typing import Any
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._errors import ParseError
@@ -41,6 +42,17 @@ from pounce.asgi.bridge import (
     create_send,
 )
 from pounce.config import ServerConfig
+from pounce.lifecycle import (
+    ConnectionClosed as LifecycleConnectionClosed,
+    ConnectionOpened,
+    ClientDisconnected,
+    LifecycleCollector,
+    NoopCollector,
+    RequestStarted,
+    ResponseCompleted,
+    monotonic_ns as lifecycle_ns,
+    next_connection_id,
+)
 from pounce.logging import access_log
 from pounce.protocols._base import (
     BodyReceived,
@@ -108,6 +120,7 @@ class Worker:
         "_max_connections",
         "_ssl_context",
         "_logger",
+        "_lifecycle",
     )
 
     def __init__(
@@ -120,6 +133,7 @@ class Worker:
         shutdown_event: threading.Event | None = None,
         max_connections: int = 0,
         ssl_context: ssl.SSLContext | None = None,
+        lifecycle_collector: LifecycleCollector | None = None,
     ) -> None:
         self._config = config
         self._app = app
@@ -132,6 +146,7 @@ class Worker:
         self._max_connections = max_connections
         self._ssl_context = ssl_context
         self._logger = logging.getLogger(f"pounce.worker.{worker_id}")
+        self._lifecycle: LifecycleCollector = lifecycle_collector or NoopCollector()
 
     def run(self) -> None:
         """Start the worker's event loop (blocking)."""
@@ -141,6 +156,23 @@ class Worker:
         """Accept connections until shutdown is signaled."""
         self._loop = asyncio.get_running_loop()
         self._async_shutdown = asyncio.Event()
+
+        # Per-worker startup hook — runs on this worker's event loop so
+        # any async resources (httpx clients, DB pools) bind to the
+        # correct loop.  If the hook fails, the worker does not accept
+        # connections (prevents serving with uninitialised state).
+        try:
+            await self._app(
+                {"type": "pounce.worker.startup", "worker_id": self._worker_id},
+                _noop_receive,
+                _noop_send,
+            )
+        except Exception:
+            self._logger.exception(
+                "Worker %d startup hook failed — not accepting connections",
+                self._worker_id,
+            )
+            return
 
         server = await asyncio.start_server(
             self._handle_connection,
@@ -174,6 +206,21 @@ class Worker:
                 await server.wait_closed()
             except (ValueError, OSError):
                 pass  # fd already closed by another worker sharing the socket
+
+            # Per-worker shutdown hook — runs on this worker's event loop
+            # for proper async resource cleanup.  Errors are logged but
+            # do not prevent worker exit.
+            try:
+                await self._app(
+                    {"type": "pounce.worker.shutdown", "worker_id": self._worker_id},
+                    _noop_receive,
+                    _noop_send,
+                )
+            except Exception:
+                self._logger.exception(
+                    "Worker %d shutdown hook failed", self._worker_id,
+                )
+
             self._logger.info("Worker %d stopped", self._worker_id)
 
     async def _bridge_shutdown(self, ext_event: threading.Event) -> None:
@@ -234,17 +281,33 @@ class Worker:
             return
 
         self._active_connections += 1
+        conn_id = next_connection_id()
+        conn_start = lifecycle_ns()
         peername = writer.get_extra_info("peername")
         client = (peername[0], peername[1]) if peername else ("unknown", 0)
         client_str = f"{client[0]}:{client[1]}"
         server_addr = writer.get_extra_info("sockname")
         server = (server_addr[0], server_addr[1]) if server_addr else (self._config.host, self._config.port)
 
+        # Determine protocol and emit ConnectionOpened
+        detected_protocol = "h1"
+
         # Check ALPN negotiation result (only present on TLS connections)
         ssl_object = writer.get_extra_info("ssl_object")
         if ssl_object is not None:
             alpn = ssl_object.selected_alpn_protocol()
             if alpn == "h2":
+                detected_protocol = "h2"
+                self._lifecycle.record(ConnectionOpened(
+                    connection_id=conn_id,
+                    worker_id=self._worker_id,
+                    client_addr=client[0],
+                    client_port=client[1],
+                    server_addr=server[0],
+                    server_port=server[1],
+                    protocol="h2",
+                    timestamp_ns=conn_start,
+                ))
                 try:
                     await handle_h2_connection(
                         self._app, self._config, self._logger,
@@ -256,6 +319,17 @@ class Worker:
                     )
                 finally:
                     self._active_connections -= 1
+                    self._lifecycle.record(LifecycleConnectionClosed(
+                        connection_id=conn_id,
+                        worker_id=self._worker_id,
+                        requests_served=0,
+                        total_bytes_sent=0,
+                        duration_ms=round(
+                            (lifecycle_ns() - conn_start) / 1_000_000, 1,
+                        ),
+                        reason="complete",
+                        timestamp_ns=lifecycle_ns(),
+                    ))
                     try:
                         writer.close()
                         await writer.wait_closed()
@@ -263,12 +337,25 @@ class Worker:
                         pass
                 return
 
+        self._lifecycle.record(ConnectionOpened(
+            connection_id=conn_id,
+            worker_id=self._worker_id,
+            client_addr=client[0],
+            client_port=client[1],
+            server_addr=server[0],
+            server_port=server[1],
+            protocol=detected_protocol,
+            timestamp_ns=conn_start,
+        ))
+
         proto = _create_h1_protocol(
             max_incomplete_event_size=self._config.h11_max_incomplete_event_size,
         )
 
         max_requests = self._config.max_requests_per_connection
         request_count = 0
+        total_bytes = 0
+        close_reason = "complete"
 
         try:
             # Reusable helper: process a batch of events from the protocol
@@ -303,6 +390,7 @@ class Worker:
                         await self._handle_request(
                             event, proto, reader, writer, client, server, client_str,
                             initial_body=initial_body,
+                            connection_id=conn_id,
                         )
                     elif isinstance(event, ConnectionClosed):
                         return True  # Clean close
@@ -316,17 +404,21 @@ class Worker:
                         timeout=self._config.keep_alive_timeout,
                     )
                 except asyncio.TimeoutError:
+                    close_reason = "timeout"
                     break  # Keep-alive timeout — close connection
                 except (ConnectionError, OSError):
+                    close_reason = "client_disconnect"
                     break
 
                 if not data:
+                    close_reason = "client_disconnect"
                     break  # Client disconnected
 
                 # Parse through the protocol layer
                 try:
                     events = proto.receive_data(data)
                 except ParseError as exc:
+                    close_reason = "error"
                     await self._send_error(writer, proto, 400, str(exc))
                     break
 
@@ -350,9 +442,21 @@ class Worker:
                 # the next reader.read() + receive_data() will flush it.
 
         except Exception:
+            close_reason = "error"
             self._logger.exception("Unhandled error on connection from %s", client_str)
         finally:
             self._active_connections -= 1
+            self._lifecycle.record(LifecycleConnectionClosed(
+                connection_id=conn_id,
+                worker_id=self._worker_id,
+                requests_served=request_count,
+                total_bytes_sent=total_bytes,
+                duration_ms=round(
+                    (lifecycle_ns() - conn_start) / 1_000_000, 1,
+                ),
+                reason=close_reason,
+                timestamp_ns=lifecycle_ns(),
+            ))
             try:
                 writer.close()
                 await writer.wait_closed()
@@ -374,9 +478,19 @@ class Worker:
         client_str: str,
         *,
         initial_body: list[BodyReceived] | None = None,
+        connection_id: int = 0,
     ) -> None:
         """Process a single HTTP request through the ASGI pipeline."""
         request_start = monotonic_ns()
+
+        self._lifecycle.record(RequestStarted(
+            connection_id=connection_id,
+            worker_id=self._worker_id,
+            method=request.method.decode("ascii", errors="replace"),
+            path=request.target.decode("ascii", errors="replace"),
+            http_version=request.http_version,
+            timestamp_ns=request_start,
+        ))
 
         # Build ASGI scope
         scope = build_scope(request, self._config, client, server)
@@ -430,6 +544,7 @@ class Worker:
             await self._run_with_disconnect_monitor(
                 scope, receive, send, send_state,
                 reader, writer, proto, disconnect,
+                connection_id=connection_id,
             )
         else:
             # Body still arriving — read concurrently with the app.
@@ -441,6 +556,16 @@ class Worker:
 
         if timing:
             timing.add("app", elapsed_ms(app_start))
+
+        # Record response lifecycle event
+        self._lifecycle.record(ResponseCompleted(
+            connection_id=connection_id,
+            worker_id=self._worker_id,
+            status=send_state.status,
+            bytes_sent=send_state.bytes_sent,
+            duration_ms=elapsed_ms(request_start),
+            timestamp_ns=lifecycle_ns(),
+        ))
 
         # Flush the writer
         try:
@@ -469,6 +594,8 @@ class Worker:
         writer: asyncio.StreamWriter,
         proto: H1Protocol,
         disconnect: asyncio.Event,
+        *,
+        connection_id: int = 0,
     ) -> None:
         """Run the ASGI app with concurrent client disconnect monitoring.
 
@@ -504,6 +631,16 @@ class Worker:
                 {app_task, monitor_task},
                 return_when=asyncio.FIRST_COMPLETED,
             )
+
+            # If the monitor won (client disconnected), emit event
+            if monitor_task in done and app_task not in done:
+                self._lifecycle.record(ClientDisconnected(
+                    connection_id=connection_id,
+                    worker_id=self._worker_id,
+                    during_streaming=send_state.bytes_sent > 0,
+                    timestamp_ns=lifecycle_ns(),
+                ))
+
             for task in pending:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -703,6 +840,25 @@ class Worker:
             await writer.drain()
         except Exception:
             pass
+
+
+# ---------------------------------------------------------------------------
+# Worker lifecycle scope helpers
+# ---------------------------------------------------------------------------
+
+
+async def _noop_receive() -> dict[str, Any]:
+    """No-op receive for worker lifecycle scopes.
+
+    Worker lifecycle scopes are fire-and-forget — no data exchange is
+    needed.  This blocks forever and should never actually be called.
+    """
+    await asyncio.Event().wait()
+    return {}  # unreachable
+
+
+async def _noop_send(message: dict[str, Any]) -> None:
+    """No-op send for worker lifecycle scopes."""
 
 
 # ---------------------------------------------------------------------------

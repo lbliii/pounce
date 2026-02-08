@@ -1,6 +1,6 @@
 # RFC: HTTP/1.1 Client Disconnect Detection for Streaming Responses
 
-**Status**: Draft
+**Status**: Implemented
 **Date**: 2026-02-08
 **Scope**: `pounce/asgi/bridge.py`, `pounce/worker.py`
 

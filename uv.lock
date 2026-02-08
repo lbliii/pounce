@@ -15,6 +15,80 @@ wheels = [
 ]
 
 [[package]]
+name = "bengal-pounce"
+version = "0.4.0.dev0"
+source = { editable = "." }
+dependencies = [
+    { name = "h11" },
+]
+
+[package.optional-dependencies]
+fast = [
+    { name = "httptools" },
+]
+full = [
+    { name = "h2" },
+    { name = "truststore" },
+    { name = "wsproto" },
+]
+h2 = [
+    { name = "h2" },
+]
+tls = [
+    { name = "truststore" },
+]
+ws = [
+    { name = "wsproto" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "h2" },
+    { name = "httpx" },
+    { name = "hypothesis" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-benchmark" },
+    { name = "pytest-cov" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+    { name = "ruff" },
+    { name = "ty" },
+    { name = "wsproto" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "h11", specifier = ">=0.14.0" },
+    { name = "h2", marker = "extra == 'full'", specifier = ">=4.0" },
+    { name = "h2", marker = "extra == 'h2'", specifier = ">=4.0" },
+    { name = "httptools", marker = "extra == 'fast'", specifier = ">=0.6" },
+    { name = "truststore", marker = "extra == 'full'", specifier = ">=0.9" },
+    { name = "truststore", marker = "extra == 'tls'", specifier = ">=0.9" },
+    { name = "wsproto", marker = "extra == 'full'", specifier = ">=1.2" },
+    { name = "wsproto", marker = "extra == 'ws'", specifier = ">=1.2" },
+]
+provides-extras = ["h2", "ws", "tls", "fast", "full"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "h2", specifier = ">=4.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "hypothesis", specifier = ">=6.100.0" },
+    { name = "pre-commit", specifier = ">=4.0.0" },
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "pytest-asyncio", specifier = ">=0.23" },
+    { name = "pytest-benchmark", specifier = ">=5.0.0" },
+    { name = "pytest-cov", specifier = ">=6.0.0" },
+    { name = "pytest-timeout", specifier = ">=2.3.0" },
+    { name = "pytest-xdist", specifier = ">=3.5.0" },
+    { name = "ruff", specifier = ">=0.14.0" },
+    { name = "ty", specifier = ">=0.0.11" },
+    { name = "wsproto", specifier = ">=1.2" },
+]
+
+[[package]]
 name = "certifi"
 version = "2026.1.4"
 source = { registry = "https://pypi.org/simple" }
@@ -259,80 +333,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3", size = 69412, upload-time = "2025-05-15T12:30:07.975Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
-]
-
-[[package]]
-name = "pounce"
-version = "0.4.0.dev0"
-source = { editable = "." }
-dependencies = [
-    { name = "h11" },
-]
-
-[package.optional-dependencies]
-fast = [
-    { name = "httptools" },
-]
-full = [
-    { name = "h2" },
-    { name = "truststore" },
-    { name = "wsproto" },
-]
-h2 = [
-    { name = "h2" },
-]
-tls = [
-    { name = "truststore" },
-]
-ws = [
-    { name = "wsproto" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "h2" },
-    { name = "httpx" },
-    { name = "hypothesis" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-benchmark" },
-    { name = "pytest-cov" },
-    { name = "pytest-timeout" },
-    { name = "pytest-xdist" },
-    { name = "ruff" },
-    { name = "ty" },
-    { name = "wsproto" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "h11", specifier = ">=0.14.0" },
-    { name = "h2", marker = "extra == 'full'", specifier = ">=4.0" },
-    { name = "h2", marker = "extra == 'h2'", specifier = ">=4.0" },
-    { name = "httptools", marker = "extra == 'fast'", specifier = ">=0.6" },
-    { name = "truststore", marker = "extra == 'full'", specifier = ">=0.9" },
-    { name = "truststore", marker = "extra == 'tls'", specifier = ">=0.9" },
-    { name = "wsproto", marker = "extra == 'full'", specifier = ">=1.2" },
-    { name = "wsproto", marker = "extra == 'ws'", specifier = ">=1.2" },
-]
-provides-extras = ["h2", "ws", "tls", "fast", "full"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "h2", specifier = ">=4.0" },
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "hypothesis", specifier = ">=6.100.0" },
-    { name = "pre-commit", specifier = ">=4.0.0" },
-    { name = "pytest", specifier = ">=9.0.2" },
-    { name = "pytest-asyncio", specifier = ">=0.23" },
-    { name = "pytest-benchmark", specifier = ">=5.0.0" },
-    { name = "pytest-cov", specifier = ">=6.0.0" },
-    { name = "pytest-timeout", specifier = ">=2.3.0" },
-    { name = "pytest-xdist", specifier = ">=3.5.0" },
-    { name = "ruff", specifier = ">=0.14.0" },
-    { name = "ty", specifier = ">=0.0.11" },
-    { name = "wsproto", specifier = ">=1.2" },
 ]
 
 [[package]]
