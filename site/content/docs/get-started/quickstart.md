@@ -42,7 +42,7 @@ async def app(scope, receive, send):
 pounce app:app
 ```
 
-:::
+:::{/tab-item}
 
 :::{tab-item} Programmatic
 
@@ -52,7 +52,7 @@ import pounce
 pounce.run("app:app")
 ```
 
-:::
+:::{/tab-item}
 
 :::{/tab-set}
 

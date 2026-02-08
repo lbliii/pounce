@@ -16,7 +16,7 @@ category: onboarding
 
 :::{note}
 Pounce works on both GIL and free-threading builds. On GIL builds, multi-worker mode uses processes instead of threads — same API, same config.
-:::
+:::{/note}
 
 ## Install
 
@@ -28,7 +28,7 @@ Pounce works on both GIL and free-threading builds. On GIL builds, multi-worker 
 uv add bengal-pounce
 ```
 
-:::
+:::{/tab-item}
 
 :::{tab-item} pip
 
@@ -36,7 +36,7 @@ uv add bengal-pounce
 pip install bengal-pounce
 ```
 
-:::
+:::{/tab-item}
 
 :::{tab-item} From Source
 
@@ -46,7 +46,7 @@ cd pounce
 uv sync --group dev
 ```
 
-:::
+:::{/tab-item}
 
 :::{/tab-set}
 

@@ -115,7 +115,7 @@ config = ServerConfig(
 
 :::{note}
 `ssl_certfile` and `ssl_keyfile` must both be set or both be `None`. Setting only one raises `ValueError`.
-:::
+:::{/note}
 
 ## Programmatic Usage
 
