@@ -161,12 +161,23 @@ class Worker:
         # any async resources (httpx clients, DB pools) bind to the
         # correct loop.  If the hook fails, the worker does not accept
         # connections (prevents serving with uninitialised state).
+        #
+        # The timeout catches apps that don't recognise the scope and
+        # accidentally block (e.g. their HTTP handler calls receive()).
+        # The _worker_lifecycle_receive helper returns http.disconnect
+        # to unblock most handlers quickly; the timeout is a safety net.
         try:
-            await self._app(
-                {"type": "pounce.worker.startup", "worker_id": self._worker_id},
-                _noop_receive,
-                _noop_send,
+            await asyncio.wait_for(
+                self._app(
+                    {"type": "pounce.worker.startup", "worker_id": self._worker_id},
+                    _worker_lifecycle_receive,
+                    _worker_lifecycle_send,
+                ),
+                timeout=30.0,
             )
+        except TimeoutError:
+            # App doesn't understand this scope type — proceed normally
+            pass
         except Exception:
             self._logger.exception(
                 "Worker %d startup hook failed — not accepting connections",
@@ -211,11 +222,16 @@ class Worker:
             # for proper async resource cleanup.  Errors are logged but
             # do not prevent worker exit.
             try:
-                await self._app(
-                    {"type": "pounce.worker.shutdown", "worker_id": self._worker_id},
-                    _noop_receive,
-                    _noop_send,
+                await asyncio.wait_for(
+                    self._app(
+                        {"type": "pounce.worker.shutdown", "worker_id": self._worker_id},
+                        _worker_lifecycle_receive,
+                        _worker_lifecycle_send,
+                    ),
+                    timeout=10.0,
                 )
+            except TimeoutError:
+                pass  # App doesn't understand this scope type
             except Exception:
                 self._logger.exception(
                     "Worker %d shutdown hook failed", self._worker_id,
@@ -847,17 +863,17 @@ class Worker:
 # ---------------------------------------------------------------------------
 
 
-async def _noop_receive() -> dict[str, Any]:
-    """No-op receive for worker lifecycle scopes.
+async def _worker_lifecycle_receive() -> dict[str, Any]:
+    """Receive callable for worker lifecycle scopes.
 
-    Worker lifecycle scopes are fire-and-forget — no data exchange is
-    needed.  This blocks forever and should never actually be called.
+    Returns ``http.disconnect`` immediately so that apps which pass
+    unrecognised scope types to their HTTP handler (and call
+    ``receive()``) unblock and return quickly instead of hanging.
     """
-    await asyncio.Event().wait()
-    return {}  # unreachable
+    return {"type": "http.disconnect"}
 
 
-async def _noop_send(message: dict[str, Any]) -> None:
+async def _worker_lifecycle_send(message: dict[str, Any]) -> None:
     """No-op send for worker lifecycle scopes."""
 
 

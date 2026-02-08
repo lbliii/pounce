@@ -1,6 +1,6 @@
 # RFC: Per-Worker Lifecycle Scopes
 
-**Status**: Draft
+**Status**: Implemented
 **Date**: 2026-02-08
 **Scope**: `pounce/worker.py`
 
@@ -69,21 +69,35 @@ In `Worker._serve()`, send two ASGI scope invocations to the app — one before 
 
 ```python
 # Before accepting connections (on worker's event loop):
-await app(
-    {"type": "pounce.worker.startup", "worker_id": self._worker_id},
-    _noop_receive,
-    _noop_send,
+await asyncio.wait_for(
+    app(
+        {"type": "pounce.worker.startup", "worker_id": self._worker_id},
+        _worker_lifecycle_receive,
+        _worker_lifecycle_send,
+    ),
+    timeout=30.0,
 )
 
 # After server.close() (on worker's event loop):
-await app(
-    {"type": "pounce.worker.shutdown", "worker_id": self._worker_id},
-    _noop_receive,
-    _noop_send,
+await asyncio.wait_for(
+    app(
+        {"type": "pounce.worker.shutdown", "worker_id": self._worker_id},
+        _worker_lifecycle_receive,
+        _worker_lifecycle_send,
+    ),
+    timeout=10.0,
 )
 ```
 
-These are fire-and-forget scope invocations — no request/response protocol. The `receive` and `send` callables are no-ops because no data exchange is needed.
+### Receive and Send Helpers
+
+The `_worker_lifecycle_receive` callable returns `{"type": "http.disconnect"}` immediately. This handles a common edge case: apps that pass unrecognised scope types to their HTTP handler, which calls `receive()` and would otherwise block forever. The disconnect message causes the handler to return quickly.
+
+The `_worker_lifecycle_send` callable is a no-op — lifecycle scopes produce no response.
+
+### Timeout Protection
+
+Both startup (30s) and shutdown (10s) scopes are wrapped in `asyncio.wait_for`. If the app doesn't recognise the scope and blocks despite the disconnect-returning receive, the timeout fires and the worker proceeds normally. This is the safety net for apps that cannot handle unknown scope types at all.
 
 ### Why Scope Invocations, Not Callbacks
 
@@ -96,76 +110,18 @@ These are fire-and-forget scope invocations — no request/response protocol. Th
 
 - If the app raises during `pounce.worker.startup`, the worker logs the error and **does not accept connections**. This prevents a broken worker from silently serving requests with uninitialized state.
 - If the app raises during `pounce.worker.shutdown`, the worker logs the error and continues shutdown. Cleanup failures should not prevent worker exit.
-- Apps that don't recognize these scope types will typically raise or return silently — both are handled gracefully.
+- If the app times out on either scope, the worker proceeds normally (the app doesn't understand the scope type).
 
 ---
 
-## Implementation Plan
+## Tests
 
-### Changes to `Worker._serve()` (`worker.py`)
-
-```python
-async def _serve(self) -> None:
-    self._loop = asyncio.get_running_loop()
-    self._async_shutdown = asyncio.Event()
-
-    # --- NEW: Per-worker startup ---
-    try:
-        await self._app(
-            {"type": "pounce.worker.startup", "worker_id": self._worker_id},
-            _noop_receive,
-            _noop_send,
-        )
-    except Exception:
-        self._logger.exception(
-            "Worker %d startup hook failed", self._worker_id
-        )
-        return  # Don't accept connections with broken state
-
-    server = await asyncio.start_server(...)
-    ...
-
-    # (existing shutdown logic)
-    finally:
-        ...
-        server.close()
-        await server.wait_closed()
-
-        # --- NEW: Per-worker shutdown ---
-        try:
-            await self._app(
-                {"type": "pounce.worker.shutdown", "worker_id": self._worker_id},
-                _noop_receive,
-                _noop_send,
-            )
-        except Exception:
-            self._logger.exception(
-                "Worker %d shutdown hook failed", self._worker_id
-            )
-
-        self._logger.info("Worker %d stopped", self._worker_id)
-```
-
-### Module-level helpers
-
-```python
-async def _noop_receive() -> dict[str, Any]:
-    """No-op receive for worker lifecycle scopes."""
-    await asyncio.Event().wait()  # Block forever — should never be called
-    return {}
-
-async def _noop_send(message: dict[str, Any]) -> None:
-    """No-op send for worker lifecycle scopes."""
-    pass
-```
-
-### Tests
-
-1. **`test_worker_startup_scope_sent`** — Verify the app receives `pounce.worker.startup` with correct `worker_id` before connections are accepted.
-2. **`test_worker_shutdown_scope_sent`** — Verify the app receives `pounce.worker.shutdown` after the server closes.
-3. **`test_worker_startup_failure_prevents_serving`** — Verify that if the startup scope raises, the worker does not accept connections.
-4. **`test_worker_shutdown_failure_non_fatal`** — Verify shutdown errors are logged but don't prevent worker exit.
-5. **`test_unrecognized_scope_handled_gracefully`** — Verify apps that raise on unknown scope types don't crash the worker.
+1. **`test_startup_scope_sent_before_connections`** — Verify the app receives `pounce.worker.startup` with correct `worker_id` before connections are accepted.
+2. **`test_shutdown_scope_sent_after_close`** — Verify the app receives `pounce.worker.shutdown` after the server closes.
+3. **`test_startup_and_shutdown_both_sent`** — Both scopes fire in correct order.
+4. **`test_startup_failure_prevents_serving`** — If the startup scope raises, the worker does not accept connections.
+5. **`test_shutdown_failure_non_fatal`** — Shutdown errors are logged but don't prevent worker exit.
+6. **`test_app_raises_on_unknown_scope`** — Apps that raise on unknown scope types don't crash the worker.
 
 ---
 
@@ -177,18 +133,8 @@ async def _noop_send(message: dict[str, Any]) -> None:
 
 ---
 
-## Risks
+## Resolved Questions
 
-| Risk | Likelihood | Mitigation |
-|------|-----------|------------|
-| App raises on unknown scope type | Medium | Catch all exceptions, log, and proceed (startup: don't serve; shutdown: continue) |
-| Startup hook is slow, delays worker ready | Low | Log timing; consider adding a timeout in future |
-| Scope type name conflicts with other servers | Low | Prefixed with `pounce.` to namespace |
-
----
-
-## Open Questions
-
-1. Should the scope include additional metadata (e.g., `worker_count`, `worker_mode`)?
-2. Should there be a configurable timeout for worker startup hooks?
-3. Should the scope type be `pounce.worker.startup` or a more generic `worker.startup`?
+1. **Additional metadata in scope?** — Not for now. `worker_id` is sufficient. Adding `worker_count` or `worker_mode` can be done later without breaking changes.
+2. **Configurable timeout?** — Yes, implemented with fixed timeouts (30s startup, 10s shutdown). Making them user-configurable via `ServerConfig` can follow if needed.
+3. **Scope type naming?** — Kept `pounce.worker.startup` / `pounce.worker.shutdown` with the `pounce.` prefix to avoid namespace conflicts with other servers.

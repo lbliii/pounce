@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Per-Worker Lifecycle Scopes
+
+- Worker sends `pounce.worker.startup` scope to the ASGI app before accepting connections,
+  and `pounce.worker.shutdown` after closing — both run on the worker's own event loop so
+  async resources (httpx clients, DB pools) bind to the correct loop
+- Timeout protection: 30s startup, 10s shutdown — apps that don't recognise the scope type
+  time out gracefully instead of hanging
+- `_worker_lifecycle_receive` returns `http.disconnect` immediately so apps that route
+  unknown scopes to their HTTP handler unblock quickly
+- If startup hook fails, the worker does not accept connections (prevents serving with
+  uninitialised state); shutdown hook failure is non-fatal
+- `tests/unit/test_worker_lifecycle.py` — 6 tests covering startup/shutdown delivery,
+  ordering, startup failure, shutdown failure, and unknown-scope handling
+
 #### ASGI 3.0 Compliance Suite
 
 - `tests/integration/test_asgi_compliance.py` — 41 tests validating pounce against the
