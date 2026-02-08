@@ -12,6 +12,22 @@ from pounce._types import ASGIApp, Receive, Scope, Send
 from pounce.config import ServerConfig
 from pounce.supervisor import Supervisor, _WorkerHandle
 
+
+def _wait_for_handles(
+    sup: Supervisor, count: int, *, timeout: float = 3.0,
+) -> None:
+    """Poll until the supervisor has ``count`` alive worker handles."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if (
+            len(sup._handles) >= count
+            and all(h.target.is_alive() for h in sup._handles[:count])
+        ):
+            return
+        time.sleep(0.05)
+    msg = f"Supervisor did not spawn {count} alive handles within {timeout}s"
+    raise RuntimeError(msg)
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -103,8 +119,8 @@ class TestSupervisorThreadMode:
         t = threading.Thread(target=run_supervisor, daemon=True)
         t.start()
 
-        # Give workers time to start
-        time.sleep(0.5)
+        # Wait for workers to be alive (replaces flaky time.sleep)
+        _wait_for_handles(sup, 2)
 
         # All handles should be alive
         for h in sup._handles:
@@ -136,7 +152,7 @@ class TestSupervisorRespawn:
 
         t = threading.Thread(target=run_sup, daemon=True)
         t.start()
-        time.sleep(0.5)
+        _wait_for_handles(sup, 2)
 
         try:
             # Verify initial state

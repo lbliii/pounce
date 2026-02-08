@@ -119,7 +119,7 @@ class TestWSProtocol:
             wsproto.events.TextMessage(data="hello from client")
         )
 
-        events = server.receive_data(client_bytes)
+        events, outbound = server.receive_data(client_bytes)
         assert len(events) == 1
         assert isinstance(events[0], WebSocketDataReceived)
         assert events[0].data == "hello from client"
@@ -133,7 +133,7 @@ class TestWSProtocol:
             wsproto.events.BytesMessage(data=payload)
         )
 
-        events = server.receive_data(client_bytes)
+        events, outbound = server.receive_data(client_bytes)
         assert len(events) == 1
         assert isinstance(events[0], WebSocketDataReceived)
         assert events[0].data == payload
@@ -146,7 +146,7 @@ class TestWSProtocol:
             wsproto.events.CloseConnection(code=1000, reason="bye")
         )
 
-        events = server.receive_data(client_bytes)
+        events, outbound = server.receive_data(client_bytes)
         assert len(events) == 1
         assert isinstance(events[0], WebSocketDisconnected)
         assert events[0].code == 1000
@@ -161,10 +161,22 @@ class TestWSProtocol:
             client_bytes = client.send(
                 wsproto.events.TextMessage(data=f"msg-{i}")
             )
-            events = server.receive_data(client_bytes)
+            events, outbound = server.receive_data(client_bytes)
             assert len(events) == 1
             assert isinstance(events[0], WebSocketDataReceived)
             assert events[0].data == f"msg-{i}"
+
+    def test_ping_generates_pong(self) -> None:
+        """Receiving a ping produces outbound pong bytes."""
+        client, server = _make_client_server()
+
+        client_bytes = client.send(
+            wsproto.events.Ping(payload=b"ping-payload")
+        )
+
+        events, outbound = server.receive_data(client_bytes)
+        assert len(events) == 0  # Pings are handled internally
+        assert len(outbound) > 0  # Pong response generated
 
 # ---------------------------------------------------------------------------
 # Handshake helpers
@@ -306,7 +318,10 @@ class TestWSBridge:
             headers=((b"host", b"localhost:8000"),),
             http_version="1.1",
         )
-        config = ServerConfig(ssl_certfile="/path/to/cert.pem")
+        config = ServerConfig(
+            ssl_certfile="/path/to/cert.pem",
+            ssl_keyfile="/path/to/key.pem",
+        )
         scope = build_ws_scope(
             request, config,
             client=("127.0.0.1", 54321),

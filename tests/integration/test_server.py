@@ -12,41 +12,46 @@ from pounce.logging import configure_logging
 from pounce.net.listener import create_listener
 from pounce.server import Server
 from pounce.worker import Worker
-from tests.conftest import send_raw_request
+from tests.conftest import _wait_for_ready, send_raw_request
 
-# -- Lifespan-tracking app (server-specific) --------------------------------
-
-
-_lifespan_events: list[str] = []
+# -- Lifespan-tracking app factory (pytest-xdist safe) ----------------------
 
 
-async def _lifespan_tracking_app(scope: Scope, receive: Receive, send: Send) -> None:
-    """ASGI app that records lifespan events to a global list."""
-    global _lifespan_events
+def _make_lifespan_tracking_app(
+    events: list[str],
+) -> ASGIApp:
+    """Create an ASGI app that records lifespan events to the given list.
 
-    if scope["type"] == "lifespan":
-        while True:
-            message = await receive()
-            if message["type"] == "lifespan.startup":
-                _lifespan_events.append("startup")
-                await send({"type": "lifespan.startup.complete"})
-            elif message["type"] == "lifespan.shutdown":
-                _lifespan_events.append("shutdown")
-                await send({"type": "lifespan.shutdown.complete"})
-                return
-        return
+    Uses a closure instead of global state so each test gets its own list,
+    which is safe under parallel test runners (pytest-xdist).
+    """
 
-    await receive()
-    body = b"ok"
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [(b"content-length", b"2")],
-    })
-    await send({
-        "type": "http.response.body",
-        "body": body,
-    })
+    async def _app(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "lifespan":
+            while True:
+                message = await receive()
+                if message["type"] == "lifespan.startup":
+                    events.append("startup")
+                    await send({"type": "lifespan.startup.complete"})
+                elif message["type"] == "lifespan.shutdown":
+                    events.append("shutdown")
+                    await send({"type": "lifespan.shutdown.complete"})
+                    return
+            return
+
+        await receive()
+        body = b"ok"
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-length", b"2")],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": body,
+        })
+
+    return _app
 
 
 # -- Helper to run a full server in background ----------------------------
@@ -81,7 +86,7 @@ def _run_server_background(
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
-    time.sleep(0.3)
+    _wait_for_ready(addr)
     return addr, stop_event, thread
 
 
@@ -104,11 +109,11 @@ class TestServerLifecycle:
             thread.join(timeout=3)
 
     def test_lifespan_events_fire(self):
-        global _lifespan_events
-        _lifespan_events = []
+        events: list[str] = []
+        app = _make_lifespan_tracking_app(events)
 
         config = ServerConfig(host="127.0.0.1", port=0, access_log=False)
-        addr, stop, thread = _run_server_background(_lifespan_tracking_app, config)
+        addr, stop, thread = _run_server_background(app, config)
 
         try:
             response = send_raw_request(
@@ -116,13 +121,13 @@ class TestServerLifecycle:
                 b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
             )
             assert b"200" in response
-            assert "startup" in _lifespan_events
+            assert "startup" in events
         finally:
             stop.set()
             thread.join(timeout=3)
 
-        assert "startup" in _lifespan_events
-        assert "shutdown" in _lifespan_events
+        assert "startup" in events
+        assert "shutdown" in events
 
 
 class TestProgrammaticShutdown:
@@ -176,12 +181,19 @@ class TestProgrammaticShutdown:
 
     def test_shutdown_is_idempotent(self):
         """Calling shutdown() multiple times does not raise."""
+        events: list[str] = []
         config = ServerConfig(host="127.0.0.1", port=0, access_log=False)
-        server = Server(config, _lifespan_tracking_app)
+        server = Server(config, _make_lifespan_tracking_app(events))
 
         thread = threading.Thread(target=server.run, daemon=True)
         thread.start()
-        time.sleep(0.5)
+
+        # Wait for lifespan startup instead of fixed sleep
+        deadline = time.monotonic() + 3.0
+        while "startup" not in events:
+            if time.monotonic() > deadline:
+                raise AssertionError("Server did not start within 3s")
+            time.sleep(0.05)
 
         # Call shutdown multiple times — should not raise
         server.shutdown()
@@ -194,7 +206,7 @@ class TestProgrammaticShutdown:
     def test_shutdown_before_run(self):
         """shutdown() called before run() causes immediate exit."""
         config = ServerConfig(host="127.0.0.1", port=0, access_log=False)
-        server = Server(config, _lifespan_tracking_app)
+        server = Server(config, _make_lifespan_tracking_app([]))
 
         # Pre-set shutdown
         server.shutdown()

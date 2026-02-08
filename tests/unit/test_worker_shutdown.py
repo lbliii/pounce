@@ -3,7 +3,6 @@
 import asyncio
 import socket
 import threading
-import time
 
 import pytest
 
@@ -11,6 +10,7 @@ from pounce._types import ASGIApp, Receive, Scope, Send
 from pounce.config import ServerConfig
 from pounce.net.listener import create_listener
 from pounce.worker import Worker
+from tests.conftest import _wait_for_ready
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -62,7 +62,7 @@ def _start_worker(
     )
     thread = threading.Thread(target=worker.run, daemon=True)
     thread.start()
-    time.sleep(0.2)
+    _wait_for_ready(sock.getsockname())
     return worker, sock, thread
 
 def _send_request(addr: tuple[str, int]) -> bytes:

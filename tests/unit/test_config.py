@@ -206,6 +206,14 @@ class TestServerConfigValidation:
         with pytest.raises(ValueError, match="max_requests_per_connection must be >= 0"):
             ServerConfig(max_requests_per_connection=-1)
 
+    def test_ssl_certfile_without_keyfile_raises(self):
+        with pytest.raises(ValueError, match="ssl_certfile and ssl_keyfile must both"):
+            ServerConfig(ssl_certfile="/path/to/cert.pem")
+
+    def test_ssl_keyfile_without_certfile_raises(self):
+        with pytest.raises(ValueError, match="ssl_certfile and ssl_keyfile must both"):
+            ServerConfig(ssl_keyfile="/path/to/key.pem")
+
 
 class TestServerConfigResolveWorkers:
     """resolve_workers() handles auto-detect and explicit values."""

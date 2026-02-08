@@ -53,10 +53,6 @@ class TestIsTLSConfigured:
         config = ServerConfig()
         assert is_tls_configured(config) is False
 
-    def test_configured_with_certfile(self) -> None:
-        config = ServerConfig(ssl_certfile="/path/to/cert.pem")
-        assert is_tls_configured(config) is True
-
     def test_configured_with_both(self) -> None:
         config = ServerConfig(
             ssl_certfile="/path/to/cert.pem",

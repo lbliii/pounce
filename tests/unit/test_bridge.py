@@ -12,6 +12,7 @@ import pytest
 from pounce._compression import GzipCompressor
 from pounce._timing import ServerTiming
 from pounce.asgi.bridge import (
+    SendState,
     _COALESCE_THRESHOLD,
     _EMPTY_BODY_MESSAGE,
     build_scope,
@@ -118,7 +119,10 @@ class TestBuildScope:
         assert scope["raw_path"] == b"/hello%20world"
 
     def test_https_scheme(self):
-        config = ServerConfig(ssl_certfile="/path/to/cert.pem")
+        config = ServerConfig(
+            ssl_certfile="/path/to/cert.pem",
+            ssl_keyfile="/path/to/key.pem",
+        )
         scope = build_scope(
             _request(), config, client=("127.0.0.1", 5000), server=("0.0.0.0", 8000)
         )
@@ -167,16 +171,31 @@ class TestCreateReceive:
         assert msg["more_body"] is False
 
 
+class _FakeInnerTransport:
+    """Fake asyncio.Transport with write buffer size tracking."""
+
+    def get_write_buffer_size(self) -> int:
+        return 0
+
+
 class _FakeTransport:
-    """Fake asyncio transport that captures writes."""
+    """Fake asyncio.StreamWriter that captures writes.
+
+    Mimics the subset of ``asyncio.StreamWriter`` used by
+    ``create_send``: ``.write()``, ``.transport``, and ``.drain()``.
+    """
 
     def __init__(self) -> None:
         self.data = bytearray()
         self.write_count = 0
+        self.transport = _FakeInnerTransport()
 
     def write(self, data: bytes) -> None:
         self.data.extend(data)
         self.write_count += 1
+
+    async def drain(self) -> None:
+        """No-op drain for tests."""
 
 
 class TestCreateSend:
@@ -189,7 +208,7 @@ class TestCreateSend:
         proto.receive_data(raw_req)
 
         transport = _FakeTransport()
-        send = create_send(proto, transport)
+        send = create_send(proto, transport, SendState())
 
         await send({
             "type": "http.response.start",
@@ -211,7 +230,7 @@ class TestCreateSend:
         proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
 
         transport = _FakeTransport()
-        send = create_send(proto, transport)
+        send = create_send(proto, transport, SendState())
 
         await send({
             "type": "http.response.start",
@@ -242,7 +261,7 @@ class TestCreateSend:
 
         transport = _FakeTransport()
         compressor = GzipCompressor()
-        send = create_send(proto, transport, compressor=compressor)
+        send = create_send(proto, transport, SendState(), compressor=compressor)
 
         await send({
             "type": "http.response.start",
@@ -268,7 +287,7 @@ class TestCreateSend:
         timing = ServerTiming()
         timing.add("parse", 0.3)
         timing.add("app", 12.1)
-        send = create_send(proto, transport, timing=timing)
+        send = create_send(proto, transport, SendState(), timing=timing)
 
         await send({
             "type": "http.response.start",
@@ -289,7 +308,7 @@ class TestCreateSend:
         proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
 
         transport = _FakeTransport()
-        send = create_send(proto, transport)
+        send = create_send(proto, transport, SendState())
 
         with pytest.raises(RuntimeError, match="before http.response.start"):
             await send({
@@ -303,7 +322,7 @@ class TestCreateSend:
         proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
 
         transport = _FakeTransport()
-        send = create_send(proto, transport)
+        send = create_send(proto, transport, SendState())
 
         await send({
             "type": "http.response.start",
@@ -374,7 +393,7 @@ class TestWriteCoalescing:
         proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
 
         transport = _FakeTransport()
-        send = create_send(proto, transport)
+        send = create_send(proto, transport, SendState())
 
         await send({
             "type": "http.response.start",
@@ -401,7 +420,7 @@ class TestWriteCoalescing:
         proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
 
         transport = _FakeTransport()
-        send = create_send(proto, transport)
+        send = create_send(proto, transport, SendState())
 
         # Body larger than _COALESCE_THRESHOLD (16 KB)
         large_body = b"x" * (_COALESCE_THRESHOLD + 1)
@@ -430,7 +449,7 @@ class TestWriteCoalescing:
         proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
 
         transport = _FakeTransport()
-        send = create_send(proto, transport)
+        send = create_send(proto, transport, SendState())
 
         await send({
             "type": "http.response.start",

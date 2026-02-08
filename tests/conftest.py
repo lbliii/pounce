@@ -7,9 +7,11 @@ tests should use these fixtures instead of defining their own apps.
 """
 
 import asyncio
+import functools
 import socket
 import threading
 import time
+from collections.abc import Callable, Generator
 
 import pytest
 
@@ -18,22 +20,50 @@ from pounce.config import ServerConfig
 from pounce.net.listener import create_listener
 from pounce.worker import Worker
 
+
 # ---------------------------------------------------------------------------
-# ASGI test apps
+# Lifespan decorator — DRYs the 12-line lifespan boilerplate
 # ---------------------------------------------------------------------------
 
+def with_lifespan(handler: Callable[..., object]) -> ASGIApp:
+    """Wrap a simple HTTP handler with standard lifespan support.
+
+    The *handler* receives ``(scope, receive, send)`` and is only
+    called for ``type == "http"`` scopes. Lifespan startup/shutdown
+    is handled automatically.
+
+    Example::
+
+        @with_lifespan
+        async def my_app(scope, receive, send):
+            await receive()
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"ok"})
+
+    """
+    @functools.wraps(handler)
+    async def _app(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "lifespan":
+            while True:
+                message = await receive()
+                if message["type"] == "lifespan.startup":
+                    await send({"type": "lifespan.startup.complete"})
+                elif message["type"] == "lifespan.shutdown":
+                    await send({"type": "lifespan.shutdown.complete"})
+                    return
+            return
+        await handler(scope, receive, send)
+
+    return _app
+
+
+# ---------------------------------------------------------------------------
+# ASGI test apps (using @with_lifespan to avoid boilerplate)
+# ---------------------------------------------------------------------------
+
+@with_lifespan
 async def _hello_app(scope: Scope, receive: Receive, send: Send) -> None:
     """Minimal ASGI app that returns 'Hello, World!'."""
-    if scope["type"] == "lifespan":
-        while True:
-            message = await receive()
-            if message["type"] == "lifespan.startup":
-                await send({"type": "lifespan.startup.complete"})
-            elif message["type"] == "lifespan.shutdown":
-                await send({"type": "lifespan.shutdown.complete"})
-                return
-        return
-
     await receive()
     body = b"Hello, World!"
     await send({
@@ -49,18 +79,9 @@ async def _hello_app(scope: Scope, receive: Receive, send: Send) -> None:
         "body": body,
     })
 
+@with_lifespan
 async def _echo_app(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI app that echoes the request path and method."""
-    if scope["type"] == "lifespan":
-        while True:
-            message = await receive()
-            if message["type"] == "lifespan.startup":
-                await send({"type": "lifespan.startup.complete"})
-            elif message["type"] == "lifespan.shutdown":
-                await send({"type": "lifespan.shutdown.complete"})
-                return
-        return
-
     await receive()
     body = f"{scope['method']} {scope['path']}".encode()
     await send({
@@ -76,18 +97,9 @@ async def _echo_app(scope: Scope, receive: Receive, send: Send) -> None:
         "body": body,
     })
 
+@with_lifespan
 async def _streaming_app(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI app that streams response body in chunks."""
-    if scope["type"] == "lifespan":
-        while True:
-            message = await receive()
-            if message["type"] == "lifespan.startup":
-                await send({"type": "lifespan.startup.complete"})
-            elif message["type"] == "lifespan.shutdown":
-                await send({"type": "lifespan.shutdown.complete"})
-                return
-        return
-
     await receive()
     await send({
         "type": "http.response.start",
@@ -104,32 +116,14 @@ async def _streaming_app(scope: Scope, receive: Receive, send: Send) -> None:
             "more_body": i < 2,
         })
 
+@with_lifespan
 async def _error_app(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI app that raises an exception."""
-    if scope["type"] == "lifespan":
-        while True:
-            message = await receive()
-            if message["type"] == "lifespan.startup":
-                await send({"type": "lifespan.startup.complete"})
-            elif message["type"] == "lifespan.shutdown":
-                await send({"type": "lifespan.shutdown.complete"})
-                return
-        return
-
     raise RuntimeError("App crashed!")
 
+@with_lifespan
 async def _sse_app(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI app that streams SSE events until the client disconnects."""
-    if scope["type"] == "lifespan":
-        while True:
-            message = await receive()
-            if message["type"] == "lifespan.startup":
-                await send({"type": "lifespan.startup.complete"})
-            elif message["type"] == "lifespan.shutdown":
-                await send({"type": "lifespan.shutdown.complete"})
-                return
-        return
-
     await receive()
 
     await send({
@@ -195,6 +189,25 @@ def sse_app() -> ASGIApp:
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _wait_for_ready(addr: tuple[str, int], *, timeout: float = 3.0) -> None:
+    """Retry-connect until the worker is accepting connections.
+
+    Replaces the old ``time.sleep(0.15)`` which was flaky on slow CI.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            probe.settimeout(0.5)
+            probe.connect(addr)
+            probe.close()
+            return
+        except (ConnectionRefusedError, OSError):
+            time.sleep(0.02)
+    msg = f"Worker at {addr} did not become ready within {timeout}s"
+    raise RuntimeError(msg)
+
+
 def send_raw_request(
     addr: tuple[str, int],
     request: bytes,
@@ -225,14 +238,39 @@ def start_worker(
 ) -> tuple[Worker, socket.socket, threading.Thread]:
     """Start a worker in a background thread.
 
+    Uses retry-connect instead of sleep to wait for readiness.
+
     Returns:
         (worker, socket, thread) — caller must shut down and close.
     """
     if config is None:
         config = ServerConfig(host="127.0.0.1", port=0, access_log=False)
     sock = create_listener(config)
+    addr = sock.getsockname()
     worker = Worker(config, app, sock, worker_id=0)
     thread = threading.Thread(target=worker.run, daemon=True)
     thread.start()
-    time.sleep(0.15)
+    _wait_for_ready(addr)
     return worker, sock, thread
+
+
+@pytest.fixture
+def running_worker(request: pytest.FixtureRequest) -> Generator[
+    tuple[Worker, tuple[str, int]], None, None,
+]:
+    """Start a worker serving the given app and yield ``(worker, addr)``.
+
+    Mark the test with ``@pytest.mark.parametrize("running_worker", [app], indirect=True)``
+    or use ``request.param`` to pass the ASGI app.
+
+    Automatically shuts down the worker and closes the socket on teardown.
+    """
+    app: ASGIApp = request.param
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+    try:
+        yield worker, addr
+    finally:
+        worker.shutdown()
+        thread.join(timeout=2)
+        sock.close()

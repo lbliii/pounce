@@ -112,10 +112,11 @@ class TestPriorityScheduler:
         # Stream 1 was removed, should skip to stream 3
         assert s.next_stream() == 3
 
-    def test_update_priority(self) -> None:
+    def test_update_priority_via_set(self) -> None:
+        """set_priority replaces an existing entry (update_priority was merged)."""
         s = PriorityScheduler()
         s.set_priority(1, StreamPriority(urgency=5))
-        s.update_priority(1, StreamPriority(urgency=0))
+        s.set_priority(1, StreamPriority(urgency=0))
         assert s.get_priority(1).urgency == 0
 
     def test_has_pending(self) -> None:

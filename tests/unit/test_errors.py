@@ -7,8 +7,8 @@ from pounce._errors import (
     ParseError,
     PounceError,
     ReloadError,
+    RequestTimeoutError,
     SupervisorError,
-    TimeoutError,
     TLSError,
     WorkerError,
 )
@@ -24,7 +24,7 @@ class TestErrorHierarchy:
         assert issubclass(ParseError, PounceError)
 
     def test_timeout_error_inherits(self):
-        assert issubclass(TimeoutError, PounceError)
+        assert issubclass(RequestTimeoutError, PounceError)
 
     def test_limit_error_inherits(self):
         assert issubclass(LimitError, PounceError)
@@ -60,7 +60,7 @@ class TestStatusCodes:
         assert err.status_code == 400
 
     def test_timeout_error_408(self):
-        err = TimeoutError("timed out")
+        err = RequestTimeoutError("timed out")
         assert err.status_code == 408
 
     def test_limit_error_413(self):

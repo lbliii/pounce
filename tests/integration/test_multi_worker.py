@@ -12,14 +12,13 @@ supervisor unit tests.
 
 import socket
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from pounce._types import ASGIApp, Receive, Scope, Send
 from pounce.config import ServerConfig
 from pounce.net.listener import create_listeners
 from pounce.supervisor import Supervisor
-from tests.conftest import send_raw_request
+from tests.conftest import _wait_for_ready, send_raw_request
 
 # ---------------------------------------------------------------------------
 # Test ASGI apps
@@ -85,7 +84,7 @@ def _start_supervisor(
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
-    time.sleep(0.5)  # Let workers start
+    _wait_for_ready(addr)
 
     return sup, sockets, t, addr
 
