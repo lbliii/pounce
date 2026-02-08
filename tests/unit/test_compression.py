@@ -1,6 +1,7 @@
 """Tests for pounce._compression — encoding negotiation and compressors."""
 
 import gzip
+import zlib
 
 import pytest
 
@@ -112,6 +113,36 @@ class TestGzipCompressor:
         assert len(compressed) < len(data)  # Actually compresses
         assert gzip.decompress(compressed) == data
 
+    def test_sync_flush_produces_output(self):
+        """sync_flush() forces buffered data out without finalizing."""
+        c = GzipCompressor()
+        data = b"small SSE event"
+        compressed = c.compress(data) + c.sync_flush()
+        assert len(compressed) > 0  # Data actually emitted
+
+        # Decompress with wbits=31 (gzip) — Z_SYNC_FLUSH produces
+        # a valid partial stream that zlib can decompress.
+        d = zlib.decompressobj(31)
+        decompressed = d.decompress(compressed)
+        assert decompressed == data
+
+    def test_sync_flush_allows_continued_compression(self):
+        """After sync_flush(), the compressor can still accept data."""
+        c = GzipCompressor()
+        chunk1 = b"first chunk "
+        chunk2 = b"second chunk"
+
+        # Compress first chunk and sync flush
+        part1 = c.compress(chunk1) + c.sync_flush()
+
+        # Compress second chunk and finalize
+        part2 = c.compress(chunk2) + c.flush()
+
+        # Full stream is decompressible
+        full = part1 + part2
+        decompressed = gzip.decompress(full)
+        assert decompressed == chunk1 + chunk2
+
 
 @pytest.mark.skipif(not _HAS_ZSTD, reason="zstd not available")
 class TestZstdCompressor:
@@ -137,6 +168,39 @@ class TestZstdCompressor:
         compressed = c.compress(b"") + c.flush()
         decompressed = zstd.decompress(compressed)
         assert decompressed == b""
+
+    def test_sync_flush_produces_output(self):
+        """sync_flush() forces buffered data out without finalizing."""
+        from compression.zstd import ZstdDecompressor
+
+        c = ZstdCompressor()
+        data = b"small SSE event"
+        compressed = c.compress(data) + c.sync_flush()
+        assert len(compressed) > 0  # Data actually emitted
+
+        # FLUSH_BLOCK produces a partial frame — use incremental decompressor
+        d = ZstdDecompressor()
+        decompressed = d.decompress(compressed)
+        assert decompressed == data
+
+    def test_sync_flush_allows_continued_compression(self):
+        """After sync_flush(), the compressor can still accept data."""
+        from compression import zstd
+
+        c = ZstdCompressor()
+        chunk1 = b"first chunk "
+        chunk2 = b"second chunk"
+
+        # Compress first chunk and sync flush
+        part1 = c.compress(chunk1) + c.sync_flush()
+
+        # Compress second chunk and finalize (completes the frame)
+        part2 = c.compress(chunk2) + c.flush()
+
+        # Full stream is decompressible
+        full = part1 + part2
+        decompressed = zstd.decompress(full)
+        assert decompressed == chunk1 + chunk2
 
 
 class TestCreateCompressor:

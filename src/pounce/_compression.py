@@ -56,10 +56,24 @@ class Compressor(Protocol):
         ...
 
     def flush(self) -> bytes:
-        """Flush any buffered compressed data.
+        """Flush any buffered compressed data and finalize the stream.
+
+        After calling flush(), the compressor should not be used again.
 
         Returns:
             Final compressed bytes.
+        """
+        ...
+
+    def sync_flush(self) -> bytes:
+        """Force buffered data out without finalizing the stream.
+
+        Used for streaming responses where each chunk must produce
+        compressed output immediately. The compressor remains usable
+        after this call.
+
+        Returns:
+            Compressed bytes for any internally buffered data.
         """
         ...
 
@@ -88,6 +102,9 @@ class GzipCompressor:
     def flush(self) -> bytes:
         return self._compressor.flush(zlib.Z_FINISH)
 
+    def sync_flush(self) -> bytes:
+        return self._compressor.flush(zlib.Z_SYNC_FLUSH)
+
     @property
     def encoding(self) -> str:
         return "gzip"
@@ -114,6 +131,9 @@ class ZstdCompressor:
 
     def flush(self) -> bytes:
         return self._compressor.flush()
+
+    def sync_flush(self) -> bytes:
+        return self._compressor.flush(mode=_zstd.ZstdCompressor.FLUSH_BLOCK)
 
     @property
     def encoding(self) -> str:
