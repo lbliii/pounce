@@ -136,7 +136,10 @@ async def handle_websocket(
                 if not data:
                     break
 
-                events = ws_proto.receive_data(data)
+                events, outbound = ws_proto.receive_data(data)
+                if outbound:
+                    writer.write(outbound)
+                    await writer.drain()
                 for event in events:
                     if isinstance(event, WebSocketDataReceived):
                         if isinstance(event.data, str):

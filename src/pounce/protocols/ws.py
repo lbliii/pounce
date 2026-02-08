@@ -127,18 +127,21 @@ class WSProtocol:
 
     # -- Protocol interface -------------------------------------------------
 
-    def receive_data(self, data: bytes) -> list[ProtocolEvent]:
-        """Feed raw bytes from the socket, return WebSocket events.
+    def receive_data(self, data: bytes) -> tuple[list[ProtocolEvent], bytes]:
+        """Feed raw bytes from the socket, return WebSocket events and outbound data.
 
         Args:
             data: Raw WebSocket frame bytes from the network.
 
         Returns:
-            List of WebSocket protocol events.
+            Tuple of (protocol_events, outbound_bytes). The outbound bytes
+            include pong responses and other protocol-level frames that must
+            be written back to the socket.
 
         """
         self._conn.receive_data(data)
         events: list[ProtocolEvent] = []
+        outbound_parts: list[bytes] = []
 
         for ws_event in self._conn.events():
             if isinstance(ws_event, wsproto.events.TextMessage):
@@ -154,10 +157,12 @@ class WSProtocol:
                 events.append(WebSocketDisconnected(code=code, reason=reason))
 
             elif isinstance(ws_event, wsproto.events.Ping):
-                # wsproto auto-generates pong responses
-                pass
+                # Generate and capture the pong response bytes
+                pong = wsproto.events.Pong(payload=ws_event.payload)
+                outbound_parts.append(self._conn.send(pong))
 
-        return events
+        outbound = b"".join(outbound_parts) if outbound_parts else b""
+        return events, outbound
 
     # -- Send methods -------------------------------------------------------
 

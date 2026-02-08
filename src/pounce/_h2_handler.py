@@ -352,7 +352,10 @@ async def handle_h2_websocket_stream(
 
             raw_data = msg.get("body", b"")
             if raw_data:
-                events = ws_proto.receive_data(raw_data)
+                events, outbound = ws_proto.receive_data(raw_data)
+                if outbound:
+                    h2_conn.send_data(stream_id, outbound)  # type: ignore[union-attr]
+                    writer.write(h2_conn.data_to_send())  # type: ignore[union-attr]
                 for ws_event in events:
                     if isinstance(ws_event, WebSocketDataReceived):
                         if isinstance(ws_event.data, str):

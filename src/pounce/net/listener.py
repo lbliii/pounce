@@ -14,6 +14,7 @@ The worker receives a socket and does not know which strategy was used.
 
 """
 
+import errno
 import logging
 import socket
 import sys
@@ -122,12 +123,12 @@ def _bind_socket(config: ServerConfig) -> socket.socket:
 
     except OSError as exc:
         sock.close()
-        if exc.errno == 98 or "already in use" in str(exc).lower():  # EADDRINUSE
+        if exc.errno == errno.EADDRINUSE or "already in use" in str(exc).lower():
             raise OSError(
                 f"Address {config.host}:{config.port} is already in use. "
                 "Is another server running?"
             ) from exc
-        if exc.errno == 13:  # EACCES
+        if exc.errno == errno.EACCES:
             raise OSError(
                 f"Permission denied binding to {config.host}:{config.port}. "
                 "Try a port > 1024 or run with elevated permissions."
