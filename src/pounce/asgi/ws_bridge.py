@@ -14,11 +14,15 @@ ASGI WebSocket lifecycle:
 """
 
 import asyncio
-from typing import Any
-from urllib.parse import unquote
+from typing import TYPE_CHECKING, Any
 
+from pounce._types import Receive, Send
+from pounce.asgi._scope import build_base_scope
 from pounce.config import ServerConfig
 from pounce.protocols._base import RequestReceived
+
+if TYPE_CHECKING:
+    from pounce.protocols.ws import WSProtocol
 
 
 def build_ws_scope(
@@ -39,18 +43,6 @@ def build_ws_scope(
         ASGI scope dict with ``type: "websocket"``.
 
     """
-    target = request.target.decode("ascii", errors="replace")
-
-    if "?" in target:
-        path, _, query_string = target.partition("?")
-    else:
-        path = target
-        query_string = ""
-
-    path = unquote(path)
-
-    headers: list[list[bytes]] = [[name, value] for name, value in request.headers]
-
     # Extract requested subprotocols from Sec-WebSocket-Protocol header
     subprotocols: list[str] = []
     for name, value in request.headers:
@@ -61,25 +53,21 @@ def build_ws_scope(
             break
 
     scheme = "wss" if config.ssl_certfile else "ws"
-
-    return {
-        "type": "websocket",
-        "asgi": {"version": "3.0", "spec_version": "2.4"},
-        "http_version": request.http_version,
-        "scheme": scheme,
-        "path": path,
-        "raw_path": request.target.split(b"?")[0],
-        "query_string": query_string.encode("ascii"),
-        "root_path": config.root_path,
-        "server": server,
-        "client": client,
-        "headers": headers,
-        "subprotocols": subprotocols,
-    }
+    scope = build_base_scope(
+        request,
+        scope_type="websocket",
+        http_version=request.http_version,
+        scheme=scheme,
+        server=server,
+        client=client,
+        root_path=config.root_path,
+    )
+    scope["subprotocols"] = subprotocols
+    return scope
 
 def create_ws_receive(
     events: asyncio.Queue[dict[str, Any]],
-) -> Any:
+) -> Receive:
     """Create an ASGI receive callable for WebSocket.
 
     The worker pushes WebSocket events into the queue. The ASGI app
@@ -100,12 +88,12 @@ def create_ws_receive(
 
 def create_ws_send(
     writer: asyncio.StreamWriter,
-    ws_protocol: Any,  # WSProtocol — typed as Any to avoid import cycle
+    ws_protocol: WSProtocol,
     ws_key: bytes,
     *,
     accept_event: asyncio.Event,
     close_event: asyncio.Event,
-) -> Any:
+) -> Send:
     """Create an ASGI send callable for WebSocket.
 
     Handles ``websocket.accept``, ``websocket.send``, and

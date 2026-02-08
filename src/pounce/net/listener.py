@@ -96,18 +96,50 @@ def has_so_reuseport() -> bool:
     return hasattr(socket, "SO_REUSEPORT") and sys.platform != "win32"
 
 def _bind_socket(config: ServerConfig) -> socket.socket:
-    """Create, configure, bind, and listen on a single TCP socket."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    """Create, configure, bind, and listen on a single TCP socket.
+
+    Uses ``getaddrinfo`` to resolve the host, supporting both IPv4 and
+    IPv6 addresses.  When binding to an IPv6 address, enables dual-stack
+    (``IPV6_V6ONLY=False``) where possible so both IPv4 and IPv6 clients
+    can connect.
+
+    """
+    # Resolve host to get the correct address family
+    infos = socket.getaddrinfo(
+        config.host, config.port,
+        family=socket.AF_UNSPEC,
+        type=socket.SOCK_STREAM,
+        flags=socket.AI_PASSIVE,
+    )
+    if not infos:
+        msg = f"Could not resolve address {config.host}:{config.port}"
+        raise OSError(msg)
+
+    # Prefer IPv6 for dual-stack, fall back to IPv4
+    af, socktype, proto, _canonname, sockaddr = infos[0]
+    for info in infos:
+        if info[0] == socket.AF_INET6:
+            af, socktype, proto, _canonname, sockaddr = info
+            break
+
+    sock = socket.socket(af, socktype, proto)
 
     try:
         # Allow immediate reuse of the address after restart
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
+        # Enable dual-stack on IPv6 sockets where supported
+        if af == socket.AF_INET6:
+            try:
+                sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+            except (AttributeError, OSError):
+                pass  # Dual-stack not available on this platform
+
         # SO_REUSEPORT allows multiple sockets to bind to the same port
         if has_so_reuseport():
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
-        sock.bind((config.host, config.port))
+        sock.bind(sockaddr)
         sock.listen(config.backlog)
         sock.setblocking(False)
 

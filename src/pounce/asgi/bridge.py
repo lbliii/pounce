@@ -20,10 +20,11 @@ import asyncio
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
-from urllib.parse import unquote
 
 from pounce._compression import Compressor
 from pounce._timing import ServerTiming
+from pounce._types import Receive, Send
+from pounce.asgi._scope import build_base_scope
 from pounce.config import ServerConfig
 from pounce.protocols._base import BodyReceived, ProtocolHandler, RequestReceived
 
@@ -42,8 +43,6 @@ class SendState:
 # ---------------------------------------------------------------------------
 # Pre-computed constants — allocated once at import, shared across workers
 # ---------------------------------------------------------------------------
-
-_ASGI_SPEC: dict[str, str] = {"version": "3.0", "spec_version": "2.4"}
 
 # Pre-built terminal body message for bodyless requests (GET, HEAD, etc.)
 # Avoids asyncio.Queue entirely for the common no-body case.
@@ -73,42 +72,21 @@ def build_scope(
         ASGI scope dict ready to pass to an ASGI app.
 
     """
-    target = request.target.decode("ascii", errors="replace")
-
-    # Split target into path and query string
-    if "?" in target:
-        path, _, query_string = target.partition("?")
-    else:
-        path = target
-        query_string = ""
-
-    # Decode percent-encoded path
-    path = unquote(path)
-
-    # Build headers as list of [name, value] pairs (ASGI expects bytes)
-    headers: list[list[bytes]] = [[name, value] for name, value in request.headers]
-
     scheme = "https" if config.ssl_certfile else "http"
-
-    return {
-        "type": "http",
-        "asgi": _ASGI_SPEC,
-        "http_version": request.http_version,
-        "method": request.method.decode("ascii"),
-        "path": path,
-        "raw_path": request.target.split(b"?")[0],
-        "query_string": query_string.encode("ascii"),
-        "root_path": config.root_path,
-        "scheme": scheme,
-        "server": server,
-        "client": client,
-        "headers": headers,
-    }
+    return build_base_scope(
+        request,
+        scope_type="http",
+        http_version=request.http_version,
+        scheme=scheme,
+        server=server,
+        client=client,
+        root_path=config.root_path,
+    )
 
 
 def create_receive(
     body_events: asyncio.Queue[BodyReceived],
-) -> Any:
+) -> Receive:
     """Create an ASGI receive callable from a body event queue.
 
     The worker pushes BodyReceived events into the queue as they arrive.
@@ -133,7 +111,7 @@ def create_receive(
     return receive
 
 
-def create_empty_receive() -> Any:
+def create_empty_receive() -> Receive:
     """Create a fast-path receive for bodyless requests (GET, HEAD, etc.).
 
     Returns a static empty-body message without asyncio.Queue overhead.
@@ -173,7 +151,7 @@ def create_send(
     *,
     timing: ServerTiming | None = None,
     compressor: Compressor | None = None,
-) -> Any:
+) -> Send:
     """Create an ASGI send callable that streams to the transport.
 
     Streaming-first: each response.body chunk is written immediately.

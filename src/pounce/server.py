@@ -258,9 +258,21 @@ class Server:
             try:
                 await self._async_shutdown.wait()
             finally:
-                logger.info("Shutting down...")
-                server.close()
-                await server.wait_closed()
+                logger.info("Shutting down — draining connections...")
+                server.close()  # Stop accepting new connections
+
+                # Grace period: wait for in-flight connections to complete
+                timeout = self._config.shutdown_timeout
+                try:
+                    await asyncio.wait_for(
+                        server.wait_closed(), timeout=timeout,
+                    )
+                    logger.info("All connections drained")
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Shutdown timeout (%.1fs) — forcing remaining connections closed",
+                        timeout,
+                    )
                 self._loop = None
 
     # ------------------------------------------------------------------

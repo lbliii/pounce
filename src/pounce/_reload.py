@@ -7,13 +7,13 @@ supervisor to restart workers when modifications are detected.
 Uses stdlib ``pathlib`` + polling. Ignores ``__pycache__``, ``.git``,
 ``node_modules``, and common virtual environment directories.
 
-Optionally uses ``watchfiles`` (Rust-based, fast) when available.
-
 """
 
 import logging
 import os
+import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 logger = logging.getLogger("pounce.reload")
@@ -110,10 +110,10 @@ def detect_changes(
 
 def watch_for_changes(
     directories: list[Path],
-    callback: object,  # Callable[[], None] — typed as object to avoid Protocol import
+    callback: Callable[[], None],
     *,
     interval: float = 1.0,
-    stop_event: object | None = None,  # threading.Event
+    stop_event: threading.Event | None = None,
 ) -> None:
     """Poll directories for changes and call callback on detection.
 
@@ -128,8 +128,6 @@ def watch_for_changes(
         stop_event: Optional threading.Event to stop the watcher.
 
     """
-    import threading
-
     if stop_event is None:
         stop_event = threading.Event()
 
@@ -140,10 +138,10 @@ def watch_for_changes(
 
     snapshot = _snapshot(directories)
 
-    while not stop_event.is_set():  # type: ignore[union-attr]
-        time.sleep(interval)
-
-        if stop_event.is_set():  # type: ignore[union-attr]
+    while not stop_event.is_set():
+        # Use stop_event.wait() instead of time.sleep() for instant
+        # response to stop signals — no 1s worst-case shutdown delay.
+        if stop_event.wait(timeout=interval):
             break
 
         changed, snapshot = detect_changes(directories, snapshot)
@@ -156,6 +154,6 @@ def watch_for_changes(
                 ", ".join(os.path.basename(f) for f in file_list),
                 "..." if len(changed) > 5 else "",
             )
-            callback()  # type: ignore[operator]
+            callback()
 
     logger.info("File watcher stopped")

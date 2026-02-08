@@ -13,13 +13,18 @@ worker's event loop — no lock needed).
 """
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pounce._compression import Compressor
 from pounce._timing import ServerTiming
+from pounce._types import Receive, Send
+from pounce.asgi._scope import build_base_scope
 from pounce.asgi.bridge import SendState
 from pounce.config import ServerConfig
 from pounce.protocols._base import RequestReceived
+
+if TYPE_CHECKING:
+    from pounce.protocols.h2 import H2Connection
 
 
 def build_h2_scope(
@@ -34,39 +39,20 @@ def build_h2_scope(
     and ``scheme: "https"`` (HTTP/2 typically requires TLS).
 
     """
-    from urllib.parse import unquote
-
-    target = request.target.decode("ascii", errors="replace")
-
-    if "?" in target:
-        path, _, query_string = target.partition("?")
-    else:
-        path = target
-        query_string = ""
-
-    path = unquote(path)
-    headers: list[list[bytes]] = [[name, value] for name, value in request.headers]
-
     scheme = "https" if config.ssl_certfile else "http"
-
-    return {
-        "type": "http",
-        "asgi": {"version": "3.0", "spec_version": "2.4"},
-        "http_version": "2",
-        "method": request.method.decode("ascii"),
-        "path": path,
-        "raw_path": request.target.split(b"?")[0],
-        "query_string": query_string.encode("ascii"),
-        "root_path": config.root_path,
-        "scheme": scheme,
-        "server": server,
-        "client": client,
-        "headers": headers,
-    }
+    return build_base_scope(
+        request,
+        scope_type="http",
+        http_version="2",
+        scheme=scheme,
+        server=server,
+        client=client,
+        root_path=config.root_path,
+    )
 
 def create_h2_receive(
     body_queue: asyncio.Queue[dict[str, Any]],
-) -> Any:
+) -> Receive:
     """Create an ASGI receive callable for an HTTP/2 stream.
 
     The worker pushes body events into the queue as DATA frames arrive.
@@ -79,14 +65,14 @@ def create_h2_receive(
     return receive
 
 def create_h2_send(
-    h2_conn: Any,  # H2Connection — Any to avoid import cycle
+    h2_conn: H2Connection,
     stream_id: int,
     writer: asyncio.StreamWriter,
     state: SendState,
     *,
     timing: ServerTiming | None = None,
     compressor: Compressor | None = None,
-) -> Any:
+) -> Send:
     """Create an ASGI send callable for an HTTP/2 stream.
 
     Serializes via the shared H2Connection. After each h2 operation,
@@ -201,7 +187,7 @@ def create_h2_send(
 
     return send
 
-def _flush(h2_conn: Any, writer: asyncio.StreamWriter) -> None:
+def _flush(h2_conn: H2Connection, writer: asyncio.StreamWriter) -> None:
     """Write pending h2 output bytes to the transport."""
     data = h2_conn.data_to_send()
     if data:

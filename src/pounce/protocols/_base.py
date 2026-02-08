@@ -118,16 +118,21 @@ type ProtocolEvent = (
 
 @runtime_checkable
 class ProtocolHandler(Protocol):
-    """Sans-I/O contract for all wire protocols.
+    """Sans-I/O contract for HTTP/1.1 wire protocol handlers.
 
-    Protocol handlers translate between raw bytes and typed events.
-    The worker layer feeds bytes in via receive_data() and gets serialized
-    bytes out via send_response() and send_body().
+    Defines the request-response cycle interface: parse inbound bytes
+    via ``receive_data()``, serialize outbound responses via
+    ``send_response()`` and ``send_body()``, and reset via
+    ``start_new_cycle()`` for keep-alive connections.
 
     Implementations:
-    - H1Protocol (h11) — HTTP/1.1
-    - H2Protocol (h2)  — HTTP/2 (phase 3)
-    - WSProtocol (wsproto) — WebSocket (phase 3)
+    - H1Protocol (h11) — pure Python HTTP/1.1
+    - H1HttpToolsProtocol (httptools) — C-accelerated HTTP/1.1
+
+    Note: HTTP/2 (``H2Connection``) and WebSocket (``WSProtocol``) have
+    fundamentally different interfaces (stream IDs, message framing) and
+    do **not** implement this Protocol.  They have their own APIs in
+    ``protocols/h2.py`` and ``protocols/ws.py`` respectively.
 
     """
 
