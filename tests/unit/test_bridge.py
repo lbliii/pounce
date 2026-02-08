@@ -12,10 +12,10 @@ import pytest
 from pounce._compression import GzipCompressor
 from pounce._timing import ServerTiming
 from pounce.asgi.bridge import (
-    SendState,
     _COALESCE_THRESHOLD,
     _DISCONNECT_MESSAGE,
     _EMPTY_BODY_MESSAGE,
+    SendState,
     build_scope,
     create_disconnect_receive,
     create_empty_receive,

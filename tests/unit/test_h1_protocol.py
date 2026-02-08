@@ -5,7 +5,6 @@ import pytest
 from pounce._errors import ParseError
 from pounce.protocols._base import (
     BodyReceived,
-    ConnectionClosed,
     ProtocolHandler,
     RequestReceived,
 )

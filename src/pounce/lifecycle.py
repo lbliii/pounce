@@ -22,7 +22,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-
 # ---------------------------------------------------------------------------
 # Event types — frozen, slotted, serializable
 # ---------------------------------------------------------------------------
@@ -125,7 +124,7 @@ class NoopCollector:
 
     __slots__ = ()
 
-    def record(self, event: LifecycleEvent) -> None:  # noqa: ARG002
+    def record(self, event: LifecycleEvent) -> None:
         """Discard the event."""
 
 

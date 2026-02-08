@@ -49,12 +49,12 @@ class Server:
     """
 
     __slots__ = (
-        "_config",
         "_app",
-        "_ssl_context",
-        "_shutdown_event",
-        "_loop",
         "_async_shutdown",
+        "_config",
+        "_loop",
+        "_shutdown_event",
+        "_ssl_context",
         "_supervisor",
     )
 
@@ -286,7 +286,7 @@ class Server:
                         server.wait_closed(), timeout=timeout,
                     )
                     logger.info("All connections drained")
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.warning(
                         "Shutdown timeout (%.1fs) — forcing remaining connections closed",
                         timeout,

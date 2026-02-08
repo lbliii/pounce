@@ -1,10 +1,7 @@
 """Tests for Worker shutdown coordination and backpressure (Phase 2)."""
 
-import asyncio
 import socket
 import threading
-
-import pytest
 
 from pounce._types import ASGIApp, Receive, Scope, Send
 from pounce.config import ServerConfig
@@ -79,7 +76,7 @@ def _send_request(addr: tuple[str, int]) -> bytes:
                 if not chunk:
                     break
                 response += chunk
-            except socket.timeout:
+            except TimeoutError:
                 break
         return response
     finally:

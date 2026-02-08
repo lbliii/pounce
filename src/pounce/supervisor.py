@@ -18,13 +18,11 @@ Responsibilities:
 
 import logging
 import multiprocessing
-import os
 import signal
 import socket
 import ssl
 import threading
 import time
-from typing import Literal
 
 from pounce._errors import SupervisorError
 from pounce._runtime import WorkerMode, detect_worker_mode
@@ -42,7 +40,7 @@ _HEALTH_CHECK_INTERVAL = 1.0  # seconds
 class _WorkerHandle:
     """Metadata about a running worker (thread or process)."""
 
-    __slots__ = ("worker_id", "target", "started_at", "restart_count", "restarts")
+    __slots__ = ("restart_count", "restarts", "started_at", "target", "worker_id")
 
     def __init__(self, worker_id: int, target: threading.Thread | multiprocessing.Process) -> None:
         self.worker_id = worker_id
@@ -67,13 +65,13 @@ class Supervisor:
     """
 
     __slots__ = (
-        "_config",
         "_app",
+        "_config",
+        "_effective_workers",
+        "_handles",
         "_mode",
         "_shutdown_event",
-        "_handles",
         "_sockets",
-        "_effective_workers",
         "_ssl_context",
     )
 

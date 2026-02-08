@@ -20,7 +20,6 @@ from pounce.config import ServerConfig
 from pounce.net.listener import create_listener
 from pounce.worker import Worker
 
-
 # ---------------------------------------------------------------------------
 # Lifespan decorator — DRYs the 12-line lifespan boilerplate
 # ---------------------------------------------------------------------------
@@ -255,9 +254,7 @@ def start_worker(
 
 
 @pytest.fixture
-def running_worker(request: pytest.FixtureRequest) -> Generator[
-    tuple[Worker, tuple[str, int]], None, None,
-]:
+def running_worker(request: pytest.FixtureRequest) -> Generator[tuple[Worker, tuple[str, int]]]:
     """Start a worker serving the given app and yield ``(worker, addr)``.
 
     Mark the test with ``@pytest.mark.parametrize("running_worker", [app], indirect=True)``

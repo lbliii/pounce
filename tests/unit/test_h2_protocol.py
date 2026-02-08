@@ -56,7 +56,7 @@ class TestH2Connection:
         assert len(preface) > 0
 
     def test_single_get_request(self) -> None:
-        from pounce.protocols.h2 import H2BodyReceived, H2Connection, H2RequestReceived
+        from pounce.protocols.h2 import H2BodyReceived, H2RequestReceived
 
         client, server = _make_client_server()
 
@@ -95,7 +95,7 @@ class TestH2Connection:
         assert not body_events[0].body.more
 
     def test_post_request_with_body(self) -> None:
-        from pounce.protocols.h2 import H2BodyReceived, H2Connection, H2RequestReceived
+        from pounce.protocols.h2 import H2BodyReceived, H2RequestReceived
 
         client, server = _make_client_server()
 
@@ -127,7 +127,7 @@ class TestH2Connection:
         assert body in all_body
 
     def test_multiplexed_requests(self) -> None:
-        from pounce.protocols.h2 import H2Connection, H2RequestReceived
+        from pounce.protocols.h2 import H2RequestReceived
 
         client, server = _make_client_server()
 
@@ -154,7 +154,6 @@ class TestH2Connection:
         assert paths == {b"/first", b"/second"}
 
     def test_send_response(self) -> None:
-        from pounce.protocols.h2 import H2Connection
 
         client, server = _make_client_server()
 
@@ -189,7 +188,7 @@ class TestH2Connection:
         assert headers_dict[":status"] == "200"
 
     def test_stream_reset(self) -> None:
-        from pounce.protocols.h2 import H2Connection, H2StreamReset
+        from pounce.protocols.h2 import H2StreamReset
 
         client, server = _make_client_server()
 
@@ -218,7 +217,7 @@ class TestH2Connection:
         assert reset_events[0].error_code == 8
 
     def test_goaway(self) -> None:
-        from pounce.protocols.h2 import H2Connection, H2GoAway
+        from pounce.protocols.h2 import H2GoAway
 
         client, server = _make_client_server()
 
@@ -233,7 +232,7 @@ class TestH2Connection:
         assert server.is_closed
 
     def test_authority_becomes_host_header(self) -> None:
-        from pounce.protocols.h2 import H2Connection, H2RequestReceived
+        from pounce.protocols.h2 import H2RequestReceived
 
         client, server = _make_client_server()
 

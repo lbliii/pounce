@@ -14,17 +14,14 @@ Usage:
 
 import argparse
 import asyncio
-import os
 import resource
 import socket
-import statistics
 import threading
 import time
 
 from pounce._types import ASGIApp, Receive, Scope, Send
 from pounce.config import ServerConfig
 from pounce.worker import Worker
-
 
 # ---------------------------------------------------------------------------
 # Benchmark app

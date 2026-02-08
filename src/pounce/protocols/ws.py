@@ -54,7 +54,7 @@ def build_ws_accept_key(ws_key: bytes) -> bytes:
         Base64-encoded accept key for the 101 response.
 
     """
-    digest = hashlib.sha1(ws_key.strip() + _WS_MAGIC).digest()  # noqa: S324
+    digest = hashlib.sha1(ws_key.strip() + _WS_MAGIC).digest()
     return base64.b64encode(digest)
 
 def build_101_response(
@@ -110,7 +110,7 @@ class WSProtocol:
 
     """
 
-    __slots__ = ("_conn", "_subprotocol", "_closed")
+    __slots__ = ("_closed", "_conn", "_subprotocol")
 
     def __init__(self, *, subprotocol: str | None = None) -> None:
         if not _HAS_WSPROTO:
@@ -144,10 +144,7 @@ class WSProtocol:
         outbound_parts: list[bytes] = []
 
         for ws_event in self._conn.events():
-            if isinstance(ws_event, wsproto.events.TextMessage):
-                events.append(WebSocketDataReceived(data=ws_event.data))
-
-            elif isinstance(ws_event, wsproto.events.BytesMessage):
+            if isinstance(ws_event, wsproto.events.TextMessage) or isinstance(ws_event, wsproto.events.BytesMessage):
                 events.append(WebSocketDataReceived(data=ws_event.data))
 
             elif isinstance(ws_event, wsproto.events.CloseConnection):

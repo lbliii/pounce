@@ -11,7 +11,7 @@ All state is per-connection, per-request-cycle. No shared mutable state.
 
 import h11
 
-from pounce._errors import LimitError, ParseError
+from pounce._errors import ParseError
 from pounce.protocols._base import (
     BodyReceived,
     ConnectionClosed,

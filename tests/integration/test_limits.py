@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from pounce._types import ASGIApp, Receive, Scope, Send
+from pounce._types import Receive, Scope, Send
 from pounce.config import ServerConfig
 from tests.conftest import send_raw_request, start_worker, with_lifespan
 
@@ -234,11 +234,11 @@ class TestMaxConnections:
             host="127.0.0.1", port=0, access_log=False,
         )
         # Start worker with max_connections=1 via start_worker's helper
+        import threading
+
         from pounce.net.listener import create_listener
         from pounce.worker import Worker
         from tests.conftest import _wait_for_ready
-
-        import threading
 
         sock = create_listener(config)
         addr = sock.getsockname()

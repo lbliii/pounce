@@ -16,7 +16,6 @@ from __future__ import annotations
 from pounce._errors import LimitError, ParseError
 from pounce.protocols._base import (
     BodyReceived,
-    ConnectionClosed,
     ProtocolEvent,
     RequestReceived,
 )
@@ -78,17 +77,17 @@ class H1HttpToolsProtocol:
     """
 
     __slots__ = (
-        "_parser",
-        "_events",
-        "_current_url",
-        "_current_headers",
         "_body_chunks",
+        "_chunked",
+        "_current_headers",
+        "_current_url",
+        "_events",
+        "_header_bytes",
         "_keep_alive",
+        "_max_size",
+        "_parser",
         "_request_complete",
         "_response_started",
-        "_chunked",
-        "_max_size",
-        "_header_bytes",
     )
 
     def __init__(self, *, max_incomplete_event_size: int | None = None) -> None:

@@ -7,7 +7,6 @@ import pytest
 from pounce.protocols._base import (
     BodyReceived,
     ConnectionClosed,
-    ProtocolEvent,
     ProtocolHandler,
     RequestReceived,
     Upgraded,

@@ -124,7 +124,7 @@ async def run_lifespan(
                     timeout=config.shutdown_timeout,
                 )
                 logger.info("Lifespan shutdown complete")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
                     "Lifespan shutdown timed out after %.1fs",
                     config.shutdown_timeout,

@@ -1,6 +1,5 @@
 """Integration tests for pounce._cli — command-line interface."""
 
-import sys
 
 import pytest
 

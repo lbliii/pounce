@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pounce._errors import SupervisorError
-from pounce._types import ASGIApp, Receive, Scope, Send
+from pounce._types import Receive, Scope, Send
 from pounce.config import ServerConfig
 from pounce.supervisor import Supervisor, _WorkerHandle
 

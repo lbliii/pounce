@@ -25,7 +25,6 @@ Prerequisites:
 
 import argparse
 import json
-import os
 import re
 import signal
 import subprocess
@@ -498,7 +497,7 @@ def main() -> None:
     workloads = list(WORKLOADS) if args.workload == "all" else [args.workload]
     all_results: list[BenchmarkResult] = []
 
-    print(f"Pounce Benchmark Suite")
+    print("Pounce Benchmark Suite")
     print(f"Python: {sys.version.split()[0]}")
     print(f"Platform: {platform.platform()}")
     print(f"Tool: {_find_load_tool()}")

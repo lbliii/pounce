@@ -10,9 +10,7 @@ Covers:
 """
 
 import asyncio
-import socket
 import threading
-import time
 
 import pytest
 

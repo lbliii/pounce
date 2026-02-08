@@ -16,7 +16,7 @@ This module provides:
 
 import heapq
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +86,7 @@ class PriorityScheduler:
 
     """
 
-    __slots__ = ("_priorities", "_pending", "_counter", "_lock")
+    __slots__ = ("_counter", "_lock", "_pending", "_priorities")
 
     def __init__(self) -> None:
         self._priorities: dict[int, StreamPriority] = {}

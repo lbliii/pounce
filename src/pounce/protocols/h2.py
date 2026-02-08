@@ -16,12 +16,10 @@ All state is per-connection. No shared mutable state.
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from pounce.protocols._base import (
     BodyReceived,
-    ConnectionClosed,
-    ProtocolEvent,
     RequestReceived,
 )
 
@@ -166,7 +164,7 @@ class H2Connection:
 
     """
 
-    __slots__ = ("_conn", "_streams", "_closed")
+    __slots__ = ("_closed", "_conn", "_streams")
 
     def __init__(self, *, client_side: bool = False) -> None:
         if not _HAS_H2:
