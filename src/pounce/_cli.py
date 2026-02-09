@@ -48,6 +48,7 @@ def main(args: list[str] | None = None) -> None:
         port=parsed.port,
         workers=parsed.workers,
         log_level=parsed.log_level,
+        log_format=parsed.log_format,
         root_path=parsed.root_path,
         compression=not parsed.no_compression,
         server_timing=parsed.server_timing,
@@ -158,6 +159,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default="info",
         choices=["debug", "info", "warning", "error", "critical"],
         help="Log level (default: info)",
+    )
+    parser.add_argument(
+        "--log-format",
+        default="text",
+        choices=["text", "json"],
+        help="Log output format (default: text)",
     )
     parser.add_argument(
         "--root-path",
