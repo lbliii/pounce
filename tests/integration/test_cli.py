@@ -2,7 +2,7 @@
 
 import pytest
 
-from pounce._cli import _build_parser, main
+from pounce._cli import _build_parser, main, parse_dirs, parse_extensions
 
 
 class TestCLIParser:
@@ -146,6 +146,62 @@ class TestCLIParser:
         parser = _build_parser()
         with pytest.raises(SystemExit):
             parser.parse_args(["myapp:app", "--log-level", "verbose"])
+
+
+class TestParseExtensions:
+    """parse_extensions() normalizes comma-separated extension strings."""
+
+    def test_none_returns_empty(self):
+        assert parse_extensions(None) == ()
+
+    def test_empty_string_returns_empty(self):
+        assert parse_extensions("") == ()
+
+    def test_dotted_extensions(self):
+        assert parse_extensions(".html,.css,.md") == (".html", ".css", ".md")
+
+    def test_missing_dots_prefixed(self):
+        assert parse_extensions("html,css,md") == (".html", ".css", ".md")
+
+    def test_mixed_dots(self):
+        assert parse_extensions(".html,css,.md") == (".html", ".css", ".md")
+
+    def test_whitespace_stripped(self):
+        assert parse_extensions(" .html , .css , .md ") == (".html", ".css", ".md")
+
+    def test_empty_entries_filtered(self):
+        assert parse_extensions(".html,,.css") == (".html", ".css")
+
+    def test_whitespace_only_entries_filtered(self):
+        assert parse_extensions(".html,  ,.css") == (".html", ".css")
+
+    def test_single_extension(self):
+        assert parse_extensions("html") == (".html",)
+
+
+class TestParseDirs:
+    """parse_dirs() cleans directory path lists."""
+
+    def test_none_returns_empty(self):
+        assert parse_dirs(None) == ()
+
+    def test_empty_list_returns_empty(self):
+        assert parse_dirs([]) == ()
+
+    def test_single_dir(self):
+        assert parse_dirs(["./templates"]) == ("./templates",)
+
+    def test_multiple_dirs(self):
+        assert parse_dirs(["./templates", "./static"]) == ("./templates", "./static")
+
+    def test_whitespace_stripped(self):
+        assert parse_dirs([" ./templates ", " ./static "]) == ("./templates", "./static")
+
+    def test_empty_strings_filtered(self):
+        assert parse_dirs(["./templates", "", "./static"]) == ("./templates", "./static")
+
+    def test_whitespace_only_filtered(self):
+        assert parse_dirs(["./templates", "   ", "./static"]) == ("./templates", "./static")
 
 
 class TestCLIMain:

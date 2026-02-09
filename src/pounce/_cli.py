@@ -39,19 +39,8 @@ def main(args: list[str] | None = None) -> None:
         sys.stderr.write(f"Error: {exc}\n")
         sys.exit(1)
 
-    # Parse reload extensions (comma-separated, e.g. ".html,.css,.md")
-    reload_include: tuple[str, ...] = ()
-    if parsed.reload_include:
-        reload_include = tuple(
-            ext.strip() if ext.strip().startswith(".") else f".{ext.strip()}"
-            for ext in parsed.reload_include.split(",")
-            if ext.strip()
-        )
-
-    # Parse reload directories (comma-separated)
-    reload_dirs: tuple[str, ...] = ()
-    if parsed.reload_dir:
-        reload_dirs = tuple(d.strip() for d in parsed.reload_dir if d.strip())
+    reload_include = parse_extensions(parsed.reload_include)
+    reload_dirs = parse_dirs(parsed.reload_dir)
 
     # Build config from CLI arguments
     config = ServerConfig(
@@ -76,6 +65,45 @@ def main(args: list[str] | None = None) -> None:
     # loop can reimport a fresh app after code changes on disk.
     server = Server(config, app, app_path=parsed.app)
     server.run()
+
+
+def parse_extensions(raw: str | None) -> tuple[str, ...]:
+    """Parse a comma-separated extensions string into a normalized tuple.
+
+    Ensures each extension starts with a dot and strips whitespace.
+    Empty entries are filtered out.
+
+    Args:
+        raw: Comma-separated string (e.g. ``".html,.css,md"``), or None.
+
+    Returns:
+        Tuple of normalized extensions (e.g. ``(".html", ".css", ".md")``).
+
+    """
+    if not raw:
+        return ()
+    return tuple(
+        ext.strip() if ext.strip().startswith(".") else f".{ext.strip()}"
+        for ext in raw.split(",")
+        if ext.strip()
+    )
+
+
+def parse_dirs(raw: list[str] | None) -> tuple[str, ...]:
+    """Parse a list of directory strings into a cleaned tuple.
+
+    Strips whitespace and filters empty entries.
+
+    Args:
+        raw: List of directory paths (from argparse ``append``), or None.
+
+    Returns:
+        Tuple of cleaned directory paths.
+
+    """
+    if not raw:
+        return ()
+    return tuple(d.strip() for d in raw if d.strip())
 
 
 def _build_parser() -> argparse.ArgumentParser:

@@ -1,6 +1,7 @@
 """Tests for the file watcher / reload module."""
 
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from pounce._reload import (
     _should_watch,
     _snapshot,
     detect_changes,
+    watch_for_changes,
 )
 
 
@@ -174,3 +176,112 @@ class TestExtraExtensions:
 
             changed, _ = detect_changes([p], snapshot, ext)
             assert str(p / "page.html") in changed
+
+
+class TestWatchForChanges:
+    """Integration tests for the watch_for_changes polling loop."""
+
+    def test_callback_fires_on_change(self) -> None:
+        """Callback is invoked when a file changes."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = Path(tmpdir)
+            (p / "app.py").write_text("# v1")
+
+            called = threading.Event()
+
+            def on_change():
+                called.set()
+
+            stop = threading.Event()
+            t = threading.Thread(
+                target=watch_for_changes,
+                args=([p], on_change),
+                kwargs={"interval": 0.1, "stop_event": stop},
+                daemon=True,
+            )
+            t.start()
+
+            try:
+                # Modify file after watcher has taken initial snapshot
+                time.sleep(0.15)
+                (p / "app.py").write_text("# v2")
+
+                assert called.wait(timeout=2.0), "callback was not called"
+            finally:
+                stop.set()
+                t.join(timeout=2.0)
+
+    def test_stops_on_stop_event(self) -> None:
+        """Watcher exits cleanly when stop_event is set."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = Path(tmpdir)
+            stop = threading.Event()
+
+            t = threading.Thread(
+                target=watch_for_changes,
+                args=([p], lambda: None),
+                kwargs={"interval": 0.1, "stop_event": stop},
+                daemon=True,
+            )
+            t.start()
+            stop.set()
+            t.join(timeout=2.0)
+            assert not t.is_alive()
+
+    def test_extra_extensions_triggers_callback(self) -> None:
+        """Callback fires for files matching extra_extensions."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = Path(tmpdir)
+
+            called = threading.Event()
+            stop = threading.Event()
+
+            t = threading.Thread(
+                target=watch_for_changes,
+                args=([p], called.set),
+                kwargs={
+                    "interval": 0.1,
+                    "stop_event": stop,
+                    "extra_extensions": (".html",),
+                },
+                daemon=True,
+            )
+            t.start()
+
+            try:
+                time.sleep(0.15)
+                (p / "index.html").write_text("<h1>Hi</h1>")
+
+                assert called.wait(timeout=2.0), "callback was not called for .html"
+            finally:
+                stop.set()
+                t.join(timeout=2.0)
+
+    def test_empty_extra_extensions_uses_defaults(self) -> None:
+        """Empty extra_extensions still watches default extensions."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = Path(tmpdir)
+
+            called = threading.Event()
+            stop = threading.Event()
+
+            t = threading.Thread(
+                target=watch_for_changes,
+                args=([p], called.set),
+                kwargs={
+                    "interval": 0.1,
+                    "stop_event": stop,
+                    "extra_extensions": (),
+                },
+                daemon=True,
+            )
+            t.start()
+
+            try:
+                time.sleep(0.15)
+                (p / "app.py").write_text("# new")
+
+                assert called.wait(timeout=2.0), "callback was not called for .py"
+            finally:
+                stop.set()
+                t.join(timeout=2.0)
