@@ -99,6 +99,7 @@ def access_log(
     client: str,
     *,
     http_version: str = "1.1",
+    request_id: str | None = None,
 ) -> None:
     """Log an access log entry for a completed request.
 
@@ -114,12 +115,13 @@ def access_log(
         duration_ms: Request duration in milliseconds.
         client: Client address string (e.g., "127.0.0.1:5000").
         http_version: Protocol version string (e.g., "1.1", "2").
+        request_id: Optional request ID for tracing.
 
     """
     level = logging.WARNING if status >= 500 else logging.INFO
 
     if _json_logging:
-        entry = json_module.dumps({
+        entry_dict: dict[str, object] = {
             "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             "level": logging.getLevelName(level),
             "logger": "pounce.access",
@@ -130,12 +132,16 @@ def access_log(
             "bytes_sent": bytes_sent,
             "duration_ms": round(duration_ms, 1),
             "client": client,
-        })
+        }
+        if request_id is not None:
+            entry_dict["request_id"] = request_id
+        entry = json_module.dumps(entry_dict)
         access_logger.log(level, "%s", entry)
     else:
+        rid_suffix = f" [{request_id[:12]}]" if request_id else ""
         access_logger.log(
             level,
-            '%s - "%s %s HTTP/%s" %d %d %.1fms',
+            '%s - "%s %s HTTP/%s" %d %d %.1fms%s',
             client,
             method,
             path,
@@ -143,4 +149,5 @@ def access_log(
             status,
             bytes_sent,
             duration_ms,
+            rid_suffix,
         )

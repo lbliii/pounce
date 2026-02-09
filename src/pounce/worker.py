@@ -30,6 +30,7 @@ import h11
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._errors import ParseError
+from pounce._request_id import extract_or_generate
 from pounce._h2_handler import handle_h2_connection
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp, Receive, Send
@@ -575,6 +576,19 @@ class Worker:
         # Build ASGI scope
         scope = build_scope(request, self._config, client, server)
 
+        # Generate or extract request ID for tracing
+        is_trusted_peer = bool(
+            self._config.trusted_hosts
+            and (
+                "*" in self._config.trusted_hosts
+                or client[0] in self._config.trusted_hosts
+            )
+        )
+        request_id = extract_or_generate(
+            request.headers, trusted=is_trusted_peer
+        )
+        scope.setdefault("extensions", {})["request_id"] = request_id
+
         # Set up timing if enabled
         timing: ServerTiming | None = None
         if self._config.server_timing:
@@ -623,6 +637,7 @@ class Worker:
             timing=timing,
             compressor=compressor,
             request_method=request.method,
+            request_id=request_id,
         )
 
         # Call the ASGI app with concurrent disconnect monitoring.
@@ -692,6 +707,7 @@ class Worker:
                     duration,
                     client_str,
                     http_version=http_version,
+                    request_id=request_id,
                 )
 
     async def _run_with_disconnect_monitor(

@@ -256,6 +256,7 @@ def create_send(
     timing: ServerTiming | None = None,
     compressor: Compressor | None = None,
     request_method: bytes = b"GET",
+    request_id: str | None = None,
 ) -> Send:
     """Create an ASGI send callable that streams to the transport.
 
@@ -311,6 +312,10 @@ def create_send(
             # header injection attacks from ASGI apps.  h11 also validates,
             # but we guard at the bridge level to catch it before serialization.
             headers = _sanitize_headers(headers)
+
+            # Inject X-Request-ID response header for request tracing
+            if request_id is not None:
+                headers.append((b"x-request-id", request_id.encode("latin-1")))
 
             # SSE must not be compressed — EventSource API doesn't support it
             if compressor is not None:
