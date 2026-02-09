@@ -30,6 +30,7 @@ import h11
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._errors import ParseError
+from pounce._health import build_health_response
 from pounce._request_id import extract_or_generate
 from pounce._h2_handler import handle_h2_connection
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
@@ -588,6 +589,32 @@ class Worker:
             request.headers, trusted=is_trusted_peer
         )
         scope.setdefault("extensions", {})["request_id"] = request_id
+
+        # Built-in health check — respond before ASGI dispatch.
+        # Skips access log to reduce noise from k8s/load balancer probes.
+        health_path = self._config.health_check_path
+        if (
+            health_path is not None
+            and scope["path"] == health_path
+            and request.method == b"GET"
+        ):
+            status, resp_headers, body = build_health_response(
+                worker_id=self._worker_id,
+                active_connections=self._active_connections,
+            )
+            send_state = SendState()
+            send_state.status = status
+            send_fn = create_send(proto, writer, send_state, request_id=request_id)
+            await send_fn({
+                "type": "http.response.start",
+                "status": status,
+                "headers": resp_headers,
+            })
+            await send_fn({
+                "type": "http.response.body",
+                "body": body,
+            })
+            return
 
         # Set up timing if enabled
         timing: ServerTiming | None = None

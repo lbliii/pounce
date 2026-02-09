@@ -76,6 +76,9 @@ class ServerConfig:
     # Headers to trust from proxy (empty = direct connection)
     trusted_hosts: tuple[str, ...] = field(default_factory=tuple)
 
+    # Built-in health check endpoint (None = disabled)
+    health_check_path: str | None = None
+
     # Unix domain socket (mutually exclusive with host/port)
     uds: str | None = None
 

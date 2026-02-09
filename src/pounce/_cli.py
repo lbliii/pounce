@@ -62,6 +62,7 @@ def main(args: list[str] | None = None) -> None:
         header_timeout=parsed.header_timeout,
         max_requests_per_connection=parsed.max_requests_per_connection,
         uds=parsed.uds,
+        health_check_path=parsed.health_check_path,
     )
 
     # Run the server — pass the original import string so that the reload
@@ -150,6 +151,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--uds",
         default=None,
         help="Unix domain socket path (e.g., /run/pounce.sock). Mutually exclusive with --host/--port.",
+    )
+    parser.add_argument(
+        "--health-check-path",
+        default=None,
+        help="Path for built-in health check endpoint (e.g., /health). Disabled by default.",
     )
     parser.add_argument(
         "--workers",
