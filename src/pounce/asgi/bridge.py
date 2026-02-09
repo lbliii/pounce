@@ -83,8 +83,10 @@ def build_scope(
         ASGI scope dict ready to pass to an ASGI app.
 
     """
+    from pounce._proxy import apply_proxy_headers
+
     scheme = "https" if config.ssl_certfile else "http"
-    return build_base_scope(
+    scope = build_base_scope(
         request,
         scope_type="http",
         http_version=request.http_version,
@@ -93,6 +95,7 @@ def build_scope(
         client=client,
         root_path=config.root_path,
     )
+    return apply_proxy_headers(scope, trusted_hosts=config.trusted_hosts)
 
 
 def create_receive(
