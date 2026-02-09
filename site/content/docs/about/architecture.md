@@ -14,32 +14,19 @@ category: explanation
 
 Pounce follows a three-layer architecture: **Server** orchestrates lifecycle, **Supervisor** manages workers, and **Workers** handle requests. All layers share a single frozen `ServerConfig` — no synchronization needed.
 
-```
-                    ┌─────────────────────────────┐
-                    │       Server                 │
-                    │  CONFIG → BIND → SERVE       │
-                    └──────────────┬──────────────┘
-                                   │
-                    ┌──────────────┴──────────────┐
-                    │       Supervisor             │
-                    │  detect nogil → threads      │
-                    │  detect GIL   → processes    │
-                    └──────────────┬──────────────┘
-                                   │ spawn N workers
-                 ┌─────────────────┼─────────────────┐
-                 ▼                 ▼                 ▼
-          ┌────────────┐   ┌────────────┐   ┌────────────┐
-          │  Worker 1   │   │  Worker 2   │   │  Worker N   │
-          │  asyncio    │   │  asyncio    │   │  asyncio    │
-          │  event loop │   │  event loop │   │  event loop │
-          └─────┬──────┘   └─────┬──────┘   └─────┬──────┘
-                │                │                │
-                └────────────────┼────────────────┘
-                                 ▼
-                    ┌─────────────────────────┐
-                    │  Shared Immutable State  │
-                    │  (config, app reference) │
-                    └─────────────────────────┘
+```mermaid
+flowchart TD
+    Server["Server\nCONFIG → BIND → SERVE"]
+    Supervisor["Supervisor\ndetect nogil → threads\ndetect GIL → processes"]
+
+    Server --> Supervisor
+    Supervisor -- "spawn N workers" --> W1["Worker 1\nasyncio event loop"]
+    Supervisor -- "spawn N workers" --> W2["Worker 2\nasyncio event loop"]
+    Supervisor -- "spawn N workers" --> WN["Worker N\nasyncio event loop"]
+
+    W1 --> Shared["Shared Immutable State\n(config, app reference)"]
+    W2 --> Shared
+    WN --> Shared
 ```
 
 ## Server Layer
@@ -80,17 +67,19 @@ Workers are fully independent. No shared mutable state, no locks, no coordinatio
 
 A single HTTP request flows through:
 
-```
-socket accept
-  → TLS unwrap (if configured)
-  → protocol detection (h1 vs h2)
-  → protocol parser (h11 / httptools / h2)
-  → ASGI scope construction
-  → app(scope, receive, send)
-  → response serialization
-  → compression (zstd / gzip / identity)
-  → Server-Timing header injection
-  → socket write
+```mermaid
+flowchart LR
+    A[Socket Accept] --> B[TLS Unwrap]
+    B --> C{Protocol\nDetection}
+    C -->|h1| D1[h11 / httptools]
+    C -->|h2| D2[h2]
+    D1 --> E[ASGI Scope\nConstruction]
+    D2 --> E
+    E --> F["app(scope, receive, send)"]
+    F --> G[Response\nSerialization]
+    G --> H[Compression\nzstd / gzip / identity]
+    H --> I[Server-Timing\nHeader Injection]
+    I --> J[Socket Write]
 ```
 
 The bridge is per-request — created and destroyed within a single connection handler. This ensures zero cross-request state leakage.

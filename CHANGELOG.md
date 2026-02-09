@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Configurable Reload Watch
+
+- `ServerConfig.reload_include` — extra file extensions to watch beyond the built-in set
+  (`.py`, `.yaml`, `.toml`, etc.). Pass a tuple of extensions like `(".html", ".css", ".md")`
+  to trigger reloads on non-Python file changes
+- `ServerConfig.reload_dirs` — extra directories to watch alongside the current working
+  directory. Useful when templates or static assets live outside the project root
+- CLI flags: `--reload-include ".html,.css,.md"` and `--reload-dir ./templates` (repeatable)
+- Extensions without a leading dot are auto-prefixed (e.g. `"html"` becomes `".html"`)
+- `_reload.py` functions (`_should_watch`, `_snapshot`, `detect_changes`, `watch_for_changes`)
+  accept an `extensions` / `extra_extensions` parameter for runtime customization
+- `parse_extensions()` and `parse_dirs()` helpers extracted in `_cli.py` for testability
+
+#### Hot Reload with Module Reimport
+
+- `reimport_app()` in `_importer.py` clears project-local modules from `sys.modules`,
+  deletes stale `.pyc` bytecode caches, and calls `importlib.invalidate_caches()` before
+  reimporting — code changes on disk take effect without a full process restart
+- Single-worker and multi-worker reload paths both reimport when `app_path` is provided
+- `Server` and `Supervisor` accept `app_path: str | None` to enable reimport on reload
+- `_clear_local_modules()` resolves paths with `os.path.realpath()` for macOS symlink safety
+
 #### Connection Lifecycle Events
 
 - Structured, immutable event types for every stage of a connection's lifecycle:

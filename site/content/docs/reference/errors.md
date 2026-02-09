@@ -14,13 +14,14 @@ category: reference
 
 Pounce uses a structured error hierarchy for clear error messages:
 
-```
-PounceError (base)
-├── ConfigError — Invalid configuration
-├── ImportError — Application import failures
-├── ProtocolError — Protocol-level errors
-├── LifespanError — ASGI lifespan failures
-└── ShutdownError — Shutdown-related issues
+```mermaid
+flowchart TD
+    Base["PounceError\n(base)"]
+    Base --> ConfigError["ConfigError\nInvalid configuration"]
+    Base --> ImportError["ImportError\nApplication import failures"]
+    Base --> ProtocolError["ProtocolError\nProtocol-level errors"]
+    Base --> LifespanError["LifespanError\nASGI lifespan failures"]
+    Base --> ShutdownError["ShutdownError\nShutdown-related issues"]
 ```
 
 ## Configuration Errors

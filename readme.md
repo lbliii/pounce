@@ -75,6 +75,7 @@ pounce myapp:app
 pounce myapp:app --host 0.0.0.0 --port 8000 --workers 4
 pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem
 pounce myapp:app --reload  # dev mode — auto-restart on source changes
+pounce myapp:app --reload --reload-include ".html,.css,.md" --reload-dir ./templates
 pounce myapp:create_app()  # app factory pattern
 ```
 

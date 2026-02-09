@@ -67,6 +67,8 @@ class ServerConfigKwargs(TypedDict, total=False):
     compression_min_size: int
     server_timing: bool
     reload: bool
+    reload_include: tuple[str, ...]
+    reload_dirs: tuple[str, ...]
     h11_max_incomplete_event_size: int | None
     trusted_hosts: tuple[str, ...]
     ssl_certfile: str | None

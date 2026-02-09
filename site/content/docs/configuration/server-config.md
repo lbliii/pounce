@@ -93,6 +93,8 @@ config = ServerConfig(
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `reload` | `bool` | `False` | Watch source files and restart workers on changes |
+| `reload_include` | `tuple[str, ...]` | `()` | Extra file extensions to watch (e.g. `(".html", ".css", ".md")`) |
+| `reload_dirs` | `tuple[str, ...]` | `()` | Extra directories to watch alongside the current working directory |
 
 ### Protocol Tuning
 

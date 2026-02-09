@@ -58,6 +58,8 @@ The `APP` argument is a Python module path with an attribute, e.g. `myapp:app`. 
 | `--compression / --no-compression` | `enabled` | Toggle content-encoding |
 | `--server-timing` | `disabled` | Enable Server-Timing header |
 | `--reload` | `disabled` | Watch files and restart on changes |
+| `--reload-include TEXT` | — | Extra file extensions to watch (comma-separated, e.g. `".html,.css,.md"`) |
+| `--reload-dir PATH` | — | Extra directory to watch (repeatable) |
 
 ### TLS
 
@@ -78,6 +80,9 @@ The `APP` argument is a Python module path with an attribute, e.g. `myapp:app`. 
 ```bash
 # Development
 pounce myapp:app --reload --log-level debug
+
+# Development with extra file watching
+pounce myapp:app --reload --reload-include ".html,.css,.md" --reload-dir ./templates
 
 # Production
 pounce myapp:app --host 0.0.0.0 --workers 0 --no-access-log
