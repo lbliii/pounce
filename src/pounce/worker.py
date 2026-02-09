@@ -775,7 +775,15 @@ class Worker:
         """
 
         async def _read_body() -> None:
-            """Read remaining body data from the connection into the queue."""
+            """Read remaining body data from the connection into the queue.
+
+            Enforces max_request_size for streaming/chunked bodies. If the
+            accumulated body exceeds the limit, the stream is terminated
+            with an empty final chunk so the ASGI app sees EOF.
+            """
+            max_body = self._config.max_request_size
+            total_bytes_read = 0
+
             try:
                 while True:
                     try:
@@ -802,6 +810,14 @@ class Worker:
 
                     for evt in events:
                         if isinstance(evt, BodyReceived):
+                            total_bytes_read += len(evt.data)
+                            if total_bytes_read > max_body:
+                                self._logger.warning(
+                                    "Request body exceeds max_request_size (%d bytes)",
+                                    max_body,
+                                )
+                                await body_queue.put(BodyReceived(data=b"", more=False))
+                                return
                             await body_queue.put(evt)
                             if not evt.more:
                                 return
