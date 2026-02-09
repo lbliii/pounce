@@ -6,6 +6,7 @@ Frozen after creation — the server reads config but never mutates it.
 
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 
@@ -47,6 +48,8 @@ class ServerConfig:
     access_log: bool = True
     log_level: str = "info"
     log_format: str = "text"  # "text" or "json"
+    # Optional filter: (method, path, status) -> bool.  True = log, False = skip.
+    access_log_filter: Callable[[str, str, int], bool] | None = None
 
     # HTTP
     server_header: str = "pounce"

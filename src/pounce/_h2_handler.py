@@ -167,15 +167,17 @@ async def handle_h2_connection(
             duration = elapsed_ms(request_start)
             target = request.target.decode("ascii", errors="replace")
             method = request.method.decode("ascii", errors="replace")
-            access_log(
-                method,
-                target,
-                send_state.status,
-                send_state.bytes_sent,
-                duration,
-                client_str,
-                http_version="2",
-            )
+            log_filter = config.access_log_filter
+            if log_filter is None or log_filter(method, target, send_state.status):
+                access_log(
+                    method,
+                    target,
+                    send_state.status,
+                    send_state.bytes_sent,
+                    duration,
+                    client_str,
+                    http_version="2",
+                )
 
     try:
         while not h2_conn.is_closed:
