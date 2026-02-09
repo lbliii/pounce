@@ -15,6 +15,7 @@ from pounce.asgi.bridge import (
     _COALESCE_THRESHOLD,
     _DISCONNECT_MESSAGE,
     _EMPTY_BODY_MESSAGE,
+    _sanitize_headers,
     SendState,
     build_scope,
     create_disconnect_receive,
@@ -1041,3 +1042,72 @@ class TestSendGuardClosedWriter:
         )
         assert transport.write_count > 0
         assert b"hello" in bytes(transport.data)
+
+
+class TestSanitizeHeaders:
+    """_sanitize_headers() strips CRLF from response header values."""
+
+    def test_clean_headers_unchanged(self):
+        """Headers without CRLF pass through unchanged."""
+        headers = [(b"content-type", b"text/html"), (b"x-custom", b"value")]
+        assert _sanitize_headers(headers) == headers
+
+    def test_crlf_in_value_stripped(self):
+        """CRLF in header value is stripped to prevent injection."""
+        headers = [(b"x-evil", b"value\r\nInjected: header")]
+        result = _sanitize_headers(headers)
+        assert result == [(b"x-evil", b"valueInjected: header")]
+
+    def test_cr_only_stripped(self):
+        """Bare CR in header value is stripped."""
+        headers = [(b"x-bad", b"before\rafter")]
+        result = _sanitize_headers(headers)
+        assert result == [(b"x-bad", b"beforeafter")]
+
+    def test_lf_only_stripped(self):
+        """Bare LF in header value is stripped."""
+        headers = [(b"x-bad", b"before\nafter")]
+        result = _sanitize_headers(headers)
+        assert result == [(b"x-bad", b"beforeafter")]
+
+    def test_crlf_in_name_stripped(self):
+        """CRLF in header name is stripped."""
+        headers = [(b"x-\r\nbad", b"value")]
+        result = _sanitize_headers(headers)
+        assert result == [(b"x-bad", b"value")]
+
+    def test_empty_name_after_strip_dropped(self):
+        """Header with name that becomes empty after stripping is dropped."""
+        headers = [(b"\r\n", b"value"), (b"good", b"value")]
+        result = _sanitize_headers(headers)
+        assert result == [(b"good", b"value")]
+
+    @pytest.mark.asyncio
+    async def test_integration_in_send(self):
+        """CRLF headers are sanitized during http.response.start."""
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        send = create_send(proto, transport, SendState())
+
+        # This would be an injection attempt: the value contains CRLF
+        # that could split into a second header
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-length", b"2"),
+                (b"x-safe", b"clean\r\nX-Injected: evil"),
+            ],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": b"ok",
+        })
+        output = bytes(transport.data)
+        # The injected header must not appear as a separate header line.
+        # After sanitization, "X-Injected: evil" is concatenated into
+        # the x-safe value — not on its own line preceded by \r\n.
+        assert b"\r\nX-Injected:" not in output
+        assert b"\r\nx-injected:" not in output.lower()

@@ -65,6 +65,25 @@ _DISCONNECT_MESSAGE: MappingProxyType[str, Any] = MappingProxyType(
 )
 
 
+def _sanitize_headers(headers: list[tuple[bytes, bytes]]) -> list[tuple[bytes, bytes]]:
+    """Strip CR/LF characters from response header names and values.
+
+    Prevents CRLF injection attacks where a malicious ASGI app could inject
+    extra headers or split the HTTP response.  This is defense-in-depth — h11
+    also validates header content, but we guard before serialization.
+
+    """
+    clean: list[tuple[bytes, bytes]] = []
+    for name, value in headers:
+        if b"\r" in name or b"\n" in name:
+            name = name.replace(b"\r", b"").replace(b"\n", b"")
+        if b"\r" in value or b"\n" in value:
+            value = value.replace(b"\r", b"").replace(b"\n", b"")
+        if name:  # skip empty names after stripping
+            clean.append((name, value))
+    return clean
+
+
 def build_scope(
     request: RequestReceived,
     config: ServerConfig,
@@ -286,6 +305,11 @@ def create_send(
                 )
                 for name, value in message.get("headers", [])
             ]
+
+            # Defense-in-depth: strip CR/LF from header values to prevent
+            # header injection attacks from ASGI apps.  h11 also validates,
+            # but we guard at the bridge level to catch it before serialization.
+            headers = _sanitize_headers(headers)
 
             # SSE must not be compressed — EventSource API doesn't support it
             if compressor is not None:
