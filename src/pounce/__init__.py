@@ -52,6 +52,7 @@ class ServerConfigKwargs(TypedDict, total=False):
     backlog: int
     keep_alive_timeout: float
     request_timeout: float
+    header_timeout: float
     shutdown_timeout: float
     max_request_size: int
     max_header_size: int

@@ -59,6 +59,7 @@ def main(args: list[str] | None = None) -> None:
         reload_include=reload_include,
         reload_dirs=reload_dirs,
         keep_alive_timeout=parsed.keep_alive_timeout,
+        header_timeout=parsed.header_timeout,
         max_requests_per_connection=parsed.max_requests_per_connection,
     )
 
@@ -227,6 +228,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=5.0,
         help="Seconds to wait for a new request on an idle keep-alive connection (default: 5.0)",
+    )
+    parser.add_argument(
+        "--header-timeout",
+        type=float,
+        default=10.0,
+        help="Seconds to receive complete request headers before closing (slowloris protection, default: 10.0)",
     )
     parser.add_argument(
         "--max-requests-per-connection",

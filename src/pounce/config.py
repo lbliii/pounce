@@ -35,6 +35,7 @@ class ServerConfig:
     # Timeouts (seconds)
     keep_alive_timeout: float = 5.0
     request_timeout: float = 30.0
+    header_timeout: float = 10.0
     shutdown_timeout: float = 10.0
 
     # Limits
@@ -101,6 +102,9 @@ class ServerConfig:
             raise ValueError(msg)
         if self.request_timeout <= 0:
             msg = f"request_timeout must be > 0 (got {self.request_timeout})"
+            raise ValueError(msg)
+        if self.header_timeout <= 0:
+            msg = f"header_timeout must be > 0 (got {self.header_timeout})"
             raise ValueError(msg)
         if self.shutdown_timeout <= 0:
             msg = f"shutdown_timeout must be > 0 (got {self.shutdown_timeout})"

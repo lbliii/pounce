@@ -439,17 +439,25 @@ class Worker:
                         return True  # Clean close
                 return False
 
+            # Use header_timeout for the initial header read of each request,
+            # and keep_alive_timeout when waiting between keep-alive cycles.
+            # header_timeout protects against slowloris (slow-header DoS) attacks.
+            header_timeout = self._config.header_timeout
+            ka_timeout = self._config.keep_alive_timeout
+            awaiting_headers = True  # True until we receive the first request headers
+
             while True:
                 # Read data from the client
+                read_timeout = header_timeout if awaiting_headers else ka_timeout
                 try:
                     data = await asyncio.wait_for(
                         reader.read(65536),
-                        timeout=self._config.keep_alive_timeout,
+                        timeout=read_timeout,
                     )
                 except TimeoutError:
                     close_reason = "timeout"
-                    break  # Keep-alive timeout — close connection
-                except ConnectionError, OSError:
+                    break  # Timeout — close connection
+                except (ConnectionError, OSError):
                     close_reason = "client_disconnect"
                     break
 
@@ -468,6 +476,10 @@ class Worker:
                 if await _process_events(events):
                     return
 
+                # After processing events, we've handled a request — switch
+                # to keep-alive timeout for the inter-request idle period.
+                awaiting_headers = False
+
                 # Enforce max requests per connection
                 if max_requests > 0 and request_count >= max_requests:
                     break  # Limit reached — close connection
@@ -477,6 +489,9 @@ class Worker:
                     proto.start_new_cycle()
                 except (h11.LocalProtocolError, RuntimeError):
                     break  # Connection can't be reused
+
+                # Next read is the start of a new request — use header_timeout
+                awaiting_headers = True
 
                 # NOTE: HTTP pipelining (next request buffered in h11
                 # before we call reader.read()) is intentionally not
@@ -771,7 +786,7 @@ class Worker:
                     except TimeoutError:
                         await body_queue.put(BodyReceived(data=b"", more=False))
                         return
-                    except ConnectionError, OSError:
+                    except (ConnectionError, OSError):
                         await body_queue.put(BodyReceived(data=b"", more=False))
                         return
 
@@ -871,7 +886,7 @@ class Worker:
                 if not data:
                     # Client disconnected — EOF
                     break
-        except ConnectionError, OSError:
+        except (ConnectionError, OSError):
             pass
         finally:
             disconnect.set()
