@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bengal-pounce"
-version = "0.1.0-dev"
+version = "0.1.0"
 description = "A free-threading-native ASGI server for Python 3.14t"
-readme = "readme.md"
+readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 authors = [{ name = "Bengal Contributors", email = "lbeezr@icloud.com" }]
@@ -20,7 +20,7 @@ keywords = [
     "http2",
 ]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
