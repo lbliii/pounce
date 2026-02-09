@@ -291,6 +291,15 @@ def create_send(
                         compressor = None
                         break
 
+            # Bodyless responses (RFC 9110 §6.4.1): 1xx, 204, 304 MUST NOT
+            # contain a message body.  Disable compression so the compressor's
+            # flush() doesn't produce gzip/zstd trailer bytes that h11 would
+            # reject as "Too much data for declared Content-Length".
+            if compressor is not None and (
+                100 <= status <= 199 or status in {204, 304}
+            ):
+                compressor = None
+
             # Inject Content-Encoding if compressing
             if compressor is not None:
                 headers.append((b"content-encoding", compressor.encoding.encode("ascii")))

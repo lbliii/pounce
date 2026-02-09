@@ -411,6 +411,39 @@ class TestCreateSend:
         assert b"event: heartbeat" in output
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("status", [204, 304])
+    async def test_bodyless_status_disables_compression(self, status):
+        """Responses with 204/304 skip compression (RFC 9110 §6.4.1).
+
+        Without this, compressor.flush() produces gzip trailer bytes that
+        h11 rejects as 'Too much data for declared Content-Length'.
+        """
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        compressor = GzipCompressor()
+        send = create_send(proto, transport, SendState(), compressor=compressor)
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": [(b"content-type", b"text/plain"), (b"content-length", b"0")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"",
+            }
+        )
+
+        output = bytes(transport.data)
+        # No compression headers — compressor was disabled
+        assert b"content-encoding" not in output.lower()
+
+    @pytest.mark.asyncio
     async def test_streaming_compression_produces_output_per_chunk(self):
         """Each streaming chunk with compression produces output immediately."""
         proto = H1Protocol()
