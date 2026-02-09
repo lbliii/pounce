@@ -46,6 +46,7 @@ class ServerConfig:
     # Logging
     access_log: bool = True
     log_level: str = "info"
+    log_format: str = "text"  # "text" or "json"
 
     # HTTP
     server_header: str = "pounce"
@@ -76,6 +77,7 @@ class ServerConfig:
     ssl_keyfile: str | None = None
 
     _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error", "critical"})
+    _VALID_LOG_FORMATS: frozenset[str] = frozenset({"text", "json"})
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
@@ -124,6 +126,12 @@ class ServerConfig:
             msg = (
                 f"log_level must be one of {sorted(self._VALID_LOG_LEVELS)} "
                 f"(got {self.log_level!r})"
+            )
+            raise ValueError(msg)
+        if self.log_format.lower() not in self._VALID_LOG_FORMATS:
+            msg = (
+                f"log_format must be one of {sorted(self._VALID_LOG_FORMATS)} "
+                f"(got {self.log_format!r})"
             )
             raise ValueError(msg)
         if (self.ssl_certfile is None) != (self.ssl_keyfile is None):
