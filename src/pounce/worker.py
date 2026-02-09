@@ -283,9 +283,21 @@ class Worker:
         HTTP/1.1 also supports WebSocket upgrade mid-connection.
 
         """
-        # Connection backpressure — reject when at capacity
+        # Connection backpressure — reject when at capacity.
+        # Send a minimal HTTP 503 response with Retry-After instead of
+        # silently closing, so clients get actionable feedback.
         if self._max_connections > 0 and self._active_connections >= self._max_connections:
             try:
+                writer.write(
+                    b"HTTP/1.1 503 Service Unavailable\r\n"
+                    b"Retry-After: 5\r\n"
+                    b"Content-Length: 19\r\n"
+                    b"Content-Type: text/plain\r\n"
+                    b"Connection: close\r\n"
+                    b"\r\n"
+                    b"Service Unavailable"
+                )
+                await writer.drain()
                 writer.close()
                 await writer.wait_closed()
             except (OSError, ConnectionError):
