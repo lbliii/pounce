@@ -255,6 +255,7 @@ def create_send(
     *,
     timing: ServerTiming | None = None,
     compressor: Compressor | None = None,
+    request_method: bytes = b"GET",
 ) -> Send:
     """Create an ASGI send callable that streams to the transport.
 
@@ -325,6 +326,13 @@ def create_send(
             if compressor is not None and (
                 100 <= status <= 199 or status in {204, 304}
             ):
+                compressor = None
+
+            # HEAD responses: the app may produce body bytes (for Content-Length
+            # calculation), but they must not be sent on the wire.  If compression
+            # modifies the body, Content-Length from the app won't match the
+            # compressed bytes.  Disable compression so Content-Length is preserved.
+            if compressor is not None and request_method == b"HEAD":
                 compressor = None
 
             # Inject Content-Encoding if compressing

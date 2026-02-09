@@ -1111,3 +1111,42 @@ class TestSanitizeHeaders:
         # the x-safe value — not on its own line preceded by \r\n.
         assert b"\r\nX-Injected:" not in output
         assert b"\r\nx-injected:" not in output.lower()
+
+
+class TestHeadCompressionGuard:
+    """HEAD responses must not be compressed (Content-Length mismatch)."""
+
+    @pytest.mark.asyncio
+    async def test_head_request_disables_compression(self):
+        """Compression is disabled for HEAD requests to preserve Content-Length."""
+        proto = H1Protocol()
+        proto.receive_data(b"HEAD / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        compressor = GzipCompressor()
+        send = create_send(
+            proto,
+            transport,
+            SendState(),
+            compressor=compressor,
+            request_method=b"HEAD",
+        )
+
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/plain"),
+                (b"content-length", b"1000"),
+            ],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": b"",  # HEAD: no body on wire
+        })
+
+        output = bytes(transport.data)
+        # No compression headers — compressor was disabled
+        assert b"content-encoding" not in output.lower()
+        # Content-Length is preserved (not stripped for compression)
+        assert b"content-length: 1000" in output.lower()

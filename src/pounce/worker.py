@@ -599,7 +599,14 @@ class Worker:
 
         app_start = monotonic_ns()
         send_state = SendState()
-        send = create_send(proto, writer, send_state, timing=timing, compressor=compressor)
+        send = create_send(
+            proto,
+            writer,
+            send_state,
+            timing=timing,
+            compressor=compressor,
+            request_method=request.method,
+        )
 
         # Call the ASGI app with concurrent disconnect monitoring.
         # Mirrors the WebSocket handler pattern: two tasks, wait for
