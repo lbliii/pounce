@@ -296,14 +296,19 @@ class Worker:
         conn_id = next_connection_id()
         conn_start = lifecycle_ns()
         peername = writer.get_extra_info("peername")
-        client = (peername[0], peername[1]) if peername else ("unknown", 0)
+        # Unix domain sockets: peername is a string path (or empty string)
+        if peername and isinstance(peername, tuple) and len(peername) >= 2:
+            client = (peername[0], peername[1])
+        else:
+            client = ("unix", 0)
         client_str = f"{client[0]}:{client[1]}"
         server_addr = writer.get_extra_info("sockname")
-        server = (
-            (server_addr[0], server_addr[1])
-            if server_addr
-            else (self._config.host, self._config.port)
-        )
+        if server_addr and isinstance(server_addr, tuple) and len(server_addr) >= 2:
+            server = (server_addr[0], server_addr[1])
+        elif self._config.uds is not None:
+            server = (self._config.uds, 0)
+        else:
+            server = (self._config.host, self._config.port)
 
         # Determine protocol and emit ConnectionOpened
         detected_protocol = "h1"

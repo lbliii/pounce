@@ -17,6 +17,7 @@ The worker receives a socket and does not know which strategy was used.
 import contextlib
 import errno
 import logging
+import os
 import socket
 import sys
 
@@ -28,6 +29,9 @@ logger = logging.getLogger("pounce.net")
 def create_listener(config: ServerConfig) -> socket.socket:
     """Create and bind a single server socket from configuration.
 
+    If ``config.uds`` is set, creates a Unix domain socket.
+    Otherwise creates a TCP socket bound to ``config.host:config.port``.
+
     Args:
         config: Server configuration with host, port, and backlog settings.
 
@@ -38,6 +42,8 @@ def create_listener(config: ServerConfig) -> socket.socket:
         OSError: If the address is already in use or permission is denied.
 
     """
+    if config.uds is not None:
+        return _bind_unix_socket(config)
     return _bind_socket(config)
 
 
@@ -61,6 +67,11 @@ def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
     if count < 1:
         msg = f"count must be >= 1 (got {count})"
         raise ValueError(msg)
+
+    if config.uds is not None:
+        # Unix sockets are shared — all workers accept from the same fd
+        shared = _bind_unix_socket(config)
+        return [shared] * count
 
     if count == 1:
         return [_bind_socket(config)]
@@ -98,6 +109,49 @@ def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
 def has_so_reuseport() -> bool:
     """Check if SO_REUSEPORT is available on this platform."""
     return hasattr(socket, "SO_REUSEPORT") and sys.platform != "win32"
+
+
+def _bind_unix_socket(config: ServerConfig) -> socket.socket:
+    """Create, bind, and listen on a Unix domain socket.
+
+    Removes any stale socket file before binding.  The socket file
+    should be cleaned up on shutdown via ``cleanup_unix_socket()``.
+
+    """
+    path = config.uds
+    assert path is not None  # noqa: S101 — enforced by caller
+
+    # Remove stale socket file if it exists
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(path)
+
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.bind(path)
+        sock.listen(config.backlog)
+        sock.setblocking(False)
+
+        # Make the socket file accessible to the web server (e.g. nginx)
+        os.chmod(path, 0o666)
+
+        logger.info("Listening on unix:%s (backlog=%d)", path, config.backlog)
+        return sock
+
+    except OSError:
+        sock.close()
+        raise
+
+
+def cleanup_unix_socket(config: ServerConfig) -> None:
+    """Remove the Unix domain socket file on shutdown.
+
+    Safe to call even if no UDS is configured (no-op).
+
+    """
+    if config.uds is not None:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(config.uds)
+            logger.info("Removed socket file %s", config.uds)
 
 
 def _bind_socket(config: ServerConfig) -> socket.socket:

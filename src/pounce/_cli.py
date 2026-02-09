@@ -61,6 +61,7 @@ def main(args: list[str] | None = None) -> None:
         keep_alive_timeout=parsed.keep_alive_timeout,
         header_timeout=parsed.header_timeout,
         max_requests_per_connection=parsed.max_requests_per_connection,
+        uds=parsed.uds,
     )
 
     # Run the server — pass the original import string so that the reload
@@ -144,6 +145,11 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=8000,
         help="Bind port (default: 8000)",
+    )
+    parser.add_argument(
+        "--uds",
+        default=None,
+        help="Unix domain socket path (e.g., /run/pounce.sock). Mutually exclusive with --host/--port.",
     )
     parser.add_argument(
         "--workers",

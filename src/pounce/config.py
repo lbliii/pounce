@@ -76,6 +76,9 @@ class ServerConfig:
     # Headers to trust from proxy (empty = direct connection)
     trusted_hosts: tuple[str, ...] = field(default_factory=tuple)
 
+    # Unix domain socket (mutually exclusive with host/port)
+    uds: str | None = None
+
     # TLS (optional — phase 3)
     ssl_certfile: str | None = None
     ssl_keyfile: str | None = None
@@ -143,6 +146,9 @@ class ServerConfig:
             raise ValueError(msg)
         if (self.ssl_certfile is None) != (self.ssl_keyfile is None):
             msg = "ssl_certfile and ssl_keyfile must both be set or both be None"
+            raise ValueError(msg)
+        if self.uds is not None and not self.uds:
+            msg = "uds must be a non-empty path or None"
             raise ValueError(msg)
 
     def resolve_workers(self) -> int:

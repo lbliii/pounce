@@ -26,7 +26,7 @@ from pounce.asgi.lifespan import run_lifespan
 from pounce.config import ServerConfig
 from pounce.lifecycle import LifecycleCollector
 from pounce.logging import configure_logging
-from pounce.net.listener import create_listener, create_listeners
+from pounce.net.listener import cleanup_unix_socket, create_listener, create_listeners
 from pounce.net.tls import create_tls_context, is_tls_configured
 from pounce.supervisor import Supervisor
 from pounce.worker import Worker, _worker_lifecycle_receive, _worker_lifecycle_send
@@ -165,6 +165,7 @@ class Server:
             pass
         finally:
             sock.close()
+            cleanup_unix_socket(self._config)
             logger.info("Pounce server stopped")
 
     def _run_single_with_reload(self) -> None:
@@ -238,6 +239,7 @@ class Server:
                 break
         finally:
             stop_watcher.set()
+            cleanup_unix_socket(self._config)
             logger.info("Pounce server stopped")
 
     async def _run_single_async(self, sock: socket.socket) -> None:
@@ -409,6 +411,7 @@ class Server:
             if stop_watcher is not None:
                 stop_watcher.set()
             self._close_sockets(sockets)
+            cleanup_unix_socket(self._config)
             logger.info("Pounce server stopped")
 
     async def _run_lifespan_then_supervise(
