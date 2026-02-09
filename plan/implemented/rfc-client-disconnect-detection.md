@@ -96,26 +96,26 @@ Mirror the WebSocket handler pattern. Spawn a reader task alongside the app task
 
 **Architecture:**
 
-```
-┌─────────────┐       ┌──────────────────┐
-│ Reader Task │       │    App Task      │
-│             │       │                  │
-│ reader.read │       │ scope, receive,  │
-│   (socket)  │──EOF──│    send          │
-│             │  ┌──► │                  │
-│  detect     │  │    │ receive() called │
-│  disconnect │  │    │  → returns       │
-│             │  │    │  http.disconnect  │
-│  set event ─┼──┘    │                  │
-│             │       │ (or cancelled    │
-│             │       │  after grace     │
-│             │       │  period)         │
-└─────────────┘       └──────────────────┘
-        │                      │
-        └──────┬───────────────┘
-               ▼
-         asyncio.wait
-         FIRST_COMPLETED
+```mermaid
+flowchart TD
+    subgraph RT["Reader Task"]
+        R1["reader.read (socket)"]
+        R2["detect disconnect"]
+        R3["set event"]
+        R1 --> R2 --> R3
+    end
+
+    subgraph AT["App Task"]
+        A1["scope, receive, send"]
+        A2["receive() called\n→ returns http.disconnect"]
+        A3["or cancelled\nafter grace period"]
+        A1 --> A2 --> A3
+    end
+
+    R1 -- "EOF" --> A1
+    R3 -- "fires event" --> A2
+    RT --> W["asyncio.wait\nFIRST_COMPLETED"]
+    AT --> W
 ```
 
 **Changes:**

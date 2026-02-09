@@ -136,31 +136,34 @@ pounce/
 
 ### Core Abstractions
 
-```
-┌───────────────────────────────────────────────────────┐
-│  Interface Layer — What users touch                   │
-│                                                       │
-│  pounce.run()       ServerConfig       CLI            │
-└──────────────────────┬────────────────────────────────┘
-                       │
-┌──────────────────────▼────────────────────────────────┐
-│  Supervision Layer — Worker lifecycle                 │
-│                                                       │
-│  Supervisor          GIL detection     Signal handler │
-└──────────────────────┬────────────────────────────────┘
-                       │
-┌──────────────────────▼────────────────────────────────┐
-│  Worker Layer — Event loops and connections            │
-│                                                       │
-│  Worker (asyncio loop)    Listener (socket accept)    │
-└──────────────────────┬────────────────────────────────┘
-                       │
-┌──────────────────────▼────────────────────────────────┐
-│  Protocol Layer — Bytes ↔ ASGI translation             │
-│                                                       │
-│  H1Protocol (h11)   H2Protocol (h2)   WSProtocol (ws) │
-│  ASGI Bridge        Lifespan handler                  │
-└───────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph IL["Interface Layer — What users touch"]
+        I1["pounce.run()"]
+        I2["ServerConfig"]
+        I3["CLI"]
+    end
+
+    subgraph SL["Supervision Layer — Worker lifecycle"]
+        S1["Supervisor"]
+        S2["GIL detection"]
+        S3["Signal handler"]
+    end
+
+    subgraph WL["Worker Layer — Event loops and connections"]
+        W1["Worker (asyncio loop)"]
+        W2["Listener (socket accept)"]
+    end
+
+    subgraph PL["Protocol Layer — Bytes ↔ ASGI translation"]
+        P1["H1Protocol (h11)"]
+        P2["H2Protocol (h2)"]
+        P3["WSProtocol (ws)"]
+        P4["ASGI Bridge"]
+        P5["Lifespan handler"]
+    end
+
+    IL --> SL --> WL --> PL
 ```
 
 ---
@@ -195,31 +198,23 @@ pounce myapp:app --host 0.0.0.0 --port 8000 --workers 4
 
 On Python 3.14t (free-threading), pounce spawns worker **threads**:
 
-```
-┌─────────────────────────────────────────────┐
-│               Single Process                │
-│                                             │
-│  ┌─────────┐  ┌─────────┐  ┌─────────┐    │
-│  │Thread 1  │  │Thread 2  │  │Thread N  │    │
-│  │asyncio   │  │asyncio   │  │asyncio   │    │
-│  │loop      │  │loop      │  │loop      │    │
-│  └─────────┘  └─────────┘  └─────────┘    │
-│                                             │
-│  Shared: config, app, templates, routes     │
-│  Per-worker: connections, event loop        │
-└─────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph SP["Single Process"]
+        T1["Thread 1\nasyncio loop"]
+        T2["Thread 2\nasyncio loop"]
+        TN["Thread N\nasyncio loop"]
+        shared["Shared: config, app, templates, routes\nPer-worker: connections, event loop"]
+    end
 ```
 
 On GIL-enabled Python, pounce falls back to worker **processes**:
 
-```
-┌──────────┐  ┌──────────┐  ┌──────────┐
-│ Process 1 │  │ Process 2 │  │ Process N │
-│ asyncio   │  │ asyncio   │  │ asyncio   │
-│ loop      │  │ loop      │  │ loop      │
-│ own app   │  │ own app   │  │ own app   │
-│ own config│  │ own config│  │ own config│
-└──────────┘  └──────────┘  └──────────┘
+```mermaid
+flowchart LR
+    P1["Process 1\nasyncio loop\nown app\nown config"]
+    P2["Process 2\nasyncio loop\nown app\nown config"]
+    PN["Process N\nasyncio loop\nown app\nown config"]
 ```
 
 Detection is automatic via `sys._is_gil_enabled()`. Users don't choose.

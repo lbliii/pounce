@@ -32,53 +32,25 @@
 
 ## 2. System Context
 
-```
-    ┌────────────────────────┐
-    │       Client           │
-    │  (browser, curl, etc.) │
-    └───────────┬────────────┘
-                │ TCP / TLS
-    ┌───────────▼────────────┐
-    │       Pounce           │
-    │                        │
-    │  ┌──────────────────┐  │
-    │  │   Supervisor      │  │
-    │  │  (lifecycle mgmt) │  │
-    │  └────────┬─────────┘  │
-    │           │ spawn       │
-    │  ┌────────▼─────────┐  │
-    │  │   Worker Thread   │  │
-    │  │   (asyncio loop)  │  │
-    │  │                   │  │
-    │  │  ┌─────────────┐  │  │
-    │  │  │  Listener    │  │  │
-    │  │  │  (accept)    │  │  │
-    │  │  └──────┬──────┘  │  │
-    │  │         │          │  │
-    │  │  ┌──────▼──────┐  │  │
-    │  │  │  TLS (opt)   │  │  │
-    │  │  │  + ALPN      │  │  │
-    │  │  └──────┬──────┘  │  │
-    │  │         │          │  │
-    │  │  ┌──────▼──────┐  │  │
-    │  │  │  Protocol    │  │  │
-    │  │  │  H1/H2/WS    │  │  │
-    │  │  └──────┬──────┘  │  │
-    │  │         │          │  │
-    │  │  ┌──────▼──────┐  │  │
-    │  │  │  ASGI Bridge │  │  │
-    │  │  │  (scope/     │  │  │
-    │  │  │   recv/send) │  │  │
-    │  │  └──────┬──────┘  │  │
-    │  │         │          │  │
-    │  └─────────│─────────┘  │
-    │            │             │
-    └────────────│─────────────┘
-                 │ ASGI protocol
-    ┌────────────▼─────────────┐
-    │     ASGI Application     │
-    │  (chirp, Starlette, etc) │
-    └──────────────────────────┘
+```mermaid
+flowchart TD
+    Client["Client\n(browser, curl, etc.)"]
+    Client -->|"TCP / TLS"| Pounce
+
+    subgraph Pounce
+        Supervisor["Supervisor\n(lifecycle mgmt)"]
+        Supervisor -->|spawn| Worker
+
+        subgraph Worker["Worker Thread (asyncio loop)"]
+            Listener["Listener (accept)"]
+            TLS["TLS (opt) + ALPN"]
+            Protocol["Protocol\nH1 / H2 / WS"]
+            Bridge["ASGI Bridge\n(scope / recv / send)"]
+            Listener --> TLS --> Protocol --> Bridge
+        end
+    end
+
+    Bridge -->|"ASGI protocol"| App["ASGI Application\n(chirp, Starlette, etc.)"]
 ```
 
 ---
@@ -217,15 +189,14 @@ Connections are per-worker and never shared across workers or threads.
 
 ### 4.1 Server Lifecycle
 
-```
-    ┌──────────┐     ┌───────────┐     ┌──────────┐     ┌───────────┐
-    │  CONFIG   │────>│  BIND     │────>│  SERVE   │────>│  SHUTDOWN │
-    └──────────┘     └───────────┘     └──────────┘     └───────────┘
+```mermaid
+flowchart LR
+    CONFIG["**CONFIG**\nParse args\nLoad app\nCreate config"]
+    BIND["**BIND**\nBind socket(s)\nVerify address\nSet SO_REUSEPORT"]
+    SERVE["**SERVE**\nWorkers handle\nrequests\nSupervisor monitors"]
+    SHUTDOWN["**SHUTDOWN**\nDrain conns\nStop workers\nClose sockets"]
 
-    Parse args        Bind socket(s)    Workers handle    Drain conns
-    Load app          Verify address    requests          Stop workers
-    Create config     Set SO_REUSEPORT  Supervisor        Close sockets
-                                        monitors
+    CONFIG --> BIND --> SERVE --> SHUTDOWN
 ```
 
 **Config phase:** Parse CLI arguments or programmatic config. Import the ASGI app. Create
@@ -243,105 +214,46 @@ exits.
 
 ### 4.2 Connection Flow (HTTP/1.1)
 
-```
-    Client connects (TCP)
-           │
-           ▼
-    ┌──────────────┐
-    │  Worker       │  asyncio event loop picks up new connection
-    │  (accept)     │
-    └──────┬───────┘
-           │
-           ▼
-    ┌──────────────┐
-    │  H1Protocol   │  h11 state machine: IDLE → SEND_RESPONSE
-    │  (parse)      │  Reads bytes → produces h11 events
-    └──────┬───────┘
-           │
-           ▼
-    ┌──────────────┐
-    │  ASGI Bridge  │  Construct scope dict from h11 request
-    │  (translate)  │  Create receive() → feeds request body
-    │               │  Create send() → captures response events
-    └──────┬───────┘
-           │
-           ▼
-    ┌──────────────┐
-    │  ASGI App     │  app(scope, receive, send)
-    │  (execute)    │  App reads body via receive()
-    │               │  App sends response via send()
-    └──────┬───────┘
-           │
-           ▼
-    ┌──────────────┐
-    │  H1Protocol   │  send() calls → h11 response bytes
-    │  (serialize)  │  Write to socket
-    └──────┬───────┘
-           │
-           ▼
-    Keep-alive? → loop back to parse
-    Close? → close socket
+```mermaid
+flowchart TD
+    A["Client connects (TCP)"]
+    B["Worker (accept)\nasyncio event loop picks up new connection"]
+    C["H1Protocol (parse)\nh11 state machine: IDLE → SEND_RESPONSE\nReads bytes → produces h11 events"]
+    D["ASGI Bridge (translate)\nConstruct scope dict from h11 request\nCreate receive() → feeds request body\nCreate send() → captures response events"]
+    E["ASGI App (execute)\napp(scope, receive, send)\nApp reads body via receive()\nApp sends response via send()"]
+    F["H1Protocol (serialize)\nsend() calls → h11 response bytes\nWrite to socket"]
+    G{Keep-alive?}
+
+    A --> B --> C --> D --> E --> F --> G
+    G -->|Yes| C
+    G -->|No| H["Close socket"]
 ```
 
 ### 4.2b Connection Flow (HTTP/2)
 
-```
-    Client connects (TCP + TLS)
-           │
-           ▼
-    ┌──────────────┐
-    │  TLS + ALPN   │  ALPN negotiates "h2"
-    └──────┬───────┘
-           │
-           ▼
-    ┌──────────────┐
-    │  H2Connection │  h2 state machine: preface → streams
-    │  (h2 lib)     │  Multiplexed streams on single connection
-    └──────┬───────┘
-           │ for each stream:
-           ▼
-    ┌──────────────┐
-    │  ASGI Bridge  │  build_h2_scope() per stream
-    │  (h2_bridge)  │  Concurrent stream tasks
-    └──────┬───────┘
-           │
-           ▼
-    ┌──────────────┐
-    │  ASGI App     │  app(scope, receive, send) per stream
-    └──────────────┘
+```mermaid
+flowchart TD
+    A["Client connects (TCP + TLS)"]
+    B["TLS + ALPN\nALPN negotiates 'h2'"]
+    C["H2Connection (h2 lib)\nh2 state machine: preface → streams\nMultiplexed streams on single connection"]
+    D["ASGI Bridge (h2_bridge)\nbuild_h2_scope() per stream\nConcurrent stream tasks"]
+    E["ASGI App\napp(scope, receive, send) per stream"]
+
+    A --> B --> C -->|"for each stream"| D --> E
 ```
 
 ### 4.2c Connection Flow (WebSocket over HTTP/1.1)
 
-```
-    Client sends HTTP/1.1 upgrade request
-           │
-           ▼
-    ┌──────────────┐
-    │  H1Protocol   │  Detects Connection: Upgrade + Upgrade: websocket
-    └──────┬───────┘
-           │
-           ▼
-    ┌──────────────┐
-    │  101 Response │  Manual HTTP 101 Switching Protocols response
-    └──────┬───────┘
-           │
-           ▼
-    ┌──────────────┐
-    │  WSProtocol   │  wsproto framing (binary/text/close/ping/pong)
-    │  (wsproto)    │
-    └──────┬───────┘
-           │
-           ▼
-    ┌──────────────┐
-    │  ASGI Bridge  │  build_ws_scope() → websocket ASGI lifecycle
-    │  (ws_bridge)  │  connect → accept → send/receive → close
-    └──────┬───────┘
-           │
-           ▼
-    ┌──────────────┐
-    │  ASGI App     │  websocket scope app(scope, receive, send)
-    └──────────────┘
+```mermaid
+flowchart TD
+    A["Client sends HTTP/1.1 upgrade request"]
+    B["H1Protocol\nDetects Connection: Upgrade + Upgrade: websocket"]
+    C["101 Response\nManual HTTP 101 Switching Protocols response"]
+    D["WSProtocol (wsproto)\nwsproto framing (binary/text/close/ping/pong)"]
+    E["ASGI Bridge (ws_bridge)\nbuild_ws_scope() → websocket ASGI lifecycle\nconnect → accept → send/receive → close"]
+    F["ASGI App\nwebsocket scope app(scope, receive, send)"]
+
+    A --> B --> C --> D --> E --> F
 ```
 
 **Streaming responses** (SSE, chunked HTML, AI token streams) keep the connection open
@@ -402,29 +314,15 @@ async def send(message: dict[str, Any]) -> None:
 
 ### 4.4 Supervisor Design
 
-```
-    ┌─────────────────────────────────────┐
-    │            Supervisor               │
-    │                                     │
-    │  ┌─────────────┐                    │
-    │  │ GIL Detect   │                    │
-    │  │ sys._is_gil_ │──┐                │
-    │  │ enabled()    │  │                 │
-    │  └─────────────┘  │                 │
-    │                    │                 │
-    │       ┌────────────▼──────────┐      │
-    │       │                       │      │
-    │  ┌────▼─────┐          ┌─────▼────┐ │
-    │  │ Thread    │          │ Process  │ │
-    │  │ Spawner   │          │ Spawner  │ │
-    │  │ (nogil)   │          │ (GIL)    │ │
-    │  └────┬─────┘          └─────┬────┘ │
-    │       │                      │       │
-    │       ▼                      ▼       │
-    │  Workers share          Workers get  │
-    │  interpreter            own process  │
-    │  + immutable state      + fork       │
-    └─────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph Supervisor
+        GIL["GIL Detect\nsys._is_gil_enabled()"]
+        GIL -->|nogil| TS["Thread Spawner"]
+        GIL -->|GIL| PS["Process Spawner"]
+        TS --> TW["Workers share\ninterpreter\n+ immutable state"]
+        PS --> PW["Workers get\nown process\n+ fork"]
+    end
 ```
 
 The supervisor's job:
@@ -498,33 +396,14 @@ the ASGI app's `send()` calls via flow control.
 Pounce negotiates response compression using Python 3.14's stdlib — no external
 dependencies for zstd or gzip.
 
-```
-    Client: Accept-Encoding: zstd, gzip;q=0.8
-                    │
-                    ▼
-    ┌───────────────────────────┐
-    │   Negotiation (per-req)   │
-    │                           │
-    │   Parse Accept-Encoding   │
-    │   Waterfall:              │
-    │   1. zstd  (stdlib)       │
-    │   2. gzip  (stdlib)       │
-    │   3. identity (no-op)     │
-    └─────────┬─────────────────┘
-              │
-              ▼
-    ┌───────────────────────────┐
-    │   Compress (per-chunk)    │
-    │                           │
-    │   Create compressor once  │
-    │   Stream-compress each    │
-    │   response body chunk     │
-    │   Flush on final chunk    │
-    └─────────┬─────────────────┘
-              │
-              ▼
-    Set Content-Encoding header
-    Remove Content-Length (chunked)
+```mermaid
+flowchart TD
+    A["Client: Accept-Encoding: zstd, gzip;q=0.8"]
+    B["**Negotiation** (per-req)\nParse Accept-Encoding\nWaterfall:\n1. zstd (stdlib)\n2. gzip (stdlib)\n3. identity (no-op)"]
+    C["**Compress** (per-chunk)\nCreate compressor once\nStream-compress each\nresponse body chunk\nFlush on final chunk"]
+    D["Set Content-Encoding header\nRemove Content-Length (chunked)"]
+
+    A --> B --> C --> D
 ```
 
 **Implementation:**
@@ -605,15 +484,17 @@ lives on the ASGI bridge — no shared mutable state.
 Protocol handlers follow the sans-I/O pattern: they consume bytes and produce bytes
 without performing any I/O themselves. The worker feeds data in and reads data out.
 
-```
-    Worker (asyncio I/O)          Protocol (sans-I/O)
-    ─────────────────────         ──────────────────────
-    recv bytes from socket  ──>   feed bytes to h11
-                                  h11 produces events
-                            <──   return parsed request
-    call ASGI app           ──>
-    app calls send()        <──   serialize response via h11
-    write bytes to socket   <──   return response bytes
+```mermaid
+sequenceDiagram
+    participant W as Worker (asyncio I/O)
+    participant P as Protocol (sans-I/O)
+
+    W->>P: recv bytes from socket → feed bytes to h11
+    P-->>W: h11 produces events → return parsed request
+    W->>W: call ASGI app
+    W->>P: app calls send()
+    P-->>W: serialize response via h11 → return response bytes
+    W->>W: write bytes to socket
 ```
 
 This separation enables:
@@ -625,8 +506,12 @@ This separation enables:
 
 h11 is a sans-I/O HTTP/1.1 implementation. It manages an internal state machine:
 
-```
-    IDLE → SEND_RESPONSE → SEND_BODY → DONE → IDLE (keep-alive)
+```mermaid
+stateDiagram-v2
+    IDLE --> SEND_RESPONSE
+    SEND_RESPONSE --> SEND_BODY
+    SEND_BODY --> DONE
+    DONE --> IDLE: keep-alive
 ```
 
 Pounce wraps h11 in `H1Protocol`:
