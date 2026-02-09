@@ -22,23 +22,29 @@ Pounce works on both GIL and free-threading builds. On GIL builds, multi-worker 
 
 :::{tab-set}
 :::{tab-item} uv
+
 ```bash
 uv add bengal-pounce
 ```
+
 :::{/tab-item}
 
 :::{tab-item} pip
+
 ```bash
 pip install bengal-pounce
 ```
+
 :::{/tab-item}
 
 :::{tab-item} From Source
+
 ```bash
 git clone https://github.com/lbliii/pounce.git
 cd pounce
 uv sync --group dev
 ```
+
 :::{/tab-item}
 :::{/tab-set}
 
