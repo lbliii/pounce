@@ -26,6 +26,8 @@ import ssl
 import threading
 from typing import Any
 
+import h11
+
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._errors import ParseError
 from pounce._h2_handler import handle_h2_connection
@@ -173,7 +175,7 @@ class Worker:
         # ASGI apps don't know about pounce.worker.startup and will
         # crash on it (e.g. KeyError on scope['method']).  This is
         # normal and should not prevent the worker from starting.
-        with contextlib.suppress(Exception):
+        try:
             await asyncio.wait_for(
                 self._app(
                     {"type": "pounce.worker.startup", "worker_id": self._worker_id},
@@ -182,6 +184,8 @@ class Worker:
                 ),
                 timeout=30.0,
             )
+        except Exception:
+            self._logger.debug("Worker startup hook raised (expected for most apps)")
 
         server = await asyncio.start_server(
             self._handle_connection,
@@ -211,13 +215,13 @@ class Worker:
             try:
                 server.close()
                 await server.wait_closed()
-            except ValueError, OSError:
+            except (ValueError, OSError):
                 pass  # fd already closed by another worker sharing the socket
 
             # Per-worker shutdown hook — runs on this worker's event loop
             # for proper async resource cleanup.  Errors are logged but
             # do not prevent worker exit.
-            with contextlib.suppress(Exception):
+            try:
                 await asyncio.wait_for(
                     self._app(
                         {"type": "pounce.worker.shutdown", "worker_id": self._worker_id},
@@ -226,6 +230,8 @@ class Worker:
                     ),
                     timeout=10.0,
                 )
+            except Exception:
+                self._logger.debug("Worker shutdown hook raised (expected for most apps)")
 
             self._logger.info("Worker %d stopped", self._worker_id)
 
@@ -282,7 +288,7 @@ class Worker:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except Exception:
+            except (OSError, ConnectionError):
                 pass
             return
 
@@ -355,7 +361,7 @@ class Worker:
                     try:
                         writer.close()
                         await writer.wait_closed()
-                    except Exception:
+                    except (OSError, ConnectionError):
                         pass
                 return
 
@@ -469,7 +475,7 @@ class Worker:
                 # Check if we can do another cycle (keep-alive)
                 try:
                     proto.start_new_cycle()
-                except Exception:
+                except (h11.LocalProtocolError, RuntimeError):
                     break  # Connection can't be reused
 
                 # NOTE: HTTP pipelining (next request buffered in h11
@@ -500,7 +506,7 @@ class Worker:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except Exception:
+            except (OSError, ConnectionError):
                 pass
 
     # ------------------------------------------------------------------
@@ -677,7 +683,7 @@ class Worker:
                 await self._app(scope, receive, send)
             except Exception:
                 self._logger.exception("ASGI app error on %s %s", scope["method"], scope["path"])
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
                     await self._send_error(writer, proto, 500, "Internal Server Error")
                 if send_state.status == 0:
                     send_state.status = 500
@@ -799,7 +805,7 @@ class Worker:
                 await self._app(scope, receive, send)
             except Exception:
                 self._logger.exception("ASGI app error on %s %s", scope["method"], scope["path"])
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
                     await self._send_error(writer, proto, 500, "Internal Server Error")
                 if send_state.status == 0:
                     send_state.status = 500
