@@ -112,6 +112,24 @@ class TestAccessLog:
 
         assert caplog.records[0].levelno == logging.INFO
 
+    def test_text_access_log_includes_request_id(self, caplog):
+        """Text access log appends truncated request ID."""
+        configure_logging(ServerConfig(log_format="text"))
+        with caplog.at_level(logging.INFO, logger="pounce.access"):
+            access_log("GET", "/", 200, 0, 1.0, "client:80", request_id="abcdef123456789")
+
+        msg = caplog.records[0].getMessage()
+        assert "[abcdef123456]" in msg  # Truncated to 12 chars
+
+    def test_text_access_log_no_suffix_without_request_id(self, caplog):
+        """Text access log has no trailing bracket when no request_id."""
+        configure_logging(ServerConfig(log_format="text"))
+        with caplog.at_level(logging.INFO, logger="pounce.access"):
+            access_log("GET", "/", 200, 0, 1.0, "client:80")
+
+        msg = caplog.records[0].getMessage()
+        assert "[" not in msg
+
 
 class TestJSONAccessLog:
     """JSON-format access log output."""
@@ -141,6 +159,22 @@ class TestJSONAccessLog:
         parsed = json.loads(caplog.records[0].getMessage())
         assert parsed["level"] == "WARNING"
         assert parsed["status"] == 500
+
+    def test_json_access_log_includes_request_id(self, caplog):
+        configure_logging(ServerConfig(log_format="json"))
+        with caplog.at_level(logging.INFO, logger="pounce.access"):
+            access_log("GET", "/api", 200, 0, 1.0, "client:80", request_id="abc123def456")
+
+        parsed = json.loads(caplog.records[0].getMessage())
+        assert parsed["request_id"] == "abc123def456"
+
+    def test_json_access_log_no_request_id_when_none(self, caplog):
+        configure_logging(ServerConfig(log_format="json"))
+        with caplog.at_level(logging.INFO, logger="pounce.access"):
+            access_log("GET", "/api", 200, 0, 1.0, "client:80")
+
+        parsed = json.loads(caplog.records[0].getMessage())
+        assert "request_id" not in parsed
 
     def test_json_access_log_has_timestamp(self, caplog):
         configure_logging(ServerConfig(log_format="json"))

@@ -266,3 +266,51 @@ class TestServerConfigSlots:
         config = ServerConfig()
         with pytest.raises((FrozenInstanceError, AttributeError, TypeError)):
             config.nonexistent = "value"  # type: ignore[attr-defined]
+
+
+class TestNewConfigFields:
+    """Tests for fields added in the production epic."""
+
+    def test_default_header_timeout(self):
+        config = ServerConfig()
+        assert config.header_timeout == 10.0
+
+    def test_custom_header_timeout(self):
+        config = ServerConfig(header_timeout=30.0)
+        assert config.header_timeout == 30.0
+
+    def test_header_timeout_must_be_positive(self):
+        with pytest.raises(ValueError, match="header_timeout"):
+            ServerConfig(header_timeout=0)
+
+    def test_header_timeout_negative_rejected(self):
+        with pytest.raises(ValueError, match="header_timeout"):
+            ServerConfig(header_timeout=-1.0)
+
+    def test_default_uds_is_none(self):
+        config = ServerConfig()
+        assert config.uds is None
+
+    def test_custom_uds(self):
+        config = ServerConfig(uds="/run/pounce.sock")
+        assert config.uds == "/run/pounce.sock"
+
+    def test_empty_uds_rejected(self):
+        with pytest.raises(ValueError, match="uds"):
+            ServerConfig(uds="")
+
+    def test_default_health_check_path_is_none(self):
+        config = ServerConfig()
+        assert config.health_check_path is None
+
+    def test_custom_health_check_path(self):
+        config = ServerConfig(health_check_path="/health")
+        assert config.health_check_path == "/health"
+
+    def test_default_trusted_hosts_empty(self):
+        config = ServerConfig()
+        assert config.trusted_hosts == ()
+
+    def test_custom_trusted_hosts(self):
+        config = ServerConfig(trusted_hosts=("10.0.0.1", "10.0.0.2"))
+        assert config.trusted_hosts == ("10.0.0.1", "10.0.0.2")
