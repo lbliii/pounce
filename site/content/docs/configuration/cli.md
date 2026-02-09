@@ -49,7 +49,18 @@ The `APP` argument is a Python module path with an attribute, e.g. `myapp:app`. 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--log-level TEXT` | `info` | Log level (debug/info/warning/error/critical) |
+| `--log-format TEXT` | `text` | Log output format (`text` or `json`) |
 | `--no-access-log` | — | Disable access logging |
+
+**5xx responses** are logged at `WARNING` level (instead of `INFO`) so they stand out visually and can be filtered separately.
+
+When `--log-format json` is set, all log output (including access logs) is emitted as structured JSON:
+
+```json
+{"timestamp": "2026-02-08T12:00:00+00:00", "level": "WARNING", "logger": "pounce.access", "method": "GET", "path": "/", "http_version": "1.1", "status": 500, "bytes_sent": 21, "duration_ms": 98.9, "client": "127.0.0.1:5000"}
+```
+
+This is useful for log aggregation systems (ELK, Datadog, CloudWatch, etc.).
 
 ### Features
 
@@ -86,6 +97,9 @@ pounce myapp:app --reload --reload-include ".html,.css,.md" --reload-dir ./templ
 
 # Production
 pounce myapp:app --host 0.0.0.0 --workers 0 --no-access-log
+
+# Production with JSON logs (for log aggregation)
+pounce myapp:app --host 0.0.0.0 --workers 0 --log-format json
 
 # TLS
 pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem

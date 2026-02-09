@@ -39,12 +39,13 @@ When a client connects with TLS and advertises `h2` via ALPN, Pounce selects the
 
 In HTTP/2, multiple requests share a single TCP connection. Each request is a "stream" with its own ID. Pounce creates a separate ASGI scope for each stream, so your application handles each request independently.
 
-```
-Connection (1 TCP socket)
-  ├── Stream 1: GET /index.html
-  ├── Stream 3: GET /style.css
-  ├── Stream 5: GET /script.js
-  └── Stream 7: GET /data.json
+```mermaid
+flowchart LR
+    Conn["Connection\n(1 TCP socket)"]
+    Conn --> S1["Stream 1\nGET /index.html"]
+    Conn --> S3["Stream 3\nGET /style.css"]
+    Conn --> S5["Stream 5\nGET /script.js"]
+    Conn --> S7["Stream 7\nGET /data.json"]
 ```
 
 All streams are processed concurrently within the worker's asyncio event loop.

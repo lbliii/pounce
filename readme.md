@@ -83,27 +83,17 @@ pounce myapp:create_app()  # app factory pattern
 
 ## How It Works
 
-```
-                    ┌─────────────────────────────┐
-                    │       Supervisor             │
-                    │  detect nogil → threads      │
-                    │  detect GIL   → processes    │
-                    └──────────────┬──────────────┘
-                                   │ spawn N workers
-                 ┌─────────────────┼─────────────────┐
-                 ▼                 ▼                 ▼
-          ┌────────────┐   ┌────────────┐   ┌────────────┐
-          │  Worker 1   │   │  Worker 2   │   │  Worker N   │
-          │  asyncio    │   │  asyncio    │   │  asyncio    │
-          │  event loop │   │  event loop │   │  event loop │
-          └─────┬──────┘   └─────┬──────┘   └─────┬──────┘
-                │                │                │
-                └────────────────┼────────────────┘
-                                 ▼
-                    ┌─────────────────────────┐
-                    │  Shared Immutable State  │
-                    │  (config, app reference) │
-                    └─────────────────────────┘
+```mermaid
+flowchart TD
+    Supervisor["Supervisor\ndetect nogil → threads\ndetect GIL → processes"]
+
+    Supervisor -- "spawn N workers" --> W1["Worker 1\nasyncio event loop"]
+    Supervisor -- "spawn N workers" --> W2["Worker 2\nasyncio event loop"]
+    Supervisor -- "spawn N workers" --> WN["Worker N\nasyncio event loop"]
+
+    W1 --> Shared["Shared Immutable State\n(config, app reference)"]
+    W2 --> Shared
+    WN --> Shared
 ```
 
 On **Python 3.14t** (free-threading): workers are threads. One process, N threads, each with

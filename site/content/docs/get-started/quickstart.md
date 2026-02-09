@@ -35,25 +35,19 @@ async def app(scope, receive, send):
 ## Serve It
 
 :::{tab-set}
-
 :::{tab-item} Command Line
-
 ```bash
 pounce app:app
 ```
-
-:::{/tab-item}
+:::
 
 :::{tab-item} Programmatic
-
 ```python
 import pounce
 
 pounce.run("app:app")
 ```
-
-:::{/tab-item}
-
+:::
 :::{/tab-set}
 
 Open `http://127.0.0.1:8000` in your browser. You should see "Hello from Pounce!".

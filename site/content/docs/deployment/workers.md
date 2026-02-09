@@ -46,6 +46,29 @@ Calls `os.cpu_count()` and uses that as the worker count (minimum 1). On an 8-co
 
 The supervisor spawns N workers and monitors their health. Workers that crash are automatically restarted (max 5 restarts per 60-second window).
 
+## Thread vs Process Workers
+
+```mermaid
+flowchart LR
+    subgraph ft ["Free-Threading (3.14t)"]
+        direction TB
+        P1["1 Process"] --> T1["Thread 1\nevent loop"]
+        P1 --> T2["Thread 2\nevent loop"]
+        P1 --> TN["Thread N\nevent loop"]
+        T1 ~~~ Mem1["Shared Memory\nconfig, app, routes"]
+        T2 ~~~ Mem1
+        TN ~~~ Mem1
+    end
+
+    subgraph gil ["GIL Build"]
+        direction TB
+        Sup["Supervisor"] --> PR1["Process 1\nevent loop"]
+        Sup --> PR2["Process 2\nevent loop"]
+        Sup --> PRN["Process N\nevent loop"]
+        PR1 ~~~ Mem2["Isolated Memory ×N"]
+    end
+```
+
 ## Thread Workers (Free-Threading)
 
 On Python 3.14t, each worker is a thread with its own asyncio event loop:

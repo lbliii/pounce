@@ -81,6 +81,23 @@ if event["type"] == "http.disconnect":
 
 The lifespan bridge handles application startup and shutdown:
 
+```mermaid
+sequenceDiagram
+    participant P as Pounce
+    participant A as ASGI App
+
+    P->>A: lifespan.startup
+    alt success
+        A->>P: lifespan.startup.complete
+        Note over P,A: Server runs — handling requests
+        P->>A: lifespan.shutdown
+        A->>P: lifespan.shutdown.complete
+    else failure
+        A->>P: lifespan.startup.failed
+        Note over P: Server exits (non-zero)
+    end
+```
+
 1. Send `lifespan.startup` event
 2. Wait for `lifespan.startup.complete` or `lifespan.startup.failed`
 3. *(server runs)*

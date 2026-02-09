@@ -28,6 +28,19 @@ Pounce supports:
 
 WebSocket connections follow the ASGI WebSocket spec:
 
+```mermaid
+stateDiagram-v2
+    [*] --> Connect: websocket.connect
+    Connect --> Accepted: websocket.accept
+    Connect --> Rejected: websocket.close
+    Rejected --> [*]
+
+    Accepted --> Messaging: ready
+    Messaging --> Messaging: websocket.receive / websocket.send
+    Messaging --> Disconnected: websocket.disconnect
+    Disconnected --> [*]
+```
+
 1. **Connect** — `websocket.connect` event received
 2. **Accept/Reject** — App sends `websocket.accept` or `websocket.close`
 3. **Messages** — Bidirectional `websocket.receive` and `websocket.send`
