@@ -19,7 +19,7 @@ from pounce._compression import Compressor
 from pounce._timing import ServerTiming
 from pounce._types import Receive, Send
 from pounce.asgi._scope import build_base_scope
-from pounce.asgi.bridge import SendState
+from pounce.asgi.bridge import SendState, _sanitize_headers
 from pounce.config import ServerConfig
 from pounce.protocols._base import RequestReceived
 
@@ -39,8 +39,10 @@ def build_h2_scope(
     and ``scheme: "https"`` (HTTP/2 typically requires TLS).
 
     """
+    from pounce._proxy import apply_proxy_headers
+
     scheme = "https" if config.ssl_certfile else "http"
-    return build_base_scope(
+    scope = build_base_scope(
         request,
         scope_type="http",
         http_version="2",
@@ -49,6 +51,7 @@ def build_h2_scope(
         client=client,
         root_path=config.root_path,
     )
+    return apply_proxy_headers(scope, trusted_hosts=config.trusted_hosts)
 
 
 def create_h2_receive(
@@ -74,6 +77,8 @@ def create_h2_send(
     *,
     timing: ServerTiming | None = None,
     compressor: Compressor | None = None,
+    request_method: bytes = b"GET",
+    request_id: str | None = None,
 ) -> Send:
     """Create an ASGI send callable for an HTTP/2 stream.
 
@@ -114,6 +119,23 @@ def create_h2_send(
 
             response_started = True
             state.status = status
+
+            # Defense-in-depth: strip CR/LF from header values
+            headers = _sanitize_headers(headers)
+
+            # Inject X-Request-ID response header
+            if request_id is not None:
+                headers.append((b"x-request-id", request_id.encode("latin-1")))
+
+            # Bodyless responses (1xx, 204, 304) — disable compression
+            if compressor is not None and (
+                100 <= status <= 199 or status in {204, 304}
+            ):
+                compressor = None
+
+            # HEAD responses — disable compression to preserve Content-Length
+            if compressor is not None and request_method == b"HEAD":
+                compressor = None
 
             # SSE must not be compressed — EventSource API doesn't support it
             if compressor is not None:

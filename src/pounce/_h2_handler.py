@@ -19,6 +19,8 @@ import contextlib
 import logging
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
+from pounce._health import build_health_response
+from pounce._request_id import extract_or_generate
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
 from pounce.asgi.bridge import SendState
@@ -93,6 +95,9 @@ async def handle_h2_connection(
 
     # Per-stream state: {stream_id: (task, body_queue)}
     stream_tasks: dict[int, tuple[asyncio.Task[None], asyncio.Queue[dict]]] = {}
+    # Per-stream accumulated body bytes for max_request_size enforcement
+    stream_body_bytes: dict[int, int] = {}
+    max_body = config.max_request_size
 
     async def _run_stream(
         stream_id: int,
@@ -102,6 +107,37 @@ async def handle_h2_connection(
         """Run the ASGI app for a single HTTP/2 stream."""
         request_start = monotonic_ns()
         scope = build_h2_scope(request, config, client, server)
+
+        # Generate or extract request ID for tracing
+        is_trusted_peer = bool(
+            config.trusted_hosts
+            and (
+                "*" in config.trusted_hosts
+                or client[0] in config.trusted_hosts
+            )
+        )
+        request_id = extract_or_generate(
+            request.headers, trusted=is_trusted_peer
+        )
+        scope.setdefault("extensions", {})["request_id"] = request_id
+
+        # Built-in health check — respond before ASGI dispatch
+        health_path = config.health_check_path
+        if (
+            health_path is not None
+            and scope["path"] == health_path
+            and request.method == b"GET"
+        ):
+            h_status, h_headers, h_body = build_health_response(
+                worker_id=0,  # H2 handler doesn't track worker_id
+                active_connections=0,
+            )
+            h2_conn.send_response_headers(stream_id, h_status, h_headers)
+            h2_conn.send_data(stream_id, h_body, end_stream=True)
+            writer.write(h2_conn.data_to_send())
+            h2_conn.remove_stream(stream_id)
+            stream_tasks.pop(stream_id, None)
+            return
 
         timing: ServerTiming | None = None
         if config.server_timing:
@@ -126,6 +162,8 @@ async def handle_h2_connection(
             send_state,
             timing=timing,
             compressor=compressor,
+            request_method=request.method,
+            request_id=request_id,
         )
 
         try:
@@ -156,6 +194,7 @@ async def handle_h2_connection(
         finally:
             h2_conn.remove_stream(stream_id)
             stream_tasks.pop(stream_id, None)
+            stream_body_bytes.pop(stream_id, None)
 
         if timing:
             timing.add("app", elapsed_ms(app_start))
@@ -177,6 +216,7 @@ async def handle_h2_connection(
                     duration,
                     client_str,
                     http_version="2",
+                    request_id=request_id,
                 )
 
     try:
@@ -232,15 +272,31 @@ async def handle_h2_connection(
                     pair = stream_tasks.get(event.stream_id)
                     if pair is not None:
                         _, bq = pair
-                        await bq.put(
-                            {
+                        # Enforce max_request_size for streaming H2 bodies
+                        sid = event.stream_id
+                        stream_body_bytes[sid] = (
+                            stream_body_bytes.get(sid, 0) + len(event.body.data)
+                        )
+                        if stream_body_bytes[sid] > max_body:
+                            logger.warning(
+                                "H2 stream %d body exceeds max_request_size (%d bytes)",
+                                sid,
+                                max_body,
+                            )
+                            await bq.put({
+                                "type": "http.request",
+                                "body": b"",
+                                "more_body": False,
+                            })
+                        else:
+                            await bq.put({
                                 "type": "http.request",
                                 "body": event.body.data,
                                 "more_body": event.body.more,
-                            }
-                        )
+                            })
 
                 elif isinstance(event, H2StreamReset):
+                    stream_body_bytes.pop(event.stream_id, None)
                     pair = stream_tasks.pop(event.stream_id, None)
                     if pair is not None:
                         pair[0].cancel()

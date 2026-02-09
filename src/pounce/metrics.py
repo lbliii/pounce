@@ -46,7 +46,7 @@ class PrometheusCollector:
     Example::
 
         collector = PrometheusCollector()
-        config = ServerConfig(metrics_collector=collector)
+        server = Server(config, app, lifecycle_collector=collector)
 
         # Later: export metrics
         text = collector.export()
