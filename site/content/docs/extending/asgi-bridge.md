@@ -19,15 +19,18 @@ The ASGI bridge is the layer between Pounce's protocol parsers and your ASGI app
 For HTTP requests, the bridge:
 
 1. **Builds scope** — Extracts method, path, headers, query string from the parsed request
-2. **Creates receive** — Returns request body chunks as `http.request` events
-3. **Creates send** — Accepts `http.response.start` and `http.response.body` events
-4. **Tracks state** — Monitors response status, headers sent, body complete
+2. **Validates proxy headers** — Applies `X-Forwarded-*` from trusted peers, strips from untrusted
+3. **Generates request ID** — UUID4 hex or honoured from trusted proxy's `X-Request-ID`
+4. **Creates receive** — Returns request body chunks as `http.request` events
+5. **Creates send** — Accepts `http.response.start` and `http.response.body` events, sanitises response headers (CRLF stripping), injects `X-Request-ID`
+6. **Tracks state** — Monitors response status, headers sent, body complete
 
 ```python
 # Simplified flow
-scope = build_scope(request, config)
+scope = build_scope(request, config)       # + proxy header validation
+request_id = extract_or_generate(headers)  # UUID4 or from trusted proxy
 receive = create_receive(request_body)
-send = create_send(connection, config)
+send = create_send(connection, config, request_id=request_id)
 
 await app(scope, receive, send)
 ```
@@ -104,7 +107,20 @@ sequenceDiagram
 4. Send `lifespan.shutdown` event
 5. Wait for `lifespan.shutdown.complete`
 
+## Security in the Bridge
+
+The `send` callable applies several security measures during `http.response.start`:
+
+- **CRLF sanitisation** — Strips `\r` and `\n` from all response header names and values
+- **Bodyless guard** — Disables compression for 204/304 responses (no body allowed per RFC 9110)
+- **HEAD guard** — Disables compression for HEAD responses to preserve `Content-Length`
+- **Request ID injection** — Appends `X-Request-ID` response header
+
+These protections are active on both HTTP/1.1 and HTTP/2 bridges.
+
 ## See Also
 
 - [[docs/about/architecture|Architecture]] — Full pipeline overview
 - [[docs/reference/api|API Reference]] — ASGI type definitions
+- [[docs/deployment/security|Security]] — Full security feature reference
+- [[docs/deployment/observability|Observability]] — Health checks, request IDs, metrics

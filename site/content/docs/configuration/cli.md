@@ -26,6 +26,7 @@ The `APP` argument is a Python module path with an attribute, e.g. `myapp:app`. 
 |------|---------|-------------|
 | `--host TEXT` | `127.0.0.1` | Bind address |
 | `--port INT` | `8000` | Bind port |
+| `--uds PATH` | — | Unix domain socket path (mutually exclusive with `--host`/`--port`) |
 | `--workers INT` | `1` | Number of workers (0 = auto-detect) |
 | `--backlog INT` | `2048` | Socket listen backlog |
 
@@ -34,6 +35,7 @@ The `APP` argument is a Python module path with an attribute, e.g. `myapp:app`. 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--keep-alive-timeout FLOAT` | `5.0` | Keep-alive timeout (seconds) |
+| `--header-timeout FLOAT` | `10.0` | Max seconds to receive complete request headers (slowloris protection) |
 | `--request-timeout FLOAT` | `30.0` | Request timeout (seconds) |
 | `--shutdown-timeout FLOAT` | `10.0` | Shutdown grace period (seconds) |
 
@@ -57,10 +59,16 @@ The `APP` argument is a Python module path with an attribute, e.g. `myapp:app`. 
 When `--log-format json` is set, all log output (including access logs) is emitted as structured JSON:
 
 ```json
-{"timestamp": "2026-02-08T12:00:00+00:00", "level": "WARNING", "logger": "pounce.access", "method": "GET", "path": "/", "http_version": "1.1", "status": 500, "bytes_sent": 21, "duration_ms": 98.9, "client": "127.0.0.1:5000"}
+{"timestamp": "2026-02-08T12:00:00+00:00", "level": "WARNING", "logger": "pounce.access", "method": "GET", "path": "/", "http_version": "1.1", "status": 500, "bytes_sent": 21, "duration_ms": 98.9, "client": "127.0.0.1:5000", "request_id": "a1b2c3d4e5f6..."}
 ```
 
 This is useful for log aggregation systems (ELK, Datadog, CloudWatch, etc.).
+
+### Observability
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--health-check-path TEXT` | — | Path for built-in health endpoint (e.g. `/health`). Disabled by default. |
 
 ### Features
 
@@ -79,6 +87,12 @@ This is useful for log aggregation systems (ELK, Datadog, CloudWatch, etc.).
 | `--ssl-certfile PATH` | — | TLS certificate file |
 | `--ssl-keyfile PATH` | — | TLS private key file |
 
+### Security
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--max-requests-per-connection INT` | `0` | Max requests per keep-alive connection (0 = unlimited) |
+
 ### Other
 
 | Flag | Default | Description |
@@ -95,16 +109,27 @@ pounce myapp:app --reload --log-level debug
 # Development with extra file watching
 pounce myapp:app --reload --reload-include ".html,.css,.md" --reload-dir ./templates
 
-# Production
+# Production (TCP)
 pounce myapp:app --host 0.0.0.0 --workers 0 --no-access-log
 
 # Production with JSON logs (for log aggregation)
 pounce myapp:app --host 0.0.0.0 --workers 0 --log-format json
 
+# Production with Unix domain socket (behind nginx/caddy)
+pounce myapp:app --uds /run/pounce.sock --workers 0
+
+# Production with health checks and slowloris protection
+pounce myapp:app \
+    --host 0.0.0.0 \
+    --workers 0 \
+    --health-check-path /health \
+    --header-timeout 10 \
+    --log-format json
+
 # TLS
 pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem
 
-# Full configuration
+# Full production configuration
 pounce myapp:app \
     --host 0.0.0.0 \
     --port 443 \
@@ -113,7 +138,10 @@ pounce myapp:app \
     --ssl-keyfile key.pem \
     --compression \
     --server-timing \
-    --log-level warning
+    --health-check-path /health \
+    --header-timeout 10 \
+    --log-level warning \
+    --log-format json
 ```
 
 ## See Also

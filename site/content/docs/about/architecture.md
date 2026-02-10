@@ -75,9 +75,14 @@ flowchart LR
     C -->|h2| D2[h2]
     D1 --> E[ASGI Scope\nConstruction]
     D2 --> E
-    E --> F["app(scope, receive, send)"]
+    E --> E2[Proxy Header\nValidation]
+    E2 --> E3[Request ID\nGeneration]
+    E3 --> E4{Health\nCheck?}
+    E4 -->|yes| E5[Health Response]
+    E4 -->|no| F["app(scope, receive, send)"]
     F --> G[Response\nSerialization]
-    G --> H[Compression\nzstd / gzip / identity]
+    G --> G2[CRLF\nSanitization]
+    G2 --> H[Compression\nzstd / gzip / identity]
     H --> I[Server-Timing\nHeader Injection]
     I --> J[Socket Write]
 ```
@@ -100,8 +105,12 @@ The bridge is per-request — created and destroyed within a single connection h
 | `asgi/h2_bridge.py` | Bridge | HTTP/2 ASGI bridge |
 | `asgi/ws_bridge.py` | Bridge | WebSocket ASGI bridge |
 | `asgi/lifespan.py` | Bridge | ASGI lifespan protocol |
-| `net/listener.py` | Network | Socket bind, SO_REUSEPORT |
+| `net/listener.py` | Network | Socket bind, SO_REUSEPORT, UDS |
 | `net/tls.py` | Network | TLS context creation |
+| `_proxy.py` | Security | Proxy header validation |
+| `_request_id.py` | Observability | Request ID generation/extraction |
+| `_health.py` | Observability | Built-in health check endpoint |
+| `metrics.py` | Observability | Prometheus-compatible metrics |
 
 ## See Also
 

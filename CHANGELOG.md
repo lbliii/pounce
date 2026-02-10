@@ -5,6 +5,87 @@ All notable changes to pounce will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+**Phase 5a: Production Grade** — security hardening, network completeness, observability, and robustness.
+
+### Added
+
+#### Security Hardening
+
+- **Proxy header validation** — `_proxy.py` validates and applies `X-Forwarded-For`,
+  `X-Forwarded-Proto`, and `X-Forwarded-Host` headers only from trusted peers
+  (`ServerConfig.trusted_hosts`). Untrusted proxy headers are silently stripped to
+  prevent IP spoofing. Supports H1 and H2 bridges
+- **CRLF response header sanitization** — `_sanitize_headers()` in the ASGI bridge
+  strips `\r` and `\n` characters from all response header names and values before
+  serialization. Prevents header injection attacks from ASGI apps. Active on both
+  HTTP/1.1 and HTTP/2
+- **Slowloris protection** — `header_timeout` (default: 10s) limits the time to receive
+  complete request headers. Uses a separate timeout from `keep_alive_timeout` for the
+  initial header read vs inter-request idle period. CLI: `--header-timeout`
+- **Narrowed exception handling** — Replaced broad `except Exception` and
+  `contextlib.suppress(Exception)` blocks in worker with specific exception types
+  (`OSError`, `ConnectionError`, `h11.LocalProtocolError`). Prevents silent swallowing
+  of unexpected errors
+- **HEAD compression guard** — Compression is disabled for HEAD responses to preserve
+  the `Content-Length` header (compressor would mismatch sizes)
+- **Bodyless response guard** — Compression is disabled for 204 and 304 responses
+  (RFC 9110 §6.4.1) to prevent compressor flush bytes from producing a body
+
+#### Network Completeness
+
+- **Unix domain socket support** — `ServerConfig.uds` for UDS binding, with stale
+  socket cleanup on startup and shutdown. All workers share a single UDS fd.
+  CLI: `--uds /run/pounce.sock`. `net/listener.py` implements `_bind_unix_socket()`
+  and `cleanup_unix_socket()`
+- **Streaming body size enforcement** — `max_request_size` is now enforced for chunked
+  and streaming request bodies (not just Content-Length). Applies to both H1 (via
+  `_run_with_body_reader`) and H2 (per-stream byte tracking)
+- **UDS peername handling** — Worker correctly handles Unix socket peername (string path
+  or empty) instead of assuming a `(host, port)` tuple
+- **503 backpressure response** — When `max_connections` is reached, new connections
+  receive `503 Service Unavailable` with `Retry-After: 5` instead of silent close
+
+#### Observability
+
+- **Request ID generation** — `_request_id.py` generates UUID4 hex IDs for every
+  request. Trusted proxies' `X-Request-ID` headers are honoured. IDs are injected into
+  the ASGI scope (`scope["extensions"]["request_id"]`), response headers (`X-Request-ID`),
+  and access logs (text and JSON). Works across H1 and H2
+- **Built-in health endpoint** — `_health.py` responds to `GET` at
+  `ServerConfig.health_check_path` (e.g. `/health`) before ASGI dispatch. Returns JSON
+  with status, uptime, worker ID, and active connections. Excluded from access logs.
+  CLI: `--health-check-path /health`
+- **Prometheus metrics** — `metrics.py` provides `PrometheusCollector` implementing
+  `LifecycleCollector`. Tracks `http_requests_total`, `http_request_duration_seconds`
+  (histogram), `http_connections_active`, `http_requests_in_flight`, and
+  `http_bytes_sent_total`. Thread-safe via `threading.Lock`. Export in Prometheus text
+  exposition format via `collector.export()`
+- **Access log request IDs** — Text format appends `[<12-char-id>]`; JSON format
+  includes full `request_id` field
+
+#### H1/H2 Feature Parity
+
+- All security and observability features (CRLF sanitization, proxy headers, request IDs,
+  health checks, HEAD guard, bodyless guard, body size limits) are wired for both
+  HTTP/1.1 and HTTP/2 handlers
+
+#### Tests
+
+- `test_request_id.py` — 10 tests for UUID generation and trusted/untrusted extraction
+- `test_health.py` — 6 tests for health response payload and headers
+- `test_proxy.py` — proxy header validation for trusted/untrusted peers
+- `test_security.py` — request smuggling prevention via h11 strict parsing
+- `test_metrics.py` — PrometheusCollector gauges, counters, histograms, and export format
+- `test_h2_bridge.py` — H2 scope construction with proxy header handling
+- `test_listener_uds.py` — UDS routing, bind logic, and cleanup
+- `test_bridge.py` — CRLF sanitization and HEAD compression guard tests
+- Updated `test_config.py` — validation for `header_timeout`, `uds`, `health_check_path`
+- Updated `test_logging_format.py` — request ID in text and JSON access logs
+
+---
+
 ## [0.1.0] — 2026-02-09
 
 Initial release of Pounce — a free-threading-native ASGI server for Python 3.14t.

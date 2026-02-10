@@ -1,12 +1,12 @@
 ---
 title: Deployment
-description: Workers, compression, and production configuration
+description: Workers, compression, security, and production configuration
 draft: false
 weight: 50
 lang: en
 type: doc
-tags: [deployment, production, workers, compression]
-keywords: [deployment, production, workers, compression, scaling]
+tags: [deployment, production, workers, compression, security, observability]
+keywords: [deployment, production, workers, compression, scaling, security, monitoring]
 category: how-to
 icon: server
 
@@ -37,6 +37,20 @@ Zero-dependency compression with Python 3.14 stdlib.
 :link: ./production
 :description: Hardening, reverse proxy, and scaling patterns
 Running Pounce in production environments.
+:::{/card}
+
+:::{card} Security
+:icon: lock
+:link: ./security
+:description: Proxy headers, CRLF protection, request smuggling
+Built-in security features for production deployments.
+:::{/card}
+
+:::{card} Observability
+:icon: activity
+:link: ./observability
+:description: Health checks, request IDs, Prometheus metrics
+Monitoring, tracing, and metrics for production.
 :::{/card}
 
 :::{/cards}

@@ -23,6 +23,7 @@ config = ServerConfig(
     workers=4,
     compression=True,
     server_timing=True,
+    health_check_path="/health",
 )
 ```
 
@@ -34,6 +35,7 @@ config = ServerConfig(
 |-------|------|---------|-------------|
 | `host` | `str` | `"127.0.0.1"` | Bind address |
 | `port` | `int` | `8000` | Bind port (0-65535) |
+| `uds` | `str \| None` | `None` | Unix domain socket path. Mutually exclusive with `host`/`port`. |
 
 ### Workers
 
@@ -47,6 +49,7 @@ config = ServerConfig(
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `keep_alive_timeout` | `float` | `5.0` | Seconds to keep idle connections open |
+| `header_timeout` | `float` | `10.0` | Seconds to receive complete request headers (slowloris protection) |
 | `request_timeout` | `float` | `30.0` | Maximum seconds for a complete request |
 | `shutdown_timeout` | `float` | `10.0` | Seconds to wait for in-flight requests during shutdown |
 
@@ -87,6 +90,11 @@ config = ServerConfig(
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `server_timing` | `bool` | `False` | Inject `Server-Timing` header with parse/app/encode durations |
+| `health_check_path` | `str \| None` | `None` | Path for built-in health endpoint (e.g. `"/health"`). Disabled by default. |
+
+:::{note}
+Request IDs are always generated (or extracted from trusted proxies). Every response includes an `X-Request-ID` header for tracing, and requests from trusted proxies that send `X-Request-ID` have their IDs honoured.
+:::
 
 ### Development
 
@@ -106,7 +114,11 @@ config = ServerConfig(
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `trusted_hosts` | `tuple[str, ...]` | `()` | Trusted proxy hosts (empty = direct connection) |
+| `trusted_hosts` | `tuple[str, ...]` | `()` | Trusted proxy hosts for X-Forwarded-* header validation (empty = strip all proxy headers) |
+
+:::{note}
+When `trusted_hosts` is empty, Pounce strips `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` from all requests. Set it to your reverse proxy's IP (e.g. `("10.0.0.1",)`) or `("*",)` to trust all peers.
+:::
 
 ### TLS
 
@@ -146,3 +158,5 @@ print(config.resolve_workers())  # e.g., 8 on an 8-core machine
 - [[docs/configuration/cli|CLI Reference]] — Command-line equivalents
 - [[docs/configuration/tls|TLS]] — Certificate setup
 - [[docs/deployment/workers|Workers]] — Tuning worker count
+- [[docs/deployment/security|Security]] — Proxy headers, request smuggling prevention
+- [[docs/deployment/observability|Observability]] — Health checks, request IDs, metrics
