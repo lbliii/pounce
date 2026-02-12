@@ -8,6 +8,7 @@ Frozen after creation — the server reads config but never mutates it.
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +93,9 @@ class ServerConfig:
     static_precompressed: bool = True
     static_follow_symlinks: bool = False
     static_index_file: str | None = "index.html"
+
+    # Middleware (phase 5b)
+    middleware: list[Callable[..., Any]] = field(default_factory=list)
 
     _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error", "critical"})
     _VALID_LOG_FORMATS: frozenset[str] = frozenset({"text", "json"})

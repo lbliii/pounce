@@ -39,6 +39,11 @@ except Exception:  # Package not installed in editable/dist mode
 
 from typing import TypedDict, Unpack  # noqa: E402
 
+from pounce._middleware import (  # noqa: E402
+    CORSMiddleware,
+    Response,
+    SecurityHeadersMiddleware,
+)
 from pounce._static import StaticFiles, create_static_handler  # noqa: E402
 from pounce._types import ASGIApp, Receive, Scope, Send  # noqa: E402
 from pounce.config import ServerConfig  # noqa: E402
@@ -101,8 +106,11 @@ def run(app: str, **kwargs: Unpack[ServerConfigKwargs]) -> None:
 
 __all__ = [
     "ASGIApp",
+    "CORSMiddleware",
     "Receive",
+    "Response",
     "Scope",
+    "SecurityHeadersMiddleware",
     "Send",
     "ServerConfig",
     "StaticFiles",

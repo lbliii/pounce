@@ -144,7 +144,15 @@ class Worker:
         lifecycle_collector: LifecycleCollector | None = None,
     ) -> None:
         self._config = config
-        self._app = app
+
+        # Wrap app with middleware if configured
+        if config.middleware:
+            from pounce._middleware import MiddlewareStack
+
+            self._app = MiddlewareStack(config.middleware, app)
+        else:
+            self._app = app
+
         self._sock = sock
         self._worker_id = worker_id
         self._ext_shutdown = shutdown_event
