@@ -39,6 +39,7 @@ except Exception:  # Package not installed in editable/dist mode
 
 from typing import TypedDict, Unpack  # noqa: E402
 
+from pounce._static import StaticFiles, create_static_handler  # noqa: E402
 from pounce._types import ASGIApp, Receive, Scope, Send  # noqa: E402
 from pounce.config import ServerConfig  # noqa: E402
 
@@ -104,6 +105,8 @@ __all__ = [
     "Scope",
     "Send",
     "ServerConfig",
+    "StaticFiles",
     "__version__",
+    "create_static_handler",
     "run",
 ]

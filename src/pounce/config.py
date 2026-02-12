@@ -86,6 +86,13 @@ class ServerConfig:
     ssl_certfile: str | None = None
     ssl_keyfile: str | None = None
 
+    # Static file serving (phase 5b)
+    static_files: dict[str, str] = field(default_factory=dict)  # {url_path: directory}
+    static_cache_control: str = "public, max-age=3600"
+    static_precompressed: bool = True
+    static_follow_symlinks: bool = False
+    static_index_file: str | None = "index.html"
+
     _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error", "critical"})
     _VALID_LOG_FORMATS: frozenset[str] = frozenset({"text", "json"})
 
