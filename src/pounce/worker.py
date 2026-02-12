@@ -811,7 +811,19 @@ class Worker:
             except Exception:
                 self._logger.exception("ASGI app error on %s %s", scope["method"], scope["path"])
                 with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
-                    await self._send_error(writer, proto, 500, "Internal Server Error")
+                    if self._config.debug:
+                        # Send rich debug error page in development
+                        await self._send_debug_error(
+                            writer,
+                            proto,
+                            sys.exc_info(),
+                            request_method=scope.get("method", "GET"),
+                            request_path=scope.get("path", "/"),
+                            request_headers=scope.get("headers"),
+                        )
+                    else:
+                        # Simple error in production
+                        await self._send_error(writer, proto, 500, "Internal Server Error")
                 if send_state.status == 0:
                     send_state.status = 500
 
@@ -949,7 +961,19 @@ class Worker:
             except Exception:
                 self._logger.exception("ASGI app error on %s %s", scope["method"], scope["path"])
                 with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
-                    await self._send_error(writer, proto, 500, "Internal Server Error")
+                    if self._config.debug:
+                        # Send rich debug error page in development
+                        await self._send_debug_error(
+                            writer,
+                            proto,
+                            sys.exc_info(),
+                            request_method=scope.get("method", "GET"),
+                            request_path=scope.get("path", "/"),
+                            request_headers=scope.get("headers"),
+                        )
+                    else:
+                        # Simple error in production
+                        await self._send_error(writer, proto, 500, "Internal Server Error")
                 if send_state.status == 0:
                     send_state.status = 500
 
@@ -1046,6 +1070,45 @@ class Worker:
             await writer.drain()
         except Exception:
             pass
+
+    async def _send_debug_error(
+        self,
+        writer: asyncio.StreamWriter,
+        proto: H1Protocol,
+        exc_info: tuple[type[BaseException], BaseException, Any],
+        *,
+        request_method: str = "GET",
+        request_path: str = "/",
+        request_headers: list[tuple[bytes, bytes]] | None = None,
+    ) -> None:
+        """Send a rich debug error response with traceback.
+
+        Args:
+            writer: Stream writer for sending response.
+            proto: Protocol handler.
+            exc_info: Exception info tuple (type, value, traceback).
+            request_method: HTTP method.
+            request_path: Request path.
+            request_headers: Request headers.
+
+        """
+        from pounce._debug import create_debug_error_response
+
+        try:
+            status, headers, body = create_debug_error_response(
+                *exc_info,
+                request_method=request_method,
+                request_path=request_path,
+                request_headers=request_headers,
+            )
+
+            raw = proto.send_response(status, headers)
+            writer.write(raw)
+            writer.write(proto.send_body(body, more=False))
+            await writer.drain()
+        except Exception:
+            # Fallback to simple error if debug page fails
+            await self._send_error(writer, proto, 500, "Internal Server Error")
 
 
 # ---------------------------------------------------------------------------

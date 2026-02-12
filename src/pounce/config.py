@@ -67,6 +67,7 @@ class ServerConfig:
     server_timing: bool = False
 
     # Development
+    debug: bool = False  # Enable rich error pages (never use in production!)
     reload: bool = False
     reload_include: tuple[str, ...] = ()  # Extra file extensions to watch (e.g. ".html", ".css")
     reload_dirs: tuple[str, ...] = ()  # Extra directories to watch alongside cwd
