@@ -170,6 +170,34 @@ class Server:
                 self._config.request_queue_max_depth if self._config.request_queue_max_depth > 0 else -1,
             )
 
+        # Configure Sentry error tracking if enabled
+        if self._config.sentry_dsn:
+            from pounce._sentry import create_sentry_wrapper, init_sentry, is_sentry_available
+
+            if is_sentry_available():
+                try:
+                    init_sentry(
+                        dsn=self._config.sentry_dsn,
+                        environment=self._config.sentry_environment,
+                        release=self._config.sentry_release,
+                        traces_sample_rate=self._config.sentry_traces_sample_rate,
+                        profiles_sample_rate=self._config.sentry_profiles_sample_rate,
+                        debug=self._config.debug,
+                    )
+                    self._app = create_sentry_wrapper(self._app)
+                    logger.info(
+                        "Sentry error tracking enabled: environment=%s release=%s",
+                        self._config.sentry_environment or "none",
+                        self._config.sentry_release or "none",
+                    )
+                except Exception:
+                    logger.exception("Failed to initialize Sentry")
+            else:
+                logger.warning(
+                    "Sentry DSN configured but sentry-sdk not installed. "
+                    "Install with: pip install sentry-sdk"
+                )
+
         effective_workers = self._config.resolve_workers()
         mode = detect_worker_mode()
 

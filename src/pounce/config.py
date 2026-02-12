@@ -126,6 +126,13 @@ class ServerConfig:
     request_queue_enabled: bool = False  # Enable request queueing
     request_queue_max_depth: int = 1000  # Maximum queued requests (0 = unlimited)
 
+    # Sentry error tracking (phase 6.4)
+    sentry_dsn: str | None = None  # Sentry DSN for error tracking (None = disabled)
+    sentry_environment: str | None = None  # Environment name (e.g., "production")
+    sentry_release: str | None = None  # Release version (e.g., "myapp@1.0.0")
+    sentry_traces_sample_rate: float = 0.1  # Performance monitoring sample rate (0.0-1.0)
+    sentry_profiles_sample_rate: float = 0.1  # Profiling sample rate (0.0-1.0)
+
     _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error", "critical"})
     _VALID_LOG_FORMATS: frozenset[str] = frozenset({"text", "json"})
 
@@ -210,6 +217,15 @@ class ServerConfig:
             raise ValueError(msg)
         if self.request_queue_max_depth < 0:
             msg = f"request_queue_max_depth must be >= 0 (got {self.request_queue_max_depth})"
+            raise ValueError(msg)
+        if not 0.0 <= self.sentry_traces_sample_rate <= 1.0:
+            msg = f"sentry_traces_sample_rate must be 0.0-1.0 (got {self.sentry_traces_sample_rate})"
+            raise ValueError(msg)
+        if not 0.0 <= self.sentry_profiles_sample_rate <= 1.0:
+            msg = (
+                f"sentry_profiles_sample_rate must be 0.0-1.0 "
+                f"(got {self.sentry_profiles_sample_rate})"
+            )
             raise ValueError(msg)
 
     def resolve_workers(self) -> int:
