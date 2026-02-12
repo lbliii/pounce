@@ -97,6 +97,10 @@ class ServerConfig:
     # Middleware (phase 5b)
     middleware: list[Callable[..., Any]] = field(default_factory=list)
 
+    # WebSocket (phase 5b)
+    websocket_compression: bool = True  # Enable permessage-deflate compression
+    websocket_max_message_size: int = 10_485_760  # 10 MB
+
     _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error", "critical"})
     _VALID_LOG_FORMATS: frozenset[str] = frozenset({"text", "json"})
 

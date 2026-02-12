@@ -30,6 +30,7 @@ try:
     import wsproto
     import wsproto.connection
     import wsproto.events
+    import wsproto.extensions
 
     _HAS_WSPROTO = True
 except ImportError:
@@ -64,6 +65,7 @@ def build_101_response(
     ws_key: bytes,
     *,
     subprotocol: str | None = None,
+    extensions: str | None = None,
 ) -> bytes:
     """Build the raw HTTP 101 Switching Protocols response.
 
@@ -74,6 +76,7 @@ def build_101_response(
     Args:
         ws_key: The Sec-WebSocket-Key from the client.
         subprotocol: Optional negotiated subprotocol.
+        extensions: Optional Sec-WebSocket-Extensions value (e.g., "permessage-deflate").
 
     Returns:
         Raw HTTP response bytes.
@@ -88,6 +91,8 @@ def build_101_response(
     ]
     if subprotocol:
         lines.append(b"Sec-WebSocket-Protocol: " + subprotocol.encode("ascii"))
+    if extensions:
+        lines.append(b"Sec-WebSocket-Extensions: " + extensions.encode("ascii"))
     lines.append(b"")
     lines.append(b"")
     return b"\r\n".join(lines)
@@ -108,24 +113,43 @@ class WSProtocol:
 
     Args:
         subprotocol: The negotiated subprotocol (if any).
+        enable_compression: Enable permessage-deflate compression (default: False).
 
     Raises:
         RuntimeError: If wsproto is not installed.
 
     """
 
-    __slots__ = ("_closed", "_conn", "_subprotocol")
+    __slots__ = ("_closed", "_conn", "_subprotocol", "_extensions_response")
 
-    def __init__(self, *, subprotocol: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        subprotocol: str | None = None,
+        enable_compression: bool = False,
+    ) -> None:
         if not _HAS_WSPROTO:
             raise RuntimeError(
                 "WebSocket support requires wsproto. Install with: pip install pounce[ws]"
             )
+
+        # Configure extensions if compression is enabled
+        extensions_list: list[Any] = []
+        if enable_compression:
+            extensions_list.append(wsproto.extensions.PerMessageDeflate())
+
         # Server-side connection — starts in OPEN state in wsproto 1.x
         self._conn = wsproto.connection.Connection(
             wsproto.connection.ConnectionType.SERVER,
+            extensions=extensions_list if extensions_list else None,
         )
         self._subprotocol = subprotocol
+
+        # Build the Sec-WebSocket-Extensions response header value
+        self._extensions_response: str | None = None
+        if enable_compression:
+            self._extensions_response = "permessage-deflate"
+
         self._closed = False
 
     # -- Protocol interface -------------------------------------------------
@@ -210,3 +234,8 @@ class WSProtocol:
     def subprotocol(self) -> str | None:
         """The negotiated subprotocol (if any)."""
         return self._subprotocol
+
+    @property
+    def extensions_response(self) -> str | None:
+        """The Sec-WebSocket-Extensions header value for the 101 response (if any)."""
+        return self._extensions_response

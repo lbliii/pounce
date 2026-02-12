@@ -123,8 +123,12 @@ def create_ws_send(
         if msg_type == "websocket.accept":
             accepted = True
             subprotocol = message.get("subprotocol")
-            # Send the HTTP 101 Switching Protocols response
-            raw = build_101_response(ws_key, subprotocol=subprotocol)
+            # Send the HTTP 101 Switching Protocols response with extensions
+            raw = build_101_response(
+                ws_key,
+                subprotocol=subprotocol,
+                extensions=ws_protocol.extensions_response,
+            )
             writer.write(raw)
             await writer.drain()
             accept_event.set()

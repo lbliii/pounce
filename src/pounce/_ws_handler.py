@@ -90,8 +90,8 @@ async def handle_websocket(
         logger.warning("WebSocket upgrade missing Sec-WebSocket-Key")
         return
 
-    # Create protocol and ASGI bridge
-    ws_proto = WSProtocol()
+    # Create protocol and ASGI bridge (with compression if enabled)
+    ws_proto = WSProtocol(enable_compression=config.websocket_compression)
     accept_event = asyncio.Event()
     close_event = asyncio.Event()
 
