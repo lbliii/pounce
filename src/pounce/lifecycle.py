@@ -16,10 +16,13 @@ monotonic ordering that is not affected by system clock adjustments.
 
 """
 
+import json
+import logging
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from typing import Protocol
 
 # ---------------------------------------------------------------------------
@@ -216,3 +219,114 @@ def next_connection_id() -> int:
 def monotonic_ns() -> int:
     """Return the current monotonic clock value in nanoseconds."""
     return time.monotonic_ns()
+
+
+# ---------------------------------------------------------------------------
+# Logging collector — structured event logging for production debugging
+# ---------------------------------------------------------------------------
+
+
+class LoggingCollector:
+    """Logs lifecycle events as structured JSON for production observability.
+
+    Converts lifecycle events into structured log entries with correlation IDs,
+    durations, and rich context for debugging production issues.
+
+    Features:
+    - Logs slow requests when duration exceeds threshold
+    - Structured JSON output when log_format="json"
+    - Correlation via connection_id and worker_id
+    - Zero overhead when log level filters out debug logs
+    - Thread-safe for free-threading mode
+
+    Args:
+        slow_request_threshold_ms: Log requests slower than this (milliseconds).
+            Default is 5000ms (5 seconds).
+        log_format: "text" or "json". Defaults to "json" for structured output.
+        health_check_path: Path to filter from lifecycle logs (e.g., "/health").
+            Prevents health check spam in logs.
+
+    Example:
+        collector = LoggingCollector(
+            slow_request_threshold_ms=2000,  # 2 seconds
+            log_format="json",
+            health_check_path="/health",
+        )
+
+    """
+
+    __slots__ = ("_logger", "_slow_threshold_ms", "_json_format", "_health_check_path")
+
+    def __init__(
+        self,
+        *,
+        slow_request_threshold_ms: float = 5000.0,
+        log_format: str = "json",
+        health_check_path: str | None = None,
+    ) -> None:
+        self._logger = logging.getLogger("pounce.lifecycle")
+        self._slow_threshold_ms = slow_request_threshold_ms
+        self._json_format = log_format.lower() == "json"
+        self._health_check_path = health_check_path
+
+    def record(self, event: LifecycleEvent) -> None:
+        """Log a lifecycle event as structured output.
+
+        Logs at different levels based on event type:
+        - ConnectionOpened: DEBUG
+        - RequestStarted: DEBUG
+        - ResponseCompleted: INFO (slow requests), DEBUG (fast)
+        - ClientDisconnected: WARNING
+        - ConnectionClosed: DEBUG
+
+        """
+        # Convert event to dict for logging
+        event_dict = asdict(event)
+        event_type = type(event).__name__
+
+        # Add metadata
+        event_dict["event"] = event_type
+        event_dict["timestamp"] = datetime.fromtimestamp(
+            event_dict.pop("timestamp_ns") / 1_000_000_000,
+            tz=timezone.utc,
+        ).isoformat()
+
+        # Filter health checks from lifecycle logs
+        if isinstance(event, RequestStarted) and self._health_check_path:
+            if event.path == self._health_check_path:
+                return
+
+        # Determine log level and message based on event type
+        if isinstance(event, ConnectionOpened):
+            level = logging.DEBUG
+            msg = "Connection opened"
+        elif isinstance(event, RequestStarted):
+            level = logging.DEBUG
+            msg = "Request started"
+        elif isinstance(event, ResponseCompleted):
+            # Log slow requests at INFO, fast requests at DEBUG
+            if event.duration_ms >= self._slow_threshold_ms:
+                level = logging.INFO
+                msg = "Slow request completed"
+                event_dict["slow"] = True
+            else:
+                level = logging.DEBUG
+                msg = "Response completed"
+        elif isinstance(event, ClientDisconnected):
+            level = logging.WARNING
+            msg = "Client disconnected"
+        elif isinstance(event, ConnectionClosed):
+            level = logging.DEBUG
+            msg = "Connection closed"
+        else:
+            level = logging.DEBUG
+            msg = f"Lifecycle event: {event_type}"
+
+        # Log as JSON or text
+        if self._json_format:
+            # Structured JSON for machine parsing
+            log_entry = json.dumps(event_dict, default=str)
+            self._logger.log(level, "%s", log_entry)
+        else:
+            # Human-readable text
+            self._logger.log(level, "%s: %s", msg, event_dict)

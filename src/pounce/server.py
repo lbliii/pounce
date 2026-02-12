@@ -118,6 +118,17 @@ class Server:
             except Exception:
                 logger.exception("Failed to configure OpenTelemetry")
 
+        # Configure lifecycle logging if enabled
+        if self._config.lifecycle_logging and self._lifecycle_collector is None:
+            from pounce.lifecycle import LoggingCollector
+
+            self._lifecycle_collector = LoggingCollector(
+                slow_request_threshold_ms=self._config.log_slow_requests_threshold * 1000,
+                log_format=self._config.log_format,
+                health_check_path=self._config.health_check_path,
+            )
+            logger.debug("Lifecycle event logging enabled")
+
         effective_workers = self._config.resolve_workers()
         mode = detect_worker_mode()
 

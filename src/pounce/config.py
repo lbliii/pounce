@@ -109,6 +109,10 @@ class ServerConfig:
     otel_endpoint: str | None = None  # OTLP endpoint (e.g., "http://localhost:4318")
     otel_service_name: str = "pounce"  # Service name in traces
 
+    # Structured lifecycle event logging (phase 5b)
+    lifecycle_logging: bool = False  # Enable structured lifecycle event logging
+    log_slow_requests_threshold: float = 5.0  # Log requests slower than this (seconds)
+
     _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error", "critical"})
     _VALID_LOG_FORMATS: frozenset[str] = frozenset({"text", "json"})
 
@@ -175,6 +179,9 @@ class ServerConfig:
             raise ValueError(msg)
         if self.uds is not None and not self.uds:
             msg = "uds must be a non-empty path or None"
+            raise ValueError(msg)
+        if self.log_slow_requests_threshold <= 0:
+            msg = f"log_slow_requests_threshold must be > 0 (got {self.log_slow_requests_threshold})"
             raise ValueError(msg)
 
     def resolve_workers(self) -> int:

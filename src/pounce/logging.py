@@ -89,6 +89,10 @@ def configure_logging(config: ServerConfig) -> None:
         chirp_handler.setFormatter(formatter)
         chirp_logger.addHandler(chirp_handler)
 
+    # Configure lifecycle logger (inherits from pounce logger)
+    lifecycle_logger = logging.getLogger("pounce.lifecycle")
+    # No separate handler needed - inherits from "pounce" logger
+
 
 def access_log(
     method: str,
