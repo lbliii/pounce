@@ -113,6 +113,10 @@ class ServerConfig:
     lifecycle_logging: bool = False  # Enable structured lifecycle event logging
     log_slow_requests_threshold: float = 5.0  # Log requests slower than this (seconds)
 
+    # Prometheus metrics endpoint (phase 6)
+    metrics_enabled: bool = False  # Enable Prometheus /metrics endpoint
+    metrics_path: str = "/metrics"  # Path for metrics endpoint
+
     _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error", "critical"})
     _VALID_LOG_FORMATS: frozenset[str] = frozenset({"text", "json"})
 
@@ -182,6 +186,9 @@ class ServerConfig:
             raise ValueError(msg)
         if self.log_slow_requests_threshold <= 0:
             msg = f"log_slow_requests_threshold must be > 0 (got {self.log_slow_requests_threshold})"
+            raise ValueError(msg)
+        if self.metrics_path and not self.metrics_path.startswith("/"):
+            msg = f"metrics_path must start with / (got {self.metrics_path!r})"
             raise ValueError(msg)
 
     def resolve_workers(self) -> int:

@@ -129,6 +129,20 @@ class Server:
             )
             logger.debug("Lifecycle event logging enabled")
 
+        # Configure Prometheus metrics if enabled
+        if self._config.metrics_enabled and self._lifecycle_collector is None:
+            from pounce.metrics import PrometheusCollector
+            from pounce._metrics_handler import wrap_app_with_metrics
+
+            self._lifecycle_collector = PrometheusCollector()
+            # Wrap app to intercept /metrics requests
+            self._app = wrap_app_with_metrics(
+                self._app,
+                self._lifecycle_collector,
+                self._config.metrics_path,
+            )
+            logger.info("Prometheus metrics enabled at %s", self._config.metrics_path)
+
         effective_workers = self._config.resolve_workers()
         mode = detect_worker_mode()
 
