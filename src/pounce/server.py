@@ -158,6 +158,18 @@ class Server:
                 self._config.rate_limit_burst,
             )
 
+        # Configure request queueing if enabled
+        if self._config.request_queue_enabled:
+            from pounce._request_queue import QueueMetrics, RequestQueue, create_queue_wrapper
+
+            request_queue = RequestQueue(max_depth=self._config.request_queue_max_depth)
+            queue_metrics = QueueMetrics()
+            self._app = create_queue_wrapper(self._app, request_queue, queue_metrics)
+            logger.info(
+                "Request queueing enabled: max depth %d",
+                self._config.request_queue_max_depth if self._config.request_queue_max_depth > 0 else -1,
+            )
+
         effective_workers = self._config.resolve_workers()
         mode = detect_worker_mode()
 

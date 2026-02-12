@@ -122,6 +122,10 @@ class ServerConfig:
     rate_limit_requests_per_second: float = 100.0  # Requests per second per IP
     rate_limit_burst: int = 200  # Maximum burst size per IP
 
+    # Request queuing and load shedding (phase 6.3)
+    request_queue_enabled: bool = False  # Enable request queueing
+    request_queue_max_depth: int = 1000  # Maximum queued requests (0 = unlimited)
+
     _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error", "critical"})
     _VALID_LOG_FORMATS: frozenset[str] = frozenset({"text", "json"})
 
@@ -203,6 +207,9 @@ class ServerConfig:
             raise ValueError(msg)
         if self.rate_limit_burst <= 0:
             msg = f"rate_limit_burst must be > 0 (got {self.rate_limit_burst})"
+            raise ValueError(msg)
+        if self.request_queue_max_depth < 0:
+            msg = f"request_queue_max_depth must be >= 0 (got {self.request_queue_max_depth})"
             raise ValueError(msg)
 
     def resolve_workers(self) -> int:
