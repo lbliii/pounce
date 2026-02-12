@@ -2,6 +2,103 @@
 
 Example code and prototypes for pounce features.
 
+## Production Examples
+
+### Production Server
+
+**File:** `production_server.py`
+
+Complete production configuration demonstrating all Phase 6 features:
+- Prometheus metrics endpoint
+- Per-IP rate limiting
+- Request queueing and load shedding
+- Sentry error tracking (optional)
+- Hot reload for zero-downtime deployments
+
+```bash
+python examples/production_server.py
+```
+
+**Features demonstrated:**
+- `/` - API endpoint with JSON response
+- `/metrics` - Prometheus metrics in text format
+- `/health` - Built-in health check
+- `/slow` - Slow endpoint for queue testing
+- `/error` - Error endpoint for Sentry testing
+
+**Configuration highlights:**
+```python
+config = ServerConfig(
+    metrics_enabled=True,
+    rate_limit_enabled=True,
+    request_queue_enabled=True,
+    sentry_dsn=os.getenv("SENTRY_DSN"),
+    workers=4,  # For zero-downtime reload
+)
+```
+
+### Rate Limiting Demo
+
+**File:** `rate_limiting_demo.py`
+
+Interactive demonstration of token bucket rate limiting:
+- Per-IP rate limits (5 req/s)
+- Burst capacity (10 requests)
+- Visual web dashboard
+- 429 responses when rate limited
+
+```bash
+python examples/rate_limiting_demo.py
+```
+
+Visit `http://localhost:8000/` for interactive dashboard.
+
+**Test from command line:**
+```bash
+# Send 5 requests (should succeed - within burst)
+for i in {1..5}; do curl http://localhost:8000/api; done
+
+# Send 20 requests (will hit rate limit)
+for i in {1..20}; do curl http://localhost:8000/api; sleep 0.05; done
+
+# View metrics
+curl http://localhost:8000/metrics | grep 429
+```
+
+### Metrics Monitoring
+
+**File:** `metrics_monitoring.py`
+
+Live metrics dashboard showing:
+- Total requests
+- Active connections
+- P95 latency
+- Error rate
+
+```bash
+python examples/metrics_monitoring.py
+```
+
+Visit `http://localhost:8000/` for live dashboard.
+
+**Prometheus integration:**
+Add to your `prometheus.yml`:
+```yaml
+scrape_configs:
+  - job_name: 'pounce-demo'
+    static_configs:
+      - targets: ['localhost:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+```
+
+**Test endpoints:**
+- `/api/fast` - Fast response (~10ms)
+- `/api/slow` - Slow response (~500ms)
+- `/api/error` - Returns 500 error
+
+## Prototypes
+
 ## HTTP/3 Prototype
 
 **Status:** Conceptual prototype for Phase 5c (Q2 2026)
