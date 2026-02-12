@@ -143,6 +143,21 @@ class Server:
             )
             logger.info("Prometheus metrics enabled at %s", self._config.metrics_path)
 
+        # Configure rate limiting if enabled
+        if self._config.rate_limit_enabled:
+            from pounce._rate_limiter import RateLimiter, create_rate_limit_wrapper
+
+            rate_limiter = RateLimiter(
+                rate=self._config.rate_limit_requests_per_second,
+                burst=self._config.rate_limit_burst,
+            )
+            self._app = create_rate_limit_wrapper(self._app, rate_limiter)
+            logger.info(
+                "Rate limiting enabled: %.1f req/s per IP (burst: %d)",
+                self._config.rate_limit_requests_per_second,
+                self._config.rate_limit_burst,
+            )
+
         effective_workers = self._config.resolve_workers()
         mode = detect_worker_mode()
 

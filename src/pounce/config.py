@@ -117,6 +117,11 @@ class ServerConfig:
     metrics_enabled: bool = False  # Enable Prometheus /metrics endpoint
     metrics_path: str = "/metrics"  # Path for metrics endpoint
 
+    # Rate limiting (phase 6.2)
+    rate_limit_enabled: bool = False  # Enable per-IP rate limiting
+    rate_limit_requests_per_second: float = 100.0  # Requests per second per IP
+    rate_limit_burst: int = 200  # Maximum burst size per IP
+
     _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error", "critical"})
     _VALID_LOG_FORMATS: frozenset[str] = frozenset({"text", "json"})
 
@@ -189,6 +194,15 @@ class ServerConfig:
             raise ValueError(msg)
         if self.metrics_path and not self.metrics_path.startswith("/"):
             msg = f"metrics_path must start with / (got {self.metrics_path!r})"
+            raise ValueError(msg)
+        if self.rate_limit_requests_per_second <= 0:
+            msg = (
+                f"rate_limit_requests_per_second must be > 0 "
+                f"(got {self.rate_limit_requests_per_second})"
+            )
+            raise ValueError(msg)
+        if self.rate_limit_burst <= 0:
+            msg = f"rate_limit_burst must be > 0 (got {self.rate_limit_burst})"
             raise ValueError(msg)
 
     def resolve_workers(self) -> int:
