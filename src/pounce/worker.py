@@ -127,6 +127,7 @@ class Worker:
         "_logger",
         "_loop",
         "_max_connections",
+        "_otel_span_manager",
         "_sock",
         "_ssl_context",
         "_worker_id",
@@ -166,6 +167,17 @@ class Worker:
         self._lifecycle: LifecycleCollector = lifecycle_collector or NoopCollector()
         self._lifespan_state: dict[str, Any] = {}  # Populated after lifespan startup
         self._draining = False  # Set to True during graceful reload
+
+        # Initialize OpenTelemetry span manager if configured
+        if config.otel_endpoint:
+            from pounce._otel import RequestSpanManager
+
+            self._otel_span_manager: RequestSpanManager | None = RequestSpanManager(
+                service_name=config.otel_service_name,
+                enabled=True,
+            )
+        else:
+            self._otel_span_manager = None
 
     def set_lifespan_state(self, state: dict[str, Any]) -> None:
         """Set the lifespan state dict to be shared with all requests.
@@ -712,37 +724,65 @@ class Worker:
             request_id=request_id,
         )
 
-        # Call the ASGI app with concurrent disconnect monitoring.
-        # Mirrors the WebSocket handler pattern: two tasks, wait for
-        # first to complete, cancel the other.
-        if body_complete:
-            await self._run_with_disconnect_monitor(
-                scope,
-                receive,
-                send,
-                send_state,
-                reader,
-                writer,
-                proto,
-                disconnect,
-                connection_id=connection_id,
+        # Create OpenTelemetry span for this request
+        otel_span = None
+        if self._otel_span_manager:
+            otel_span = self._otel_span_manager.create_request_span(
+                method=scope.get("method", "GET"),
+                path=scope.get("path", "/"),
+                headers=request.headers,
+                scheme=scope.get("scheme", "http"),
+                server_host=server[0],
+                server_port=server[1],
             )
-        else:
-            # Body still arriving — read concurrently with the app.
-            # body_queue is guaranteed non-None here because initial_body
-            # was truthy but body_complete stayed False.
-            assert body_queue is not None
-            await self._run_with_body_reader(
-                scope,
-                receive,
-                send,
-                send_state,
-                body_queue,
-                proto,
-                reader,
-                writer,
-                disconnect=disconnect,
-            )
+            otel_span.__enter__()
+
+        try:
+            # Call the ASGI app with concurrent disconnect monitoring.
+            # Mirrors the WebSocket handler pattern: two tasks, wait for
+            # first to complete, cancel the other.
+            if body_complete:
+                await self._run_with_disconnect_monitor(
+                    scope,
+                    receive,
+                    send,
+                    send_state,
+                    reader,
+                    writer,
+                    proto,
+                    disconnect,
+                    connection_id=connection_id,
+                )
+            else:
+                # Body still arriving — read concurrently with the app.
+                # body_queue is guaranteed non-None here because initial_body
+                # was truthy but body_complete stayed False.
+                assert body_queue is not None
+                await self._run_with_body_reader(
+                    scope,
+                    receive,
+                    send,
+                    send_state,
+                    body_queue,
+                    proto,
+                    reader,
+                    writer,
+                    disconnect=disconnect,
+                )
+        except Exception as e:
+            # Record exception in span
+            if self._otel_span_manager and otel_span:
+                self._otel_span_manager.record_exception(otel_span, e)
+            raise
+        finally:
+            # Record response and end span
+            if self._otel_span_manager and otel_span:
+                self._otel_span_manager.record_response(
+                    otel_span,
+                    status_code=send_state.status or 500,
+                    response_size=send_state.bytes_sent,
+                )
+                otel_span.__exit__(None, None, None)
 
         if timing:
             timing.add("app", elapsed_ms(app_start))

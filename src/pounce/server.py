@@ -99,6 +99,25 @@ class Server:
         """
         configure_logging(self._config)
 
+        # Configure OpenTelemetry if endpoint is set
+        if self._config.otel_endpoint:
+            try:
+                from pounce._otel import configure_otel, is_otel_available
+
+                if is_otel_available():
+                    configure_otel(
+                        endpoint=self._config.otel_endpoint,
+                        service_name=self._config.otel_service_name,
+                    )
+                else:
+                    logger.warning(
+                        "OpenTelemetry endpoint configured but opentelemetry package not installed. "
+                        "Install with: pip install opentelemetry-api opentelemetry-sdk "
+                        "opentelemetry-exporter-otlp-proto-http"
+                    )
+            except Exception:
+                logger.exception("Failed to configure OpenTelemetry")
+
         effective_workers = self._config.resolve_workers()
         mode = detect_worker_mode()
 

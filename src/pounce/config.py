@@ -105,6 +105,10 @@ class ServerConfig:
     # Graceful reload (phase 5b)
     reload_timeout: float = 30.0  # Time to wait for workers to drain during reload
 
+    # OpenTelemetry (phase 5b)
+    otel_endpoint: str | None = None  # OTLP endpoint (e.g., "http://localhost:4318")
+    otel_service_name: str = "pounce"  # Service name in traces
+
     _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error", "critical"})
     _VALID_LOG_FORMATS: frozenset[str] = frozenset({"text", "json"})
 
