@@ -24,6 +24,7 @@ import socket
 import ssl
 import threading
 import time
+from typing import Any
 
 from pounce._errors import SupervisorError
 from pounce._runtime import WorkerMode, detect_worker_mode
@@ -75,6 +76,7 @@ class Supervisor:
         "_effective_workers",
         "_handles",
         "_lifecycle_collector",
+        "_lifespan_state",
         "_mode",
         "_shutdown_event",
         "_sockets",
@@ -101,6 +103,7 @@ class Supervisor:
         self._effective_workers = config.resolve_workers()
         self._ssl_context = ssl_context
         self._lifecycle_collector = lifecycle_collector
+        self._lifespan_state: dict[str, Any] = {}  # Set after lifespan startup
 
     @property
     def mode(self) -> WorkerMode:
@@ -111,6 +114,15 @@ class Supervisor:
     def worker_count(self) -> int:
         """Number of workers the supervisor manages."""
         return self._effective_workers
+
+    def set_lifespan_state(self, state: dict[str, Any]) -> None:
+        """Set the lifespan state dict to be shared with all workers.
+
+        Args:
+            state: The state dict populated during lifespan startup.
+
+        """
+        self._lifespan_state = state
 
     # ------------------------------------------------------------------
     # Public API
@@ -225,6 +237,8 @@ class Supervisor:
             ssl_context=self._ssl_context,
             lifecycle_collector=self._lifecycle_collector,
         )
+        # Inject lifespan state for ASGI scope["state"]
+        worker.set_lifespan_state(self._lifespan_state)
 
         if self._mode == "thread":
             target: threading.Thread | multiprocessing.Process = threading.Thread(

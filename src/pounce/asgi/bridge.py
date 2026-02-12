@@ -89,6 +89,8 @@ def build_scope(
     config: ServerConfig,
     client: tuple[str, int],
     server: tuple[str, int],
+    *,
+    state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an ASGI HTTP scope dict from a parsed request.
 
@@ -97,6 +99,7 @@ def build_scope(
         config: Server configuration.
         client: Client (host, port) tuple.
         server: Server (host, port) tuple.
+        state: Lifespan state dict to inject into scope["state"].
 
     Returns:
         ASGI scope dict ready to pass to an ASGI app.
@@ -114,7 +117,13 @@ def build_scope(
         client=client,
         root_path=config.root_path,
     )
-    return apply_proxy_headers(scope, trusted_hosts=config.trusted_hosts)
+    scope = apply_proxy_headers(scope, trusted_hosts=config.trusted_hosts)
+
+    # Inject lifespan state (ASGI 3.0 spec)
+    if state is not None:
+        scope["state"] = state
+
+    return scope
 
 
 def create_receive(

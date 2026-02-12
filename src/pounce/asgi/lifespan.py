@@ -27,7 +27,7 @@ logger = logging.getLogger("pounce.lifespan")
 async def run_lifespan(
     app: ASGIApp,
     config: ServerConfig,
-) -> AsyncIterator[None]:
+) -> AsyncIterator[dict[str, Any]]:
     """Run the ASGI lifespan protocol as an async context manager.
 
     Sends lifespan.startup on entry, waits for the app to respond with
@@ -37,12 +37,16 @@ async def run_lifespan(
     If the app doesn't support lifespan (raises an exception or returns
     silently during startup), the lifespan is treated as a no-op.
 
+    The lifespan scope includes a "state" dict that the app can populate
+    during startup. This same dict is returned to the caller and should
+    be injected into all request scopes as scope["state"] (ASGI 3.0 spec).
+
     Args:
         app: The ASGI application.
         config: Server configuration.
 
     Yields:
-        None — the caller runs the server between startup and shutdown.
+        dict[str, Any] — The lifespan state dict to be shared with requests.
 
     Raises:
         LifespanError: If the app sends lifespan.startup.failed.
@@ -73,9 +77,14 @@ async def run_lifespan(
         elif msg_type == "lifespan.shutdown.complete":
             shutdown_complete.set()
 
+    # Create state dict that app can populate during startup
+    # This will be shared across all requests (ASGI 3.0 spec)
+    state: dict[str, Any] = {}
+
     scope: dict[str, Any] = {
         "type": "lifespan",
         "asgi": {"version": "3.0", "spec_version": "2.0"},
+        "state": state,
     }
 
     # Run the app in a background task
@@ -112,7 +121,7 @@ async def run_lifespan(
             )
 
         logger.info("Lifespan startup complete")
-        yield
+        yield state
 
     finally:
         # Send shutdown event

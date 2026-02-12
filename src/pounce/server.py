@@ -274,7 +274,10 @@ class Server:
             lifecycle_collector=self._lifecycle_collector,
         )
 
-        async with run_lifespan(self._app, self._config):
+        async with run_lifespan(self._app, self._config) as lifespan_state:
+            # Set lifespan state on worker for request scope injection
+            worker.set_lifespan_state(lifespan_state)
+
             # Per-worker startup — in single-worker mode there's one
             # "worker" sharing the main event loop.  Send the scope so
             # @app.on_worker_startup hooks fire just like multi-worker.
@@ -441,7 +444,10 @@ class Server:
             with contextlib.suppress(NotImplementedError, RuntimeError):
                 loop.add_signal_handler(sig, _on_signal)
 
-        async with run_lifespan(self._app, self._config):
+        async with run_lifespan(self._app, self._config) as lifespan_state:
+            # Set lifespan state on supervisor for worker injection
+            supervisor.set_lifespan_state(lifespan_state)
+
             # The supervisor blocks (it runs its own watchdog loop), so
             # we run it in a thread executor to keep the asyncio loop
             # alive for lifespan shutdown.

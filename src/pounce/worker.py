@@ -122,6 +122,7 @@ class Worker:
         "_config",
         "_ext_shutdown",
         "_lifecycle",
+        "_lifespan_state",
         "_logger",
         "_loop",
         "_max_connections",
@@ -154,6 +155,16 @@ class Worker:
         self._ssl_context = ssl_context
         self._logger = logging.getLogger(f"pounce.worker.{worker_id}")
         self._lifecycle: LifecycleCollector = lifecycle_collector or NoopCollector()
+        self._lifespan_state: dict[str, Any] = {}  # Populated after lifespan startup
+
+    def set_lifespan_state(self, state: dict[str, Any]) -> None:
+        """Set the lifespan state dict to be shared with all requests.
+
+        Args:
+            state: The state dict populated during lifespan startup.
+
+        """
+        self._lifespan_state = state
 
     def run(self) -> None:
         """Start the worker's event loop (blocking)."""
@@ -575,7 +586,9 @@ class Worker:
         )
 
         # Build ASGI scope
-        scope = build_scope(request, self._config, client, server)
+        scope = build_scope(
+            request, self._config, client, server, state=self._lifespan_state
+        )
 
         # Generate or extract request ID for tracing
         is_trusted_peer = bool(
