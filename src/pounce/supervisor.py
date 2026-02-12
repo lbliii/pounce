@@ -469,24 +469,42 @@ class Supervisor:
     # ------------------------------------------------------------------
 
     def _drain(self) -> None:
-        """Wait for all workers to finish, then clean up."""
+        """Wait for all workers to finish draining connections, then clean up.
+
+        Signals shutdown to all workers, waits for them to finish processing
+        active connections (up to shutdown_timeout), then force-terminates
+        any workers that haven't stopped.
+
+        Workers will reject new connections but finish existing ones for
+        clean shutdown (important for Kubernetes graceful termination).
+
+        """
         logger.info("Shutting down %d worker(s)...", self._effective_workers)
 
         # Signal shutdown (may already be set)
         self._shutdown_event.set()
 
-        # Join with timeout
+        # Join workers with timeout. Workers will stop accepting new connections
+        # immediately and finish processing active connections before exiting.
         deadline = time.monotonic() + self._config.shutdown_timeout
         for handle in self._handles:
             remaining = max(0.1, deadline - time.monotonic())
+            logger.debug(
+                "Waiting for worker %d to drain (timeout: %.1fs)",
+                handle.worker_id,
+                remaining,
+            )
             handle.target.join(timeout=remaining)
 
             if handle.target.is_alive():
                 logger.warning(
-                    "Worker %d did not stop within timeout — terminating",
+                    "Worker %d did not stop within shutdown_timeout (%.1fs) — force terminating",
                     handle.worker_id,
+                    self._config.shutdown_timeout,
                 )
                 self._force_stop(handle)
+            else:
+                logger.debug("Worker %d stopped cleanly", handle.worker_id)
 
         logger.info("All workers stopped")
 

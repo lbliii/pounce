@@ -183,7 +183,7 @@ class TestSupervisorRespawn:
         # Set up a handle with an exhausted restart budget
         mock_thread = MagicMock(spec=threading.Thread)
         mock_thread.is_alive.return_value = False
-        handle = _WorkerHandle(0, mock_thread)
+        handle = _WorkerHandle(0, mock_thread, worker=MagicMock())
         handle.restarts = [time.monotonic()] * 5  # Already at max
         sup._handles = [handle]
         sup._sockets = _make_sockets(1)
@@ -204,7 +204,7 @@ class TestSupervisorRespawn:
 
         mock_thread = MagicMock(spec=threading.Thread)
         mock_thread.is_alive.return_value = False
-        handle = _WorkerHandle(0, mock_thread)
+        handle = _WorkerHandle(0, mock_thread, worker=MagicMock())
         # Old restarts (> 60s ago) should be pruned
         handle.restarts = [time.monotonic() - 120.0] * 5
         sup._handles = [handle]
@@ -237,7 +237,7 @@ class TestSupervisorRestartWorkers:
         for i in range(2):
             mock_thread = MagicMock(spec=threading.Thread)
             mock_thread.is_alive.return_value = False
-            sup._handles.append(_WorkerHandle(i, mock_thread))
+            sup._handles.append(_WorkerHandle(i, mock_thread, worker=MagicMock()))
 
         try:
             # Patch at the class level (Supervisor uses __slots__)
@@ -262,7 +262,7 @@ class TestSupervisorRestartWorkers:
 
         mock_thread = MagicMock(spec=threading.Thread)
         mock_thread.is_alive.return_value = False
-        sup._handles.append(_WorkerHandle(0, mock_thread))
+        sup._handles.append(_WorkerHandle(0, mock_thread, worker=MagicMock()))
 
         try:
             with patch.object(Supervisor, "_spawn_worker"):
@@ -297,7 +297,7 @@ class TestWorkerHandle:
 
     def test_initial_state(self):
         mock_thread = MagicMock(spec=threading.Thread)
-        handle = _WorkerHandle(0, mock_thread)
+        handle = _WorkerHandle(0, mock_thread, worker=MagicMock())
         assert handle.worker_id == 0
         assert handle.restart_count == 0
         assert handle.restarts == []
@@ -305,7 +305,7 @@ class TestWorkerHandle:
 
     def test_restart_tracking(self):
         mock_thread = MagicMock(spec=threading.Thread)
-        handle = _WorkerHandle(0, mock_thread)
+        handle = _WorkerHandle(0, mock_thread, worker=MagicMock())
         now = time.monotonic()
         handle.restarts.append(now)
         handle.restart_count += 1

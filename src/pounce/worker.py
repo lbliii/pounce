@@ -264,6 +264,17 @@ class Worker:
         finally:
             if bridge_task is not None:
                 bridge_task.cancel()
+
+            # Log connection draining status
+            if self._active_connections > 0:
+                self._logger.info(
+                    "Worker %d draining %d active connection(s)...",
+                    self._worker_id,
+                    self._active_connections,
+                )
+            else:
+                self._logger.debug("Worker %d shutting down (no active connections)", self._worker_id)
+
             # Guard against shared-fd sockets: on macOS all workers share
             # the same socket fd.  When the first worker closes the asyncio
             # server it unregisters the fd from the selector.  The second
@@ -340,6 +351,26 @@ class Worker:
         HTTP/1.1 also supports WebSocket upgrade mid-connection.
 
         """
+        # Reject new connections when draining (graceful shutdown or reload).
+        # Existing connections continue processing, but we stop accepting new
+        # work to allow the worker to drain cleanly.
+        if self._draining:
+            try:
+                writer.write(
+                    b"HTTP/1.1 503 Service Unavailable\r\n"
+                    b"Connection: close\r\n"
+                    b"Content-Length: 23\r\n"
+                    b"Content-Type: text/plain\r\n"
+                    b"\r\n"
+                    b"Server shutting down..."
+                )
+                await writer.drain()
+                writer.close()
+                await writer.wait_closed()
+            except (OSError, ConnectionError):
+                pass
+            return
+
         # Connection backpressure — reject when at capacity.
         # Send a minimal HTTP 503 response with Retry-After instead of
         # silently closing, so clients get actionable feedback.
