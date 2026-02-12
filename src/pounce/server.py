@@ -265,6 +265,8 @@ class Server:
             with contextlib.suppress(NotImplementedError, RuntimeError):
                 loop.add_signal_handler(sig, _on_signal)
 
+        # Note: SIGHUP not applicable in single-worker mode (no reload needed)
+
         worker = Worker(
             self._config,
             self._app,
@@ -440,9 +442,20 @@ class Server:
                 with contextlib.suppress(NotImplementedError, RuntimeError):
                     loop.remove_signal_handler(sig)
 
+        def _on_reload_signal() -> None:
+            """Trigger graceful reload on SIGHUP."""
+            logger.info("Received SIGHUP — triggering graceful reload")
+            # Run reload in executor to avoid blocking event loop
+            loop.run_in_executor(None, supervisor.graceful_reload)
+
         for sig in (signal.SIGINT, signal.SIGTERM):
             with contextlib.suppress(NotImplementedError, RuntimeError):
                 loop.add_signal_handler(sig, _on_signal)
+
+        # Install SIGHUP handler for graceful reload (POSIX only)
+        if hasattr(signal, "SIGHUP"):
+            with contextlib.suppress(NotImplementedError, RuntimeError):
+                loop.add_signal_handler(signal.SIGHUP, _on_reload_signal)
 
         async with run_lifespan(self._app, self._config) as lifespan_state:
             # Set lifespan state on supervisor for worker injection

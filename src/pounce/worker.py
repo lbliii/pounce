@@ -120,6 +120,7 @@ class Worker:
         "_app",
         "_async_shutdown",
         "_config",
+        "_draining",
         "_ext_shutdown",
         "_lifecycle",
         "_lifespan_state",
@@ -164,6 +165,7 @@ class Worker:
         self._logger = logging.getLogger(f"pounce.worker.{worker_id}")
         self._lifecycle: LifecycleCollector = lifecycle_collector or NoopCollector()
         self._lifespan_state: dict[str, Any] = {}  # Populated after lifespan startup
+        self._draining = False  # Set to True during graceful reload
 
     def set_lifespan_state(self, state: dict[str, Any]) -> None:
         """Set the lifespan state dict to be shared with all requests.
@@ -173,6 +175,28 @@ class Worker:
 
         """
         self._lifespan_state = state
+
+    def start_draining(self) -> None:
+        """Mark this worker as draining.
+
+        When draining, the worker will finish existing connections but stop
+        accepting new ones. This is used during graceful reload to ensure
+        zero-downtime rolling restarts.
+
+        """
+        self._draining = True
+        if self._loop and not self._loop.is_closed():
+            # Signal the accept loop to stop accepting new connections
+            self._loop.call_soon_threadsafe(self._async_shutdown.set)
+
+    def is_idle(self) -> bool:
+        """Check if worker has finished all connections and is idle.
+
+        Returns:
+            True if the worker has no active connections.
+
+        """
+        return self._active_connections == 0
 
     def run(self) -> None:
         """Start the worker's event loop (blocking)."""

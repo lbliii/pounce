@@ -44,14 +44,22 @@ _HEALTH_CHECK_INTERVAL = 1.0  # seconds
 class _WorkerHandle:
     """Metadata about a running worker (thread or process)."""
 
-    __slots__ = ("restart_count", "restarts", "started_at", "target", "worker_id")
+    __slots__ = ("generation", "restart_count", "restarts", "started_at", "target", "worker", "worker_id")
 
-    def __init__(self, worker_id: int, target: threading.Thread | multiprocessing.Process) -> None:
+    def __init__(
+        self,
+        worker_id: int,
+        target: threading.Thread | multiprocessing.Process,
+        worker: Worker,
+        generation: int = 0,
+    ) -> None:
         self.worker_id = worker_id
         self.target = target
+        self.worker = worker  # Store Worker instance for drain control
         self.started_at = time.monotonic()
         self.restart_count = 0
         self.restarts: list[float] = []  # timestamps of recent restarts
+        self.generation = generation  # Used for rolling restart
 
 
 class Supervisor:
@@ -74,6 +82,7 @@ class Supervisor:
         "_app_path",
         "_config",
         "_effective_workers",
+        "_generation",
         "_handles",
         "_lifecycle_collector",
         "_lifespan_state",
@@ -104,6 +113,7 @@ class Supervisor:
         self._ssl_context = ssl_context
         self._lifecycle_collector = lifecycle_collector
         self._lifespan_state: dict[str, Any] = {}  # Set after lifespan startup
+        self._generation = 0  # Incremented on each reload
 
     @property
     def mode(self) -> WorkerMode:
@@ -215,6 +225,129 @@ class Supervisor:
 
         logger.info("All %d worker(s) restarted", self._effective_workers)
 
+    def graceful_reload(self) -> None:
+        """Perform zero-downtime rolling restart of all workers.
+
+        This method implements a rolling restart strategy:
+        1. Reimport the app (thread mode only)
+        2. Spawn new worker generation
+        3. Mark old workers for draining (finish existing, reject new connections)
+        4. Wait for old workers to become idle
+        5. Shut down old workers
+
+        This ensures zero dropped requests during code reload.
+
+        Note: Only works in thread mode. In process mode, falls back to
+        restart_all_workers() which has brief downtime.
+
+        """
+        if self._mode != "thread":
+            logger.warning(
+                "Graceful reload only supported in thread mode. "
+                "Falling back to restart_all_workers()."
+            )
+            self.restart_all_workers()
+            return
+
+        logger.info("Starting graceful reload (rolling restart)...")
+
+        # Reimport the app to pick up code changes (thread mode only)
+        if self._app_path:
+            try:
+                from pounce._importer import reimport_app
+
+                self._app = reimport_app(self._app_path)
+                logger.info("Successfully reimported app from %s", self._app_path)
+            except Exception:
+                logger.exception("Reload failed — continuing with previous version")
+
+        # Keep track of old workers
+        old_handles = list(self._handles)
+        old_generation = self._generation
+
+        # Increment generation for new workers
+        self._generation += 1
+
+        # Spawn new workers (same number as before)
+        logger.info("Spawning %d new worker(s) (generation %d)...", self._effective_workers, self._generation)
+        new_handles: list[_WorkerHandle] = []
+        for i in range(self._effective_workers):
+            per_worker_max = (
+                self._config.max_connections // self._effective_workers
+                if self._config.max_connections > 0
+                else 0
+            )
+
+            worker = Worker(
+                self._config,
+                self._app,
+                self._sockets[i],
+                worker_id=i + self._effective_workers,  # Different ID to avoid conflicts
+                shutdown_event=self._shutdown_event,
+                max_connections=per_worker_max,
+                ssl_context=self._ssl_context,
+                lifecycle_collector=self._lifecycle_collector,
+            )
+            worker.set_lifespan_state(self._lifespan_state)
+
+            target = threading.Thread(
+                target=worker.run,
+                name=f"pounce-worker-gen{self._generation}-{i}",
+                daemon=True,
+            )
+            target.start()
+
+            handle = _WorkerHandle(
+                worker_id=i + self._effective_workers,
+                target=target,
+                worker=worker,
+                generation=self._generation,
+            )
+            new_handles.append(handle)
+
+        logger.info("New workers spawned. Draining old workers (generation %d)...", old_generation)
+
+        # Mark old workers for draining
+        for handle in old_handles:
+            if handle.worker is not None:
+                handle.worker.start_draining()
+
+        # Wait for old workers to finish existing connections
+        reload_timeout = self._config.reload_timeout
+        deadline = time.monotonic() + reload_timeout
+
+        for handle in old_handles:
+            if handle.worker is None:
+                continue
+
+            # Poll until worker is idle or timeout
+            while time.monotonic() < deadline:
+                if handle.worker.is_idle():
+                    logger.info("Worker %d (generation %d) is idle", handle.worker_id, handle.generation)
+                    break
+                time.sleep(0.1)  # Poll every 100ms
+            else:
+                # Timeout reached
+                logger.warning(
+                    "Worker %d (generation %d) did not become idle after %.1fs — forcing shutdown",
+                    handle.worker_id,
+                    handle.generation,
+                    reload_timeout,
+                )
+
+        # Join old workers with remaining timeout
+        for handle in old_handles:
+            remaining = max(0.1, deadline - time.monotonic())
+            handle.target.join(timeout=remaining)
+            if handle.target.is_alive():
+                logger.warning("Worker %d still alive after join timeout", handle.worker_id)
+                self._force_stop(handle)
+
+        # Replace handles with new generation
+        self._handles = new_handles
+
+        logger.info("Graceful reload complete. Running %d worker(s) on generation %d", len(new_handles), self._generation)
+
     # ------------------------------------------------------------------
     # Spawning
     # ------------------------------------------------------------------
@@ -255,7 +388,11 @@ class Supervisor:
 
         target.start()
 
-        handle = _WorkerHandle(worker_id, target)
+        # For graceful reload: store worker instance in thread mode (needed for drain control)
+        # In process mode, worker runs in different process so we can't control it directly
+        worker_ref = worker if self._mode == "thread" else None
+
+        handle = _WorkerHandle(worker_id, target, worker_ref, generation=self._generation)
         # Replace existing handle if this is a restart
         if worker_id < len(self._handles):
             self._handles[worker_id] = handle
@@ -263,10 +400,11 @@ class Supervisor:
             self._handles.append(handle)
 
         logger.info(
-            "Started %s worker %d (pid/tid: %s)",
+            "Started %s worker %d (pid/tid: %s, generation: %d)",
             self._mode,
             worker_id,
             _target_id(target),
+            self._generation,
         )
 
     def _respawn_worker(self, worker_id: int) -> None:
