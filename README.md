@@ -72,13 +72,18 @@ pip install bengal-pounce[full]   # Everything above (except httptools)
 | **HTTP/1.1** | h11 (pure Python) or httptools (C-accelerated) | [HTTP/1.1 →](https://lbliii.github.io/pounce/docs/protocols/http1/) |
 | **HTTP/2** | Stream multiplexing via h2 | [HTTP/2 →](https://lbliii.github.io/pounce/docs/protocols/http2/) |
 | **WebSocket** | Full RFC 6455 via wsproto (including WS over H2) | [WebSocket →](https://lbliii.github.io/pounce/docs/protocols/websocket/) |
+| **Static Files** | Zero-copy sendfile, pre-compressed, ETags | [Static Files →](docs/features/) |
+| **Middleware** | ASGI3 middleware stack support | [Middleware →](docs/features/) |
+| **OpenTelemetry** | Native distributed tracing (OTLP) | [OpenTelemetry →](docs/deployment/opentelemetry.md) |
+| **Lifecycle Logging** | Structured JSON event logging | [Logging →](docs/features/lifecycle-logging.md) |
+| **Graceful Shutdown** | Kubernetes-ready connection draining | [Shutdown →](docs/deployment/graceful-shutdown.md) |
+| **Dev Error Pages** | Rich tracebacks with syntax highlighting | [Errors →](docs/development/error-pages.md) |
 | **TLS** | SSL with truststore integration | [TLS →](https://lbliii.github.io/pounce/docs/configuration/tls/) |
-| **Compression** | zstd (stdlib PEP 784) + gzip content negotiation | [Compression →](https://lbliii.github.io/pounce/docs/deployment/compression/) |
+| **Compression** | zstd (stdlib PEP 784) + gzip + WS compression | [Compression →](https://lbliii.github.io/pounce/docs/deployment/compression/) |
 | **Workers** | Auto-detect: threads (3.14t) or processes (GIL) | [Workers →](https://lbliii.github.io/pounce/docs/deployment/workers/) |
-| **Dev Reload** | Auto-restart on source and template changes | [CLI →](https://lbliii.github.io/pounce/docs/configuration/cli/) |
-| **Observability** | Structured lifecycle events with Server-Timing | [Architecture →](https://lbliii.github.io/pounce/docs/about/architecture/) |
+| **Auto Reload** | Graceful restart on file changes | [Reload →](docs/deployment/graceful-reload.md) |
 
-📚 **Full documentation**: [lbliii.github.io/pounce](https://lbliii.github.io/pounce/)
+📚 **Full documentation**: [lbliii.github.io/pounce](https://lbliii.github.io/pounce/) | **[Complete Feature List →](docs/FEATURES.md)**
 
 ---
 
