@@ -15,11 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] — 2026-02-13
 
-**Phase 5a + 5b + Production** — security hardening, production features, observability, and developer experience.
+Security hardening, production features, observability, and developer experience.
 
 ### Added
 
-#### Phase 5a: Security Hardening
+#### Security Hardening
 
 - **Proxy header validation** — `_proxy.py` validates and applies `X-Forwarded-For`,
   `X-Forwarded-Proto`, and `X-Forwarded-Host` headers only from trusted peers
@@ -41,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Bodyless response guard** — Compression is disabled for 204 and 304 responses
   (RFC 9110 §6.4.1) to prevent compressor flush bytes from producing a body
 
-#### Phase 5a: Network Completeness
+#### Network Completeness
 
 - **Unix domain socket support** — `ServerConfig.uds` for UDS binding, with stale
   socket cleanup on startup and shutdown. All workers share a single UDS fd.
@@ -55,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **503 backpressure response** — When `max_connections` is reached, new connections
   receive `503 Service Unavailable` with `Retry-After: 5` instead of silent close
 
-#### Phase 5a: Observability
+#### Observability
 
 - **Request ID generation** — `_request_id.py` generates UUID4 hex IDs for every
   request. Trusted proxies' `X-Request-ID` headers are honoured. IDs are injected into
@@ -75,32 +75,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Access log request IDs** — Text format appends `[<12-char-id>]`; JSON format
   includes full `request_id` field
 
-#### Phase 5b: Static File Serving
+#### Static File Serving
 
 - **`_static.py`** — Zero-copy sendfile, pre-compressed files (`.gz`, `.br`, `.zst`),
   ETags, and range requests. Configurable via `ServerConfig.static_files`,
   `static_precompressed`, `static_cache_control`
 
-#### Phase 5b: Middleware & Extensibility
+#### Middleware & Extensibility
 
 - **Server-level middleware** — `ServerConfig.middleware` accepts a list of ASGI3
   middleware callables applied before the app
 - **ASGI lifespan state sharing** — Lifespan state propagated to worker scopes for
   spec-compliant shared app state
 
-#### Phase 5b: Graceful Operations
+#### Graceful Operations
 
 - **Zero-downtime graceful reload** — SIGHUP triggers rolling worker restart with
   connection draining. `reload_timeout` configurable
 - **Connection draining** — Enhanced graceful shutdown with `shutdown_timeout` for
   Kubernetes and orchestration platforms
 
-#### Phase 5b: WebSocket & Protocol
+#### WebSocket & Protocol
 
 - **WebSocket permessage-deflate** — RFC 7692 compression for WebSocket connections.
   `ServerConfig.websocket_compression` (default: True)
 
-#### Phase 5b: Developer Experience
+#### Developer Experience
 
 - **Development error pages** — `_debug.py` provides rich HTML tracebacks with syntax
   highlighting (Rosettes), local variables, and request context. Production-safe

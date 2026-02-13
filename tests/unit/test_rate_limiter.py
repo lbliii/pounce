@@ -67,7 +67,8 @@ class TestTokenBucket:
         """Test that token bucket is thread-safe."""
         import threading
 
-        bucket = TokenBucket(rate=100.0, burst=50)
+        # Use low rate so refill during test is negligible (avoids flakiness)
+        bucket = TokenBucket(rate=0.01, burst=50)
         results = []
 
         def consume_token():

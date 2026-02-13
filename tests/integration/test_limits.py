@@ -265,13 +265,11 @@ class TestMaxConnections:
             tcp2.settimeout(2.0)
             try:
                 tcp2.connect(addr)
-                # If the connection was accepted but closed, recv should return empty
                 time.sleep(0.2)
                 try:
                     data = tcp2.recv(4096)
-                    # Server closes immediately when at capacity
-                    # so we expect empty data or connection reset
-                    assert data == b"" or data is None
+                    # Server may close immediately (empty) or send 503 when at capacity
+                    assert data == b"" or data is None or b"503" in data
                 except ConnectionError, OSError:
                     pass  # Also fine — connection was rejected
             except ConnectionRefusedError, OSError:

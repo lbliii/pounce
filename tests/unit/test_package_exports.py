@@ -17,7 +17,8 @@ class TestTopLevelExports:
     def test_version(self):
         from pounce import __version__
 
-        assert "0.1.0" in __version__
+        assert isinstance(__version__, str)
+        assert __version__.count(".") >= 2  # Semver (e.g. 0.2.0)
 
     def test_asgi_types(self):
         from pounce import ASGIApp, Receive, Scope, Send

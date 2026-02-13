@@ -238,4 +238,4 @@ class TestPublicAPI:
         from pounce import __version__
 
         assert isinstance(__version__, str)
-        assert "0.1.0" in __version__
+        assert __version__.count(".") >= 2  # Semver (e.g. 0.2.0)
