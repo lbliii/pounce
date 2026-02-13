@@ -3,8 +3,6 @@ Integration tests for static file serving with ASGI.
 
 """
 
-from pathlib import Path
-
 import pytest
 
 from pounce._static import StaticFiles, StaticMount
@@ -12,7 +10,7 @@ from pounce._static import StaticFiles, StaticMount
 
 @pytest.fixture
 def temp_static_dir(tmp_path):
-    """Create temporary directory with test files."""
+    """Create temporary directory with test files (Bengal-like structure)."""
     # Create test files
     (tmp_path / "index.html").write_text("<h1>Hello World</h1>")
     (tmp_path / "style.css").write_text("body { color: red; }")
@@ -31,6 +29,23 @@ def temp_static_dir(tmp_path):
     css_gz = tmp_path / "style.css.gz"
     # Simulate gzip'd content
     css_gz.write_bytes(b"\x1f\x8b\x08\x00" + b"compressed css content")
+
+    # Bengal-like structure: nested directory indices
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "index.html").write_text("<h1>Docs</h1>")
+    get_started_dir = docs_dir / "get-started"
+    get_started_dir.mkdir()
+    (get_started_dir / "index.html").write_text("<h1>Get Started</h1>")
+
+    # Bengal-specific file types
+    (tmp_path / "icon.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
+    # Minimal valid ICO (22-byte header + 1x1 pixel)
+    (tmp_path / "favicon.ico").write_bytes(
+        b"\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x18\x00(\x04\x00\x00"
+        b"\x16\x00\x00\x00(\x00\x00\x00\x10\x00\x00\x00 \x00\x00\x00\x01\x00\x18\x00"
+    )
+    (tmp_path / "search-index.json").write_text('{"index": [], "docs": []}')
 
     return tmp_path
 
@@ -85,6 +100,130 @@ class TestStaticFileServing:
         # Check body
         body = b"".join(response_body)
         assert body == b"<h1>Hello World</h1>"
+
+    async def test_serve_root_path(self, static_app):
+        """Test serving index.html for root path GET /."""
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [],
+        }
+
+        response_started = None
+        response_body = []
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = message
+            elif message["type"] == "http.response.body":
+                response_body.append(message["body"])
+
+        await static_app(scope, receive, send)
+
+        assert response_started is not None
+        assert response_started["status"] == 200
+        headers = dict(response_started["headers"])
+        assert headers[b"content-type"] == b"text/html"
+        body = b"".join(response_body)
+        assert body == b"<h1>Hello World</h1>"
+
+    async def test_serve_directory_index_trailing_slash(self, static_app):
+        """Test serving docs/index.html for GET /docs/."""
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/docs/",
+            "headers": [],
+        }
+
+        response_started = None
+        response_body = []
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = message
+            elif message["type"] == "http.response.body":
+                response_body.append(message["body"])
+
+        await static_app(scope, receive, send)
+
+        assert response_started is not None
+        assert response_started["status"] == 200
+        headers = dict(response_started["headers"])
+        assert headers[b"content-type"] == b"text/html"
+        body = b"".join(response_body)
+        assert body == b"<h1>Docs</h1>"
+
+    async def test_serve_directory_index_no_trailing_slash(self, static_app):
+        """Test serving docs/index.html for GET /docs (no trailing slash)."""
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/docs",
+            "headers": [],
+        }
+
+        response_started = None
+        response_body = []
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = message
+            elif message["type"] == "http.response.body":
+                response_body.append(message["body"])
+
+        await static_app(scope, receive, send)
+
+        assert response_started is not None
+        assert response_started["status"] == 200
+        headers = dict(response_started["headers"])
+        assert headers[b"content-type"] == b"text/html"
+        body = b"".join(response_body)
+        assert body == b"<h1>Docs</h1>"
+
+    async def test_serve_nested_directory_index(self, static_app):
+        """Test serving docs/get-started/index.html for GET /docs/get-started/."""
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/docs/get-started/",
+            "headers": [],
+        }
+
+        response_started = None
+        response_body = []
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = message
+            elif message["type"] == "http.response.body":
+                response_body.append(message["body"])
+
+        await static_app(scope, receive, send)
+
+        assert response_started is not None
+        assert response_started["status"] == 200
+        headers = dict(response_started["headers"])
+        assert headers[b"content-type"] == b"text/html"
+        body = b"".join(response_body)
+        assert body == b"<h1>Get Started</h1>"
 
     async def test_serve_css_file(self, static_app):
         """Test serving CSS file."""
@@ -181,6 +320,95 @@ class TestStaticFileServing:
 
         headers = dict(response_started["headers"])
         assert headers[b"content-type"] == b"image/png"
+
+    async def test_serve_svg(self, static_app):
+        """Test serving SVG file (Bengal icon.svg)."""
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/icon.svg",
+            "headers": [],
+        }
+
+        response_started = None
+        response_body = []
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = message
+            elif message["type"] == "http.response.body":
+                response_body.append(message["body"])
+
+        await static_app(scope, receive, send)
+
+        assert response_started is not None
+        assert response_started["status"] == 200
+        headers = dict(response_started["headers"])
+        assert headers[b"content-type"] == b"image/svg+xml"
+        body = b"".join(response_body)
+        assert b"<svg" in body
+
+    async def test_serve_favicon(self, static_app):
+        """Test serving favicon.ico (Bengal favicon)."""
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/favicon.ico",
+            "headers": [],
+        }
+
+        response_started = None
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = message
+
+        await static_app(scope, receive, send)
+
+        assert response_started is not None
+        assert response_started["status"] == 200
+        headers = dict(response_started["headers"])
+        assert headers[b"content-type"] == b"image/x-icon"
+
+    async def test_serve_large_json(self, static_app):
+        """Test serving search-index.json (Bengal Lunr-style)."""
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/search-index.json",
+            "headers": [],
+        }
+
+        response_started = None
+        response_body = []
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = message
+            elif message["type"] == "http.response.body":
+                response_body.append(message["body"])
+
+        await static_app(scope, receive, send)
+
+        assert response_started is not None
+        assert response_started["status"] == 200
+        headers = dict(response_started["headers"])
+        assert headers[b"content-type"] == b"application/json"
+        body = b"".join(response_body)
+        assert b'"index"' in body
+        assert b'"docs"' in body
 
 
 class TestHeadRequests:
@@ -507,3 +735,70 @@ class TestMiddlewareMode:
         # Should get static file response
         assert response_started is not None
         assert response_started["status"] == 200
+
+
+class TestStaticOnlyMode:
+    """Tests for static-only mode (app=None)."""
+
+    async def test_404_for_missing_file(self, temp_static_dir):
+        """Test 404 when requesting nonexistent file in static-only mode."""
+        static_app = StaticFiles(
+            app=None,
+            mounts=[StaticMount("/", temp_static_dir)],
+        )
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/nonexistent.html",
+            "headers": [],
+        }
+
+        response_started = None
+        response_body = []
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = message
+            elif message["type"] == "http.response.body":
+                response_body.append(message["body"])
+
+        await static_app(scope, receive, send)
+
+        assert response_started is not None
+        assert response_started["status"] == 404
+        body = b"".join(response_body)
+        assert b"Not Found" in body
+
+    async def test_path_traversal_returns_404(self, temp_static_dir):
+        """Test path traversal via HTTP returns 404."""
+        static_app = StaticFiles(
+            app=None,
+            mounts=[StaticMount("/", temp_static_dir)],
+        )
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/../../../etc/passwd",
+            "headers": [],
+        }
+
+        response_started = None
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = message
+
+        await static_app(scope, receive, send)
+
+        assert response_started is not None
+        assert response_started["status"] == 404

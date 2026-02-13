@@ -3,7 +3,6 @@ Tests for static file serving.
 
 """
 
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -23,6 +22,11 @@ def temp_static_dir(tmp_path):
     subdir = tmp_path / "assets"
     subdir.mkdir()
     (subdir / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    # Create docs subdir for root-mount tests
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "index.html").write_text("<h1>Docs</h1>")
 
     # Create hidden file (should be blocked)
     (tmp_path / ".env").write_text("SECRET=abc123")
@@ -140,6 +144,18 @@ class TestFileResolution:
 
         assert file is not None
         assert file.path == temp_static_dir / "index.html"
+
+    def test_resolve_root_path(self, temp_static_dir):
+        """Test root mount / resolves / and /docs/ to index.html."""
+        handler = StaticFiles(mounts=[StaticMount("/", temp_static_dir)])
+
+        file_root = handler._resolve_file("/", [])
+        assert file_root is not None
+        assert file_root.path == temp_static_dir / "index.html"
+
+        file_docs = handler._resolve_file("/docs/", [])
+        assert file_docs is not None
+        assert file_docs.path == temp_static_dir / "docs" / "index.html"
 
     def test_resolve_nonexistent_file(self, static_handler):
         """Test resolving non-existent file returns None."""
