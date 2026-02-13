@@ -7,11 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-**Phase 5a: Production Grade** — security hardening, network completeness, observability, and robustness.
+### Added
+
+- (Reserved for future changes)
+
+---
+
+## [0.2.0] — 2026-02-13
+
+**Phase 5a + 5b + Production** — security hardening, production features, observability, and developer experience.
 
 ### Added
 
-#### Security Hardening
+#### Phase 5a: Security Hardening
 
 - **Proxy header validation** — `_proxy.py` validates and applies `X-Forwarded-For`,
   `X-Forwarded-Proto`, and `X-Forwarded-Host` headers only from trusted peers
@@ -33,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Bodyless response guard** — Compression is disabled for 204 and 304 responses
   (RFC 9110 §6.4.1) to prevent compressor flush bytes from producing a body
 
-#### Network Completeness
+#### Phase 5a: Network Completeness
 
 - **Unix domain socket support** — `ServerConfig.uds` for UDS binding, with stale
   socket cleanup on startup and shutdown. All workers share a single UDS fd.
@@ -47,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **503 backpressure response** — When `max_connections` is reached, new connections
   receive `503 Service Unavailable` with `Retry-After: 5` instead of silent close
 
-#### Observability
+#### Phase 5a: Observability
 
 - **Request ID generation** — `_request_id.py` generates UUID4 hex IDs for every
   request. Trusted proxies' `X-Request-ID` headers are honoured. IDs are injected into
@@ -62,27 +70,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (histogram), `http_connections_active`, `http_requests_in_flight`, and
   `http_bytes_sent_total`. Thread-safe via `threading.Lock`. Export in Prometheus text
   exposition format via `collector.export()`
+- **Built-in `/metrics` endpoint** — Configurable Prometheus scrape endpoint
+  (`ServerConfig.metrics_path`, default `/metrics`) with zero external dependencies
 - **Access log request IDs** — Text format appends `[<12-char-id>]`; JSON format
   includes full `request_id` field
 
+#### Phase 5b: Static File Serving
+
+- **`_static.py`** — Zero-copy sendfile, pre-compressed files (`.gz`, `.br`, `.zst`),
+  ETags, and range requests. Configurable via `ServerConfig.static_files`,
+  `static_precompressed`, `static_cache_control`
+
+#### Phase 5b: Middleware & Extensibility
+
+- **Server-level middleware** — `ServerConfig.middleware` accepts a list of ASGI3
+  middleware callables applied before the app
+- **ASGI lifespan state sharing** — Lifespan state propagated to worker scopes for
+  spec-compliant shared app state
+
+#### Phase 5b: Graceful Operations
+
+- **Zero-downtime graceful reload** — SIGHUP triggers rolling worker restart with
+  connection draining. `reload_timeout` configurable
+- **Connection draining** — Enhanced graceful shutdown with `shutdown_timeout` for
+  Kubernetes and orchestration platforms
+
+#### Phase 5b: WebSocket & Protocol
+
+- **WebSocket permessage-deflate** — RFC 7692 compression for WebSocket connections.
+  `ServerConfig.websocket_compression` (default: True)
+
+#### Phase 5b: Developer Experience
+
+- **Development error pages** — `_debug.py` provides rich HTML tracebacks with syntax
+  highlighting (Rosettes), local variables, and request context. Production-safe
+  (`debug=False` returns plain 500)
+- **Hot reload utilities** — `_hot_reload.py` for in-process module reimport without
+  full process restart. `ServerConfig.reload_include`, `reload_dirs` for configurable
+  file watching
+
+#### Production Integrations
+
+- **OpenTelemetry** — `_otel.py` native distributed tracing with OTLP export.
+  `ServerConfig.otel_endpoint`, `otel_service_name`
+- **Sentry** — `_sentry.py` optional error tracking. `sentry_dsn`, `sentry_environment`,
+  `sentry_release`
+- **Per-IP rate limiting** — `_rate_limiter.py` token bucket algorithm.
+  `rate_limit_enabled`, `rate_limit_requests_per_second`, `rate_limit_burst`
+- **Request queueing** — `_request_queue.py` bounded queue with load shedding (503).
+  `request_queue_enabled`, `request_queue_max_depth`
+
+#### Lifecycle & Logging
+
+- **Structured lifecycle logging** — `lifecycle_logging` config for connection/request
+  events with correlation IDs. `log_slow_requests_threshold` for slow request detection
+
 #### H1/H2 Feature Parity
 
-- All security and observability features (CRLF sanitization, proxy headers, request IDs,
-  health checks, HEAD guard, bodyless guard, body size limits) are wired for both
-  HTTP/1.1 and HTTP/2 handlers
+- All security and observability features wired for both HTTP/1.1 and HTTP/2 handlers
 
 #### Tests
 
-- `test_request_id.py` — 10 tests for UUID generation and trusted/untrusted extraction
-- `test_health.py` — 6 tests for health response payload and headers
-- `test_proxy.py` — proxy header validation for trusted/untrusted peers
-- `test_security.py` — request smuggling prevention via h11 strict parsing
-- `test_metrics.py` — PrometheusCollector gauges, counters, histograms, and export format
-- `test_h2_bridge.py` — H2 scope construction with proxy header handling
-- `test_listener_uds.py` — UDS routing, bind logic, and cleanup
-- `test_bridge.py` — CRLF sanitization and HEAD compression guard tests
-- Updated `test_config.py` — validation for `header_timeout`, `uds`, `health_check_path`
-- Updated `test_logging_format.py` — request ID in text and JSON access logs
+- New test modules: `test_request_id`, `test_health`, `test_proxy`, `test_security`,
+  `test_metrics`, `test_metrics_endpoint`, `test_h2_bridge`, `test_listener_uds`,
+  `test_bridge`, `test_static`, `test_middleware`, `test_graceful_reload`, `test_hot_reload`,
+  `test_connection_draining`, `test_debug_error_pages`, `test_lifecycle_logging`,
+  `test_lifespan_state`, `test_otel`, `test_rate_limiter`, `test_request_queue`,
+  `test_sentry`, `test_websocket_compression`
+- Integration tests for static files, WebSocket compression, lifespan state
 
 ---
 
@@ -480,4 +535,5 @@ Initial release of Pounce — a free-threading-native ASGI server for Python 3.1
 - `py.typed` PEP 561 marker
 - `_Py_mod_gil = 0` free-threading declaration
 
+[0.2.0]: https://github.com/lbliii/pounce/releases/tag/v0.2.0
 [0.1.0]: https://github.com/lbliii/pounce/releases/tag/v0.1.0
