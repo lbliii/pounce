@@ -8,7 +8,7 @@ shows the ``pounce.Server`` class directly, which is useful for:
 - **Testing** — start a real server, hit it with HTTP, then shut it down
 - **Graceful shutdown** — call ``server.shutdown()`` from any thread
 
-The hardening work in 0.4.0 added proper connection draining: on shutdown,
+The hardening work in 0.2.0 added proper connection draining: on shutdown,
 the server stops accepting new connections and waits up to
 ``shutdown_timeout`` seconds for active requests to finish before
 force-closing.

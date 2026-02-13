@@ -1,6 +1,6 @@
 # Product Requirements Document: Pounce
 
-**Version**: 0.4.0-dev
+**Version**: 0.2.0
 **Date**: 2026-02-07
 **Status**: Phase 4 implemented
 
@@ -319,7 +319,7 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 - [x] 408 tests passing (unit + integration + ASGI compliance)
 - Brotli excluded: C extension re-enables GIL on 3.14t (compression remains zstd > gzip)
 
-### 7.4 v0.4.0 (Phase 4: It's Fast) — ✓ Implemented
+### 7.4 v0.1.0 (Phase 4: It's Fast) — ✓ Implemented
 
 - [x] App factory support: `pounce "myapp:create_app()"` wired end-to-end with tests
 - [x] POST request body reading fixed (concurrent body reader, xfail tests removed)

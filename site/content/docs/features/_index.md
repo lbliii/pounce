@@ -13,11 +13,11 @@ Pounce provides a comprehensive feature set for modern web applications, with pa
 - **HTTP/1.1** — Pure Python (h11) or C-accelerated (httptools)
 - **HTTP/2** — Stream multiplexing, server push, priority signals
 - **WebSocket** — Full RFC 6455 support with compression
-- **HTTP/3** — Planned for Phase 5c (Q2 2026)
+- **HTTP/3** — Planned for Q2 2026
 
 [Learn more about protocols →](/docs/protocols/)
 
-## Phase 5b Features (Production-Ready)
+## Production Features
 
 ### Static File Serving
 Zero-copy sendfile, pre-compressed files, ETags, and range requests.

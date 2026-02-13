@@ -104,7 +104,7 @@ Callable that sends ASGI events to the client.
 ```python
 from pounce import __version__
 
-print(__version__)  # e.g., "0.4.0"
+print(__version__)  # e.g., "0.2.0"
 ```
 
 The installed package version, read from `importlib.metadata`.

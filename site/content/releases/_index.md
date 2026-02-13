@@ -4,11 +4,10 @@ description: Pounce release notes and changelog
 draft: false
 weight: 90
 lang: en
-type: doc
+type: changelog
 tags: [releases, changelog]
 keywords: [releases, changelog, versions, updates]
-category: releases
-
+category: changelog
 cascade:
   type: changelog
 ---

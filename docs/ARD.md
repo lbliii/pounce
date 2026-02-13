@@ -1,6 +1,6 @@
 # Architecture Design Document: Pounce
 
-**Version**: 0.4.0-dev
+**Version**: 0.2.0
 **Date**: 2026-02-07
 **Status**: Phase 4 implemented
 
@@ -782,7 +782,7 @@ with full context:
 ### 9.3 Startup Banner
 
 ```
-Pounce v0.4.0 (Python 3.14.0t, free-threading)
+Pounce v0.2.0 (Python 3.14.0t, free-threading)
 ├─ Workers: 4 (threads)
 ├─ Listening: https://0.0.0.0:8000
 ├─ App: myapp:app
