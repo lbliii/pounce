@@ -98,12 +98,16 @@ No Rust, no C extensions in the server core. One dependency (h11). Debuggable, h
 
 ## The Bengal Ecosystem
 
-```
-purr        Content runtime   (connects everything)
-⟩⟩· pounce      ASGI server       (serves apps) ← You are here
-chirp       Web framework     (serves HTML)
-kida        Template engine   (renders HTML)
-patitas     Markdown parser   (parses content)
-rosettes    Syntax highlighter (highlights code)
-bengal      Static site gen   (builds sites)
-```
+A structured reactive stack — every layer written in pure Python for 3.14t free-threading.
+
+| | | | |
+|--:|---|---|---|
+| **ᓚᘏᗢ** | [Bengal](https://github.com/lbliii/bengal) | Static site generator | [Docs](https://lbliii.github.io/bengal/) |
+| **∿∿** | [Purr](https://github.com/lbliii/purr) | Content runtime | — |
+| **⌁⌁** | [Chirp](https://github.com/lbliii/chirp) | Web framework | [Docs](https://lbliii.github.io/chirp/) |
+| **=^..^=** | **Pounce** | ASGI server ← You are here | [Docs](https://lbliii.github.io/pounce/) |
+| **)彡** | [Kida](https://github.com/lbliii/kida) | Template engine | [Docs](https://lbliii.github.io/kida/) |
+| **ฅᨐฅ** | [Patitas](https://github.com/lbliii/patitas) | Markdown parser | [Docs](https://lbliii.github.io/patitas/) |
+| **⌾⌾⌾** | [Rosettes](https://github.com/lbliii/rosettes) | Syntax highlighter | [Docs](https://lbliii.github.io/rosettes/) |
+
+Python-native. Free-threading ready. No npm required.
