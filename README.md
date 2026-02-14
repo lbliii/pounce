@@ -16,19 +16,15 @@ pounce.run("myapp:app")
 
 ---
 
-## Why Pounce?
+## What is Pounce?
 
-Every existing ASGI server was built for a Python that had a GIL:
+Pounce is a free-threading-native ASGI server for Python 3.14t. N worker threads share one interpreter, one copy of your app, one set of frozen config. On GIL builds, it falls back to multi-process automatically.
 
-- **Uvicorn** — One event loop per process. Parallelism means fork. Four workers means four copies of your app in separate memory. Added Python 3.14 *compatibility* but not a free-threading-native worker model.
-- **Granian** — I/O in Rust, calls into Python. Supports nogil threads, but the core server logic isn't Python.
-- **Hypercorn / Daphne** — Process-based. No free-threading awareness.
+**What's good about it:**
 
-Pounce is built for the world that 3.14t creates:
-
-- **Free-threading native** — N worker threads sharing one interpreter, one copy of the app, one set of frozen config. Zero synchronization for immutable data
-- **2026-native features** — Stdlib `compression.zstd` (PEP 784) for zero-dependency zstd content-encoding. Server-Timing headers for built-in observability
-- **Streaming-first** — Chunked HTML, event streams, AI token delivery. Body chunks sent immediately to socket, never buffered
+- **Free-threading native** — Threads, not processes. One interpreter, N event loops, shared immutable state. Zero synchronization for immutable data.
+- **2026-native features** — Stdlib `compression.zstd` (PEP 784) for zero-dependency zstd content-encoding. Server-Timing headers for built-in observability.
+- **Streaming-first** — Chunked HTML, event streams, AI token delivery. Body chunks sent immediately to socket, never buffered.
 
 ---
 
