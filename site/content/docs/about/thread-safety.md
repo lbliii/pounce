@@ -82,5 +82,5 @@ If your app uses global mutable state (module-level dicts, caches without locks)
 ## See Also
 
 - [[docs/about/architecture|Architecture]] — Server layer design
-- [[docs/about/comparison|Comparison]] — How other servers handle threading
+- [[docs/about/comparison|When to Use Pounce]] — Architecture and deployment
 - [[docs/deployment/workers|Workers]] — Configuring worker count and mode

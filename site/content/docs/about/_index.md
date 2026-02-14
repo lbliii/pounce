@@ -42,8 +42,8 @@ Frozen config, per-request state, zero synchronization.
 :::{card} Comparison
 :icon: bar-chart-2
 :link: ./comparison
-:description: Pounce vs Uvicorn, Granian, Hypercorn, Daphne
-Feature and architecture comparison.
+:description: When Pounce fits and what it offers
+Architecture and deployment guidance.
 :::{/card}
 
 :::{card} FAQ

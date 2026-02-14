@@ -100,4 +100,4 @@ Pounce supports HTTP/2 via `pounce[h2]`. Uvicorn does not support HTTP/2.
 ## See Also
 
 - [[docs/get-started/quickstart|Quickstart]] — Getting started with Pounce
-- [[docs/about/comparison|Comparison]] — Full feature comparison
+- [[docs/about/comparison|When to Use Pounce]] — Architecture and deployment

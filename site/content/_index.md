@@ -38,7 +38,7 @@ pounce.run("myapp:app")
 
 ---
 
-## Why Pounce?
+## What's good about it
 
 :::{cards}
 :columns: 2
@@ -65,21 +65,6 @@ No Rust, no C extensions in the server core. One dependency (h11). Debuggable, h
 :::{/card}
 
 :::{/cards}
-
----
-
-## Quick Comparison
-
-| Feature | Pounce | Uvicorn | Granian | Hypercorn |
-|---------|--------|---------|---------|-----------|
-| **Parallelism** | Threads (nogil) | Processes (fork) | Rust I/O + Python | Processes |
-| **Memory model** | Shared (1 copy) | Duplicated (N copies) | Mixed | Duplicated |
-| **Free-threading** | Native | Compatible | Partial | No |
-| **HTTP/2** | Optional (h2) | No | Yes | Yes |
-| **WebSocket** | Optional (wsproto) | Optional | Yes | Yes |
-| **Compression** | zstd + gzip (stdlib) | No | No | No |
-| **Server-Timing** | Built-in | No | No | No |
-| **Dependencies** | 1 (h11) | 2+ | Rust binary | 3+ |
 
 ---
 
