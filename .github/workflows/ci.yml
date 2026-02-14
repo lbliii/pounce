@@ -16,7 +16,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.14"
+          python-version: "3.14t"
           enable-cache: true
 
       - name: Install dependencies
@@ -37,7 +37,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.14"
+          python-version: "3.14t"
           enable-cache: true
 
       - name: Install dependencies
@@ -54,7 +54,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: ["3.14", "3.14t"]
+        python-version: ["3.14t"]
 
     steps:
       - uses: actions/checkout@v4
