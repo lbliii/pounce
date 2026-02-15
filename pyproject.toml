@@ -158,8 +158,8 @@ exclude_lines = [
 
 [dependency-groups]
 docs = [
-    "bengal>=0.2.0",  # Static site generator for documentation
-    "lunr>=0.7.0",     # Pre-built search index
+    "bengal>=0.2.0", # Static site generator for documentation
+    "lunr>=0.7.0",   # Pre-built search index
 ]
 dev = [
     # Testing
