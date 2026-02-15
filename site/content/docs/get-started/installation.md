@@ -75,5 +75,7 @@ You should see the CLI help output with available options. If you see a `pounce:
 
 ## Next Steps
 
-- [[docs/get-started/quickstart|Quickstart]] — Serve your first app
-- [[docs/configuration/cli|CLI Reference]] — All command-line options
+:::{related}
+:limit: 3
+:section_title: Next Steps
+:::

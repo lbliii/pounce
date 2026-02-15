@@ -33,12 +33,38 @@ flowchart TD
 
 The `Server` class orchestrates the full lifecycle:
 
-1. **CONFIG** — Validate and freeze `ServerConfig`
-2. **DETECT** — Check for free-threading via `sys._is_gil_enabled()`
-3. **BIND** — Create listening sockets with `SO_REUSEPORT`
-4. **LIFESPAN** — Run ASGI lifespan protocol (`startup` / `shutdown`)
-5. **SERVE** — Delegate to single-worker fast path or multi-worker supervisor
-6. **SHUTDOWN** — Graceful connection draining, signal handling
+:::{steps}
+:::{step} CONFIG
+
+Validate and freeze `ServerConfig`.
+
+:::{/step}
+:::{step} DETECT
+
+Check for free-threading via `sys._is_gil_enabled()`.
+
+:::{/step}
+:::{step} BIND
+
+Create listening sockets with `SO_REUSEPORT`.
+
+:::{/step}
+:::{step} LIFESPAN
+
+Run ASGI lifespan protocol (`startup` / `shutdown`).
+
+:::{/step}
+:::{step} SERVE
+
+Delegate to single-worker fast path or multi-worker supervisor.
+
+:::{/step}
+:::{step} SHUTDOWN
+
+Graceful connection draining, signal handling.
+
+:::{/step}
+:::{/steps}
 
 For single-worker mode (`workers=1`), the server skips the supervisor entirely and runs the worker directly — no thread/process overhead.
 
@@ -55,11 +81,33 @@ The `Supervisor` manages worker lifecycle:
 
 Each `Worker` runs its own asyncio event loop:
 
-1. **Accept** — Receive TCP connections from the shared socket
-2. **Parse** — Feed bytes to protocol parser (h11, h2, or wsproto)
-3. **Bridge** — Build ASGI scope, create `receive`/`send` callables
-4. **Dispatch** — Call `app(scope, receive, send)`
-5. **Respond** — Serialize response and write to socket (streaming)
+:::{steps}
+:::{step} Accept
+
+Receive TCP connections from the shared socket.
+
+:::{/step}
+:::{step} Parse
+
+Feed bytes to protocol parser (h11, h2, or wsproto).
+
+:::{/step}
+:::{step} Bridge
+
+Build ASGI scope, create `receive`/`send` callables.
+
+:::{/step}
+:::{step} Dispatch
+
+Call `app(scope, receive, send)`.
+
+:::{/step}
+:::{step} Respond
+
+Serialize response and write to socket (streaming).
+
+:::{/step}
+:::{/steps}
 
 Workers are fully independent. No shared mutable state, no locks, no coordination between workers during request handling.
 

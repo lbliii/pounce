@@ -57,45 +57,76 @@ pounce.run("myapp:app", host="0.0.0.0", port=8000, workers=4)
 
 ## Key Differences
 
-### 1. Worker Model
+:::{dropdown} Worker model
+:icon: cpu
 
 Uvicorn uses processes for parallelism (fork). Pounce uses threads on Python 3.14t. This means:
 
 - **Lower memory** — One copy of the app instead of N
 - **Shared state** — Frozen config is shared, not duplicated
 - **No fork** — No copy-on-write, no IPC overhead
+:::
 
-### 2. Compression
+:::{dropdown} Compression
+:icon: archive
 
 Pounce includes built-in compression (zstd + gzip). Uvicorn does not — you'd typically handle this in middleware or a reverse proxy.
+:::
 
-### 3. Server-Timing
+:::{dropdown} Server-Timing
+:icon: clock
 
 Pounce can inject `Server-Timing` headers automatically (`--server-timing`). Uvicorn has no equivalent.
+:::
 
-### 4. HTTP/2
+:::{dropdown} HTTP/2
+:icon: globe
 
 Pounce supports HTTP/2 via `pounce[h2]`. Uvicorn does not support HTTP/2.
+:::
 
 ## Migration Steps
 
-1. **Install Pounce:**
-   ```bash
-   uv add bengal-pounce
-   ```
+:::{steps}
+:::{step} Install Pounce
 
-2. **Replace the run command:**
-   ```bash
-   # Before
-   uvicorn myapp:app --host 0.0.0.0 --workers 4
+```bash
+uv add bengal-pounce
+```
 
-   # After
-   pounce myapp:app --host 0.0.0.0 --workers 4
-   ```
+:::{/step}
+:::{step} Replace the run command
 
-3. **Update Dockerfile / systemd if applicable**
+```bash
+# Before
+uvicorn myapp:app --host 0.0.0.0 --workers 4
 
-4. **Test your application** — Pounce serves standard ASGI, so any compliant app works without code changes
+# After
+pounce myapp:app --host 0.0.0.0 --workers 4
+```
+
+:::{/step}
+:::{step} Update Dockerfile / systemd
+
+Update deployment configs if applicable.
+
+:::{/step}
+:::{step} Test your application
+
+Pounce serves standard ASGI, so any compliant app works without code changes.
+
+:::{/step}
+:::{/steps}
+
+## Verify Migration
+
+:::{checklist} Migration Verification
+:show-progress:
+- [ ] Pounce installed (`pounce --help` works)
+- [ ] Run command replaced (uvicorn → pounce)
+- [ ] Dockerfile / systemd updated if applicable
+- [ ] Application tested and serving correctly
+:::{/checklist}
 
 ## See Also
 
