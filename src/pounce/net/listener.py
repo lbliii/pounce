@@ -81,7 +81,7 @@ def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
         sockets: list[socket.socket] = []
         try:
             for _ in range(count):
-                sockets.append(_bind_socket(config))  # noqa: PERF401
+                sockets.append(_bind_socket(config, _log_listen=False))  # noqa: PERF401
         except Exception:
             # Clean up any sockets that were successfully created
             for s in sockets:
@@ -154,7 +154,7 @@ def cleanup_unix_socket(config: ServerConfig) -> None:
             logger.info("Removed socket file %s", config.uds)
 
 
-def _bind_socket(config: ServerConfig) -> socket.socket:
+def _bind_socket(config: ServerConfig, *, _log_listen: bool = True) -> socket.socket:
     """Create, configure, bind, and listen on a single TCP socket.
 
     Uses ``getaddrinfo`` to resolve the host, supporting both IPv4 and
@@ -201,13 +201,14 @@ def _bind_socket(config: ServerConfig) -> socket.socket:
         sock.listen(config.backlog)
         sock.setblocking(False)
 
-        actual_addr = sock.getsockname()
-        logger.info(
-            "Listening on %s:%d (backlog=%d)",
-            actual_addr[0],
-            actual_addr[1],
-            config.backlog,
-        )
+        if _log_listen:
+            actual_addr = sock.getsockname()
+            logger.info(
+                "Listening on %s:%d (backlog=%d)",
+                actual_addr[0],
+                actual_addr[1],
+                config.backlog,
+            )
 
         return sock
 

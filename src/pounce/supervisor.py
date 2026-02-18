@@ -399,7 +399,7 @@ class Supervisor:
         else:
             self._handles.append(handle)
 
-        logger.info(
+        logger.debug(
             "Started %s worker %d (pid/tid: %s, generation: %d)",
             self._mode,
             worker_id,

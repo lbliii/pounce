@@ -15,6 +15,7 @@ Signal handling: SIGINT/SIGTERM trigger graceful shutdown.
 import asyncio
 import contextlib
 import logging
+import os
 import signal
 import socket
 import sys
@@ -351,11 +352,21 @@ class Server:
         if self._shutdown_event.is_set():
             self._async_shutdown.set()
 
+        def _force_exit() -> None:
+            """Second signal — exit immediately without waiting for drain."""
+            logger.info("Second signal received — forcing immediate exit")
+            os._exit(1)
+
         def _on_signal() -> None:
             """Set both events so shutdown() and signal paths converge."""
             self._shutdown_event.set()
             if self._async_shutdown is not None:
                 self._async_shutdown.set()
+            # Replace with force-exit handler so second Ctrl+C exits immediately
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                with contextlib.suppress(NotImplementedError, RuntimeError):
+                    loop.remove_signal_handler(sig)
+                    loop.add_signal_handler(sig, _force_exit)
 
         # Install signal handlers (main thread only).
         # NotImplementedError: Windows.
@@ -534,12 +545,18 @@ class Server:
         """
         loop = asyncio.get_running_loop()
 
+        def _force_exit() -> None:
+            """Second signal — exit immediately without waiting for drain."""
+            logger.info("Second signal received — forcing immediate exit")
+            os._exit(1)
+
         def _on_signal() -> None:
             supervisor.shutdown()
-            # Second signal gets default handling (hard exit)
+            # Replace with force-exit handler so second Ctrl+C exits immediately
             for sig in (signal.SIGINT, signal.SIGTERM):
                 with contextlib.suppress(NotImplementedError, RuntimeError):
                     loop.remove_signal_handler(sig)
+                    loop.add_signal_handler(sig, _force_exit)
 
         def _on_reload_signal() -> None:
             """Trigger graceful reload on SIGHUP."""
