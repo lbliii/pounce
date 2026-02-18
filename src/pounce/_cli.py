@@ -61,6 +61,7 @@ def main(args: list[str] | None = None) -> None:
         keep_alive_timeout=parsed.keep_alive_timeout,
         header_timeout=parsed.header_timeout,
         max_requests_per_connection=parsed.max_requests_per_connection,
+        shutdown_timeout=parsed.shutdown_timeout,
         uds=parsed.uds,
         health_check_path=parsed.health_check_path,
     )
@@ -252,6 +253,15 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         help="Max requests per keep-alive connection; 0 = unlimited (default: 0)",
+    )
+    parser.add_argument(
+        "--shutdown-timeout",
+        type=float,
+        default=10.0,
+        help=(
+            "Seconds to wait for connections to drain on shutdown (default: 10). "
+            "Use a lower value (e.g. 2) for faster exit during development."
+        ),
     )
 
     return parser

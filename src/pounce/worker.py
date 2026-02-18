@@ -250,7 +250,7 @@ class Worker:
             ssl=self._ssl_context,
         )
 
-        self._logger.info("Worker %d started, accepting connections", self._worker_id)
+        self._logger.debug("Worker %d started, accepting connections", self._worker_id)
 
         # If an external threading.Event was provided (multi-worker mode),
         # bridge it into the asyncio event loop so the supervisor can
