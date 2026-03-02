@@ -237,7 +237,7 @@ def _wait_for_ready(addr: tuple[str, int], *, timeout: float = 3.0) -> None:
             probe.connect(addr)
             probe.close()
             return
-        except ConnectionRefusedError, OSError:
+        except (ConnectionRefusedError, OSError):
             time.sleep(0.02)
     msg = f"Worker at {addr} did not become ready within {timeout}s"
     raise RuntimeError(msg)

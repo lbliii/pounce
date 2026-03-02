@@ -67,6 +67,26 @@ async def _slow_shutdown_app(scope: Scope, receive: Receive, send: Send) -> None
             await asyncio.sleep(100)
 
 
+async def _slow_startup_app(scope: Scope, receive: Receive, send: Send) -> None:
+    """ASGI app that blocks during startup without sending complete."""
+    assert scope["type"] == "lifespan"
+    message = await receive()
+    if message["type"] == "lifespan.startup":
+        # Block forever without sending startup.complete
+        await asyncio.sleep(100)
+
+
+class TestLifespanStartupTimeout:
+    """Startup times out if app doesn't respond."""
+
+    @pytest.mark.asyncio
+    async def test_startup_timeout(self):
+        """App receives lifespan.startup then blocks; server times out and proceeds."""
+        config = ServerConfig(startup_timeout=0.1)
+        async with run_lifespan(_slow_startup_app, config):
+            pass  # Startup will timeout — should not hang
+
+
 class TestLifespanHappyPath:
     """Normal lifespan startup and shutdown."""
 

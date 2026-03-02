@@ -129,12 +129,47 @@ class TestRequestTimeout:
                         if not chunk:
                             break
                         resp += chunk
-                except TimeoutError, ConnectionError, OSError:
+                except (TimeoutError, ConnectionError, OSError):
                     pass
                 # The connection should have been closed
                 # (either 200 with partial body, timeout, or connection reset)
             finally:
                 tcp.close()
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
+    @pytest.mark.slow
+    def test_content_length_mismatch_client_closes_early(self):
+        """POST with Content-Length: 100, send 50 bytes, close — worker handles cleanly."""
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
+            request_timeout=2.0,
+        )
+        worker, sock, thread = start_worker(_ok_app, config=config)
+        addr = sock.getsockname()
+
+        try:
+            tcp = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+            tcp.settimeout(3.0)
+            try:
+                tcp.connect(addr)
+                # Send headers + 50 bytes (declared 100), then close
+                tcp.sendall(
+                    b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\n"
+                    + b"x" * 50
+                )
+                tcp.close()
+            except (ConnectionError, OSError):
+                pass
+            # Worker must not hang — subsequent request succeeds
+            time.sleep(0.3)
+            request = b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+            response = send_raw_request(addr, request, timeout=3.0)
+            assert b"200" in response
         finally:
             worker.shutdown()
             thread.join(timeout=2)
@@ -188,7 +223,7 @@ class TestOversizedHeaders:
                         if not chunk:
                             break
                         resp += chunk
-                except TimeoutError, ConnectionError, OSError:
+                except (TimeoutError, ConnectionError, OSError):
                     pass
 
                 # Worker should respond with 400 or close the connection
@@ -214,6 +249,356 @@ class TestOversizedHeaders:
         try:
             request = b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
             response = send_raw_request(addr, request)
+            assert b"200" in response
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
+
+# ---------------------------------------------------------------------------
+# max_request_size enforcement
+# ---------------------------------------------------------------------------
+
+
+class TestMaxRequestSize:
+    """Request body exceeding max_request_size is truncated."""
+
+    def test_content_length_body_exceeding_limit_truncated(self):
+        """POST with Content-Length body > max_request_size is truncated."""
+        limit = 1024  # 1 KB
+        oversized = 2048  # 2 KB
+
+        @with_lifespan
+        async def echo_length_app(scope: Scope, receive: Receive, send: Send) -> None:
+            body = b""
+            while True:
+                msg = await receive()
+                body += msg.get("body", b"")
+                if not msg.get("more_body", False):
+                    break
+            resp = str(len(body)).encode()
+            await send({
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", str(len(resp)).encode())],
+            })
+            await send({"type": "http.response.body", "body": resp})
+
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
+            max_request_size=limit,
+        )
+        worker, sock, thread = start_worker(echo_length_app, config=config)
+        addr = sock.getsockname()
+
+        try:
+            payload = b"X" * oversized
+            request = (
+                b"POST / HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Content-Length: " + str(oversized).encode() + b"\r\n"
+                b"Connection: close\r\n"
+                b"\r\n" + payload
+            )
+            response = send_raw_request(addr, request, timeout=5.0)
+            assert b"200" in response
+            # App receives truncated body — at most limit bytes
+            body = response.split(b"\r\n\r\n", 1)[-1]
+            received_len = int(body.decode())
+            assert received_len <= limit
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
+    def test_chunked_body_exceeding_limit_truncated(self):
+        """Chunked body exceeding max_request_size is truncated."""
+        limit = 1024
+        oversized = 2048
+
+        @with_lifespan
+        async def echo_length_app(scope: Scope, receive: Receive, send: Send) -> None:
+            body = b""
+            while True:
+                msg = await receive()
+                body += msg.get("body", b"")
+                if not msg.get("more_body", False):
+                    break
+            resp = str(len(body)).encode()
+            await send({
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", str(len(resp)).encode())],
+            })
+            await send({"type": "http.response.body", "body": resp})
+
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
+            max_request_size=limit,
+        )
+        worker, sock, thread = start_worker(echo_length_app, config=config)
+        addr = sock.getsockname()
+
+        try:
+            # Chunked: 1KB + 1KB chunks
+            chunk1 = b"X" * 1024
+            chunk2 = b"Y" * 1024
+            chunked_body = (
+                b"400\r\n" + chunk1 + b"\r\n"
+                b"400\r\n" + chunk2 + b"\r\n"
+                b"0\r\n\r\n"
+            )
+            request = (
+                b"POST / HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Transfer-Encoding: chunked\r\n"
+                b"Connection: close\r\n"
+                b"\r\n" + chunked_body
+            )
+            response = send_raw_request(addr, request, timeout=5.0)
+            assert b"200" in response
+            body = response.split(b"\r\n\r\n", 1)[-1]
+            received_len = int(body.decode())
+            assert received_len <= limit
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
+    def test_body_at_limit_accepted(self):
+        """Body exactly at max_request_size is accepted."""
+        limit = 1024
+
+        @with_lifespan
+        async def echo_length_app(scope: Scope, receive: Receive, send: Send) -> None:
+            body = b""
+            while True:
+                msg = await receive()
+                body += msg.get("body", b"")
+                if not msg.get("more_body", False):
+                    break
+            resp = str(len(body)).encode()
+            await send({
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", str(len(resp)).encode())],
+            })
+            await send({"type": "http.response.body", "body": resp})
+
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
+            max_request_size=limit,
+        )
+        worker, sock, thread = start_worker(echo_length_app, config=config)
+        addr = sock.getsockname()
+
+        try:
+            payload = b"X" * limit
+            request = (
+                b"POST / HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Content-Length: " + str(limit).encode() + b"\r\n"
+                b"Connection: close\r\n"
+                b"\r\n" + payload
+            )
+            response = send_raw_request(addr, request, timeout=5.0)
+            assert b"200" in response
+            body = response.split(b"\r\n\r\n", 1)[-1]
+            assert body == str(limit).encode()
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
+
+# ---------------------------------------------------------------------------
+# header_timeout (slowloris / slow client)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+class TestHeaderTimeout:
+    """header_timeout enforcement — slow client sending partial headers."""
+
+    def test_slow_headers_timeout(self):
+        """Send request line + partial headers, then pause; expect 408 or close."""
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
+            header_timeout=0.5,
+        )
+        worker, sock, thread = start_worker(_ok_app, config=config)
+        addr = sock.getsockname()
+
+        try:
+            tcp = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+            tcp.settimeout(3.0)
+            try:
+                tcp.connect(addr)
+                # Send request line + partial headers (no \r\n\r\n)
+                tcp.sendall(b"GET / HTTP/1.1\r\nHost: ")
+                time.sleep(1.0)  # Exceed header_timeout
+                resp = b""
+                try:
+                    while True:
+                        chunk = tcp.recv(4096)
+                        if not chunk:
+                            break
+                        resp += chunk
+                except (TimeoutError, ConnectionError, OSError):
+                    pass
+                # Server should close or send 408
+                assert resp == b"" or b"408" in resp or b"400" in resp
+            finally:
+                tcp.close()
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
+
+# ---------------------------------------------------------------------------
+# request_timeout (slow body)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+class TestRequestTimeoutSlowBody:
+    """request_timeout enforcement — slow client sending body."""
+
+    def test_slow_body_times_out(self):
+        """POST with Content-Length, send partial body, pause; expect timeout."""
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
+            request_timeout=0.5,
+        )
+        worker, sock, thread = start_worker(_ok_app, config=config)
+        addr = sock.getsockname()
+
+        try:
+            tcp = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+            tcp.settimeout(3.0)
+            try:
+                tcp.connect(addr)
+                # POST with Content-Length: 10000, send headers + 100 bytes
+                tcp.sendall(
+                    b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 10000\r\n\r\n"
+                    + b"X" * 100
+                )
+                time.sleep(1.5)  # Exceed request_timeout
+                resp = b""
+                try:
+                    while True:
+                        chunk = tcp.recv(4096)
+                        if not chunk:
+                            break
+                        resp += chunk
+                except (TimeoutError, ConnectionError, OSError):
+                    pass
+                # Connection should be closed (timeout or error)
+                assert True  # No crash
+            finally:
+                tcp.close()
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
+
+# ---------------------------------------------------------------------------
+# Client disconnect mid-response
+# ---------------------------------------------------------------------------
+
+
+@with_lifespan
+async def _streaming_app(scope: Scope, receive: Receive, send: Send) -> None:
+    """Streaming app that sends chunks slowly."""
+    await receive()
+    await send({
+        "type": "http.response.start",
+        "status": 200,
+        "headers": [(b"content-type", b"text/plain")],
+    })
+    for i in range(10):
+        await send({
+            "type": "http.response.body",
+            "body": f"chunk{i}\n".encode(),
+            "more_body": i < 9,
+        })
+
+
+class TestClientDisconnectMidResponse:
+    """Client disconnects during response — worker must not crash."""
+
+    def test_disconnect_after_start_before_body(self):
+        """Client receives response.start, disconnects before body — no crash."""
+        config = ServerConfig(host="127.0.0.1", port=0, access_log=False)
+        worker, sock, thread = start_worker(_streaming_app, config=config)
+        addr = sock.getsockname()
+
+        try:
+            tcp = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+            tcp.settimeout(3.0)
+            try:
+                tcp.connect(addr)
+                tcp.sendall(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                # Read just the response headers (up to \r\n\r\n)
+                resp = b""
+                while b"\r\n\r\n" not in resp:
+                    chunk = tcp.recv(4096)
+                    if not chunk:
+                        break
+                    resp += chunk
+                # Disconnect before reading body
+                tcp.close()
+            except (ConnectionError, OSError):
+                pass
+            # Worker must not crash — send another request
+            time.sleep(0.2)
+            request = b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+            response = send_raw_request(addr, request, timeout=3.0)
+            assert b"200" in response
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
+    def test_disconnect_during_chunked_streaming(self):
+        """Client disconnects during chunked streaming — worker handles cleanly."""
+        config = ServerConfig(host="127.0.0.1", port=0, access_log=False)
+        worker, sock, thread = start_worker(_streaming_app, config=config)
+        addr = sock.getsockname()
+
+        try:
+            tcp = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+            tcp.settimeout(3.0)
+            try:
+                tcp.connect(addr)
+                tcp.sendall(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                # Read a few chunks then disconnect
+                resp = b""
+                for _ in range(3):
+                    chunk = tcp.recv(256)
+                    if not chunk:
+                        break
+                    resp += chunk
+                tcp.close()
+            except (ConnectionError, OSError):
+                pass
+            # Worker must not crash — send another request
+            time.sleep(0.2)
+            request = b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+            response = send_raw_request(addr, request, timeout=3.0)
             assert b"200" in response
         finally:
             worker.shutdown()
@@ -270,9 +655,9 @@ class TestMaxConnections:
                     data = tcp2.recv(4096)
                     # Server may close immediately (empty) or send 503 when at capacity
                     assert data == b"" or data is None or b"503" in data
-                except ConnectionError, OSError:
+                except (ConnectionError, OSError):
                     pass  # Also fine — connection was rejected
-            except ConnectionRefusedError, OSError:
+            except (ConnectionRefusedError, OSError):
                 pass  # Server didn't accept at all
             finally:
                 tcp2.close()

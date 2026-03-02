@@ -110,8 +110,23 @@ async def run_lifespan(
         # Send startup event
         await receive_queue.put({"type": "lifespan.startup"})
 
-        # Wait for startup response
-        await startup_complete.wait()
+        # Wait for startup response with timeout
+        startup_timed_out = False
+        try:
+            await asyncio.wait_for(
+                startup_complete.wait(),
+                timeout=config.startup_timeout,
+            )
+        except TimeoutError:
+            startup_timed_out = True
+            logger.warning(
+                "Lifespan startup timed out after %.1fs",
+                config.startup_timeout,
+            )
+            if not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
 
         if startup_failed:
             raise LifespanError(
@@ -120,7 +135,8 @@ async def run_lifespan(
                 else "Lifespan startup failed"
             )
 
-        logger.info("Lifespan startup complete")
+        if not startup_timed_out:
+            logger.info("Lifespan startup complete")
         yield state
 
     finally:
