@@ -9,7 +9,7 @@ from pounce.protocols.h3 import is_h3_available
 
 
 class TestHTTP3Config:
-    """HTTP/3 config and CLI tests — no aioquic required."""
+    """HTTP/3 config and CLI tests — no zoomies required."""
 
     def test_http3_config_validation(self) -> None:
         """http3_enabled requires TLS."""
@@ -36,14 +36,16 @@ class TestHTTP3Config:
 
 @pytest.mark.skipif(
     not is_h3_available(),
-    reason="aioquic not installed; pip install pounce[h3]",
+    reason="zoomies not installed; pip install pounce[h3]",
 )
 class TestHTTP3Integration:
-    """HTTP/3 integration tests — require aioquic."""
+    """HTTP/3 integration tests — require zoomies."""
 
-    def test_create_h3_protocol_factory(self) -> None:
-        """H3 protocol factory can be created when aioquic is available."""
-        from pounce._h3_handler import create_h3_protocol_factory
+    def test_create_zoomies_datagram_protocol_factory(self) -> None:
+        """Zoomies protocol factory can be created when zoomies is available."""
+        from zoomies.core import QuicConfiguration
+
+        from pounce._h3_handler import create_zoomies_datagram_protocol_factory
 
         config = ServerConfig(
             host="127.0.0.1",
@@ -51,11 +53,16 @@ class TestHTTP3Integration:
             ssl_certfile="/tmp/cert.pem",
             ssl_keyfile="/tmp/key.pem",
         )
-        factory = create_h3_protocol_factory(
+        quic_config = QuicConfiguration(
+            certificate=b"dummy-cert",
+            private_key=b"dummy-key",
+        )
+        factory = create_zoomies_datagram_protocol_factory(
             lambda s, r, sn: None,
             config,
             logging.getLogger("test"),
             ("127.0.0.1", 4433),
+            quic_config,
         )
-        assert factory.__name__ == "H3ServerProtocol"
-        # Config with fake cert paths is fine — we only create the class
+        protocol = factory()
+        assert protocol.__class__.__name__ == "ZoomiesDatagramProtocol"

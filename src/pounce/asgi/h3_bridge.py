@@ -1,5 +1,5 @@
 """
-HTTP/3 ASGI bridge — maps aioquic H3 events to ASGI scope/receive/send.
+HTTP/3 ASGI bridge — maps zoomies H3 events to ASGI scope/receive/send.
 
 Each HTTP/3 stream maps to one ASGI invocation, similar to HTTP/2.
 HTTP/3 uses QUIC (UDP) transport with TLS 1.3 built-in.
@@ -16,7 +16,7 @@ from pounce.asgi.bridge import SendState, _sanitize_headers
 from pounce.config import ServerConfig
 
 if TYPE_CHECKING:
-    from aioquic.h3.connection import H3Connection
+    from zoomies.h3 import H3Connection
 
 
 def build_h3_scope(
@@ -34,7 +34,7 @@ def build_h3_scope(
     builds the scope. HTTP/3 requires TLS, so scheme is always https.
 
     Args:
-        headers: HTTP/3 header list from aioquic HeadersReceived.
+        headers: HTTP/3 header list from zoomies H3HeadersReceived.
         config: Server configuration.
         client: Client (host, port) from QUIC connection.
         server: Server (host, port) tuple.
@@ -125,7 +125,7 @@ def create_h3_send(
 ) -> Send:
     """Create an ASGI send callable for an HTTP/3 stream.
 
-    Serializes via aioquic H3Connection. After each send, call transmit()
+    Serializes via zoomies H3Connection. After each send, call transmit()
     to flush QUIC packets to the wire.
 
     """

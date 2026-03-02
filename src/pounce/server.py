@@ -683,44 +683,44 @@ class Server:
             from pounce.protocols.h3 import is_h3_available
 
             if not is_h3_available():
-                logger.warning("aioquic not installed; HTTP/3 disabled")
+                logger.warning("zoomies not installed; HTTP/3 disabled")
                 return
         except ImportError:
             return
 
-        from aioquic.asyncio.server import QuicServer
-        from aioquic.quic.configuration import QuicConfiguration
+        from zoomies.core import QuicConfiguration
 
-        from pounce._h3_handler import create_h3_protocol_factory
+        from pounce._h3_handler import create_zoomies_datagram_protocol_factory
 
         loop = asyncio.get_running_loop()
         logger_h3 = logging.getLogger("pounce.h3_worker.0")
 
-        configuration = QuicConfiguration(
-            is_client=False,
-            alpn_protocols=["h3"],
-            max_idle_timeout=self._config.http3_idle_timeout,
-        )
-        configuration.load_cert_chain(
-            self._config.ssl_certfile or "",
-            self._config.ssl_keyfile or "",
+        cert_path = self._config.ssl_certfile or ""
+        key_path = self._config.ssl_keyfile or ""
+        with open(cert_path, "rb") as f:
+            cert_bytes = f.read()
+        with open(key_path, "rb") as f:
+            key_bytes = f.read()
+
+        quic_config = QuicConfiguration(
+            certificate=cert_bytes,
+            private_key=key_bytes,
+            idle_timeout=self._config.http3_idle_timeout,
         )
 
         server_addr = udp_sock.getsockname()
         server = (str(server_addr[0]), int(server_addr[1]))
 
-        protocol_factory = create_h3_protocol_factory(
+        protocol_factory = create_zoomies_datagram_protocol_factory(
             self._app,
             self._config,
             logger_h3,
             server,
+            quic_config,
         )
 
-        transport, quic_server = await loop.create_datagram_endpoint(
-            lambda: QuicServer(
-                configuration=configuration,
-                create_protocol=protocol_factory,
-            ),
+        transport, _protocol = await loop.create_datagram_endpoint(
+            protocol_factory,
             sock=udp_sock,
         )
 
@@ -728,7 +728,6 @@ class Server:
             if self._async_shutdown is not None:
                 await self._async_shutdown.wait()
         finally:
-            quic_server.close()
             transport.close()
 
     # ------------------------------------------------------------------

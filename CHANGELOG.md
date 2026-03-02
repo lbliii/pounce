@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Changed
 
-- (Reserved for future changes)
+- **HTTP/3 backend: aioquic → zoomies** — Replace aioquic with zoomies for HTTP/3 support. zoomies is sans-I/O, free-threading-native, and compatible with Python 3.14t. aioquic uses Limited API C extensions that do not work with free-threaded Python. `pounce[h3]` now installs `zoomies>=0.1.0` instead of `aioquic>=1.3.0`. 0-RTT is disabled until zoomies exposes it.
 
 ---
 

@@ -1,8 +1,10 @@
 # HTTP/3 Support Roadmap and Design
 
-**Status:** Research Complete — Recommendation for Phase 5c
-**Date:** February 2026
+**Status:** Implemented — zoomies backend (March 2026)
+**Date:** February 2026 (updated March 2026)
 **Author:** Phase 5b Implementation Team
+
+**Implementation note:** HTTP/3 is implemented using [zoomies](https://github.com/lbliii/zoomies), a free-threading-native sans-I/O QUIC/HTTP/3 library. aioquic was replaced because it uses Limited API C extensions incompatible with Python 3.14 free-threaded.
 
 ## Executive Summary
 

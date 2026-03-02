@@ -1,10 +1,9 @@
 """
-HTTP/3 connection handler — manages QUIC/UDP streams via aioquic.
+HTTP/3 connection handler — manages QUIC/UDP streams via zoomies.
 
-HTTP/3 uses QUIC (UDP) transport. There is no TCP accept() loop — the
-QuicConnectionProtocol receives datagrams and manages QUIC connections
-internally. Each QUIC connection has an H3Connection; each HTTP/3 stream
-maps to one ASGI invocation.
+HTTP/3 uses QUIC (UDP) transport. Zoomies is sans-I/O: pounce owns the
+UDP loop and maintains a connection map. Each QUIC connection has an
+H3Connection; each HTTP/3 stream maps to one ASGI invocation.
 
 Requires the ``h3`` optional dependency (``pip install pounce[h3]``).
 
@@ -12,6 +11,9 @@ Requires the ``h3`` optional dependency (``pip install pounce[h3]``).
 
 import asyncio
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._health import build_health_response
@@ -37,80 +39,98 @@ def _get_header_from_list(
     return None
 
 
-def _get_client_addr(quic: object) -> tuple[str, int]:
-    """Extract client (host, port) from aioquic QuicConnection.
+@dataclass
+class _ZoomiesConnection:
+    """Per-client QUIC + H3 connection state."""
 
-    Uses internal _network_paths when available; falls back to placeholder.
-    """
-    try:
-        paths = getattr(quic, "_network_paths", None)
-        if paths and len(paths) > 0:
-            addr = paths[0].addr
-            return (str(addr[0]), int(addr[1]))
-    except AttributeError, IndexError, TypeError:
-        pass
-    return ("0.0.0.0", 0)
+    quic: Any  # zoomies.core.QuicConnection
+    h3: Any  # zoomies.h3.H3Connection
+    stream_tasks: dict[int, tuple[asyncio.Task[None], asyncio.Queue[dict[str, Any]]]] = field(
+        default_factory=dict
+    )
+    stream_body_bytes: dict[int, int] = field(default_factory=dict)
 
 
-def _is_0rtt(quic: object) -> bool:
-    """Check if the current QUIC connection is in 0-RTT mode.
-
-    Returns False if we cannot determine (safe default — no replay rejection).
-    """
-    try:
-        return bool(getattr(quic, "_is_0rtt", False))
-    except AttributeError, TypeError:
-        return False
-
-
-def _create_h3_server_protocol(
+def _create_zoomies_datagram_protocol(
     app: ASGIApp,
     config: ServerConfig,
     logger: logging.Logger,
     server: tuple[str, int],
+    quic_config: Any,  # zoomies.core.configuration.QuicConfiguration
 ) -> type:
-    """Factory that returns an H3ServerProtocol class bound to app/config/logger/server."""
+    """Factory that returns a ZoomiesDatagramProtocol class bound to app/config/logger/server."""
 
-    from aioquic.asyncio import QuicConnectionProtocol
-    from aioquic.h3.connection import H3Connection
-    from aioquic.h3.events import DataReceived, HeadersReceived
-    from aioquic.quic.events import ProtocolNegotiated, QuicEvent
+    from zoomies.core import QuicConnection
+    from zoomies.events import ConnectionClosed, StreamDataReceived
+    from zoomies.h3 import H3Connection
 
-    class H3ServerProtocol(QuicConnectionProtocol):
-        """HTTP/3 server protocol using aioquic QuicConnectionProtocol."""
+    class ZoomiesDatagramProtocol(asyncio.DatagramProtocol):
+        """HTTP/3 datagram protocol using zoomies sans-I/O."""
 
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            super().__init__(*args, **kwargs)
-            self._http: H3Connection | None = None
-            self._stream_tasks: dict[int, tuple[asyncio.Task[None], asyncio.Queue[dict]]] = {}
-            self._stream_body_bytes: dict[int, int] = {}
+        def __init__(self) -> None:
             self._app = app
             self._config = config
             self._logger = logger
             self._server = server
+            self._quic_config = quic_config
+            self._connections: dict[tuple[str, int], _ZoomiesConnection] = {}
+            self._transport: asyncio.DatagramTransport | None = None
 
-        def quic_event_received(self, event: QuicEvent) -> None:
-            if isinstance(event, ProtocolNegotiated):
-                self._http = H3Connection(self._quic)
+        def connection_made(self, transport: asyncio.BaseTransport) -> None:
+            self._transport = transport
 
-            if self._http is None:
+        def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
+            if self._transport is None:
                 return
 
-            for h3_event in self._http.handle_event(event):
-                if isinstance(h3_event, HeadersReceived):
-                    self._handle_headers(h3_event)
-                elif isinstance(h3_event, DataReceived):
-                    self._handle_data(h3_event)
+            conn = self._connections.get(addr)
+            if conn is None:
+                quic = QuicConnection(self._quic_config)
+                conn = _ZoomiesConnection(
+                    quic=quic,
+                    h3=H3Connection(sender=quic),
+                )
+                self._connections[addr] = conn
 
-        def _handle_headers(self, event: HeadersReceived) -> None:
+            events = conn.quic.datagram_received(data, addr)
+
+            for event in events:
+                if isinstance(event, ConnectionClosed):
+                    self._connections.pop(addr, None)
+                    return
+                if isinstance(event, StreamDataReceived):
+                    for h3_event in conn.h3.handle_event(event):
+                        self._handle_h3_event(conn, h3_event, addr)
+
+            for dg in conn.quic.send_datagrams():
+                self._transport.sendto(dg, addr)
+
+        def _handle_h3_event(
+            self,
+            conn: _ZoomiesConnection,
+            event: Any,
+            addr: tuple[str, int],
+        ) -> None:
+            from zoomies.events import H3DataReceived, H3HeadersReceived
+
+            if isinstance(event, H3HeadersReceived):
+                self._handle_headers(conn, event, addr)
+            elif isinstance(event, H3DataReceived):
+                self._handle_data(conn, event, addr)
+
+        def _handle_headers(
+            self,
+            conn: _ZoomiesConnection,
+            event: Any,
+            addr: tuple[str, int],
+        ) -> None:
             stream_id = event.stream_id
-            if stream_id in self._stream_tasks:
+            if stream_id in conn.stream_tasks:
                 return
 
-            client = _get_client_addr(self._quic)
-            is_0rtt = _is_0rtt(self._quic)
+            client = addr
+            is_0rtt = False  # zoomies does not expose 0-RTT yet
 
-            # Build scope from headers
             scope = build_h3_scope(
                 list(event.headers),
                 self._config,
@@ -122,22 +142,21 @@ def _create_h3_server_protocol(
 
             method = scope["method"]
 
-            # 0-RTT: reject non-idempotent methods (replay risk)
             if is_0rtt and method in {"POST", "PUT", "DELETE", "PATCH"}:
-                self._http.send_headers(
+                conn.h3.send_headers(
                     stream_id=stream_id,
                     headers=[(b":status", b"425")],
                 )
-                self.transmit()
+                self._flush(conn, addr)
                 return
 
-            body_queue: asyncio.Queue[dict] = asyncio.Queue()
+            body_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
             task = asyncio.create_task(
-                self._run_stream(stream_id, scope, body_queue),
+                self._run_stream(conn, stream_id, scope, body_queue, addr),
             )
-            self._stream_tasks[stream_id] = (task, body_queue)
+            conn.stream_tasks[stream_id] = (task, body_queue)
 
-            if event.stream_ended:
+            if event.end_stream:
                 body_queue.put_nowait(
                     {
                         "type": "http.request",
@@ -146,18 +165,23 @@ def _create_h3_server_protocol(
                     }
                 )
 
-        def _handle_data(self, event: DataReceived) -> None:
+        def _handle_data(
+            self,
+            conn: _ZoomiesConnection,
+            event: Any,
+            addr: tuple[str, int],
+        ) -> None:
             stream_id = event.stream_id
-            pair = self._stream_tasks.get(stream_id)
+            pair = conn.stream_tasks.get(stream_id)
             if pair is None:
                 return
 
             _, body_queue = pair
-            self._stream_body_bytes[stream_id] = self._stream_body_bytes.get(stream_id, 0) + len(
+            conn.stream_body_bytes[stream_id] = conn.stream_body_bytes.get(stream_id, 0) + len(
                 event.data
             )
 
-            if self._stream_body_bytes[stream_id] > self._config.max_request_size:
+            if conn.stream_body_bytes[stream_id] > self._config.max_request_size:
                 self._logger.warning(
                     "H3 stream %d body exceeds max_request_size (%d bytes)",
                     stream_id,
@@ -175,15 +199,34 @@ def _create_h3_server_protocol(
                     {
                         "type": "http.request",
                         "body": event.data,
-                        "more_body": not event.stream_ended,
+                        "more_body": not event.end_stream,
                     }
                 )
 
+        def _flush(self, conn: _ZoomiesConnection, addr: tuple[str, int]) -> None:
+            """Send queued datagrams for this connection."""
+            if self._transport is None:
+                return
+            for dg in conn.quic.send_datagrams():
+                self._transport.sendto(dg, addr)
+
+        def _make_transmit(
+            self, conn: _ZoomiesConnection, addr: tuple[str, int]
+        ) -> Callable[[], None]:
+            """Create transmit callback for create_h3_send."""
+
+            def transmit() -> None:
+                self._flush(conn, addr)
+
+            return transmit
+
         async def _run_stream(
             self,
+            conn: _ZoomiesConnection,
             stream_id: int,
-            scope: dict,
-            body_queue: asyncio.Queue[dict],
+            scope: dict[str, Any],
+            body_queue: asyncio.Queue[dict[str, Any]],
+            addr: tuple[str, int],
         ) -> None:
             request_start = monotonic_ns()
             headers_tuples = tuple((n, v) for n, v in scope["headers"])
@@ -200,7 +243,6 @@ def _create_h3_server_protocol(
             )
             scope.setdefault("extensions", {})["request_id"] = request_id
 
-            # Built-in health check
             health_path = self._config.health_check_path
             if (
                 health_path is not None
@@ -211,14 +253,14 @@ def _create_h3_server_protocol(
                     worker_id=0,
                     active_connections=0,
                 )
-                self._http.send_headers(
+                conn.h3.send_headers(
                     stream_id=stream_id,
                     headers=[(b":status", str(h_status).encode()), *h_headers],
                 )
-                self._http.send_data(stream_id=stream_id, data=h_body, end_stream=True)
-                self.transmit()
-                self._stream_tasks.pop(stream_id, None)
-                self._stream_body_bytes.pop(stream_id, None)
+                conn.h3.send_data(stream_id=stream_id, data=h_body, end_stream=True)
+                self._flush(conn, addr)
+                conn.stream_tasks.pop(stream_id, None)
+                conn.stream_body_bytes.pop(stream_id, None)
                 return
 
             timing: ServerTiming | None = None
@@ -237,10 +279,11 @@ def _create_h3_server_protocol(
             receive = create_h3_receive(body_queue)
             app_start = monotonic_ns()
             send_state = SendState()
+            transmit = self._make_transmit(conn, addr)
             send = create_h3_send(
-                self._http,
+                conn.h3,
                 stream_id,
-                self.transmit,
+                transmit,
                 send_state,
                 timing=timing,
                 compressor=compressor,
@@ -258,26 +301,26 @@ def _create_h3_server_protocol(
                     scope["path"],
                 )
                 try:
-                    self._http.send_headers(
+                    conn.h3.send_headers(
                         stream_id=stream_id,
                         headers=[
                             (b":status", b"500"),
                             (b"content-type", b"text/plain"),
                         ],
                     )
-                    self._http.send_data(
+                    conn.h3.send_data(
                         stream_id=stream_id,
                         data=b"Internal Server Error",
                         end_stream=True,
                     )
-                    self.transmit()
-                except OSError, ConnectionError:
+                    self._flush(conn, addr)
+                except (OSError, ConnectionError):
                     pass
                 if send_state.status == 0:
                     send_state.status = 500
             finally:
-                self._stream_tasks.pop(stream_id, None)
-                self._stream_body_bytes.pop(stream_id, None)
+                conn.stream_tasks.pop(stream_id, None)
+                conn.stream_body_bytes.pop(stream_id, None)
 
             if timing:
                 timing.add("app", elapsed_ms(app_start))
@@ -303,21 +346,27 @@ def _create_h3_server_protocol(
                         request_id=request_id,
                     )
 
-    return H3ServerProtocol
+    return ZoomiesDatagramProtocol
 
 
-def create_h3_protocol_factory(
+def create_zoomies_datagram_protocol_factory(
     app: ASGIApp,
     config: ServerConfig,
     logger: logging.Logger,
     server: tuple[str, int],
-) -> type:
-    """Create an H3ServerProtocol factory for aioquic serve().
+    quic_config: Any,
+) -> Callable[[], asyncio.DatagramProtocol]:
+    """Create a factory for ZoomiesDatagramProtocol.
 
-    Returns a class that aioquic can use as create_protocol=.
+    Returns a no-arg callable suitable for create_datagram_endpoint().
     """
     if not is_h3_available():
-        msg = "aioquic not installed; install with pip install pounce[h3]"
+        msg = "zoomies not installed; install with pip install pounce[h3]"
         raise RuntimeError(msg)
 
-    return _create_h3_server_protocol(app, config, logger, server)
+    protocol_cls = _create_zoomies_datagram_protocol(app, config, logger, server, quic_config)
+
+    def factory() -> asyncio.DatagramProtocol:
+        return protocol_cls()
+
+    return factory

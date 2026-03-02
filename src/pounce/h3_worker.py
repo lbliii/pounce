@@ -23,8 +23,8 @@ class H3Worker:
     """Single-threaded async worker that serves HTTP/3 over QUIC/UDP.
 
     Uses create_datagram_endpoint with a pre-bound UDP socket.
-    aioquic's QuicServer dispatches datagrams to per-connection
-    H3ServerProtocol instances.
+    Zoomies provides sans-I/O QUIC; pounce owns the UDP loop and
+    connection state.
 
     Args:
         config: Server configuration.
@@ -75,49 +75,48 @@ class H3Worker:
     async def _serve(self) -> None:
         """Run the QUIC datagram endpoint until shutdown."""
         if not is_h3_available():
-            self._logger.error("aioquic not installed; HTTP/3 disabled")
+            self._logger.error("zoomies not installed; HTTP/3 disabled")
             return
 
-        from aioquic.asyncio.server import QuicServer
-        from aioquic.quic.configuration import QuicConfiguration
+        from zoomies.core import QuicConfiguration
 
-        from pounce._h3_handler import create_h3_protocol_factory
+        from pounce._h3_handler import create_zoomies_datagram_protocol_factory
 
         self._loop = asyncio.get_running_loop()
         self._async_shutdown = asyncio.Event()
 
-        # Bridge external shutdown event
         bridge_task: asyncio.Task[None] | None = None
         if self._ext_shutdown is not None:
             bridge_task = asyncio.create_task(
                 self._bridge_shutdown(self._ext_shutdown),
             )
 
-        configuration = QuicConfiguration(
-            is_client=False,
-            alpn_protocols=["h3"],
-            max_idle_timeout=self._config.http3_idle_timeout,
-        )
-        configuration.load_cert_chain(
-            self._config.ssl_certfile or "",
-            self._config.ssl_keyfile or "",
+        cert_path = self._config.ssl_certfile or ""
+        key_path = self._config.ssl_keyfile or ""
+        with open(cert_path, "rb") as f:
+            cert_bytes = f.read()
+        with open(key_path, "rb") as f:
+            key_bytes = f.read()
+
+        quic_config = QuicConfiguration(
+            certificate=cert_bytes,
+            private_key=key_bytes,
+            idle_timeout=self._config.http3_idle_timeout,
         )
 
         server_addr = self._sock.getsockname()
         server = (str(server_addr[0]), int(server_addr[1]))
 
-        protocol_factory = create_h3_protocol_factory(
+        protocol_factory = create_zoomies_datagram_protocol_factory(
             self._app,
             self._config,
             self._logger,
             server,
+            quic_config,
         )
 
-        transport, quic_server = await self._loop.create_datagram_endpoint(
-            lambda: QuicServer(
-                configuration=configuration,
-                create_protocol=protocol_factory,
-            ),
+        transport, _protocol = await self._loop.create_datagram_endpoint(
+            protocol_factory,
             sock=self._sock,
         )
 
@@ -133,7 +132,6 @@ class H3Worker:
         finally:
             if bridge_task is not None:
                 bridge_task.cancel()
-            quic_server.close()
             transport.close()
             self._logger.info("H3 worker %d stopped", self._worker_id)
 
