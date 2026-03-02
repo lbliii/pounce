@@ -26,7 +26,7 @@ from pounce.protocols.h3 import is_h3_available
 
 
 def _get_header_from_list(
-    headers: list[tuple[bytes, bytes]],
+    headers: list[tuple[bytes, bytes]] | tuple[tuple[bytes, bytes], ...],
     name: bytes,
 ) -> bytes | None:
     """Get a header value by lowercase name from a headers list."""
@@ -47,7 +47,7 @@ def _get_client_addr(quic: object) -> tuple[str, int]:
         if paths and len(paths) > 0:
             addr = paths[0].addr
             return (str(addr[0]), int(addr[1]))
-    except (AttributeError, IndexError, TypeError):
+    except AttributeError, IndexError, TypeError:
         pass
     return ("0.0.0.0", 0)
 
@@ -59,7 +59,7 @@ def _is_0rtt(quic: object) -> bool:
     """
     try:
         return bool(getattr(quic, "_is_0rtt", False))
-    except (AttributeError, TypeError):
+    except AttributeError, TypeError:
         return False
 
 
@@ -186,7 +186,7 @@ def _create_h3_server_protocol(
             body_queue: asyncio.Queue[dict],
         ) -> None:
             request_start = monotonic_ns()
-            headers_tuples = [(n, v) for n, v in scope["headers"]]
+            headers_tuples = tuple((n, v) for n, v in scope["headers"])
             is_trusted = bool(
                 self._config.trusted_hosts
                 and (
@@ -271,7 +271,7 @@ def _create_h3_server_protocol(
                         end_stream=True,
                     )
                     self.transmit()
-                except (OSError, ConnectionError):
+                except OSError, ConnectionError:
                     pass
                 if send_state.status == 0:
                     send_state.status = 500

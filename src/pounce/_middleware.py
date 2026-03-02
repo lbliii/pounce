@@ -21,7 +21,7 @@ Example:
 """
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from pounce._types import Receive, Send
@@ -39,7 +39,7 @@ class Response:
     """
 
     status: int
-    headers: list[tuple[bytes, bytes]] = ()
+    headers: list[tuple[bytes, bytes]] = field(default_factory=list)
     body: bytes = b""
 
 

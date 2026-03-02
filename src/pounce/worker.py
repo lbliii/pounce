@@ -286,7 +286,7 @@ class Worker:
             try:
                 server.close()
                 await server.wait_closed()
-            except (ValueError, OSError):
+            except ValueError, OSError:
                 pass  # fd already closed by another worker sharing the socket
 
             # Per-worker shutdown hook — runs on this worker's event loop
@@ -370,7 +370,7 @@ class Worker:
                 await writer.drain()
                 writer.close()
                 await writer.wait_closed()
-            except (OSError, ConnectionError):
+            except OSError, ConnectionError:
                 pass
             return
 
@@ -391,7 +391,7 @@ class Worker:
                 await writer.drain()
                 writer.close()
                 await writer.wait_closed()
-            except (OSError, ConnectionError):
+            except OSError, ConnectionError:
                 pass
             return
 
@@ -469,7 +469,7 @@ class Worker:
                     try:
                         writer.close()
                         await writer.wait_closed()
-                    except (OSError, ConnectionError):
+                    except OSError, ConnectionError:
                         pass
                 return
 
@@ -565,7 +565,7 @@ class Worker:
                 except TimeoutError:
                     close_reason = "timeout"
                     break  # Timeout — close connection
-                except (ConnectionError, OSError):
+                except ConnectionError, OSError:
                     close_reason = "client_disconnect"
                     break
 
@@ -595,7 +595,7 @@ class Worker:
                 # Check if we can do another cycle (keep-alive)
                 try:
                     proto.start_new_cycle()
-                except (h11.LocalProtocolError, RuntimeError):
+                except h11.LocalProtocolError, RuntimeError:
                     break  # Connection can't be reused
 
                 # Next read is the start of a new request — use header_timeout
@@ -629,7 +629,7 @@ class Worker:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except (OSError, ConnectionError):
+            except OSError, ConnectionError:
                 pass
 
     # ------------------------------------------------------------------
@@ -911,10 +911,13 @@ class Worker:
                 with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
                     if self._config.debug:
                         # Send rich debug error page in development
+                        exc_info = sys.exc_info()
                         await self._send_debug_error(
                             writer,
                             proto,
-                            sys.exc_info(),
+                            (exc_info[0], exc_info[1], exc_info[2])
+                            if exc_info[0] is not None and exc_info[1] is not None
+                            else (Exception, Exception("Unknown error"), exc_info[2]),
                             request_method=scope.get("method", "GET"),
                             request_path=scope.get("path", "/"),
                             request_headers=scope.get("headers"),
@@ -1016,7 +1019,7 @@ class Worker:
                     except TimeoutError:
                         await body_queue.put(BodyReceived(data=b"", more=False))
                         return
-                    except (ConnectionError, OSError):
+                    except ConnectionError, OSError:
                         await body_queue.put(BodyReceived(data=b"", more=False))
                         return
 
@@ -1061,10 +1064,13 @@ class Worker:
                 with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
                     if self._config.debug:
                         # Send rich debug error page in development
+                        exc_info = sys.exc_info()
                         await self._send_debug_error(
                             writer,
                             proto,
-                            sys.exc_info(),
+                            (exc_info[0], exc_info[1], exc_info[2])
+                            if exc_info[0] is not None and exc_info[1] is not None
+                            else (Exception, Exception("Unknown error"), exc_info[2]),
                             request_method=scope.get("method", "GET"),
                             request_path=scope.get("path", "/"),
                             request_headers=scope.get("headers"),
@@ -1136,7 +1142,7 @@ class Worker:
                 if not data:
                     # Client disconnected — EOF
                     break
-        except (ConnectionError, OSError):
+        except ConnectionError, OSError:
             pass
         finally:
             disconnect.set()

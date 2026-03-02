@@ -19,8 +19,9 @@ Security:
 """
 
 import html
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 # Try to import Rosettes for syntax highlighting
 try:
@@ -131,7 +132,7 @@ def _get_source_context(filename: str, lineno: int, context: int = 5) -> list[tu
     try:
         with Path(filename).open(encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return []
 
     start = max(0, lineno - context - 1)
@@ -350,7 +351,7 @@ def _render_frame(frame_info: dict[str, Any]) -> str:
         # Syntax highlight if Rosettes available
         if _HAS_ROSETTES and line_text.strip():
             try:
-                highlighted = highlight_python(line_text, inline=True)
+                highlighted = cast(Callable[..., str], highlight_python)(line_text, inline=True)
             except Exception:
                 highlighted = html.escape(line_text)
         else:

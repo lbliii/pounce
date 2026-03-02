@@ -29,7 +29,7 @@ class TestResponse:
         response = Response(status=404)
 
         assert response.status == 404
-        assert response.headers == ()
+        assert response.headers == []
         assert response.body == b""
 
 
