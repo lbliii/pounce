@@ -42,14 +42,14 @@ def build_h3_scope(
         is_0rtt: True if request arrived via 0-RTT (replay risk).
 
     """
-    from pounce._proxy import apply_proxy_headers
     from urllib.parse import unquote
+
+    from pounce._proxy import apply_proxy_headers
 
     method = "GET"
     path = "/"
     scheme = "https"  # QUIC mandates TLS
-    authority = "localhost"
-    header_list: list[list[bytes]] = []
+    header_list: list[tuple[bytes, bytes]] = []
 
     for name, value in headers:
         name_lower = name.lower()
@@ -60,7 +60,7 @@ def build_h3_scope(
         elif name_lower == b":scheme":
             scheme = value.decode("ascii")
         elif name_lower == b":authority":
-            authority = value.decode("ascii")
+            value.decode("ascii")
         else:
             header_list.append((name_lower, value))
 
@@ -113,7 +113,7 @@ def create_h3_receive(
 
 
 def create_h3_send(
-    h3_conn: "H3Connection",
+    h3_conn: H3Connection,
     stream_id: int,
     transmit: Any,
     state: SendState,
@@ -148,7 +148,7 @@ def create_h3_send(
             if status == 103:
                 h3_conn.send_headers(
                     stream_id=stream_id,
-                    headers=[(b":status", str(status).encode())] + headers,
+                    headers=[(b":status", str(status).encode()), *headers],
                 )
                 transmit()
                 return
@@ -160,9 +160,7 @@ def create_h3_send(
             if request_id is not None:
                 headers.append((b"x-request-id", request_id.encode("latin-1")))
 
-            if compressor is not None and (
-                100 <= status <= 199 or status in {204, 304}
-            ):
+            if compressor is not None and (100 <= status <= 199 or status in {204, 304}):
                 compressor = None
             if compressor is not None and request_method == "HEAD":
                 compressor = None
@@ -183,7 +181,7 @@ def create_h3_send(
 
             h3_conn.send_headers(
                 stream_id=stream_id,
-                headers=[(b":status", str(status).encode())] + headers,
+                headers=[(b":status", str(status).encode()), *headers],
             )
             transmit()
 

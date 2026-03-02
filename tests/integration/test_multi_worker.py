@@ -208,7 +208,8 @@ class TestSIGHUPRollingRestart:
             # Send requests before reload
             r1 = _send_request(addr)
             r2 = _send_request(addr)
-            assert b"200" in r1 and b"200" in r2
+            assert b"200" in r1
+            assert b"200" in r2
 
             # Trigger rolling restart (simulates SIGHUP)
             sup.graceful_reload()

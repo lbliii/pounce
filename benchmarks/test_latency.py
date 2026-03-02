@@ -2,7 +2,6 @@
 
 import socket
 import threading
-import time
 
 import pytest
 
@@ -49,7 +48,7 @@ def _send_raw(addr: tuple[str, int], request: bytes, timeout: float = 5.0) -> by
 
 
 @pytest.fixture(scope="module")
-def _worker_addr():
+def worker_addr():
     """Start worker once for the module."""
     config = ServerConfig(host="127.0.0.1", port=0, access_log=False, compression=False)
     sock = create_listener(config)
@@ -66,9 +65,9 @@ def _worker_addr():
 
 @pytest.mark.benchmark
 @pytest.mark.timeout(30)
-def test_latency_simple_get(benchmark, _worker_addr) -> None:
+def test_latency_simple_get(benchmark, worker_addr: tuple[str, int]) -> None:
     """Measure latency of simple GET requests (p50/p95/p99)."""
-    addr = _worker_addr
+    addr = worker_addr
 
     def _run():
         return _send_raw(addr, _REQUEST)
@@ -79,14 +78,14 @@ def test_latency_simple_get(benchmark, _worker_addr) -> None:
 
 @pytest.mark.benchmark
 @pytest.mark.timeout(30)
-def test_latency_throughput(benchmark, _worker_addr) -> None:
+def test_latency_throughput(benchmark, worker_addr: tuple[str, int]) -> None:
     """Measure requests per second over 1000 sequential requests."""
-    addr = _worker_addr
+    addr = worker_addr
 
     def _run():
         for _ in range(100):
             _send_raw(addr, _REQUEST)
 
     benchmark.pedantic(_run, rounds=10, iterations=1, warmup_rounds=2)
-    # 100 requests × 10 rounds = 1000 requests total
+    # 100 requests x 10 rounds = 1000 requests total
     # benchmark.stats reports mean/stdev of round time

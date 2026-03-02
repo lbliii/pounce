@@ -27,12 +27,14 @@ def build_health_response(
 
     """
     uptime_s = (time.monotonic_ns() - _SERVER_START_NS) / 1_000_000_000
-    payload = json.dumps({
-        "status": "ok",
-        "uptime_seconds": round(uptime_s, 1),
-        "worker_id": worker_id,
-        "active_connections": active_connections,
-    }).encode("utf-8")
+    payload = json.dumps(
+        {
+            "status": "ok",
+            "uptime_seconds": round(uptime_s, 1),
+            "worker_id": worker_id,
+            "active_connections": active_connections,
+        }
+    ).encode("utf-8")
 
     headers: list[tuple[bytes, bytes]] = [
         (b"content-type", b"application/json"),

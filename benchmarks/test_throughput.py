@@ -62,7 +62,7 @@ def _run_requests(addr: tuple[str, int], count: int) -> int:
 
 
 @pytest.fixture(scope="module")
-def _worker_addr():
+def worker_addr():
     """Start worker once for the module."""
     config = ServerConfig(host="127.0.0.1", port=0, access_log=False, compression=False)
     sock = create_listener(config)
@@ -79,9 +79,9 @@ def _worker_addr():
 
 @pytest.mark.benchmark
 @pytest.mark.timeout(60)
-def test_throughput_burst(benchmark, _worker_addr) -> None:
-    """Measure requests/sec with 50 concurrent connections × 20 requests each."""
-    addr = _worker_addr
+def test_throughput_burst(benchmark, worker_addr: tuple[str, int]) -> None:
+    """Measure requests/sec with 50 concurrent connections x 20 requests each."""
+    addr = worker_addr
     num_connections = 50
     requests_per_conn = 20
 
@@ -89,8 +89,7 @@ def test_throughput_burst(benchmark, _worker_addr) -> None:
         total_ok = 0
         with ThreadPoolExecutor(max_workers=num_connections) as ex:
             futures = [
-                ex.submit(_run_requests, addr, requests_per_conn)
-                for _ in range(num_connections)
+                ex.submit(_run_requests, addr, requests_per_conn) for _ in range(num_connections)
             ]
             for f in as_completed(futures, timeout=30):
                 total_ok += f.result()

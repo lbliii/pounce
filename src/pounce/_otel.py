@@ -27,6 +27,7 @@ Security:
 """
 
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 logger = logging.getLogger("pounce.otel")
@@ -35,7 +36,6 @@ logger = logging.getLogger("pounce.otel")
 try:
     from opentelemetry import trace
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-    from opentelemetry.propagate import extract, inject
     from opentelemetry.sdk.resources import SERVICE_NAME, Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -100,7 +100,7 @@ def configure_otel(
     )
 
 
-def extract_trace_context(headers: list[tuple[bytes, bytes]]) -> Any:
+def extract_trace_context(headers: Sequence[tuple[bytes, bytes]]) -> Any:
     """Extract trace context from HTTP headers.
 
     Parses W3C Trace Context headers (traceparent, tracestate) from the
@@ -164,7 +164,7 @@ class RequestSpanManager:
 
     """
 
-    __slots__ = ("_tracer", "_enabled")
+    __slots__ = ("_enabled", "_tracer")
 
     def __init__(self, *, service_name: str = "pounce", enabled: bool = True) -> None:
         """Initialize the span manager.
@@ -186,7 +186,7 @@ class RequestSpanManager:
         *,
         method: str,
         path: str,
-        headers: list[tuple[bytes, bytes]],
+        headers: Sequence[tuple[bytes, bytes]],
         scheme: str = "http",
         server_host: str = "localhost",
         server_port: int = 8000,
@@ -205,7 +205,7 @@ class RequestSpanManager:
             Span context manager (use with `with` statement).
 
         """
-        if not self._enabled:
+        if not self._enabled or self._tracer is None:
             return _NoOpSpan()
 
         # Extract parent context from headers

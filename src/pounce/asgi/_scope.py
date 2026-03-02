@@ -49,9 +49,7 @@ def build_base_scope(
 
     path = unquote(path)
     # ASGI spec: header names must be lowercased
-    headers: list[list[bytes]] = [
-        [name.lower(), value] for name, value in request.headers
-    ]
+    headers: list[list[bytes]] = [[name.lower(), value] for name, value in request.headers]
 
     scope: dict[str, Any] = {
         "type": scope_type,

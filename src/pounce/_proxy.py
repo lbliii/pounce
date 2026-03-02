@@ -93,8 +93,8 @@ def _strip_forwarded_headers(scope: dict[str, Any]) -> None:
 
     """
     headers: list[list[bytes]] = scope.get("headers", [])
-    _FORWARDED_PREFIXES = (b"x-forwarded-",)
+    _forwarded_prefixes = (b"x-forwarded-",)
 
     scope["headers"] = [
-        pair for pair in headers if not pair[0].lower().startswith(_FORWARDED_PREFIXES)
+        pair for pair in headers if not pair[0].lower().startswith(_forwarded_prefixes)
     ]

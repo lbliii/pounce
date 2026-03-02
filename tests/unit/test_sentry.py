@@ -33,9 +33,11 @@ class TestSentryAvailability:
 
     def test_is_sentry_available_when_not_installed(self):
         """Test that is_sentry_available returns False when not installed."""
-        with patch.dict("sys.modules", {"sentry_sdk": None}):
-            with patch("builtins.__import__", side_effect=ImportError):
-                assert is_sentry_available() is False
+        with (
+            patch.dict("sys.modules", {"sentry_sdk": None}),
+            patch("builtins.__import__", side_effect=ImportError),
+        ):
+            assert is_sentry_available() is False
 
 
 class TestSentryConfiguration:
@@ -81,18 +83,18 @@ class TestSentryConfiguration:
 
     def test_traces_sample_rate_validation(self):
         """Test that traces_sample_rate must be 0.0-1.0."""
-        with pytest.raises(ValueError, match="sentry_traces_sample_rate must be 0.0-1.0"):
+        with pytest.raises(ValueError, match=r"sentry_traces_sample_rate must be 0\.0-1\.0"):
             ServerConfig(sentry_traces_sample_rate=1.5)
 
-        with pytest.raises(ValueError, match="sentry_traces_sample_rate must be 0.0-1.0"):
+        with pytest.raises(ValueError, match=r"sentry_traces_sample_rate must be 0\.0-1\.0"):
             ServerConfig(sentry_traces_sample_rate=-0.1)
 
     def test_profiles_sample_rate_validation(self):
         """Test that profiles_sample_rate must be 0.0-1.0."""
-        with pytest.raises(ValueError, match="sentry_profiles_sample_rate must be 0.0-1.0"):
+        with pytest.raises(ValueError, match=r"sentry_profiles_sample_rate must be 0\.0-1\.0"):
             ServerConfig(sentry_profiles_sample_rate=2.0)
 
-        with pytest.raises(ValueError, match="sentry_profiles_sample_rate must be 0.0-1.0"):
+        with pytest.raises(ValueError, match=r"sentry_profiles_sample_rate must be 0\.0-1\.0"):
             ServerConfig(sentry_profiles_sample_rate=-0.5)
 
 
@@ -101,9 +103,11 @@ class TestSentryInit:
 
     def test_init_sentry_raises_when_not_installed(self):
         """Test that init_sentry raises ImportError when SDK not installed."""
-        with patch("pounce._sentry.is_sentry_available", return_value=False):
-            with pytest.raises(ImportError, match="sentry-sdk not installed"):
-                init_sentry(dsn="https://example@o0.ingest.sentry.io/0")
+        with (
+            patch("pounce._sentry.is_sentry_available", return_value=False),
+            pytest.raises(ImportError, match=r"sentry-sdk not installed"),
+        ):
+            init_sentry(dsn="https://example@o0.ingest.sentry.io/0")
 
     @patch("pounce._sentry.is_sentry_available", return_value=True)
     def test_init_sentry_calls_sdk_init(self, mock_available):
@@ -166,7 +170,7 @@ class TestSentryWrapper:
                 "sentry_sdk.integrations.asgi": MagicMock(SentryAsgiMiddleware=mock_middleware),
             },
         ):
-            wrapped = create_sentry_wrapper(mock_app)
+            create_sentry_wrapper(mock_app)
 
             # Verify SentryAsgiMiddleware was instantiated with app
             mock_middleware.assert_called_once_with(mock_app)

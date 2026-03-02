@@ -347,9 +347,7 @@ def create_send(
             # contain a message body.  Disable compression so the compressor's
             # flush() doesn't produce gzip/zstd trailer bytes that h11 would
             # reject as "Too much data for declared Content-Length".
-            if compressor is not None and (
-                100 <= status <= 199 or status in {204, 304}
-            ):
+            if compressor is not None and (100 <= status <= 199 or status in {204, 304}):
                 compressor = None
 
             # HEAD responses: the app may produce body bytes (for Content-Length

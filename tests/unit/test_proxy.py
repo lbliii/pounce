@@ -1,7 +1,5 @@
 """Tests for pounce._proxy — proxy header validation and rewriting."""
 
-import pytest
-
 from pounce._proxy import apply_proxy_headers
 
 
@@ -26,12 +24,14 @@ class TestApplyProxyHeaders:
 
     def test_no_trusted_hosts_strips_forwarded(self):
         """When trusted_hosts is empty, X-Forwarded-* headers are stripped."""
-        scope = _scope(headers=[
-            [b"host", b"example.com"],
-            [b"x-forwarded-for", b"1.2.3.4"],
-            [b"x-forwarded-proto", b"https"],
-            [b"x-forwarded-host", b"public.example.com"],
-        ])
+        scope = _scope(
+            headers=[
+                [b"host", b"example.com"],
+                [b"x-forwarded-for", b"1.2.3.4"],
+                [b"x-forwarded-proto", b"https"],
+                [b"x-forwarded-host", b"public.example.com"],
+            ]
+        )
         result = apply_proxy_headers(scope, trusted_hosts=())
 
         header_names = [h[0] for h in result["headers"]]
@@ -129,9 +129,7 @@ class TestApplyProxyHeaders:
             client=("10.0.0.2", 5000),
             headers=[[b"x-forwarded-for", b"1.2.3.4"]],
         )
-        result = apply_proxy_headers(
-            scope, trusted_hosts=("10.0.0.1", "10.0.0.2", "10.0.0.3")
-        )
+        result = apply_proxy_headers(scope, trusted_hosts=("10.0.0.1", "10.0.0.2", "10.0.0.3"))
 
         assert result["client"] == ("1.2.3.4", 5000)
 

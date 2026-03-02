@@ -138,11 +138,13 @@ def _create_h3_server_protocol(
             self._stream_tasks[stream_id] = (task, body_queue)
 
             if event.stream_ended:
-                body_queue.put_nowait({
-                    "type": "http.request",
-                    "body": b"",
-                    "more_body": False,
-                })
+                body_queue.put_nowait(
+                    {
+                        "type": "http.request",
+                        "body": b"",
+                        "more_body": False,
+                    }
+                )
 
         def _handle_data(self, event: DataReceived) -> None:
             stream_id = event.stream_id
@@ -151,8 +153,8 @@ def _create_h3_server_protocol(
                 return
 
             _, body_queue = pair
-            self._stream_body_bytes[stream_id] = (
-                self._stream_body_bytes.get(stream_id, 0) + len(event.data)
+            self._stream_body_bytes[stream_id] = self._stream_body_bytes.get(stream_id, 0) + len(
+                event.data
             )
 
             if self._stream_body_bytes[stream_id] > self._config.max_request_size:
@@ -161,17 +163,21 @@ def _create_h3_server_protocol(
                     stream_id,
                     self._config.max_request_size,
                 )
-                body_queue.put_nowait({
-                    "type": "http.request",
-                    "body": b"",
-                    "more_body": False,
-                })
+                body_queue.put_nowait(
+                    {
+                        "type": "http.request",
+                        "body": b"",
+                        "more_body": False,
+                    }
+                )
             else:
-                body_queue.put_nowait({
-                    "type": "http.request",
-                    "body": event.data,
-                    "more_body": not event.stream_ended,
-                })
+                body_queue.put_nowait(
+                    {
+                        "type": "http.request",
+                        "body": event.data,
+                        "more_body": not event.stream_ended,
+                    }
+                )
 
         async def _run_stream(
             self,
@@ -207,7 +213,7 @@ def _create_h3_server_protocol(
                 )
                 self._http.send_headers(
                     stream_id=stream_id,
-                    headers=[(b":status", str(h_status).encode())] + h_headers,
+                    headers=[(b":status", str(h_status).encode()), *h_headers],
                 )
                 self._http.send_data(stream_id=stream_id, data=h_body, end_stream=True)
                 self.transmit()

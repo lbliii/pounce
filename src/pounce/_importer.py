@@ -13,6 +13,7 @@ are picked up without a full process restart.
 
 """
 
+import contextlib
 import importlib
 import logging
 import os
@@ -179,10 +180,8 @@ def _clear_local_modules(base_dirs: list[str] | None = None) -> list[str]:
         mod = sys.modules[name]
         cached = getattr(mod, "__cached__", None)
         if cached:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(cached)
-            except OSError:
-                pass
         del sys.modules[name]
 
     # Tell the import machinery to re-check the filesystem.

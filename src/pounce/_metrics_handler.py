@@ -7,7 +7,6 @@ at a configurable path (default: /metrics).
 """
 
 from collections.abc import Callable
-from typing import Any
 
 from pounce.metrics import PrometheusCollector
 
@@ -38,15 +37,19 @@ def create_metrics_app(
         """ASGI app that returns metrics in Prometheus text format."""
         if scope["type"] != "http":
             # Not an HTTP request, ignore
-            await send({
-                "type": "http.response.start",
-                "status": 404,
-                "headers": [(b"content-type", b"text/plain")],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"Not Found",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 404,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"Not Found",
+                }
+            )
             return
 
         path = scope.get("path", "/")
@@ -57,29 +60,37 @@ def create_metrics_app(
             metrics_text = collector.export()
             metrics_bytes = metrics_text.encode("utf-8")
 
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [
-                    (b"content-type", b"text/plain; version=0.0.4; charset=utf-8"),
-                    (b"content-length", str(len(metrics_bytes)).encode("ascii")),
-                ],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": metrics_bytes,
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"text/plain; version=0.0.4; charset=utf-8"),
+                        (b"content-length", str(len(metrics_bytes)).encode("ascii")),
+                    ],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": metrics_bytes,
+                }
+            )
         else:
             # Not a metrics request, return 404
-            await send({
-                "type": "http.response.start",
-                "status": 404,
-                "headers": [(b"content-type", b"text/plain")],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"Not Found",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 404,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"Not Found",
+                }
+            )
 
     return metrics_handler
 
@@ -116,18 +127,22 @@ def wrap_app_with_metrics(
             metrics_text = collector.export()
             metrics_bytes = metrics_text.encode("utf-8")
 
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [
-                    (b"content-type", b"text/plain; version=0.0.4; charset=utf-8"),
-                    (b"content-length", str(len(metrics_bytes)).encode("ascii")),
-                ],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": metrics_bytes,
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"text/plain; version=0.0.4; charset=utf-8"),
+                        (b"content-length", str(len(metrics_bytes)).encode("ascii")),
+                    ],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": metrics_bytes,
+                }
+            )
         else:
             # Pass to original app
             await app(scope, receive, send)

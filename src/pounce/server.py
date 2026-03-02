@@ -138,8 +138,8 @@ class Server:
 
         # Configure Prometheus metrics if enabled
         if self._config.metrics_enabled and self._lifecycle_collector is None:
-            from pounce.metrics import PrometheusCollector
             from pounce._metrics_handler import wrap_app_with_metrics
+            from pounce.metrics import PrometheusCollector
 
             self._lifecycle_collector = PrometheusCollector()
             # Wrap app to intercept /metrics requests
@@ -174,7 +174,9 @@ class Server:
             self._app = create_queue_wrapper(self._app, request_queue, queue_metrics)
             logger.info(
                 "Request queueing enabled: max depth %d",
-                self._config.request_queue_max_depth if self._config.request_queue_max_depth > 0 else -1,
+                self._config.request_queue_max_depth
+                if self._config.request_queue_max_depth > 0
+                else -1,
             )
 
         # Configure Sentry error tracking if enabled
@@ -379,9 +381,7 @@ class Server:
 
                             self._app = reimport_app(self._app_path)
                         except Exception:
-                            logger.exception(
-                                "Reload failed — serving previous version"
-                            )
+                            logger.exception("Reload failed — serving previous version")
                     continue
                 break
         finally:
@@ -725,7 +725,8 @@ class Server:
         )
 
         try:
-            await self._async_shutdown.wait()
+            if self._async_shutdown is not None:
+                await self._async_shutdown.wait()
         finally:
             quic_server.close()
             transport.close()

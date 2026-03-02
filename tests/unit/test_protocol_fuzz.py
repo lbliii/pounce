@@ -6,12 +6,10 @@ Fuzzes receive_data, build_scope, and path encoding with random inputs.
 import hypothesis.strategies as st
 from hypothesis import given
 
-from pounce._errors import ParseError
 from pounce.asgi.bridge import build_scope
 from pounce.config import ServerConfig
-from pounce.protocols._base import BodyReceived, RequestReceived
+from pounce.protocols._base import RequestReceived
 from pounce.protocols.h1 import H1Protocol
-
 
 # ---------------------------------------------------------------------------
 # Strategies
@@ -46,7 +44,7 @@ def _build_valid_request(
     """Build valid HTTP/1.1 request bytes."""
     has_host = any(h[0].lower() == b"host" for h in headers)
     if not has_host:
-        headers = [(b"Host", b"localhost")] + list(headers)
+        headers = [(b"Host", b"localhost"), *list(headers)]
     # Ensure path starts with /
     target = path if path.startswith(b"/") else b"/" + path
     lines = [method + b" " + target + b" HTTP/1.1"]
@@ -101,7 +99,7 @@ class TestBuildScopeFuzz:
         """build_scope produces valid scope dict from random headers."""
         has_host = any(h[0].lower() == b"host" for h in headers)
         if not has_host:
-            headers = [(b"Host", b"localhost")] + list(headers)
+            headers = [(b"Host", b"localhost"), *list(headers)]
         request = RequestReceived(
             method=method,
             target=target,

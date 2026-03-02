@@ -108,7 +108,6 @@ def create_sentry_wrapper(app: Callable) -> Callable:
         logger.warning("Sentry SDK not available, error tracking disabled")
         return app
 
-    import sentry_sdk
     from sentry_sdk.integrations.asgi import SentryAsgiMiddleware
 
     # Use Sentry's built-in ASGI middleware

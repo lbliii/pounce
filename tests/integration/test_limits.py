@@ -159,8 +159,7 @@ class TestRequestTimeout:
                 tcp.connect(addr)
                 # Send headers + 50 bytes (declared 100), then close
                 tcp.sendall(
-                    b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\n"
-                    + b"x" * 50
+                    b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\n" + b"x" * 50
                 )
                 tcp.close()
             except (ConnectionError, OSError):
@@ -278,11 +277,13 @@ class TestMaxRequestSize:
                 if not msg.get("more_body", False):
                     break
             resp = str(len(body)).encode()
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-length", str(len(resp)).encode())],
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-length", str(len(resp)).encode())],
+                }
+            )
             await send({"type": "http.response.body", "body": resp})
 
         config = ServerConfig(
@@ -317,7 +318,6 @@ class TestMaxRequestSize:
     def test_chunked_body_exceeding_limit_truncated(self):
         """Chunked body exceeding max_request_size is truncated."""
         limit = 1024
-        oversized = 2048
 
         @with_lifespan
         async def echo_length_app(scope: Scope, receive: Receive, send: Send) -> None:
@@ -328,11 +328,13 @@ class TestMaxRequestSize:
                 if not msg.get("more_body", False):
                     break
             resp = str(len(body)).encode()
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-length", str(len(resp)).encode())],
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-length", str(len(resp)).encode())],
+                }
+            )
             await send({"type": "http.response.body", "body": resp})
 
         config = ServerConfig(
@@ -348,11 +350,7 @@ class TestMaxRequestSize:
             # Chunked: 1KB + 1KB chunks
             chunk1 = b"X" * 1024
             chunk2 = b"Y" * 1024
-            chunked_body = (
-                b"400\r\n" + chunk1 + b"\r\n"
-                b"400\r\n" + chunk2 + b"\r\n"
-                b"0\r\n\r\n"
-            )
+            chunked_body = b"400\r\n" + chunk1 + b"\r\n400\r\n" + chunk2 + b"\r\n0\r\n\r\n"
             request = (
                 b"POST / HTTP/1.1\r\n"
                 b"Host: localhost\r\n"
@@ -383,11 +381,13 @@ class TestMaxRequestSize:
                 if not msg.get("more_body", False):
                     break
             resp = str(len(body)).encode()
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-length", str(len(resp)).encode())],
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-length", str(len(resp)).encode())],
+                }
+            )
             await send({"type": "http.response.body", "body": resp})
 
         config = ServerConfig(
@@ -524,17 +524,21 @@ class TestRequestTimeoutSlowBody:
 async def _streaming_app(scope: Scope, receive: Receive, send: Send) -> None:
     """Streaming app that sends chunks slowly."""
     await receive()
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [(b"content-type", b"text/plain")],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", b"text/plain")],
+        }
+    )
     for i in range(10):
-        await send({
-            "type": "http.response.body",
-            "body": f"chunk{i}\n".encode(),
-            "more_body": i < 9,
-        })
+        await send(
+            {
+                "type": "http.response.body",
+                "body": f"chunk{i}\n".encode(),
+                "more_body": i < 9,
+            }
+        )
 
 
 class TestClientDisconnectMidResponse:

@@ -22,7 +22,7 @@ class RequestQueue:
 
     """
 
-    __slots__ = ("_max_depth", "_semaphore", "_queue_depth", "_queue_depth_lock")
+    __slots__ = ("_max_depth", "_queue_depth", "_queue_depth_lock", "_semaphore")
 
     def __init__(self, max_depth: int) -> None:
         """Initialize request queue.
@@ -104,11 +104,11 @@ class QueueMetrics:
     """
 
     __slots__ = (
+        "_lock",
+        "_max_wait_time_ms",
         "_total_queued",
         "_total_rejected",
         "_total_wait_time_ms",
-        "_max_wait_time_ms",
-        "_lock",
     )
 
     def __init__(self) -> None:
@@ -147,9 +147,7 @@ class QueueMetrics:
             "total_queued": self._total_queued,
             "total_rejected": self._total_rejected,
             "avg_wait_time_ms": (
-                self._total_wait_time_ms / self._total_queued
-                if self._total_queued > 0
-                else 0.0
+                self._total_wait_time_ms / self._total_queued if self._total_queued > 0 else 0.0
             ),
             "max_wait_time_ms": self._max_wait_time_ms,
             "rejection_rate": (
@@ -200,18 +198,22 @@ def create_queue_wrapper(
             if metrics:
                 await metrics.record_rejected()
 
-            await send({
-                "type": "http.response.start",
-                "status": 503,
-                "headers": [
-                    (b"content-type", b"text/plain"),
-                    (b"retry-after", b"5"),
-                ],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"Service Unavailable - Server Overloaded",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 503,
+                    "headers": [
+                        (b"content-type", b"text/plain"),
+                        (b"retry-after", b"5"),
+                    ],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"Service Unavailable - Server Overloaded",
+                }
+            )
             return
 
         # Acquired slot, process request

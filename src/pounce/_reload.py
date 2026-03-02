@@ -145,7 +145,9 @@ def watch_for_changes(
     if stop_event is None:
         stop_event = threading.Event()
 
-    extensions = _WATCH_EXTENSIONS | frozenset(extra_extensions) if extra_extensions else _WATCH_EXTENSIONS
+    extensions = (
+        _WATCH_EXTENSIONS | frozenset(extra_extensions) if extra_extensions else _WATCH_EXTENSIONS
+    )
 
     logger.info(
         "Watching %d directories for changes (interval: %.1fs, extensions: %d)",

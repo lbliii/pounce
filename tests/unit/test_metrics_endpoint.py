@@ -69,7 +69,9 @@ class TestMetricsHandler:
         assert len(messages) == 2
         assert messages[0]["type"] == "http.response.start"
         assert messages[0]["status"] == 200
-        assert (b"content-type", b"text/plain; version=0.0.4; charset=utf-8") in messages[0]["headers"]
+        assert (b"content-type", b"text/plain; version=0.0.4; charset=utf-8") in messages[0][
+            "headers"
+        ]
 
         assert messages[1]["type"] == "http.response.body"
         body = messages[1]["body"].decode("utf-8")
@@ -114,15 +116,19 @@ class TestWrappedApp:
 
         async def original_app(scope, receive, send):
             """Original app that shouldn't be called for /metrics."""
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-type", b"text/plain")],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"Original app",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"Original app",
+                }
+            )
 
         collector = PrometheusCollector()
         wrapped = wrap_app_with_metrics(original_app, collector, "/metrics")
@@ -156,15 +162,19 @@ class TestWrappedApp:
 
         async def original_app(scope, receive, send):
             """Original app."""
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-type", b"text/plain")],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"Original app",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"Original app",
+                }
+            )
 
         collector = PrometheusCollector()
         wrapped = wrap_app_with_metrics(original_app, collector, "/metrics")

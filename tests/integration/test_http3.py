@@ -4,7 +4,6 @@ import logging
 
 import pytest
 
-
 from pounce.config import ServerConfig
 from pounce.protocols.h3 import is_h3_available
 

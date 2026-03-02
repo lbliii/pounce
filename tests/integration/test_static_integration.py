@@ -653,15 +653,19 @@ class TestMiddlewareMode:
         async def app(scope, receive, send):
             nonlocal app_called
             app_called = True
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-type", b"text/plain")],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"app response",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"app response",
+                }
+            )
 
         # Wrap app with static files
         static_middleware = StaticFiles(

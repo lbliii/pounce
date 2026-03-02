@@ -4,8 +4,9 @@ Tests for enhanced connection draining and shutdown.
 """
 
 import asyncio
+import contextlib
 import threading
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -43,15 +44,19 @@ class TestConnectionDraining:
 
         async def simple_app(scope, receive, send):
             """Simple ASGI app."""
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-type", b"text/plain")],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"OK",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"OK",
+                }
+            )
 
         worker = Worker(
             app=simple_app,
@@ -93,15 +98,19 @@ class TestConnectionDraining:
 
         async def simple_app(scope, receive, send):
             """Simple ASGI app."""
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-type", b"text/plain")],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"OK",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"OK",
+                }
+            )
 
         worker = Worker(
             app=simple_app,
@@ -125,18 +134,18 @@ class TestConnectionDraining:
         writer.wait_closed = AsyncMock()
 
         # Mock the reader to provide a simple HTTP request
-        reader.read = AsyncMock(side_effect=[
-            b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n",
-            b"",  # EOF
-        ])
+        reader.read = AsyncMock(
+            side_effect=[
+                b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                b"",  # EOF
+            ]
+        )
 
         # Handle connection - should not immediately reject
         # Note: This will fail during HTTP parsing, but that's OK for this test
         # We're just checking it doesn't reject immediately due to draining
-        try:
+        with contextlib.suppress(Exception):
             await worker._handle_connection(reader, writer)
-        except Exception:
-            pass  # Expected to fail during HTTP parsing
 
         # Verify it didn't send a 503 shutdown response
         if writer.write.called:
@@ -277,8 +286,9 @@ class TestSupervisorDraining:
 
     def test_drain_force_stops_unresponsive_workers(self):
         """Test that _drain() force-stops workers that don't exit in time."""
-        from pounce.supervisor import Supervisor, _WorkerHandle
         import multiprocessing
+
+        from pounce.supervisor import Supervisor, _WorkerHandle
 
         config = ServerConfig(
             host="127.0.0.1",
@@ -315,7 +325,7 @@ class TestSupervisorDraining:
             supervisor._drain()
 
             # Should have logged a warning about force termination
-            warning_calls = [call for call in mock_logger.warning.call_args_list]
+            warning_calls = list(mock_logger.warning.call_args_list)
             assert len(warning_calls) > 0
             # Check that terminate was called
             assert mock_target.terminate.called

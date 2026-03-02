@@ -34,7 +34,9 @@ def test_bengal_static_site_on_pounce(bengal_like_dir) -> None:
 
     try:
         # GET /
-        resp_root = send_raw_request(addr, b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        resp_root = send_raw_request(
+            addr, b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        )
         assert b"HTTP/1.1" in resp_root
         assert b"200" in resp_root
         assert b"<h1>Hello World</h1>" in resp_root

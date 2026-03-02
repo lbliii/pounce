@@ -8,12 +8,9 @@ Verifies that the server handles malicious or buggy apps without crashing:
 - App returns without calling send()
 """
 
-import pytest
-
 from pounce._types import Receive, Scope, Send
 from pounce.config import ServerConfig
 from tests.conftest import send_raw_request, start_worker, with_lifespan
-
 
 # ---------------------------------------------------------------------------
 # Inline ASGI apps for malicious behavior testing
@@ -38,11 +35,13 @@ async def _body_before_start_app(scope: Scope, receive: Receive, send: Send) -> 
 async def _double_more_body_false_app(scope: Scope, receive: Receive, send: Send) -> None:
     """App sends http.response.body twice with more_body=False."""
     await receive()
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [(b"content-type", b"text/plain")],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", b"text/plain")],
+        }
+    )
     await send({"type": "http.response.body", "body": b"first", "more_body": False})
     await send({"type": "http.response.body", "body": b"second", "more_body": False})
 
@@ -51,11 +50,13 @@ async def _double_more_body_false_app(scope: Scope, receive: Receive, send: Send
 async def _raises_during_send_app(scope: Scope, receive: Receive, send: Send) -> None:
     """App raises during send() while streaming."""
     await receive()
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [(b"content-type", b"text/plain")],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", b"text/plain")],
+        }
+    )
     await send({"type": "http.response.body", "body": b"ok", "more_body": True})
     raise RuntimeError("Intentional crash during streaming")
 

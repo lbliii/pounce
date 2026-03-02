@@ -112,7 +112,7 @@ class H3ServerProtocol(QuicConnectionProtocol):
         self._logger.debug("Stream %d: %s %s", stream_id, scope["method"], scope["path"])
 
         # Schedule app invocation (simplified - real version would handle async properly)
-        asyncio.create_task(self._invoke_app(scope, stream_id))
+        asyncio.create_task(self._invoke_app(scope, stream_id))  # noqa: RUF006
 
     async def _invoke_app(self, scope: dict, stream_id: int) -> None:
         """Invoke the ASGI app with the request scope.
@@ -234,7 +234,9 @@ async def main() -> None:
         return
 
     logger.info("Starting HTTP/3 prototype server on https://localhost:4433")
-    logger.info("Test with Chrome: google-chrome --enable-quic --origin-to-force-quic-on=localhost:4433 https://localhost:4433")
+    logger.info(
+        "Test with Chrome: google-chrome --enable-quic --origin-to-force-quic-on=localhost:4433 https://localhost:4433"
+    )
 
     # Start QUIC server
     await serve(

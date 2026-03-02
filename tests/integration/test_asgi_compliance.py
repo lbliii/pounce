@@ -1438,6 +1438,7 @@ class TestCRLFInjectionPrevention:
 
     def test_crlf_in_header_value_not_injected(self):
         """App returns header value with CRLF; response must not contain injected header."""
+
         async def malicious_headers_app(scope: Scope, receive: Receive, send: Send) -> None:
             if scope["type"] == "lifespan":
                 while True:
@@ -1450,15 +1451,17 @@ class TestCRLFInjectionPrevention:
                 return
             await receive()
             # Attempt CRLF injection: value contains \r\n that could split into X-Injected
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [
-                    (b"content-type", b"text/plain"),
-                    (b"content-length", b"2"),
-                    (b"x-custom", b"value\r\nX-Injected: evil"),
-                ],
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"text/plain"),
+                        (b"content-length", b"2"),
+                        (b"x-custom", b"value\r\nX-Injected: evil"),
+                    ],
+                }
+            )
             await send({"type": "http.response.body", "body": b"ok"})
 
         worker, sock, thread = start_worker(malicious_headers_app)
@@ -1479,6 +1482,7 @@ class TestCRLFInjectionPrevention:
 
     def test_crlf_in_header_name_sanitized(self):
         """App returns header name with CRLF; name is sanitized, no injection."""
+
         async def malicious_name_app(scope: Scope, receive: Receive, send: Send) -> None:
             if scope["type"] == "lifespan":
                 while True:
@@ -1490,15 +1494,17 @@ class TestCRLFInjectionPrevention:
                         return
                 return
             await receive()
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [
-                    (b"content-type", b"text/plain"),
-                    (b"content-length", b"2"),
-                    (b"x-custom\r\nX-Injected", b"evil"),
-                ],
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"text/plain"),
+                        (b"content-length", b"2"),
+                        (b"x-custom\r\nX-Injected", b"evil"),
+                    ],
+                }
+            )
             await send({"type": "http.response.body", "body": b"ok"})
 
         worker, sock, thread = start_worker(malicious_name_app)

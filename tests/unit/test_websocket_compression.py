@@ -97,7 +97,7 @@ class TestWSProtocolCompression:
         """Test receiving compressed WebSocket frames."""
         # Create two protocol instances (client and server simulation)
         ws_sender = WSProtocol(enable_compression=True)
-        ws_receiver = WSProtocol(enable_compression=True)
+        WSProtocol(enable_compression=True)
 
         # Send a text message
         text_data = "This is a test message that should be compressed."

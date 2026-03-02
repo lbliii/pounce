@@ -59,12 +59,12 @@ class _WorkerHandle:
         self,
         worker_id: int,
         target: threading.Thread | multiprocessing.Process,
-        worker: Worker,
+        worker: Worker | None,
         generation: int = 0,
     ) -> None:
         self.worker_id = worker_id
         self.target = target
-        self.worker = worker  # Store Worker instance for drain control
+        self.worker = worker  # Store Worker instance for drain control (None in process mode)
         self.started_at = time.monotonic()
         self.restart_count = 0
         self.restarts: list[float] = []  # timestamps of recent restarts
@@ -106,8 +106,8 @@ class Supervisor:
         "_config",
         "_effective_workers",
         "_generation",
-        "_handles",
         "_h3_handles",
+        "_handles",
         "_lifecycle_collector",
         "_lifespan_state",
         "_mode",
@@ -203,8 +203,7 @@ class Supervisor:
         if self._udp_sockets:
             if len(self._udp_sockets) != self._effective_workers:
                 msg = (
-                    f"Expected {self._effective_workers} UDP sockets, "
-                    f"got {len(self._udp_sockets)}"
+                    f"Expected {self._effective_workers} UDP sockets, got {len(self._udp_sockets)}"
                 )
                 raise SupervisorError(msg)
             for i in range(self._effective_workers):
@@ -290,7 +289,7 @@ class Supervisor:
                 "Graceful reload only supported in thread mode. "
                 "Falling back to restart_all_workers()."
             )
-            self.restart_all_workers()
+            self.restart_workers()
             return
 
         logger.info("Starting graceful reload (rolling restart)...")
@@ -313,7 +312,11 @@ class Supervisor:
         self._generation += 1
 
         # Spawn new workers (same number as before)
-        logger.info("Spawning %d new worker(s) (generation %d)...", self._effective_workers, self._generation)
+        logger.info(
+            "Spawning %d new worker(s) (generation %d)...",
+            self._effective_workers,
+            self._generation,
+        )
         new_handles: list[_WorkerHandle] = []
         for i in range(self._effective_workers):
             per_worker_max = (
@@ -367,7 +370,9 @@ class Supervisor:
             # Poll until worker is idle or timeout
             while time.monotonic() < deadline:
                 if handle.worker.is_idle():
-                    logger.info("Worker %d (generation %d) is idle", handle.worker_id, handle.generation)
+                    logger.info(
+                        "Worker %d (generation %d) is idle", handle.worker_id, handle.generation
+                    )
                     break
                 time.sleep(0.1)  # Poll every 100ms
             else:
@@ -390,7 +395,11 @@ class Supervisor:
         # Replace handles with new generation
         self._handles = new_handles
 
-        logger.info("Graceful reload complete. Running %d worker(s) on generation %d", len(new_handles), self._generation)
+        logger.info(
+            "Graceful reload complete. Running %d worker(s) on generation %d",
+            len(new_handles),
+            self._generation,
+        )
 
     # ------------------------------------------------------------------
     # Spawning

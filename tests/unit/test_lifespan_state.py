@@ -3,10 +3,6 @@ Tests for ASGI lifespan state sharing (ASGI 3.0 spec).
 
 """
 
-import asyncio
-
-import pytest
-
 from pounce.asgi.lifespan import run_lifespan
 from pounce.config import ServerConfig
 

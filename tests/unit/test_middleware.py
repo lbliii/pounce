@@ -3,8 +3,6 @@ Tests for middleware extension system.
 
 """
 
-from typing import Any
-
 import pytest
 
 from pounce._middleware import (
@@ -152,11 +150,13 @@ class TestPostResponseMiddleware:
             return (status, headers)
 
         async def app(scope, receive, send):
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-type", b"text/plain")],
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
             await send({"type": "http.response.body", "body": b"OK"})
 
         stack = MiddlewareStack([add_header_middleware], app)
@@ -406,9 +406,7 @@ class TestMixedMiddleware:
             execution_log.append("app_start")
             raise ValueError("Test error")
 
-        stack = MiddlewareStack(
-            [pre_middleware, post_middleware, exception_middleware], app
-        )
+        stack = MiddlewareStack([pre_middleware, post_middleware, exception_middleware], app)
 
         scope = {"type": "http", "method": "GET", "path": "/"}
         messages_sent = []
@@ -425,7 +423,9 @@ class TestMixedMiddleware:
         assert "pre" in execution_log
         assert "app_start" in execution_log
         assert "exception" in execution_log
-        assert "post" not in execution_log  # Post doesn't run when exception is raised before response
+        assert (
+            "post" not in execution_log
+        )  # Post doesn't run when exception is raised before response
 
         # Error response sent
         assert messages_sent[0]["status"] == 500

@@ -27,11 +27,13 @@ async def _ok_app(scope: Scope, receive: Receive, send: Send) -> None:
         body += msg.get("body", b"")
         if not msg.get("more_body", False):
             break
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [(b"content-length", b"2")],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-length", b"2")],
+        }
+    )
     await send({"type": "http.response.body", "body": b"ok"})
 
 
@@ -71,7 +73,7 @@ class TestLoad:
             sock.close()
 
     def test_sustained_keep_alive(self):
-        """10 connections × 20 requests each on same connection."""
+        """10 connections x 20 requests each on same connection."""
         config = ServerConfig(host="127.0.0.1", port=0, access_log=False)
         worker, sock, thread = start_worker(_ok_app, config=config)
         addr = sock.getsockname()

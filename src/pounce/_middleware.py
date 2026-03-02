@@ -119,9 +119,7 @@ class ExceptionMiddleware(Protocol):
 
     """
 
-    async def __call__(
-        self, scope: dict[str, Any], exc: Exception
-    ) -> Response | None:
+    async def __call__(self, scope: dict[str, Any], exc: Exception) -> Response | None:
         """Handle exception from app.
 
         Args:
@@ -148,7 +146,7 @@ class MiddlewareStack:
 
     """
 
-    __slots__ = ("_middleware", "_app")
+    __slots__ = ("_app", "_middleware")
 
     def __init__(
         self,
@@ -158,9 +156,7 @@ class MiddlewareStack:
         self._middleware = middleware
         self._app = app
 
-    async def __call__(
-        self, scope: dict[str, Any], receive: Receive, send: Send
-    ) -> None:
+    async def __call__(self, scope: dict[str, Any], receive: Receive, send: Send) -> None:
         """Execute middleware stack around app call.
 
         1. Run pre-request middleware (can short-circuit)
@@ -224,11 +220,13 @@ class MiddlewareStack:
                     )
 
                 # Send modified response
-                await send({
-                    "type": "http.response.start",
-                    "status": modified_status,
-                    "headers": modified_headers,
-                })
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": modified_status,
+                        "headers": modified_headers,
+                    }
+                )
             else:
                 # Pass through other messages
                 await send(message)
@@ -263,18 +261,23 @@ class MiddlewareStack:
         """
         headers = list(response.headers) if response.headers else []
 
-        await send({
-            "type": "http.response.start",
-            "status": response.status,
-            "headers": headers,
-        })
-        await send({
-            "type": "http.response.body",
-            "body": response.body,
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": response.status,
+                "headers": headers,
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": response.body,
+            }
+        )
 
 
 # Built-in middleware examples
+
 
 class CORSMiddleware:
     """CORS middleware that adds Access-Control headers.
@@ -287,7 +290,7 @@ class CORSMiddleware:
 
     """
 
-    __slots__ = ("_allow_origin", "_allow_methods", "_allow_headers", "_max_age")
+    __slots__ = ("_allow_headers", "_allow_methods", "_allow_origin", "_max_age")
 
     def __init__(
         self,

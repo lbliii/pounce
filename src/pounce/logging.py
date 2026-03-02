@@ -15,7 +15,7 @@ JSON format:
 import json as json_module
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pounce.config import ServerConfig
@@ -36,7 +36,7 @@ class _JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         entry: dict[str, Any] = {
-            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "timestamp": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -59,7 +59,7 @@ def configure_logging(config: ServerConfig) -> None:
         config: Server configuration with log_level and log_format settings.
 
     """
-    global _json_logging  # noqa: PLW0603
+    global _json_logging
     level = getattr(logging, config.log_level.upper(), logging.INFO)
     _json_logging = config.log_format.lower() == "json"
 
@@ -90,7 +90,7 @@ def configure_logging(config: ServerConfig) -> None:
         chirp_logger.addHandler(chirp_handler)
 
     # Configure lifecycle logger (inherits from pounce logger)
-    lifecycle_logger = logging.getLogger("pounce.lifecycle")
+    logging.getLogger("pounce.lifecycle")
     # No separate handler needed - inherits from "pounce" logger
 
 
@@ -126,7 +126,7 @@ def access_log(
 
     if _json_logging:
         entry_dict: dict[str, object] = {
-            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+            "timestamp": datetime.now(tz=UTC).isoformat(),
             "level": logging.getLevelName(level),
             "logger": "pounce.access",
             "method": method,

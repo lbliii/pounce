@@ -31,9 +31,20 @@ from pounce.lifecycle import (
 
 # Default histogram bucket boundaries (seconds), matching Prometheus defaults
 _DEFAULT_BUCKETS: tuple[float, ...] = (
-    0.005, 0.01, 0.025, 0.05, 0.075,
-    0.1, 0.25, 0.5, 0.75,
-    1.0, 2.5, 5.0, 7.5, 10.0,
+    0.005,
+    0.01,
+    0.025,
+    0.05,
+    0.075,
+    0.1,
+    0.25,
+    0.5,
+    0.75,
+    1.0,
+    2.5,
+    5.0,
+    7.5,
+    10.0,
     float("inf"),
 )
 
@@ -54,15 +65,15 @@ class PrometheusCollector:
     """
 
     __slots__ = (
-        "_lock",
-        "_requests_total",
-        "_duration_sum",
-        "_duration_count",
-        "_duration_buckets",
         "_bucket_boundaries",
-        "_connections_active",
-        "_requests_in_flight",
         "_bytes_sent_total",
+        "_connections_active",
+        "_duration_buckets",
+        "_duration_count",
+        "_duration_sum",
+        "_lock",
+        "_requests_in_flight",
+        "_requests_total",
         "_start_time_ns",
     )
 
@@ -78,7 +89,7 @@ class PrometheusCollector:
         self._duration_sum: float = 0.0
         self._duration_count: int = 0
         self._bucket_boundaries = duration_buckets
-        self._duration_buckets: dict[float, int] = {b: 0 for b in duration_buckets}
+        self._duration_buckets: dict[float, int] = dict.fromkeys(duration_buckets, 0)
         # Gauges
         self._connections_active: int = 0
         self._requests_in_flight: int = 0
@@ -100,7 +111,7 @@ class PrometheusCollector:
                 self._requests_in_flight = max(0, self._requests_in_flight - 1)
                 # We don't have method in ResponseCompleted, use status only
                 status_str = str(event.status)
-                status_class = f"{event.status // 100}xx"
+                f"{event.status // 100}xx"
                 self._requests_total[("", status_str)] += 1
                 # Duration histogram — increment only the first matching
                 # bucket; export() computes the cumulative sum.
@@ -150,42 +161,28 @@ class PrometheusCollector:
                 )
 
             # http_request_duration_seconds (histogram)
-            lines.append(
-                "# HELP http_request_duration_seconds Request duration in seconds."
-            )
+            lines.append("# HELP http_request_duration_seconds Request duration in seconds.")
             lines.append("# TYPE http_request_duration_seconds histogram")
             cumulative = 0
             for boundary in self._bucket_boundaries:
                 cumulative += self._duration_buckets[boundary]
                 le = "+Inf" if math.isinf(boundary) else str(boundary)
-                lines.append(
-                    f'http_request_duration_seconds_bucket{{le="{le}"}} {cumulative}'
-                )
-            lines.append(
-                f"http_request_duration_seconds_sum {self._duration_sum}"
-            )
-            lines.append(
-                f"http_request_duration_seconds_count {self._duration_count}"
-            )
+                lines.append(f'http_request_duration_seconds_bucket{{le="{le}"}} {cumulative}')
+            lines.append(f"http_request_duration_seconds_sum {self._duration_sum}")
+            lines.append(f"http_request_duration_seconds_count {self._duration_count}")
 
             # http_connections_active (gauge)
-            lines.append(
-                "# HELP http_connections_active Active TCP connections."
-            )
+            lines.append("# HELP http_connections_active Active TCP connections.")
             lines.append("# TYPE http_connections_active gauge")
             lines.append(f"http_connections_active {self._connections_active}")
 
             # http_requests_in_flight (gauge)
-            lines.append(
-                "# HELP http_requests_in_flight Requests currently being processed."
-            )
+            lines.append("# HELP http_requests_in_flight Requests currently being processed.")
             lines.append("# TYPE http_requests_in_flight gauge")
             lines.append(f"http_requests_in_flight {self._requests_in_flight}")
 
             # http_bytes_sent_total (counter)
-            lines.append(
-                "# HELP http_bytes_sent_total Total bytes sent in responses."
-            )
+            lines.append("# HELP http_bytes_sent_total Total bytes sent in responses.")
             lines.append("# TYPE http_bytes_sent_total counter")
             lines.append(f"http_bytes_sent_total {self._bytes_sent_total}")
 

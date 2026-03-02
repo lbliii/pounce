@@ -4,9 +4,8 @@ Integration tests for lifespan state injection into request scopes.
 """
 
 import asyncio
+import contextlib
 import socket
-
-import pytest
 
 from pounce.config import ServerConfig
 from pounce.worker import Worker
@@ -23,15 +22,19 @@ async def test_request_scope_has_lifespan_state():
             # Store the scope for assertion
             request_scope_seen = scope
 
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-type", b"text/plain")],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"OK",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"OK",
+                }
+            )
 
     # Create test socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -47,11 +50,7 @@ async def test_request_scope_has_lifespan_state():
     worker.set_lifespan_state(lifespan_state)
 
     # Create a simple HTTP request
-    request_data = (
-        b"GET / HTTP/1.1\r\n"
-        b"Host: localhost\r\n"
-        b"\r\n"
-    )
+    request_data = b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
 
     async def make_request():
         reader, writer = await asyncio.open_connection("127.0.0.1", sock.getsockname()[1])
@@ -66,10 +65,8 @@ async def test_request_scope_has_lifespan_state():
 
     # Start worker in background
     async def run_worker():
-        try:
+        with contextlib.suppress(asyncio.TimeoutError):
             await asyncio.wait_for(worker._serve(), timeout=2.0)
-        except asyncio.TimeoutError:
-            pass
 
     worker_task = asyncio.create_task(run_worker())
 
@@ -106,15 +103,19 @@ async def test_multiple_requests_share_same_state():
         if scope["type"] == "http":
             scopes_seen.append(scope)
 
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-type", b"text/plain")],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"OK",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"OK",
+                }
+            )
 
     # Create test socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -129,11 +130,7 @@ async def test_multiple_requests_share_same_state():
     lifespan_state = {"shared": "data"}
     worker.set_lifespan_state(lifespan_state)
 
-    request_data = (
-        b"GET / HTTP/1.1\r\n"
-        b"Host: localhost\r\n"
-        b"\r\n"
-    )
+    request_data = b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
 
     async def make_request():
         reader, writer = await asyncio.open_connection("127.0.0.1", sock.getsockname()[1])
@@ -144,10 +141,8 @@ async def test_multiple_requests_share_same_state():
         await writer.wait_closed()
 
     async def run_worker():
-        try:
+        with contextlib.suppress(asyncio.TimeoutError):
             await asyncio.wait_for(worker._serve(), timeout=2.0)
-        except asyncio.TimeoutError:
-            pass
 
     worker_task = asyncio.create_task(run_worker())
     await asyncio.sleep(0.1)
@@ -181,15 +176,19 @@ async def test_empty_state_when_not_set():
         if scope["type"] == "http":
             request_scope_seen = scope
 
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-type", b"text/plain")],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"OK",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"OK",
+                }
+            )
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -202,11 +201,7 @@ async def test_empty_state_when_not_set():
     # Don't set lifespan state (simulates no lifespan or failed startup)
     # Worker initializes it to {} by default
 
-    request_data = (
-        b"GET / HTTP/1.1\r\n"
-        b"Host: localhost\r\n"
-        b"\r\n"
-    )
+    request_data = b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
 
     async def make_request():
         reader, writer = await asyncio.open_connection("127.0.0.1", sock.getsockname()[1])
@@ -217,10 +212,8 @@ async def test_empty_state_when_not_set():
         await writer.wait_closed()
 
     async def run_worker():
-        try:
+        with contextlib.suppress(asyncio.TimeoutError):
             await asyncio.wait_for(worker._serve(), timeout=2.0)
-        except asyncio.TimeoutError:
-            pass
 
     worker_task = asyncio.create_task(run_worker())
     await asyncio.sleep(0.1)

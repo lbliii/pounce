@@ -182,7 +182,7 @@ def _bind_unix_socket(config: ServerConfig) -> socket.socket:
 
     """
     path = config.uds
-    assert path is not None  # noqa: S101 — enforced by caller
+    assert path is not None
 
     # Remove stale socket file if it exists
     with contextlib.suppress(FileNotFoundError):

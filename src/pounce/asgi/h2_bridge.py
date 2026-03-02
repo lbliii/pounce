@@ -129,9 +129,7 @@ def create_h2_send(
                 headers.append((b"x-request-id", request_id.encode("latin-1")))
 
             # Bodyless responses (1xx, 204, 304) — disable compression
-            if compressor is not None and (
-                100 <= status <= 199 or status in {204, 304}
-            ):
+            if compressor is not None and (100 <= status <= 199 or status in {204, 304}):
                 compressor = None
 
             # HEAD responses — disable compression to preserve Content-Length

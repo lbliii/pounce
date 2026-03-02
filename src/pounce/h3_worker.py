@@ -39,9 +39,9 @@ class H3Worker:
 
     __slots__ = (
         "_app",
+        "_async_shutdown",
         "_config",
         "_ext_shutdown",
-        "_async_shutdown",
         "_logger",
         "_loop",
         "_sock",
@@ -141,7 +141,7 @@ class H3Worker:
         """Poll external shutdown event and set async shutdown."""
         while not ext_event.is_set():
             await asyncio.sleep(0.25)
-        if self._async_shutdown is not None:
+        if self._async_shutdown is not None and self._loop is not None:
             self._loop.call_soon(self._async_shutdown.set)
 
     def shutdown(self) -> None:

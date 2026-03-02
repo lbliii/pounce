@@ -157,7 +157,6 @@ class TestH2Connection:
         assert paths == {b"/first", b"/second"}
 
     def test_send_response(self) -> None:
-
         client, server = _make_client_server()
 
         # Client sends request

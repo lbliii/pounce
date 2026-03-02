@@ -220,7 +220,9 @@ class ServerConfig:
             msg = "uds must be a non-empty path or None"
             raise ValueError(msg)
         if self.log_slow_requests_threshold <= 0:
-            msg = f"log_slow_requests_threshold must be > 0 (got {self.log_slow_requests_threshold})"
+            msg = (
+                f"log_slow_requests_threshold must be > 0 (got {self.log_slow_requests_threshold})"
+            )
             raise ValueError(msg)
         if self.metrics_path and not self.metrics_path.startswith("/"):
             msg = f"metrics_path must start with / (got {self.metrics_path!r})"
@@ -238,7 +240,9 @@ class ServerConfig:
             msg = f"request_queue_max_depth must be >= 0 (got {self.request_queue_max_depth})"
             raise ValueError(msg)
         if not 0.0 <= self.sentry_traces_sample_rate <= 1.0:
-            msg = f"sentry_traces_sample_rate must be 0.0-1.0 (got {self.sentry_traces_sample_rate})"
+            msg = (
+                f"sentry_traces_sample_rate must be 0.0-1.0 (got {self.sentry_traces_sample_rate})"
+            )
             raise ValueError(msg)
         if not 0.0 <= self.sentry_profiles_sample_rate <= 1.0:
             msg = (
