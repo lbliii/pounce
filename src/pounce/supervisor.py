@@ -30,6 +30,7 @@ from pounce._errors import SupervisorError
 from pounce._runtime import WorkerMode, detect_worker_mode
 from pounce._types import ASGIApp
 from pounce.config import ServerConfig
+from pounce.h3_worker import H3Worker
 from pounce.lifecycle import LifecycleCollector
 from pounce.worker import Worker
 
@@ -44,7 +45,15 @@ _HEALTH_CHECK_INTERVAL = 1.0  # seconds
 class _WorkerHandle:
     """Metadata about a running worker (thread or process)."""
 
-    __slots__ = ("generation", "restart_count", "restarts", "started_at", "target", "worker", "worker_id")
+    __slots__ = (
+        "generation",
+        "restart_count",
+        "restarts",
+        "started_at",
+        "target",
+        "worker",
+        "worker_id",
+    )
 
     def __init__(
         self,
@@ -60,6 +69,20 @@ class _WorkerHandle:
         self.restart_count = 0
         self.restarts: list[float] = []  # timestamps of recent restarts
         self.generation = generation  # Used for rolling restart
+
+
+class _H3WorkerHandle:
+    """Metadata about a running H3 worker (UDP/QUIC)."""
+
+    __slots__ = ("target", "worker_id")
+
+    def __init__(
+        self,
+        worker_id: int,
+        target: threading.Thread | multiprocessing.Process,
+    ) -> None:
+        self.worker_id = worker_id
+        self.target = target
 
 
 class Supervisor:
@@ -84,12 +107,14 @@ class Supervisor:
         "_effective_workers",
         "_generation",
         "_handles",
+        "_h3_handles",
         "_lifecycle_collector",
         "_lifespan_state",
         "_mode",
         "_shutdown_event",
         "_sockets",
         "_ssl_context",
+        "_udp_sockets",
     )
 
     def __init__(
@@ -108,7 +133,9 @@ class Supervisor:
         self._mode: WorkerMode = mode or detect_worker_mode()
         self._shutdown_event = threading.Event()
         self._handles: list[_WorkerHandle] = []
+        self._h3_handles: list[_H3WorkerHandle] = []
         self._sockets: list[socket.socket] = []
+        self._udp_sockets: list[socket.socket] = []
         self._effective_workers = config.resolve_workers()
         self._ssl_context = ssl_context
         self._lifecycle_collector = lifecycle_collector
@@ -138,15 +165,20 @@ class Supervisor:
     # Public API
     # ------------------------------------------------------------------
 
-    def run(self, sockets: list[socket.socket]) -> None:
+    def run(
+        self,
+        sockets: list[socket.socket],
+        udp_sockets: list[socket.socket] | None = None,
+    ) -> None:
         """Start all workers and block until shutdown.
 
         Installs signal handlers, spawns workers, runs the health-check
         loop, then joins all workers on shutdown.
 
         Args:
-            sockets: One socket per worker, created by
+            sockets: One TCP socket per worker, created by
                 ``create_listeners()``.
+            udp_sockets: Optional UDP sockets for HTTP/3 workers.
 
         """
         if len(sockets) != self._effective_workers:
@@ -154,6 +186,7 @@ class Supervisor:
             raise SupervisorError(msg)
 
         self._sockets = sockets
+        self._udp_sockets = udp_sockets or []
         self._install_signals()
 
         logger.info(
@@ -162,9 +195,20 @@ class Supervisor:
             self._mode,
         )
 
-        # Spawn initial workers
+        # Spawn initial TCP workers
         for i in range(self._effective_workers):
             self._spawn_worker(i)
+
+        # Spawn H3 workers when UDP sockets provided
+        if self._udp_sockets:
+            if len(self._udp_sockets) != self._effective_workers:
+                msg = (
+                    f"Expected {self._effective_workers} UDP sockets, "
+                    f"got {len(self._udp_sockets)}"
+                )
+                raise SupervisorError(msg)
+            for i in range(self._effective_workers):
+                self._spawn_h3_worker(i)
 
         # Health-check loop — blocks until shutdown
         try:
@@ -407,6 +451,42 @@ class Supervisor:
             self._generation,
         )
 
+    def _spawn_h3_worker(self, worker_id: int) -> None:
+        """Create and start a single H3 (HTTP/3) worker."""
+        if not self._udp_sockets or worker_id >= len(self._udp_sockets):
+            return
+        if self._config.ssl_certfile is None or self._config.ssl_keyfile is None:
+            return
+
+        worker = H3Worker(
+            self._config,
+            self._app,
+            self._udp_sockets[worker_id],
+            worker_id=worker_id,
+            shutdown_event=self._shutdown_event,
+            ssl_certfile=self._config.ssl_certfile,
+            ssl_keyfile=self._config.ssl_keyfile,
+        )
+
+        target = threading.Thread(
+            target=worker.run,
+            name=f"pounce-h3-worker-{worker_id}",
+            daemon=True,
+        )
+        target.start()
+
+        handle = _H3WorkerHandle(worker_id=worker_id, target=target)
+        if worker_id < len(self._h3_handles):
+            self._h3_handles[worker_id] = handle
+        else:
+            self._h3_handles.append(handle)
+
+        logger.debug(
+            "Started H3 worker %d (tid: %s)",
+            worker_id,
+            target.ident or "starting",
+        )
+
     def _respawn_worker(self, worker_id: int) -> None:
         """Restart a crashed worker if within restart budget."""
         handle = self._handles[worker_id]
@@ -479,7 +559,8 @@ class Supervisor:
         clean shutdown (important for Kubernetes graceful termination).
 
         """
-        logger.info("Shutting down %d worker(s)...", self._effective_workers)
+        total_workers = self._effective_workers + len(self._h3_handles)
+        logger.info("Shutting down %d worker(s)...", total_workers)
 
         # Signal shutdown (may already be set)
         self._shutdown_event.set()
@@ -505,6 +586,17 @@ class Supervisor:
                 self._force_stop(handle)
             else:
                 logger.debug("Worker %d stopped cleanly", handle.worker_id)
+
+        for handle in self._h3_handles:
+            remaining = max(0.1, deadline - time.monotonic())
+            handle.target.join(timeout=remaining)
+            if handle.target.is_alive():
+                logger.warning(
+                    "H3 worker %d did not stop within shutdown_timeout — forcing",
+                    handle.worker_id,
+                )
+            else:
+                logger.debug("H3 worker %d stopped cleanly", handle.worker_id)
 
         logger.info("All workers stopped")
 

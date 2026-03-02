@@ -4,7 +4,7 @@
 [![Build Status](https://github.com/lbliii/pounce/actions/workflows/ci.yml/badge.svg)](https://github.com/lbliii/pounce/actions/workflows/ci.yml)
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://pypi.org/project/bengal-pounce/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Status: Alpha](https://img.shields.io/badge/status-alpha-orange.svg)](https://pypi.org/project/bengal-pounce/)
+[![Status: Beta](https://img.shields.io/badge/status-beta-yellow.svg)](https://pypi.org/project/bengal-pounce/)
 
 **A free-threading-native ASGI server for Python 3.14t.**
 
@@ -43,6 +43,7 @@ pip install bengal-pounce[fast]   # httptools C-accelerated HTTP/1.1
 pip install bengal-pounce[h2]     # HTTP/2 stream multiplexing
 pip install bengal-pounce[ws]     # WebSocket via wsproto
 pip install bengal-pounce[tls]    # TLS with truststore
+pip install bengal-pounce[h3]     # HTTP/3 (QUIC/UDP, requires TLS)
 pip install bengal-pounce[full]   # Everything above (except httptools)
 ```
 
@@ -56,6 +57,7 @@ pip install bengal-pounce[full]   # Everything above (except httptools)
 | **CLI** | `pounce myapp:app` |
 | **Multi-worker** | `pounce myapp:app --workers 4` |
 | **TLS** | `pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem` |
+| **HTTP/3** | `pounce myapp:app --http3 --ssl-certfile cert.pem --ssl-keyfile key.pem` |
 | **Dev reload** | `pounce myapp:app --reload` |
 | **App factory** | `pounce myapp:create_app()` |
 
@@ -67,6 +69,7 @@ pip install bengal-pounce[full]   # Everything above (except httptools)
 |---------|-------------|------|
 | **HTTP/1.1** | h11 (pure Python) or httptools (C-accelerated) | [HTTP/1.1 →](https://lbliii.github.io/pounce/docs/protocols/http1/) |
 | **HTTP/2** | Stream multiplexing via h2 | [HTTP/2 →](https://lbliii.github.io/pounce/docs/protocols/http2/) |
+| **HTTP/3** | QUIC/UDP via aioquic (requires TLS) | — |
 | **WebSocket** | Full RFC 6455 via wsproto (including WS over H2) | [WebSocket →](https://lbliii.github.io/pounce/docs/protocols/websocket/) |
 | **Static Files** | Zero-copy sendfile, pre-compressed, ETags | [Static Files →](docs/features/) |
 | **Middleware** | ASGI3 middleware stack support | [Middleware →](docs/features/) |

@@ -692,7 +692,13 @@ class Worker:
             )
             send_state = SendState()
             send_state.status = status
-            send_fn = create_send(proto, writer, send_state, request_id=request_id)
+            send_fn = create_send(
+                proto,
+                writer,
+                send_state,
+                request_id=request_id,
+                config=self._config,
+            )
             await send_fn({
                 "type": "http.response.start",
                 "status": status,
@@ -731,9 +737,26 @@ class Worker:
         body_queue: asyncio.Queue[BodyReceived] | None = None
 
         if initial_body:
-            # Body events arrived with the request head
+            # Body events arrived with the request head.
+            # Enforce max_request_size (same as _read_body).
             body_queue = asyncio.Queue()
+            max_body = self._config.max_request_size
+            total_bytes = 0
             for body_event in initial_body:
+                total_bytes += len(body_event.data)
+                if total_bytes > max_body:
+                    self._logger.warning(
+                        "Request body exceeds max_request_size (%d bytes)",
+                        max_body,
+                    )
+                    # Put truncated final chunk so app sees at most max_body bytes
+                    keep = max_body - (total_bytes - len(body_event.data))
+                    if keep > 0:
+                        await body_queue.put(BodyReceived(data=body_event.data[:keep], more=False))
+                    else:
+                        await body_queue.put(BodyReceived(data=b"", more=False))
+                    body_complete = True
+                    break
                 await body_queue.put(body_event)
                 if not body_event.more:
                     body_complete = True
@@ -753,6 +776,7 @@ class Worker:
             compressor=compressor,
             request_method=request.method,
             request_id=request_id,
+            config=self._config,
         )
 
         # Create OpenTelemetry span for this request
@@ -817,6 +841,13 @@ class Worker:
 
         if timing:
             timing.add("app", elapsed_ms(app_start))
+
+        # If app returned without sending a response, send 500 now
+        if send_state.bytes_sent == 0:
+            status = send_state.status or 500
+            with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
+                await self._send_error(writer, proto, status, "Internal Server Error")
+            send_state.status = status
 
         # Record response lifecycle event
         self._lifecycle.record(

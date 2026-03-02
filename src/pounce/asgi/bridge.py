@@ -266,6 +266,7 @@ def create_send(
     compressor: Compressor | None = None,
     request_method: bytes = b"GET",
     request_id: str | None = None,
+    config: ServerConfig | None = None,
 ) -> Send:
     """Create an ASGI send callable that streams to the transport.
 
@@ -325,6 +326,15 @@ def create_send(
             # Inject X-Request-ID response header for request tracing
             if request_id is not None:
                 headers.append((b"x-request-id", request_id.encode("latin-1")))
+
+            # Alt-Svc for HTTP/3 upgrade (RFC 7838)
+            if config is not None and config.http3_enabled:
+                headers.append(
+                    (
+                        b"alt-svc",
+                        f'h3=":{config.port}"; ma=2592000'.encode("ascii"),
+                    ),
+                )
 
             # SSE must not be compressed — EventSource API doesn't support it
             if compressor is not None:

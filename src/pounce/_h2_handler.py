@@ -164,6 +164,7 @@ async def handle_h2_connection(
             compressor=compressor,
             request_method=request.method,
             request_id=request_id,
+            config=config,
         )
 
         try:

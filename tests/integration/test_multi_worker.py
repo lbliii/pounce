@@ -16,6 +16,8 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import pytest
+
 from pounce._types import ASGIApp, Receive, Scope, Send
 from pounce.config import ServerConfig
 from pounce.net.listener import create_listeners
@@ -187,6 +189,38 @@ class TestSupervisorMode:
         sup = Supervisor(config, _hello_app, mode="thread")
         assert sup.mode == "thread"
         assert sup.worker_count == 2
+
+
+@pytest.mark.slow
+class TestSIGHUPRollingRestart:
+    """SIGHUP / graceful_reload rolling restart.
+
+    Calls supervisor.graceful_reload() directly (equivalent to SIGHUP).
+    In production, SIGHUP is sent to the main process; this tests the
+    same code path without subprocess/signal complexity.
+    """
+
+    def test_graceful_reload_completes(self):
+        """graceful_reload() completes without raising; workers drain."""
+        sup, sockets, thread, addr = _start_supervisor(_hello_app, 2)
+
+        try:
+            # Send requests before reload
+            r1 = _send_request(addr)
+            r2 = _send_request(addr)
+            assert b"200" in r1 and b"200" in r2
+
+            # Trigger rolling restart (simulates SIGHUP)
+            sup.graceful_reload()
+
+            # Reload completed; supervisor has new worker generation
+            assert len(sup._handles) == 2
+        finally:
+            sup.shutdown()
+            thread.join(timeout=5.0)
+            for s in set(sockets):
+                with contextlib.suppress(Exception):
+                    s.close()
 
 
 # ---------------------------------------------------------------------------
