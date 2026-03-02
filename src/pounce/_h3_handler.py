@@ -11,6 +11,7 @@ Requires the ``h3`` optional dependency (``pip install pounce[h3]``).
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -45,6 +46,8 @@ class _ZoomiesConnection:
 
     quic: Any  # zoomies.core.QuicConnection
     h3: Any  # zoomies.h3.H3Connection
+    last_activity: float = field(default_factory=time.monotonic)
+    last_addr: tuple[str, int] = ("", 0)
     stream_tasks: dict[int, tuple[asyncio.Task[None], asyncio.Queue[dict[str, Any]]]] = field(
         default_factory=dict
     )
@@ -61,8 +64,14 @@ def _create_zoomies_datagram_protocol(
     """Factory that returns a ZoomiesDatagramProtocol class bound to app/config/logger/server."""
 
     from zoomies.core import QuicConnection
-    from zoomies.events import ConnectionClosed, StreamDataReceived
+    from zoomies.events import (
+        ConnectionClosed,
+        ConnectionIdIssued,
+        ConnectionIdRetired,
+        StreamDataReceived,
+    )
     from zoomies.h3 import H3Connection
+    from zoomies.packet import pull_destination_cid_for_routing
 
     class ZoomiesDatagramProtocol(asyncio.DatagramProtocol):
         """HTTP/3 datagram protocol using zoomies sans-I/O."""
@@ -74,36 +83,87 @@ def _create_zoomies_datagram_protocol(
             self._server = server
             self._quic_config = quic_config
             self._connections: dict[tuple[str, int], _ZoomiesConnection] = {}
+            self._cid_to_conn: dict[bytes, _ZoomiesConnection] = {}
             self._transport: asyncio.DatagramTransport | None = None
 
         def connection_made(self, transport: asyncio.BaseTransport) -> None:
+            assert isinstance(transport, asyncio.DatagramTransport)
             self._transport = transport
+
+        def _prune_idle_connections(self) -> None:
+            """Remove connections idle longer than http3_idle_timeout."""
+            now = time.monotonic()
+            timeout = self._config.http3_idle_timeout
+            stale = [
+                addr
+                for addr, conn in self._connections.items()
+                if now - conn.last_activity > timeout
+            ]
+            for addr in stale:
+                conn = self._connections.pop(addr, None)
+                if conn is not None:
+                    for cid in conn.quic.our_cids:
+                        self._cid_to_conn.pop(cid, None)
+
+        def _remove_connection(self, conn: _ZoomiesConnection) -> None:
+            """Remove connection from both addr and CID maps."""
+            self._connections.pop(conn.last_addr, None)
+            for cid in conn.quic.our_cids:
+                self._cid_to_conn.pop(cid, None)
+
+        def _route_connection(
+            self, data: bytes, addr: tuple[str, int]
+        ) -> _ZoomiesConnection | None:
+            """Route packet to connection by CID or addr. Returns conn or None for new."""
+            known_cids = tuple(c for c in self._cid_to_conn if c)
+            dest_cid = pull_destination_cid_for_routing(data, known_cids=known_cids)
+            if dest_cid:
+                conn = self._cid_to_conn.get(dest_cid)
+                if conn is not None:
+                    if conn.last_addr != addr:
+                        self._connections.pop(conn.last_addr, None)
+                        conn.last_addr = addr
+                        self._connections[addr] = conn
+                    return conn
+            return self._connections.get(addr)
 
         def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
             if self._transport is None:
                 return
 
-            conn = self._connections.get(addr)
+            self._prune_idle_connections()
+
+            conn = self._route_connection(data, addr)
             if conn is None:
                 quic = QuicConnection(self._quic_config)
                 conn = _ZoomiesConnection(
                     quic=quic,
                     h3=H3Connection(sender=quic),
+                    last_addr=addr,
                 )
                 self._connections[addr] = conn
 
+            conn.last_activity = time.monotonic()
             events = conn.quic.datagram_received(data, addr)
+
+            for cid in conn.quic.our_cids:
+                if cid and cid not in self._cid_to_conn:
+                    self._cid_to_conn[cid] = conn
 
             for event in events:
                 if isinstance(event, ConnectionClosed):
-                    self._connections.pop(addr, None)
+                    self._remove_connection(conn)
                     return
-                if isinstance(event, StreamDataReceived):
+                if isinstance(event, ConnectionIdIssued):
+                    self._cid_to_conn[event.connection_id] = conn
+                elif isinstance(event, ConnectionIdRetired):
+                    self._cid_to_conn.pop(event.connection_id, None)
+                elif isinstance(event, StreamDataReceived):
                     for h3_event in conn.h3.handle_event(event):
-                        self._handle_h3_event(conn, h3_event, addr)
+                        self._handle_h3_event(conn, h3_event, conn.last_addr)
 
             for dg in conn.quic.send_datagrams():
-                self._transport.sendto(dg, addr)
+                self._transport.sendto(dg, conn.last_addr)
 
         def _handle_h3_event(
             self,
@@ -129,7 +189,7 @@ def _create_zoomies_datagram_protocol(
                 return
 
             client = addr
-            is_0rtt = False  # zoomies does not expose 0-RTT yet
+            is_0rtt = event.is_0rtt
 
             scope = build_h3_scope(
                 list(event.headers),
