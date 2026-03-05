@@ -746,6 +746,7 @@ class Server:
             "",
             f"  pounce v{_get_version()} (Python {sys.version.split()[0]}, {gil_status})",
             f"  -> {url}",
+            f"  -> pid: {os.getpid()}",
             f"  -> workers: {effective_workers} ({mode_label})",
         ]
         if self._ssl_context is not None:

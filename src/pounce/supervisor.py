@@ -109,8 +109,10 @@ class Supervisor:
         "_h3_handles",
         "_handles",
         "_lifecycle_collector",
+        "_lifecycle_lock",
         "_lifespan_state",
         "_mode",
+        "_reload_in_progress",
         "_shutdown_event",
         "_sockets",
         "_ssl_context",
@@ -132,6 +134,8 @@ class Supervisor:
         self._app_path = app_path
         self._mode: WorkerMode = mode or detect_worker_mode()
         self._shutdown_event = threading.Event()
+        self._lifecycle_lock = threading.Lock()
+        self._reload_in_progress = False
         self._handles: list[_WorkerHandle] = []
         self._h3_handles: list[_H3WorkerHandle] = []
         self._sockets: list[socket.socket] = []
@@ -227,12 +231,28 @@ class Supervisor:
         Signals all running workers to stop, waits for them to drain,
         clears the shutdown event, and spawns fresh workers.
 
+        Serialized with graceful_reload and watch-loop respawns via
+        _lifecycle_lock. Skips if a reload is already in progress.
+
         When an ``app_path`` was provided and workers run as threads,
         the app module is reimported so that code changes on disk take
         effect.  Process-based workers get fresh imports automatically
         on fork and don't need explicit reimport.
 
         """
+        with self._lifecycle_lock:
+            if self._reload_in_progress:
+                logger.debug("Restart already in progress — skipping")
+                return
+            self._reload_in_progress = True
+        try:
+            self._restart_workers_impl()
+        finally:
+            with self._lifecycle_lock:
+                self._reload_in_progress = False
+
+    def _restart_workers_impl(self) -> None:
+        """Internal implementation of restart_workers (no lock)."""
         logger.info("Restarting %d worker(s)...", self._effective_workers)
 
         # Reimport the app to pick up code changes (thread mode only —
@@ -248,23 +268,44 @@ class Supervisor:
         # Signal all workers to stop
         self._shutdown_event.set()
 
-        # Join with timeout
+        # Join with timeout (TCP and H3 workers)
         deadline = time.monotonic() + self._config.shutdown_timeout
         for handle in self._handles:
             remaining = max(0.1, deadline - time.monotonic())
             handle.target.join(timeout=remaining)
             if handle.target.is_alive():
                 self._force_stop(handle)
+        for handle in self._h3_handles:
+            remaining = max(0.1, deadline - time.monotonic())
+            handle.target.join(timeout=remaining)
+
+        # Thread mode: cannot force-kill threads. If any old worker still alive,
+        # do not spawn replacements — would cause split-brain (old + new serving).
+        if self._mode == "thread":
+            still_alive = [h for h in self._handles if h.target.is_alive()]
+            still_alive += [h for h in self._h3_handles if h.target.is_alive()]
+            if still_alive:
+                logger.warning(
+                    "%d thread worker(s) still alive after shutdown — not respawning "
+                    "(would cause split-brain). Wait for them to drain or restart process.",
+                    len(still_alive),
+                )
+                return
 
         # Clear shutdown event for new workers
         self._shutdown_event.clear()
 
         # Reset restart counts for fresh workers
         self._handles.clear()
+        self._h3_handles.clear()
 
-        # Respawn all workers
+        # Respawn TCP workers
         for i in range(self._effective_workers):
             self._spawn_worker(i)
+        # Respawn H3 workers (symmetric with TCP)
+        for i in range(self._effective_workers):
+            if self._udp_sockets and i < len(self._udp_sockets):
+                self._spawn_h3_worker(i)
 
         logger.info("All %d worker(s) restarted", self._effective_workers)
 
@@ -292,6 +333,19 @@ class Supervisor:
             self.restart_workers()
             return
 
+        with self._lifecycle_lock:
+            if self._reload_in_progress:
+                logger.debug("Reload already in progress — skipping graceful_reload")
+                return
+            self._reload_in_progress = True
+        try:
+            self._graceful_reload_impl()
+        finally:
+            with self._lifecycle_lock:
+                self._reload_in_progress = False
+
+    def _graceful_reload_impl(self) -> None:
+        """Internal implementation of graceful_reload (no lock)."""
         logger.info("Starting graceful reload (rolling restart)...")
 
         # Reimport the app to pick up code changes (thread mode only)
@@ -497,8 +551,18 @@ class Supervisor:
         )
 
     def _respawn_worker(self, worker_id: int) -> None:
-        """Restart a crashed worker if within restart budget."""
-        handle = self._handles[worker_id]
+        """Restart a crashed worker if within restart budget.
+
+        Serialized with restart_workers/graceful_reload via _lifecycle_lock.
+        Skips if a reload is in progress (avoids overlapping restarts).
+        """
+        with self._lifecycle_lock:
+            if self._reload_in_progress:
+                logger.debug("Reload in progress — skipping respawn of worker %d", worker_id)
+                return
+            if worker_id >= len(self._handles):
+                return
+            handle = self._handles[worker_id]
         now = time.monotonic()
 
         # Prune old restarts outside the window

@@ -74,14 +74,16 @@ def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
         return [shared] * count
 
     if count == 1:
-        return [_bind_socket(config)]
+        return [_bind_socket(config, use_reuseport=False)]
 
     if has_so_reuseport():
         # Each worker binds independently — kernel distributes connections
         sockets: list[socket.socket] = []
         try:
             for _ in range(count):
-                sockets.append(_bind_socket(config, _log_listen=False))  # noqa: PERF401
+                sockets.append(
+                    _bind_socket(config, _log_listen=False, use_reuseport=True)
+                )  # noqa: PERF401
         except Exception:
             # Clean up any sockets that were successfully created
             for s in sockets:
@@ -140,13 +142,15 @@ def create_udp_listeners(config: ServerConfig, count: int) -> list[socket.socket
         raise ValueError(msg)
 
     if count == 1:
-        return [_bind_udp_socket(config)]
+        return [_bind_udp_socket(config, use_reuseport=False)]
 
     if has_so_reuseport():
         sockets: list[socket.socket] = []
         try:
             for _ in range(count):
-                sockets.append(_bind_udp_socket(config, _log_bind=False))  # noqa: PERF401
+                sockets.append(
+                    _bind_udp_socket(config, _log_bind=False, use_reuseport=True)
+                )  # noqa: PERF401
         except Exception:
             for s in sockets:
                 s.close()
@@ -217,7 +221,12 @@ def cleanup_unix_socket(config: ServerConfig) -> None:
             logger.info("Removed socket file %s", config.uds)
 
 
-def _bind_socket(config: ServerConfig, *, _log_listen: bool = True) -> socket.socket:
+def _bind_socket(
+    config: ServerConfig,
+    *,
+    _log_listen: bool = True,
+    use_reuseport: bool = False,
+) -> socket.socket:
     """Create, configure, bind, and listen on a single TCP socket.
 
     Uses ``getaddrinfo`` to resolve the host, supporting both IPv4 and
@@ -225,6 +234,9 @@ def _bind_socket(config: ServerConfig, *, _log_listen: bool = True) -> socket.so
     (``IPV6_V6ONLY=False``) where possible so both IPv4 and IPv6 clients
     can connect.
 
+    When ``use_reuseport`` is False (default for single-worker dev), a
+    second instance binding to the same address will fail with EADDRINUSE,
+    ensuring single-instance semantics for development.
     """
     # Resolve host to get the correct address family
     infos = socket.getaddrinfo(
@@ -256,8 +268,9 @@ def _bind_socket(config: ServerConfig, *, _log_listen: bool = True) -> socket.so
             with contextlib.suppress(AttributeError, OSError):
                 sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
 
-        # SO_REUSEPORT allows multiple sockets to bind to the same port
-        if has_so_reuseport():
+        # SO_REUSEPORT: only enable for multi-worker (kernel distribution).
+        # Single-worker dev keeps it off so duplicate instances fail fast.
+        if use_reuseport and has_so_reuseport():
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
         sock.bind(sockaddr)
@@ -289,7 +302,12 @@ def _bind_socket(config: ServerConfig, *, _log_listen: bool = True) -> socket.so
         raise
 
 
-def _bind_udp_socket(config: ServerConfig, *, _log_bind: bool = True) -> socket.socket:
+def _bind_udp_socket(
+    config: ServerConfig,
+    *,
+    _log_bind: bool = True,
+    use_reuseport: bool = False,
+) -> socket.socket:
     """Create, configure, and bind a single UDP socket for HTTP/3.
 
     UDP has no listen() or backlog. Uses same address resolution as TCP.
@@ -319,7 +337,7 @@ def _bind_udp_socket(config: ServerConfig, *, _log_bind: bool = True) -> socket.
         if af == socket.AF_INET6:
             with contextlib.suppress(AttributeError, OSError):
                 sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
-        if has_so_reuseport():
+        if use_reuseport and has_so_reuseport():
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
         sock.bind(sockaddr)
