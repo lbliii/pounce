@@ -63,10 +63,9 @@ class TestCreateListener:
         sock1 = create_listener(config)
         try:
             _, port = sock1.getsockname()
-            config2 = ServerConfig(host="127.0.0.1", port=port)
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock2:
                 sock2.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                with pytest.raises(OSError) as exc_info:
+                with pytest.raises(OSError, match=r".*already in use.*") as exc_info:
                     sock2.bind(("127.0.0.1", port))
                 assert (
                     "already in use" in str(exc_info.value).lower()

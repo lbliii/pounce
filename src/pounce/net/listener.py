@@ -80,10 +80,10 @@ def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
         # Each worker binds independently — kernel distributes connections
         sockets: list[socket.socket] = []
         try:
-            for _ in range(count):
-                sockets.append(
-                    _bind_socket(config, _log_listen=False, use_reuseport=True)
-                )  # noqa: PERF401
+            sockets.extend(
+                _bind_socket(config, _log_listen=False, use_reuseport=True)
+                for _ in range(count)
+            )
         except Exception:
             # Clean up any sockets that were successfully created
             for s in sockets:
@@ -147,10 +147,10 @@ def create_udp_listeners(config: ServerConfig, count: int) -> list[socket.socket
     if has_so_reuseport():
         sockets: list[socket.socket] = []
         try:
-            for _ in range(count):
-                sockets.append(
-                    _bind_udp_socket(config, _log_bind=False, use_reuseport=True)
-                )  # noqa: PERF401
+            sockets.extend(
+                _bind_udp_socket(config, _log_bind=False, use_reuseport=True)
+                for _ in range(count)
+            )
         except Exception:
             for s in sockets:
                 s.close()
