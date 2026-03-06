@@ -322,13 +322,12 @@ class Supervisor:
         This ensures zero dropped requests during code reload.
 
         Note: Only works in thread mode. In process mode, falls back to
-        restart_all_workers() which has brief downtime.
+        restart_workers() which has brief downtime.
 
         """
         if self._mode != "thread":
             logger.warning(
-                "Graceful reload only supported in thread mode. "
-                "Falling back to restart_all_workers()."
+                "Graceful reload only supported in thread mode. Falling back to restart_workers()."
             )
             self.restart_workers()
             return

@@ -97,16 +97,17 @@ class TestWSProtocolCompression:
         """Test receiving compressed WebSocket frames."""
         # Create two protocol instances (client and server simulation)
         ws_sender = WSProtocol(enable_compression=True)
-        WSProtocol(enable_compression=True)
+        ws_receiver = WSProtocol(enable_compression=True)
 
         # Send a text message
         text_data = "This is a test message that should be compressed."
         frame = ws_sender.send_message(text_data)
 
-        # Receive and decompress (note: this is a simplified test)
-        # In reality, wsproto handles compression/decompression transparently
+        # Receive and decompress — wsproto handles compression transparently
         assert isinstance(frame, bytes)
         assert len(frame) > 0
+        events, _ = ws_receiver.receive_data(frame)
+        assert len(events) >= 1
 
 
 class TestServerConfig:

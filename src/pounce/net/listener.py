@@ -81,8 +81,7 @@ def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
         sockets: list[socket.socket] = []
         try:
             sockets.extend(
-                _bind_socket(config, _log_listen=False, use_reuseport=True)
-                for _ in range(count)
+                _bind_socket(config, _log_listen=False, use_reuseport=True) for _ in range(count)
             )
         except Exception:
             # Clean up any sockets that were successfully created
@@ -111,7 +110,11 @@ def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
 def create_udp_listener(config: ServerConfig) -> socket.socket:
     """Create and bind a single UDP socket for HTTP/3 (QUIC).
 
-    Binds to the same host:port as TCP. UDP has no listen() or backlog.
+    Binds to config.host:config.port. When config.port is 0 (ephemeral),
+    the OS assigns a port; callers must pass the resolved TCP port (from
+    the bound TCP socket) so HTTP/3 shares the advertised address.
+
+    UDP has no listen() or backlog.
 
     Args:
         config: Server configuration with host and port.
@@ -148,8 +151,7 @@ def create_udp_listeners(config: ServerConfig, count: int) -> list[socket.socket
         sockets: list[socket.socket] = []
         try:
             sockets.extend(
-                _bind_udp_socket(config, _log_bind=False, use_reuseport=True)
-                for _ in range(count)
+                _bind_udp_socket(config, _log_bind=False, use_reuseport=True) for _ in range(count)
             )
         except Exception:
             for s in sockets:

@@ -272,7 +272,9 @@ class Server:
             from pounce.protocols.h3 import is_h3_available
 
             if is_h3_available():
-                udp_sock = create_udp_listener(self._config)
+                # Bind UDP to same port as TCP (critical when config.port==0 ephemeral)
+                udp_config = replace(self._config, port=actual_addr[1])
+                udp_sock = create_udp_listener(udp_config)
                 logger.info(
                     "HTTP/3 enabled on %s:%d (UDP)",
                     actual_addr[0],
@@ -355,7 +357,8 @@ class Server:
                     from pounce.protocols.h3 import is_h3_available
 
                     if is_h3_available():
-                        udp_sock = create_udp_listener(self._config)
+                        udp_config = replace(self._config, port=actual_addr[1])
+                        udp_sock = create_udp_listener(udp_config)
 
                 logger.info(
                     "Pounce server starting on %s:%d (single worker, reload)",
@@ -526,6 +529,7 @@ class Server:
 
         """
         sockets = create_listeners(self._config, effective_workers)
+        actual_addr = sockets[0].getsockname()
 
         udp_sockets: list[socket.socket] = []
         if (
@@ -537,11 +541,12 @@ class Server:
             from pounce.protocols.h3 import is_h3_available
 
             if is_h3_available():
-                udp_sockets = create_udp_listeners(self._config, effective_workers)
+                udp_config = replace(self._config, port=actual_addr[1])
+                udp_sockets = create_udp_listeners(udp_config, effective_workers)
                 logger.info(
                     "HTTP/3 enabled on %s:%d (%d UDP workers)",
-                    self._config.host,
-                    self._config.port,
+                    actual_addr[0],
+                    actual_addr[1],
                     effective_workers,
                 )
             else:
@@ -551,8 +556,6 @@ class Server:
                 )
                 self._config = replace(self._config, http3_enabled=False)
 
-        # Figure out the actual bind address from the first socket
-        actual_addr = sockets[0].getsockname()
         logger.info(
             "Pounce server starting on %s:%d (%d %s workers)",
             actual_addr[0],
