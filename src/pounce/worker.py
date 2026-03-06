@@ -23,16 +23,17 @@ import contextlib
 import logging
 import socket
 import ssl
+import sys
 import threading
-from typing import Any
+from typing import Any, cast
 
 import h11
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._errors import ParseError
+from pounce._h2_handler import handle_h2_connection
 from pounce._health import build_health_response
 from pounce._request_id import extract_or_generate
-from pounce._h2_handler import handle_h2_connection
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp, Receive, Send
 from pounce._ws_handler import handle_websocket
@@ -197,7 +198,7 @@ class Worker:
 
         """
         self._draining = True
-        if self._loop and not self._loop.is_closed():
+        if self._loop and not self._loop.is_closed() and self._async_shutdown is not None:
             # Signal the accept loop to stop accepting new connections
             self._loop.call_soon_threadsafe(self._async_shutdown.set)
 
@@ -273,7 +274,9 @@ class Worker:
                     self._active_connections,
                 )
             else:
-                self._logger.debug("Worker %d shutting down (no active connections)", self._worker_id)
+                self._logger.debug(
+                    "Worker %d shutting down (no active connections)", self._worker_id
+                )
 
             # Guard against shared-fd sockets: on macOS all workers share
             # the same socket fd.  When the first worker closes the asyncio
@@ -283,7 +286,7 @@ class Worker:
             try:
                 server.close()
                 await server.wait_closed()
-            except (ValueError, OSError):
+            except ValueError, OSError:
                 pass  # fd already closed by another worker sharing the socket
 
             # Per-worker shutdown hook — runs on this worker's event loop
@@ -367,7 +370,7 @@ class Worker:
                 await writer.drain()
                 writer.close()
                 await writer.wait_closed()
-            except (OSError, ConnectionError):
+            except OSError, ConnectionError:
                 pass
             return
 
@@ -388,7 +391,7 @@ class Worker:
                 await writer.drain()
                 writer.close()
                 await writer.wait_closed()
-            except (OSError, ConnectionError):
+            except OSError, ConnectionError:
                 pass
             return
 
@@ -433,7 +436,7 @@ class Worker:
                 )
                 try:
                     await handle_h2_connection(
-                        self._app,
+                        cast(ASGIApp, self._app),
                         self._config,
                         self._logger,
                         reader,
@@ -466,7 +469,7 @@ class Worker:
                     try:
                         writer.close()
                         await writer.wait_closed()
-                    except (OSError, ConnectionError):
+                    except OSError, ConnectionError:
                         pass
                 return
 
@@ -518,7 +521,7 @@ class Worker:
                         # Check for WebSocket upgrade
                         if _is_websocket_upgrade(event):
                             await handle_websocket(
-                                self._app,
+                                cast(ASGIApp, self._app),
                                 self._config,
                                 self._logger,
                                 event,
@@ -562,7 +565,7 @@ class Worker:
                 except TimeoutError:
                     close_reason = "timeout"
                     break  # Timeout — close connection
-                except (ConnectionError, OSError):
+                except ConnectionError, OSError:
                     close_reason = "client_disconnect"
                     break
 
@@ -592,7 +595,7 @@ class Worker:
                 # Check if we can do another cycle (keep-alive)
                 try:
                     proto.start_new_cycle()
-                except (h11.LocalProtocolError, RuntimeError):
+                except h11.LocalProtocolError, RuntimeError:
                     break  # Connection can't be reused
 
                 # Next read is the start of a new request — use header_timeout
@@ -626,7 +629,7 @@ class Worker:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except (OSError, ConnectionError):
+            except OSError, ConnectionError:
                 pass
 
     # ------------------------------------------------------------------
@@ -661,47 +664,47 @@ class Worker:
         )
 
         # Build ASGI scope
-        scope = build_scope(
-            request, self._config, client, server, state=self._lifespan_state
-        )
+        scope = build_scope(request, self._config, client, server, state=self._lifespan_state)
 
         # Generate or extract request ID for tracing
         is_trusted_peer = bool(
             self._config.trusted_hosts
-            and (
-                "*" in self._config.trusted_hosts
-                or client[0] in self._config.trusted_hosts
-            )
+            and ("*" in self._config.trusted_hosts or client[0] in self._config.trusted_hosts)
         )
-        request_id = extract_or_generate(
-            request.headers, trusted=is_trusted_peer
-        )
+        request_id = extract_or_generate(request.headers, trusted=is_trusted_peer)
         scope.setdefault("extensions", {})["request_id"] = request_id
 
         # Built-in health check — respond before ASGI dispatch.
         # Skips access log to reduce noise from k8s/load balancer probes.
         health_path = self._config.health_check_path
-        if (
-            health_path is not None
-            and scope["path"] == health_path
-            and request.method == b"GET"
-        ):
+        if health_path is not None and scope["path"] == health_path and request.method == b"GET":
             status, resp_headers, body = build_health_response(
                 worker_id=self._worker_id,
                 active_connections=self._active_connections,
             )
             send_state = SendState()
             send_state.status = status
-            send_fn = create_send(proto, writer, send_state, request_id=request_id)
-            await send_fn({
-                "type": "http.response.start",
-                "status": status,
-                "headers": resp_headers,
-            })
-            await send_fn({
-                "type": "http.response.body",
-                "body": body,
-            })
+            send_fn = create_send(
+                proto,
+                writer,
+                send_state,
+                request_id=request_id,
+                config=self._config,
+                server=server,
+            )
+            await send_fn(
+                {
+                    "type": "http.response.start",
+                    "status": status,
+                    "headers": resp_headers,
+                }
+            )
+            await send_fn(
+                {
+                    "type": "http.response.body",
+                    "body": body,
+                }
+            )
             return
 
         # Set up timing if enabled
@@ -731,9 +734,26 @@ class Worker:
         body_queue: asyncio.Queue[BodyReceived] | None = None
 
         if initial_body:
-            # Body events arrived with the request head
+            # Body events arrived with the request head.
+            # Enforce max_request_size (same as _read_body).
             body_queue = asyncio.Queue()
+            max_body = self._config.max_request_size
+            total_bytes = 0
             for body_event in initial_body:
+                total_bytes += len(body_event.data)
+                if total_bytes > max_body:
+                    self._logger.warning(
+                        "Request body exceeds max_request_size (%d bytes)",
+                        max_body,
+                    )
+                    # Put truncated final chunk so app sees at most max_body bytes
+                    keep = max_body - (total_bytes - len(body_event.data))
+                    if keep > 0:
+                        await body_queue.put(BodyReceived(data=body_event.data[:keep], more=False))
+                    else:
+                        await body_queue.put(BodyReceived(data=b"", more=False))
+                    body_complete = True
+                    break
                 await body_queue.put(body_event)
                 if not body_event.more:
                     body_complete = True
@@ -753,6 +773,8 @@ class Worker:
             compressor=compressor,
             request_method=request.method,
             request_id=request_id,
+            config=self._config,
+            server=server,
         )
 
         # Create OpenTelemetry span for this request
@@ -817,6 +839,14 @@ class Worker:
 
         if timing:
             timing.add("app", elapsed_ms(app_start))
+
+        # If app returned without sending http.response.start, send 500 now.
+        # Do not treat empty-body responses (HEAD/204/304) as "no response".
+        if not send_state.response_started:
+            status = 500
+            with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
+                await self._send_error(writer, proto, status, "Internal Server Error")
+            send_state.status = status
 
         # Record response lifecycle event
         self._lifecycle.record(
@@ -884,10 +914,13 @@ class Worker:
                 with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
                     if self._config.debug:
                         # Send rich debug error page in development
+                        exc_info = sys.exc_info()
                         await self._send_debug_error(
                             writer,
                             proto,
-                            sys.exc_info(),
+                            (exc_info[0], exc_info[1], exc_info[2])
+                            if exc_info[0] is not None and exc_info[1] is not None
+                            else (Exception, Exception("Unknown error"), exc_info[2]),
                             request_method=scope.get("method", "GET"),
                             request_path=scope.get("path", "/"),
                             request_headers=scope.get("headers"),
@@ -989,7 +1022,7 @@ class Worker:
                     except TimeoutError:
                         await body_queue.put(BodyReceived(data=b"", more=False))
                         return
-                    except (ConnectionError, OSError):
+                    except ConnectionError, OSError:
                         await body_queue.put(BodyReceived(data=b"", more=False))
                         return
 
@@ -1034,10 +1067,13 @@ class Worker:
                 with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
                     if self._config.debug:
                         # Send rich debug error page in development
+                        exc_info = sys.exc_info()
                         await self._send_debug_error(
                             writer,
                             proto,
-                            sys.exc_info(),
+                            (exc_info[0], exc_info[1], exc_info[2])
+                            if exc_info[0] is not None and exc_info[1] is not None
+                            else (Exception, Exception("Unknown error"), exc_info[2]),
                             request_method=scope.get("method", "GET"),
                             request_path=scope.get("path", "/"),
                             request_headers=scope.get("headers"),
@@ -1109,7 +1145,7 @@ class Worker:
                 if not data:
                     # Client disconnected — EOF
                     break
-        except (ConnectionError, OSError):
+        except ConnectionError, OSError:
             pass
         finally:
             disconnect.set()

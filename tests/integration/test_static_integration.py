@@ -376,7 +376,8 @@ class TestStaticFileServing:
         assert response_started is not None
         assert response_started["status"] == 200
         headers = dict(response_started["headers"])
-        assert headers[b"content-type"] == b"image/x-icon"
+        # Both valid .ico MIME types (mimetypes varies by platform)
+        assert headers[b"content-type"] in (b"image/x-icon", b"image/vnd.microsoft.icon")
 
     async def test_serve_large_json(self, static_app):
         """Test serving search-index.json (Bengal Lunr-style)."""
@@ -653,15 +654,19 @@ class TestMiddlewareMode:
         async def app(scope, receive, send):
             nonlocal app_called
             app_called = True
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-type", b"text/plain")],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"app response",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"app response",
+                }
+            )
 
         # Wrap app with static files
         static_middleware = StaticFiles(

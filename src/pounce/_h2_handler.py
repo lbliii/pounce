@@ -111,23 +111,14 @@ async def handle_h2_connection(
         # Generate or extract request ID for tracing
         is_trusted_peer = bool(
             config.trusted_hosts
-            and (
-                "*" in config.trusted_hosts
-                or client[0] in config.trusted_hosts
-            )
+            and ("*" in config.trusted_hosts or client[0] in config.trusted_hosts)
         )
-        request_id = extract_or_generate(
-            request.headers, trusted=is_trusted_peer
-        )
+        request_id = extract_or_generate(request.headers, trusted=is_trusted_peer)
         scope.setdefault("extensions", {})["request_id"] = request_id
 
         # Built-in health check — respond before ASGI dispatch
         health_path = config.health_check_path
-        if (
-            health_path is not None
-            and scope["path"] == health_path
-            and request.method == b"GET"
-        ):
+        if health_path is not None and scope["path"] == health_path and request.method == b"GET":
             h_status, h_headers, h_body = build_health_response(
                 worker_id=0,  # H2 handler doesn't track worker_id
                 active_connections=0,
@@ -164,6 +155,8 @@ async def handle_h2_connection(
             compressor=compressor,
             request_method=request.method,
             request_id=request_id,
+            config=config,
+            server=server,
         )
 
         try:
@@ -187,7 +180,7 @@ async def handle_h2_connection(
                     end_stream=True,
                 )
                 writer.write(h2_conn.data_to_send())
-            except (OSError, ConnectionError):
+            except OSError, ConnectionError:
                 pass
             if send_state.status == 0:
                 send_state.status = 500
@@ -274,8 +267,8 @@ async def handle_h2_connection(
                         _, bq = pair
                         # Enforce max_request_size for streaming H2 bodies
                         sid = event.stream_id
-                        stream_body_bytes[sid] = (
-                            stream_body_bytes.get(sid, 0) + len(event.body.data)
+                        stream_body_bytes[sid] = stream_body_bytes.get(sid, 0) + len(
+                            event.body.data
                         )
                         if stream_body_bytes[sid] > max_body:
                             logger.warning(
@@ -283,17 +276,21 @@ async def handle_h2_connection(
                                 sid,
                                 max_body,
                             )
-                            await bq.put({
-                                "type": "http.request",
-                                "body": b"",
-                                "more_body": False,
-                            })
+                            await bq.put(
+                                {
+                                    "type": "http.request",
+                                    "body": b"",
+                                    "more_body": False,
+                                }
+                            )
                         else:
-                            await bq.put({
-                                "type": "http.request",
-                                "body": event.body.data,
-                                "more_body": event.body.more,
-                            })
+                            await bq.put(
+                                {
+                                    "type": "http.request",
+                                    "body": event.body.data,
+                                    "more_body": event.body.more,
+                                }
+                            )
 
                 elif isinstance(event, H2StreamReset):
                     stream_body_bytes.pop(event.stream_id, None)
@@ -324,7 +321,7 @@ async def handle_h2_connection(
             h2_conn.close_connection()
             writer.write(h2_conn.data_to_send())
             await writer.drain()
-        except (OSError, ConnectionError):
+        except OSError, ConnectionError:
             pass
 
 

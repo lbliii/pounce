@@ -19,11 +19,9 @@ Security:
 """
 
 import html
-import sys
-import traceback
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 # Try to import Rosettes for syntax highlighting
 try:
@@ -69,8 +67,7 @@ def format_exception_html(
     html_parts = [_render_header(exc_type, exc_value, request_method, request_path)]
 
     # Render each frame
-    for frame_info in frames:
-        html_parts.append(_render_frame(frame_info))
+    html_parts.extend([_render_frame(f) for f in frames])
 
     # Render request details
     if request_headers:
@@ -105,13 +102,15 @@ def _extract_frames(tb: Any) -> list[dict[str, Any]]:
         # Get local variables (sanitized)
         local_vars = _sanitize_locals(frame.f_locals)
 
-        frames.append({
-            "filename": filename,
-            "lineno": lineno,
-            "name": name,
-            "source": source_lines,
-            "locals": local_vars,
-        })
+        frames.append(
+            {
+                "filename": filename,
+                "lineno": lineno,
+                "name": name,
+                "source": source_lines,
+                "locals": local_vars,
+            }
+        )
 
         tb = tb.tb_next
 
@@ -133,7 +132,7 @@ def _get_source_context(filename: str, lineno: int, context: int = 5) -> list[tu
     try:
         with Path(filename).open(encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return []
 
     start = max(0, lineno - context - 1)
@@ -352,7 +351,7 @@ def _render_frame(frame_info: dict[str, Any]) -> str:
         # Syntax highlight if Rosettes available
         if _HAS_ROSETTES and line_text.strip():
             try:
-                highlighted = highlight_python(line_text, inline=True)
+                highlighted = cast(Callable[..., str], highlight_python)(line_text, inline=True)
             except Exception:
                 highlighted = html.escape(line_text)
         else:
@@ -384,7 +383,9 @@ def _render_request_details(
     headers_text = "\n".join(
         f"{name.decode('latin1')}: {value.decode('latin1', errors='replace')}"
         for name, value in headers
-        if not any(sensitive in name.lower() for sensitive in [b"authorization", b"cookie", b"token"])
+        if not any(
+            sensitive in name.lower() for sensitive in [b"authorization", b"cookie", b"token"]
+        )
     )
 
     return f"""    <div class="request-details">

@@ -39,6 +39,7 @@ class SendState:
 
     status: int = 0
     bytes_sent: int = 0
+    response_started: bool = False  # True when http.response.start was sent
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +267,8 @@ def create_send(
     compressor: Compressor | None = None,
     request_method: bytes = b"GET",
     request_id: str | None = None,
+    config: ServerConfig | None = None,
+    server: tuple[str, int] | None = None,
 ) -> Send:
     """Create an ASGI send callable that streams to the transport.
 
@@ -308,6 +311,7 @@ def create_send(
                 return
 
             response_started = True
+            state.response_started = True
             state.status = status
             headers: list[tuple[bytes, bytes]] = [
                 (
@@ -326,6 +330,18 @@ def create_send(
             if request_id is not None:
                 headers.append((b"x-request-id", request_id.encode("latin-1")))
 
+            # Alt-Svc for HTTP/3 upgrade (RFC 7838)
+            # Use actual bound port from server tuple; config.port may be 0 (ephemeral)
+            if config is not None and config.http3_enabled:
+                port = server[1] if server and server[1] > 0 else config.port
+                if port > 0:
+                    headers.append(
+                        (
+                            b"alt-svc",
+                            f'h3=":{port}"; ma=2592000'.encode("ascii"),
+                        ),
+                    )
+
             # SSE must not be compressed — EventSource API doesn't support it
             if compressor is not None:
                 for name, value in headers:
@@ -337,9 +353,7 @@ def create_send(
             # contain a message body.  Disable compression so the compressor's
             # flush() doesn't produce gzip/zstd trailer bytes that h11 would
             # reject as "Too much data for declared Content-Length".
-            if compressor is not None and (
-                100 <= status <= 199 or status in {204, 304}
-            ):
+            if compressor is not None and (100 <= status <= 199 or status in {204, 304}):
                 compressor = None
 
             # HEAD responses: the app may produce body bytes (for Content-Length

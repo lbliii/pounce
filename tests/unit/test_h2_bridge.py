@@ -1,7 +1,5 @@
 """Tests for pounce.asgi.h2_bridge — HTTP/2 scope construction and send callable."""
 
-import pytest
-
 from pounce.asgi.h2_bridge import build_h2_scope
 from pounce.config import ServerConfig
 from pounce.protocols._base import RequestReceived
@@ -26,22 +24,16 @@ class TestBuildH2Scope:
     """build_h2_scope() produces a valid ASGI HTTP scope for H2."""
 
     def test_http_version_is_2(self):
-        scope = build_h2_scope(
-            _request(), ServerConfig(), ("127.0.0.1", 5000), ("0.0.0.0", 8000)
-        )
+        scope = build_h2_scope(_request(), ServerConfig(), ("127.0.0.1", 5000), ("0.0.0.0", 8000))
         assert scope["http_version"] == "2"
 
     def test_scheme_https_when_tls(self):
         config = ServerConfig(ssl_certfile="cert.pem", ssl_keyfile="key.pem")
-        scope = build_h2_scope(
-            _request(), config, ("127.0.0.1", 5000), ("0.0.0.0", 8000)
-        )
+        scope = build_h2_scope(_request(), config, ("127.0.0.1", 5000), ("0.0.0.0", 8000))
         assert scope["scheme"] == "https"
 
     def test_scheme_http_when_no_tls(self):
-        scope = build_h2_scope(
-            _request(), ServerConfig(), ("127.0.0.1", 5000), ("0.0.0.0", 8000)
-        )
+        scope = build_h2_scope(_request(), ServerConfig(), ("127.0.0.1", 5000), ("0.0.0.0", 8000))
         assert scope["scheme"] == "http"
 
     def test_applies_proxy_headers_from_trusted_peer(self):
@@ -53,9 +45,7 @@ class TestBuildH2Scope:
             ),
         )
         config = ServerConfig(trusted_hosts=("10.0.0.1",))
-        scope = build_h2_scope(
-            request, config, ("10.0.0.1", 5000), ("0.0.0.0", 8000)
-        )
+        scope = build_h2_scope(request, config, ("10.0.0.1", 5000), ("0.0.0.0", 8000))
         assert scope["client"] == ("203.0.113.50", 5000)
         assert scope["scheme"] == "https"
 
@@ -65,9 +55,7 @@ class TestBuildH2Scope:
             headers=((b"x-forwarded-for", b"evil"),),
         )
         config = ServerConfig(trusted_hosts=("10.0.0.1",))
-        scope = build_h2_scope(
-            request, config, ("192.168.1.1", 5000), ("0.0.0.0", 8000)
-        )
+        scope = build_h2_scope(request, config, ("192.168.1.1", 5000), ("0.0.0.0", 8000))
         # Client unchanged
         assert scope["client"] == ("192.168.1.1", 5000)
         # X-Forwarded-For stripped
@@ -79,8 +67,6 @@ class TestBuildH2Scope:
         request = _request(
             headers=((b"x-forwarded-for", b"1.2.3.4"),),
         )
-        scope = build_h2_scope(
-            request, ServerConfig(), ("10.0.0.1", 5000), ("0.0.0.0", 8000)
-        )
+        scope = build_h2_scope(request, ServerConfig(), ("10.0.0.1", 5000), ("0.0.0.0", 8000))
         header_names = [h[0] for h in scope["headers"]]
         assert b"x-forwarded-for" not in header_names

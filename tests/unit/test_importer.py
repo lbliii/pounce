@@ -177,18 +177,14 @@ class TestReimportApp:
     def test_reimport_picks_up_changes(self, tmp_path, monkeypatch):
         """After modifying source on disk, reimport returns the new value."""
         mod_file = tmp_path / "hotmod.py"
-        mod_file.write_text(
-            "async def app(scope, receive, send): return 'v1'\n"
-        )
+        mod_file.write_text("async def app(scope, receive, send): return 'v1'\n")
         monkeypatch.syspath_prepend(str(tmp_path))
         sys.modules.pop("hotmod", None)
 
         app_v1 = import_app("hotmod:app")
 
         # Modify source on disk
-        mod_file.write_text(
-            "async def app(scope, receive, send): return 'v2'\n"
-        )
+        mod_file.write_text("async def app(scope, receive, send): return 'v2'\n")
 
         app_v2 = reimport_app("hotmod:app", base_dirs=[str(tmp_path)])
 
@@ -256,8 +252,7 @@ class TestReimportApp:
         (pkg_dir / "__init__.py").write_text("")
         (pkg_dir / "routes.py").write_text("VALUE = 'old'\n")
         (pkg_dir / "app.py").write_text(
-            "from mypkg.routes import VALUE\n"
-            "async def app(scope, receive, send): return VALUE\n"
+            "from mypkg.routes import VALUE\nasync def app(scope, receive, send): return VALUE\n"
         )
         monkeypatch.syspath_prepend(str(tmp_path))
         for name in list(sys.modules):

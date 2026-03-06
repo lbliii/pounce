@@ -187,15 +187,19 @@ class TestQueueWrapper:
         async def mock_app(scope, receive, send):
             nonlocal app_called
             app_called = True
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-type", b"text/plain")],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"OK",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"OK",
+                }
+            )
 
         queue = RequestQueue(max_depth=10)
         wrapped = create_queue_wrapper(mock_app, queue)
@@ -228,6 +232,7 @@ class TestQueueWrapper:
     @pytest.mark.asyncio
     async def test_wrapper_rejects_when_queue_full(self):
         """Test that wrapper returns 503 when queue is full."""
+
         async def mock_app(scope, receive, send):
             # Should not be called
             raise AssertionError("App should not be called when queue is full")
@@ -273,16 +278,21 @@ class TestQueueWrapper:
     @pytest.mark.asyncio
     async def test_wrapper_releases_slot_on_success(self):
         """Test that wrapper releases queue slot after request."""
+
         async def mock_app(scope, receive, send):
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"OK",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"OK",
+                }
+            )
 
         queue = RequestQueue(max_depth=10)
         wrapped = create_queue_wrapper(mock_app, queue)
@@ -309,6 +319,7 @@ class TestQueueWrapper:
     @pytest.mark.asyncio
     async def test_wrapper_releases_slot_on_error(self):
         """Test that wrapper releases queue slot even on error."""
+
         async def mock_app(scope, receive, send):
             raise RuntimeError("App error")
 
@@ -369,16 +380,21 @@ class TestQueueWrapper:
     @pytest.mark.asyncio
     async def test_wrapper_records_wait_time(self):
         """Test that wrapper records queue wait time."""
+
         async def mock_app(scope, receive, send):
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"OK",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"OK",
+                }
+            )
 
         queue = RequestQueue(max_depth=10)
         metrics = QueueMetrics()
@@ -414,15 +430,19 @@ class TestQueueWrapper:
             nonlocal request_count
             request_count += 1
             await asyncio.sleep(0.05)  # Simulate work
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"OK",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"OK",
+                }
+            )
 
         queue = RequestQueue(max_depth=5)
         metrics = QueueMetrics()
@@ -442,7 +462,7 @@ class TestQueueWrapper:
             pass
 
         # Make 10 concurrent requests (queue depth 5, so 5 should be rejected)
-        results = await asyncio.gather(
+        await asyncio.gather(
             *[wrapped(scope, receive, send) for _ in range(10)],
             return_exceptions=True,
         )

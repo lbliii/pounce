@@ -6,6 +6,7 @@ Tests the full flow: HTTP upgrade → 101 response with extensions → compresse
 """
 
 import asyncio
+import contextlib
 
 import pytest
 
@@ -46,7 +47,6 @@ class MockStreamWriter:
 
     async def drain(self) -> None:
         """Drain (no-op)."""
-        pass
 
     def get_written(self) -> bytes:
         """Get all written data."""
@@ -101,7 +101,7 @@ class TestWebSocketCompressionIntegration:
         writer = MockStreamWriter()
 
         # Run the WebSocket handler with a timeout
-        try:
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(
                 handle_websocket(
                     echo_app,
@@ -116,8 +116,6 @@ class TestWebSocketCompressionIntegration:
                 ),
                 timeout=1.0,
             )
-        except asyncio.TimeoutError:
-            pass  # Expected - app waits for frames
 
         # Check that 101 response includes Sec-WebSocket-Extensions
         written = writer.get_written()
@@ -162,7 +160,7 @@ class TestWebSocketCompressionIntegration:
         writer = MockStreamWriter()
 
         # Run the WebSocket handler with a timeout
-        try:
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(
                 handle_websocket(
                     simple_app,
@@ -177,8 +175,6 @@ class TestWebSocketCompressionIntegration:
                 ),
                 timeout=1.0,
             )
-        except asyncio.TimeoutError:
-            pass
 
         # Check that 101 response does NOT include Sec-WebSocket-Extensions
         written = writer.get_written()

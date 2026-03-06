@@ -22,7 +22,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 
 # ---------------------------------------------------------------------------
@@ -255,7 +255,7 @@ class LoggingCollector:
 
     """
 
-    __slots__ = ("_logger", "_slow_threshold_ms", "_json_format", "_health_check_path")
+    __slots__ = ("_health_check_path", "_json_format", "_logger", "_slow_threshold_ms")
 
     def __init__(
         self,
@@ -288,13 +288,16 @@ class LoggingCollector:
         event_dict["event"] = event_type
         event_dict["timestamp"] = datetime.fromtimestamp(
             event_dict.pop("timestamp_ns") / 1_000_000_000,
-            tz=timezone.utc,
+            tz=UTC,
         ).isoformat()
 
         # Filter health checks from lifecycle logs
-        if isinstance(event, RequestStarted) and self._health_check_path:
-            if event.path == self._health_check_path:
-                return
+        if (
+            isinstance(event, RequestStarted)
+            and self._health_check_path
+            and event.path == self._health_check_path
+        ):
+            return
 
         # Determine log level and message based on event type
         if isinstance(event, ConnectionOpened):

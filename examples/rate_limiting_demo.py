@@ -21,7 +21,7 @@ Test rate limiting:
 
 import time
 
-from pounce import run, ServerConfig
+from pounce import ServerConfig, run
 
 
 async def app(scope, receive, send):
@@ -33,35 +33,42 @@ async def app(scope, receive, send):
 
     # API endpoint
     if path == "/api":
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [
-                (b"content-type", b"application/json"),
-                (b"x-ratelimit-limit", b"5"),  # 5 req/s
-                (b"x-ratelimit-burst", b"10"),  # Burst of 10
-            ],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": (
-                b'{"message": "Request successful!", '
-                b'"timestamp": ' + str(int(time.time())).encode() + b', '
-                b'"tip": "Try sending many rapid requests to see rate limiting"}'
-            ),
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"x-ratelimit-limit", b"5"),  # 5 req/s
+                    (b"x-ratelimit-burst", b"10"),  # Burst of 10
+                ],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": (
+                    b'{"message": "Request successful!", '
+                    b'"timestamp": ' + str(int(time.time())).encode() + b", "
+                    b'"tip": "Try sending many rapid requests to see rate limiting"}'
+                ),
+            }
+        )
         return
 
     # Status page
     if path == "/" or path == "/status":
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", b"text/html")],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b"""
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/html")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"""
             <!DOCTYPE html>
             <html>
             <head>
@@ -126,28 +133,33 @@ async def app(scope, receive, send):
                             await new Promise(r => setTimeout(r, 50));
                         }
 
-                        results.innerHTML += '<p class="success">✓ ' + success + ' requests succeeded</p>';
+                        results.innerHTML += '<p class="success">OK: ' + success + ' requests succeeded</p>';
                         if (ratelimited > 0) {
-                            results.innerHTML += '<p class="error">✗ ' + ratelimited + ' requests rate limited (429)</p>';
+                            results.innerHTML += '<p class="error">X: ' + ratelimited + ' requests rate limited (429)</p>';
                         }
                     }
                 </script>
             </body>
             </html>
             """,
-        })
+            }
+        )
         return
 
     # 404 for other paths
-    await send({
-        "type": "http.response.start",
-        "status": 404,
-        "headers": [(b"content-type", b"text/plain")],
-    })
-    await send({
-        "type": "http.response.body",
-        "body": b"Not Found",
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 404,
+            "headers": [(b"content-type", b"text/plain")],
+        }
+    )
+    await send(
+        {
+            "type": "http.response.body",
+            "body": b"Not Found",
+        }
+    )
 
 
 if __name__ == "__main__":
@@ -155,12 +167,10 @@ if __name__ == "__main__":
         host="127.0.0.1",
         port=8000,
         workers=2,
-
         # Enable rate limiting with low limits for demo
         rate_limit_enabled=True,
         rate_limit_requests_per_second=5.0,  # 5 req/s per IP
         rate_limit_burst=10,  # Allow bursts up to 10
-
         # Enable metrics to monitor rate limiting
         metrics_enabled=True,
         metrics_path="/metrics",

@@ -18,8 +18,6 @@ Example:
 
 import mimetypes
 import os
-import stat
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -173,15 +171,19 @@ class StaticFiles:
                 await self._app(scope, receive, send)
             else:
                 # No app and no file found - send 404
-                await send({
-                    "type": "http.response.start",
-                    "status": 404,
-                    "headers": [(b"content-type", b"text/plain")],
-                })
-                await send({
-                    "type": "http.response.body",
-                    "body": b"Not Found",
-                })
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 404,
+                        "headers": [(b"content-type", b"text/plain")],
+                    }
+                )
+                await send(
+                    {
+                        "type": "http.response.body",
+                        "body": b"Not Found",
+                    }
+                )
             return
 
         # Check conditional requests (If-None-Match)
@@ -200,9 +202,7 @@ class StaticFiles:
         # Send full file
         await self._send_file(file, method, send)
 
-    def _resolve_file(
-        self, url_path: str, headers: list[tuple[bytes, bytes]]
-    ) -> StaticFile | None:
+    def _resolve_file(self, url_path: str, headers: list[tuple[bytes, bytes]]) -> StaticFile | None:
         """Resolve URL path to static file.
 
         Returns:
@@ -244,7 +244,7 @@ class StaticFiles:
                 # Use is_relative_to() which handles symlinks correctly
                 if not resolved.is_relative_to(mount_resolved):
                     return None
-            except (ValueError, OSError):
+            except ValueError, OSError:
                 return None
 
             # Block hidden files (anything starting with .)
@@ -274,9 +274,7 @@ class StaticFiles:
                 return None
 
             # Check for precompressed variants
-            final_path, encoding = self._find_precompressed(
-                resolved, mount, headers, file_stat
-            )
+            final_path, encoding = self._find_precompressed(resolved, mount, headers, file_stat)
 
             # Get final stats (might be different if precompressed)
             try:
@@ -374,9 +372,7 @@ class StaticFiles:
         size_hex = hex(size)[2:]
         return f'W/"{mtime_hex}-{size_hex}"'
 
-    def _check_not_modified(
-        self, headers: list[tuple[bytes, bytes]], file: StaticFile
-    ) -> bool:
+    def _check_not_modified(self, headers: list[tuple[bytes, bytes]], file: StaticFile) -> bool:
         """Check if client has cached version (If-None-Match).
 
         Returns:
@@ -440,9 +436,7 @@ class StaticFiles:
 
         return ranges if ranges else None
 
-    def _get_header(
-        self, headers: list[tuple[bytes, bytes]], name: bytes
-    ) -> bytes | None:
+    def _get_header(self, headers: list[tuple[bytes, bytes]], name: bytes) -> bytes | None:
         """Get header value by name (case-insensitive).
 
         Returns:
@@ -476,9 +470,7 @@ class StaticFiles:
             }
         )
 
-    async def _send_206(
-        self, file: StaticFile, ranges: list[tuple[int, int]], send: Send
-    ) -> None:
+    async def _send_206(self, file: StaticFile, ranges: list[tuple[int, int]], send: Send) -> None:
         """Send 206 Partial Content response.
 
         Currently supports single range only (multipart ranges not implemented).
@@ -549,9 +541,7 @@ class StaticFiles:
         # Send file body
         await self._send_file_body(file.path, 0, file.size, send)
 
-    async def _send_file_body(
-        self, path: Path, offset: int, count: int, send: Send
-    ) -> None:
+    async def _send_file_body(self, path: Path, offset: int, count: int, send: Send) -> None:
         """Send file body using chunked reads.
 
         TODO: Optimize with sendfile for zero-copy transfer.
@@ -577,9 +567,7 @@ class StaticFiles:
                 )
                 remaining -= len(chunk)
 
-    async def _send_file_range(
-        self, path: Path, start: int, count: int, send: Send
-    ) -> None:
+    async def _send_file_range(self, path: Path, start: int, count: int, send: Send) -> None:
         """Send file range (for 206 responses)."""
         await self._send_file_body(path, start, count, send)
 

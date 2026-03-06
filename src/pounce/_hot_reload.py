@@ -23,7 +23,7 @@ class WorkerGeneration:
 
     """
 
-    __slots__ = ("_generation", "_start_time", "_pid")
+    __slots__ = ("_generation", "_pid", "_start_time")
 
     def __init__(self, generation: int = 1) -> None:
         """Initialize worker generation.
@@ -138,7 +138,7 @@ class ReloadCoordinator:
 
     """
 
-    __slots__ = ("_current_generation", "_reload_requested", "_reload_in_progress")
+    __slots__ = ("_current_generation", "_reload_in_progress", "_reload_requested")
 
     def __init__(self) -> None:
         """Initialize reload coordinator."""
@@ -184,7 +184,11 @@ class ReloadCoordinator:
 
         """
         self._reload_requested = True
-        logger.info("Hot reload requested (generation %d -> %d)", self._current_generation, self._current_generation + 1)
+        logger.info(
+            "Hot reload requested (generation %d -> %d)",
+            self._current_generation,
+            self._current_generation + 1,
+        )
 
     def start_reload(self) -> int:
         """Start reload process and increment generation.
@@ -288,10 +292,7 @@ def should_drain_worker(
         return True
 
     # If worker has been running longer than drain timeout, drain
-    if worker_generation.uptime > drain_timeout:
-        return True
-
-    return False
+    return worker_generation.uptime > drain_timeout
 
 
 def wait_for_workers_to_drain(

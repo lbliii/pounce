@@ -7,10 +7,8 @@ and load shedding for production overload protection.
 """
 
 import time
-from collections import defaultdict
 from collections.abc import Callable
 from threading import Lock
-from typing import Any
 
 
 class TokenBucket:
@@ -26,7 +24,7 @@ class TokenBucket:
 
     """
 
-    __slots__ = ("_capacity", "_rate", "_tokens", "_last_refill", "_lock")
+    __slots__ = ("_capacity", "_last_refill", "_lock", "_rate", "_tokens")
 
     def __init__(self, rate: float, burst: int) -> None:
         """Initialize token bucket.
@@ -76,7 +74,7 @@ class RateLimiter:
 
     """
 
-    __slots__ = ("_rate", "_burst", "_buckets", "_lock", "_cleanup_interval", "_last_cleanup")
+    __slots__ = ("_buckets", "_burst", "_cleanup_interval", "_last_cleanup", "_lock", "_rate")
 
     def __init__(self, rate: float, burst: int) -> None:
         """Initialize rate limiter.
@@ -190,18 +188,22 @@ def create_rate_limit_wrapper(
         # Check rate limit
         if not rate_limiter.check_rate_limit(client_ip):
             # Rate limited! Return 429
-            await send({
-                "type": "http.response.start",
-                "status": 429,
-                "headers": [
-                    (b"content-type", b"text/plain"),
-                    (b"retry-after", b"1"),
-                ],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"Too Many Requests",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 429,
+                    "headers": [
+                        (b"content-type", b"text/plain"),
+                        (b"retry-after", b"1"),
+                    ],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"Too Many Requests",
+                }
+            )
             return
 
         # Allow request

@@ -19,6 +19,7 @@ All state is per-connection. No shared mutable state.
 import base64
 import hashlib
 import logging
+from typing import Any
 
 from pounce.protocols._base import (
     ProtocolEvent,
@@ -120,7 +121,7 @@ class WSProtocol:
 
     """
 
-    __slots__ = ("_closed", "_conn", "_subprotocol", "_extensions_response")
+    __slots__ = ("_closed", "_conn", "_extensions_response", "_subprotocol")
 
     def __init__(
         self,

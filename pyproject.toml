@@ -18,9 +18,10 @@ keywords = [
     "nogil",
     "websocket",
     "http2",
+    "http3",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
@@ -46,8 +47,11 @@ tls = ["truststore>=0.9"]
 # C-accelerated HTTP/1.1 parsing
 fast = ["httptools>=0.6"]
 
+# HTTP/3 support (QUIC)
+h3 = ["bengal-zoomies>=0.1.1"]
+
 # Full protocol support
-full = ["h2>=4.0", "wsproto>=1.2", "truststore>=0.9"]
+full = ["h2>=4.0", "wsproto>=1.2", "truststore>=0.9", "bengal-zoomies>=0.1.1"]
 
 [project.scripts]
 pounce = "pounce._cli:main"
@@ -110,6 +114,10 @@ python-version = "3.14"
 [tool.ty.src]
 exclude = ["dist/", "build/", "tests/"]
 
+[tool.ty.analysis]
+# Optional deps that may not be installed in all environments
+allowed-unresolved-imports = ["rosettes", "zoomies", "zoomies.**", "bengal-zoomies"]
+
 [tool.ty.rules]
 unused-ignore-comment = "warn"
 
@@ -118,12 +126,13 @@ unused-ignore-comment = "warn"
 # =============================================================================
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "benchmarks"]
+pythonpath = ["src"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-addopts = ["-ra", "-q", "--strict-markers"]
+addopts = ["-ra", "-q", "--strict-markers", "-m", "not benchmark"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: full server integration tests",
@@ -179,6 +188,12 @@ dev = [
     # Protocol deps for full test suite
     "h2>=4.0",
     "wsproto>=1.2",
+    # Optional deps for ty resolution (unresolved-import)
+    "bengal-zoomies>=0.1.1",
+    "opentelemetry-api>=1.0",
+    "opentelemetry-sdk>=1.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.0",
+    "sentry-sdk>=2.0",
     # Test utilities
     "httpx>=0.27.0",
 ]

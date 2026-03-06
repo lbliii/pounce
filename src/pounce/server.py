@@ -20,6 +20,7 @@ import signal
 import socket
 import sys
 import threading
+from dataclasses import replace
 
 from pounce._runtime import WorkerMode, detect_worker_mode, is_gil_enabled
 from pounce._types import ASGIApp
@@ -27,7 +28,13 @@ from pounce.asgi.lifespan import run_lifespan
 from pounce.config import ServerConfig
 from pounce.lifecycle import LifecycleCollector
 from pounce.logging import configure_logging
-from pounce.net.listener import cleanup_unix_socket, create_listener, create_listeners
+from pounce.net.listener import (
+    cleanup_unix_socket,
+    create_listener,
+    create_listeners,
+    create_udp_listener,
+    create_udp_listeners,
+)
 from pounce.net.tls import create_tls_context, is_tls_configured
 from pounce.supervisor import Supervisor
 from pounce.worker import Worker, _worker_lifecycle_receive, _worker_lifecycle_send
@@ -132,8 +139,8 @@ class Server:
 
         # Configure Prometheus metrics if enabled
         if self._config.metrics_enabled and self._lifecycle_collector is None:
-            from pounce.metrics import PrometheusCollector
             from pounce._metrics_handler import wrap_app_with_metrics
+            from pounce.metrics import PrometheusCollector
 
             self._lifecycle_collector = PrometheusCollector()
             # Wrap app to intercept /metrics requests
@@ -168,7 +175,9 @@ class Server:
             self._app = create_queue_wrapper(self._app, request_queue, queue_metrics)
             logger.info(
                 "Request queueing enabled: max depth %d",
-                self._config.request_queue_max_depth if self._config.request_queue_max_depth > 0 else -1,
+                self._config.request_queue_max_depth
+                if self._config.request_queue_max_depth > 0
+                else -1,
             )
 
         # Configure Sentry error tracking if enabled
@@ -253,6 +262,31 @@ class Server:
         sock = create_listener(self._config)
         actual_addr = sock.getsockname()
 
+        udp_sock: socket.socket | None = None
+        if (
+            self._config.http3_enabled
+            and is_tls_configured(self._config)
+            and self._config.ssl_certfile
+            and self._config.ssl_keyfile
+        ):
+            from pounce.protocols.h3 import is_h3_available
+
+            if is_h3_available():
+                # Bind UDP to same port as TCP (critical when config.port==0 ephemeral)
+                udp_config = replace(self._config, port=actual_addr[1])
+                udp_sock = create_udp_listener(udp_config)
+                logger.info(
+                    "HTTP/3 enabled on %s:%d (UDP)",
+                    actual_addr[0],
+                    actual_addr[1],
+                )
+            else:
+                logger.warning(
+                    "http3_enabled but HTTP/3 stack unavailable (zoomies not installed) — "
+                    "install with: pip install pounce[h3]"
+                )
+                self._config = replace(self._config, http3_enabled=False)
+
         logger.info(
             "Pounce server starting on %s:%d (single worker)",
             actual_addr[0],
@@ -260,11 +294,13 @@ class Server:
         )
 
         try:
-            asyncio.run(self._run_single_async(sock))
+            asyncio.run(self._run_single_async(sock, udp_sock))
         except KeyboardInterrupt:
             pass
         finally:
             sock.close()
+            if udp_sock is not None:
+                udp_sock.close()
             cleanup_unix_socket(self._config)
             logger.info("Pounce server stopped")
 
@@ -311,6 +347,19 @@ class Server:
                 sock = create_listener(self._config)
                 actual_addr = sock.getsockname()
 
+                udp_sock: socket.socket | None = None
+                if (
+                    self._config.http3_enabled
+                    and is_tls_configured(self._config)
+                    and self._config.ssl_certfile
+                    and self._config.ssl_keyfile
+                ):
+                    from pounce.protocols.h3 import is_h3_available
+
+                    if is_h3_available():
+                        udp_config = replace(self._config, port=actual_addr[1])
+                        udp_sock = create_udp_listener(udp_config)
+
                 logger.info(
                     "Pounce server starting on %s:%d (single worker, reload)",
                     actual_addr[0],
@@ -318,11 +367,13 @@ class Server:
                 )
 
                 try:
-                    asyncio.run(self._run_single_async(sock))
+                    asyncio.run(self._run_single_async(sock, udp_sock))
                 except KeyboardInterrupt:
                     break
                 finally:
                     sock.close()
+                    if udp_sock is not None:
+                        udp_sock.close()
 
                 if reload_requested.is_set():
                     logger.info("Reloading...")
@@ -332,9 +383,7 @@ class Server:
 
                             self._app = reimport_app(self._app_path)
                         except Exception:
-                            logger.exception(
-                                "Reload failed — serving previous version"
-                            )
+                            logger.exception("Reload failed — serving previous version")
                     continue
                 break
         finally:
@@ -342,7 +391,11 @@ class Server:
             cleanup_unix_socket(self._config)
             logger.info("Pounce server stopped")
 
-    async def _run_single_async(self, sock: socket.socket) -> None:
+    async def _run_single_async(
+        self,
+        sock: socket.socket,
+        udp_sock: socket.socket | None = None,
+    ) -> None:
         """Async entry point for single-worker mode."""
         loop = asyncio.get_running_loop()
         self._loop = loop
@@ -414,11 +467,19 @@ class Server:
                 ssl=self._ssl_context,
             )
 
+            h3_task: asyncio.Task[None] | None = None
+            if udp_sock is not None:
+                h3_task = asyncio.create_task(self._run_single_h3(udp_sock))
+
             logger.info("Ready to accept connections")
 
             try:
                 await self._async_shutdown.wait()
             finally:
+                if h3_task is not None:
+                    h3_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await h3_task
                 logger.info("Shutting down — draining connections...")
                 server.close()  # Stop accepting new connections
 
@@ -468,9 +529,33 @@ class Server:
 
         """
         sockets = create_listeners(self._config, effective_workers)
-
-        # Figure out the actual bind address from the first socket
         actual_addr = sockets[0].getsockname()
+
+        udp_sockets: list[socket.socket] = []
+        if (
+            self._config.http3_enabled
+            and is_tls_configured(self._config)
+            and self._config.ssl_certfile
+            and self._config.ssl_keyfile
+        ):
+            from pounce.protocols.h3 import is_h3_available
+
+            if is_h3_available():
+                udp_config = replace(self._config, port=actual_addr[1])
+                udp_sockets = create_udp_listeners(udp_config, effective_workers)
+                logger.info(
+                    "HTTP/3 enabled on %s:%d (%d UDP workers)",
+                    actual_addr[0],
+                    actual_addr[1],
+                    effective_workers,
+                )
+            else:
+                logger.warning(
+                    "http3_enabled but HTTP/3 stack unavailable (zoomies not installed) — "
+                    "install with: pip install pounce[h3]; disabling HTTP/3"
+                )
+                self._config = replace(self._config, http3_enabled=False)
+
         logger.info(
             "Pounce server starting on %s:%d (%d %s workers)",
             actual_addr[0],
@@ -515,7 +600,13 @@ class Server:
 
         # Run lifespan once in the main thread, then start supervisor
         try:
-            asyncio.run(self._run_lifespan_then_supervise(self._supervisor, sockets))
+            asyncio.run(
+                self._run_lifespan_then_supervise(
+                    self._supervisor,
+                    sockets,
+                    udp_sockets,
+                ),
+            )
         except KeyboardInterrupt:
             # Signal handler couldn't be installed (Windows, non-main
             # thread) — ensure the supervisor knows about the interrupt.
@@ -526,6 +617,7 @@ class Server:
             if stop_watcher is not None:
                 stop_watcher.set()
             self._close_sockets(sockets)
+            self._close_sockets(udp_sockets)
             cleanup_unix_socket(self._config)
             logger.info("Pounce server stopped")
 
@@ -533,6 +625,7 @@ class Server:
         self,
         supervisor: Supervisor,
         sockets: list[socket.socket],
+        udp_sockets: list[socket.socket] | None = None,
     ) -> None:
         """Run lifespan in the main thread, then hand off to supervisor.
 
@@ -580,7 +673,65 @@ class Server:
             # The supervisor blocks (it runs its own watchdog loop), so
             # we run it in a thread executor to keep the asyncio loop
             # alive for lifespan shutdown.
-            await loop.run_in_executor(None, supervisor.run, sockets)
+            await loop.run_in_executor(
+                None,
+                supervisor.run,
+                sockets,
+                udp_sockets,
+            )
+
+    async def _run_single_h3(self, udp_sock: socket.socket) -> None:
+        """Run HTTP/3 datagram endpoint in single-worker mode."""
+        try:
+            from pounce.protocols.h3 import is_h3_available
+
+            if not is_h3_available():
+                logger.warning("zoomies not installed; HTTP/3 disabled")
+                return
+        except ImportError:
+            return
+
+        from zoomies.core import QuicConfiguration
+
+        from pounce._h3_handler import create_zoomies_datagram_protocol_factory
+
+        loop = asyncio.get_running_loop()
+        logger_h3 = logging.getLogger("pounce.h3_worker.0")
+
+        cert_path = self._config.ssl_certfile or ""
+        key_path = self._config.ssl_keyfile or ""
+        with open(cert_path, "rb") as f:
+            cert_bytes = f.read()
+        with open(key_path, "rb") as f:
+            key_bytes = f.read()
+
+        quic_config = QuicConfiguration(
+            certificate=cert_bytes,
+            private_key=key_bytes,
+            idle_timeout=self._config.http3_idle_timeout,
+        )
+
+        server_addr = udp_sock.getsockname()
+        server = (str(server_addr[0]), int(server_addr[1]))
+
+        protocol_factory = create_zoomies_datagram_protocol_factory(
+            self._app,
+            self._config,
+            logger_h3,
+            server,
+            quic_config,
+        )
+
+        transport, _protocol = await loop.create_datagram_endpoint(
+            protocol_factory,
+            sock=udp_sock,
+        )
+
+        try:
+            if self._async_shutdown is not None:
+                await self._async_shutdown.wait()
+        finally:
+            transport.close()
 
     # ------------------------------------------------------------------
     # Helpers
@@ -598,10 +749,13 @@ class Server:
             "",
             f"  pounce v{_get_version()} (Python {sys.version.split()[0]}, {gil_status})",
             f"  -> {url}",
+            f"  -> pid: {os.getpid()}",
             f"  -> workers: {effective_workers} ({mode_label})",
         ]
         if self._ssl_context is not None:
             lines.append("  -> tls: enabled")
+        if self._config.http3_enabled:
+            lines.append("  -> http3: enabled (QUIC/UDP)")
         if self._config.compression:
             from pounce._compression import _ENCODING_PRIORITY
 

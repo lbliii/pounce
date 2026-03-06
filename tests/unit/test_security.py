@@ -56,7 +56,7 @@ class TestContentLengthTransferEncodingConflict:
             b"\r\n"
             b"hello"
         )
-        with pytest.raises(ParseError, match="[Cc]ontent-[Ll]ength"):
+        with pytest.raises(ParseError, match=r"[Cc]ontent-[Ll]ength"):
             proto.receive_data(raw)
 
     def test_duplicate_content_length_same_value_accepted(self):
@@ -94,13 +94,7 @@ class TestContentLengthTransferEncodingConflict:
     def test_cl_without_te_accepted(self):
         """Content-Length alone is valid and accepted."""
         proto = H1Protocol()
-        raw = (
-            b"POST / HTTP/1.1\r\n"
-            b"Host: localhost\r\n"
-            b"Content-Length: 5\r\n"
-            b"\r\n"
-            b"hello"
-        )
+        raw = b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\nhello"
         events = proto.receive_data(raw)
         assert any(isinstance(e, RequestReceived) for e in events)
 
@@ -119,29 +113,19 @@ class TestContentLengthTransferEncodingConflict:
             b"Transfer-Encoding: identity\r\n"
             b"\r\n"
         )
-        with pytest.raises(ParseError, match="[Tt]ransfer-[Ee]ncoding"):
+        with pytest.raises(ParseError, match=r"[Tt]ransfer-[Ee]ncoding"):
             proto.receive_data(raw)
 
     def test_null_in_header_value_rejected(self):
         """Null bytes in header values are rejected."""
         proto = H1Protocol()
-        raw = (
-            b"GET / HTTP/1.1\r\n"
-            b"Host: localhost\r\n"
-            b"X-Injected: value\x00evil\r\n"
-            b"\r\n"
-        )
+        raw = b"GET / HTTP/1.1\r\nHost: localhost\r\nX-Injected: value\x00evil\r\n\r\n"
         with pytest.raises(ParseError):
             proto.receive_data(raw)
 
     def test_cr_without_lf_rejected(self):
         """Bare CR without LF in headers is rejected."""
         proto = H1Protocol()
-        raw = (
-            b"GET / HTTP/1.1\r\n"
-            b"Host: localhost\r\n"
-            b"X-Bad: value\rinjection\r\n"
-            b"\r\n"
-        )
+        raw = b"GET / HTTP/1.1\r\nHost: localhost\r\nX-Bad: value\rinjection\r\n\r\n"
         with pytest.raises(ParseError):
             proto.receive_data(raw)

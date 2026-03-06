@@ -5,7 +5,6 @@ Tests for graceful worker reload functionality.
 
 import asyncio
 import socket
-from unittest.mock import Mock
 
 import pytest
 
@@ -106,7 +105,6 @@ class TestSupervisorGeneration:
     def test_graceful_reload_increments_generation(self):
         """Test that graceful_reload increments generation counter."""
         # This would require a full supervisor+socket setup
-        pass
 
 
 # Graceful reload integration tests would require full supervisor+worker+socket setup

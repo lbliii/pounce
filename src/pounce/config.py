@@ -37,6 +37,7 @@ class ServerConfig:
     keep_alive_timeout: float = 5.0
     request_timeout: float = 30.0
     header_timeout: float = 10.0
+    startup_timeout: float = 30.0
     shutdown_timeout: float = 10.0
 
     # Limits
@@ -126,6 +127,11 @@ class ServerConfig:
     request_queue_enabled: bool = False  # Enable request queueing
     request_queue_max_depth: int = 1000  # Maximum queued requests (0 = unlimited)
 
+    # HTTP/3 (phase 5c) — QUIC/UDP, requires TLS
+    http3_enabled: bool = False  # Enable HTTP/3 (requires ssl_certfile, ssl_keyfile)
+    http3_max_connections: int = 10_000  # Max concurrent QUIC connections
+    http3_idle_timeout: float = 30.0  # QUIC idle timeout (seconds)
+
     # Sentry error tracking (phase 6.4)
     sentry_dsn: str | None = None  # Sentry DSN for error tracking (None = disabled)
     sentry_environment: str | None = None  # Environment name (e.g., "production")
@@ -197,11 +203,26 @@ class ServerConfig:
         if (self.ssl_certfile is None) != (self.ssl_keyfile is None):
             msg = "ssl_certfile and ssl_keyfile must both be set or both be None"
             raise ValueError(msg)
+        if self.http3_enabled:
+            if self.ssl_certfile is None or self.ssl_keyfile is None:
+                msg = "http3_enabled requires ssl_certfile and ssl_keyfile (QUIC mandates TLS 1.3)"
+                raise ValueError(msg)
+            if self.uds is not None:
+                msg = "http3_enabled is not supported with Unix domain sockets"
+                raise ValueError(msg)
+        if self.http3_max_connections <= 0:
+            msg = f"http3_max_connections must be > 0 (got {self.http3_max_connections})"
+            raise ValueError(msg)
+        if self.http3_idle_timeout <= 0:
+            msg = f"http3_idle_timeout must be > 0 (got {self.http3_idle_timeout})"
+            raise ValueError(msg)
         if self.uds is not None and not self.uds:
             msg = "uds must be a non-empty path or None"
             raise ValueError(msg)
         if self.log_slow_requests_threshold <= 0:
-            msg = f"log_slow_requests_threshold must be > 0 (got {self.log_slow_requests_threshold})"
+            msg = (
+                f"log_slow_requests_threshold must be > 0 (got {self.log_slow_requests_threshold})"
+            )
             raise ValueError(msg)
         if self.metrics_path and not self.metrics_path.startswith("/"):
             msg = f"metrics_path must start with / (got {self.metrics_path!r})"
@@ -219,7 +240,9 @@ class ServerConfig:
             msg = f"request_queue_max_depth must be >= 0 (got {self.request_queue_max_depth})"
             raise ValueError(msg)
         if not 0.0 <= self.sentry_traces_sample_rate <= 1.0:
-            msg = f"sentry_traces_sample_rate must be 0.0-1.0 (got {self.sentry_traces_sample_rate})"
+            msg = (
+                f"sentry_traces_sample_rate must be 0.0-1.0 (got {self.sentry_traces_sample_rate})"
+            )
             raise ValueError(msg)
         if not 0.0 <= self.sentry_profiles_sample_rate <= 1.0:
             msg = (

@@ -5,7 +5,7 @@ Tests for hot reload functionality.
 
 import socket
 import time
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

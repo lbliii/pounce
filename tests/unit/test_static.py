@@ -288,19 +288,23 @@ class TestCreateStaticHandler:
 
     def test_create_from_dict(self, temp_static_dir):
         """Test creating handler from dict."""
-        handler = create_static_handler({
-            "/static": str(temp_static_dir),
-        })
+        handler = create_static_handler(
+            {
+                "/static": str(temp_static_dir),
+            }
+        )
 
         assert len(handler._mounts) == 1
         assert handler._mounts[0].url_path == "/static"
 
     def test_create_multiple_mounts(self, temp_static_dir):
         """Test creating handler with multiple mounts."""
-        handler = create_static_handler({
-            "/static": str(temp_static_dir),
-            "/assets": str(temp_static_dir),
-        })
+        handler = create_static_handler(
+            {
+                "/static": str(temp_static_dir),
+                "/assets": str(temp_static_dir),
+            }
+        )
 
         assert len(handler._mounts) == 2
 

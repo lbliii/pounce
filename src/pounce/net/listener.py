@@ -74,14 +74,15 @@ def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
         return [shared] * count
 
     if count == 1:
-        return [_bind_socket(config)]
+        return [_bind_socket(config, use_reuseport=False)]
 
     if has_so_reuseport():
         # Each worker binds independently — kernel distributes connections
         sockets: list[socket.socket] = []
         try:
-            for _ in range(count):
-                sockets.append(_bind_socket(config, _log_listen=False))  # noqa: PERF401
+            sockets.extend(
+                _bind_socket(config, _log_listen=False, use_reuseport=True) for _ in range(count)
+            )
         except Exception:
             # Clean up any sockets that were successfully created
             for s in sockets:
@@ -106,6 +107,74 @@ def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
     return [shared] * count
 
 
+def create_udp_listener(config: ServerConfig) -> socket.socket:
+    """Create and bind a single UDP socket for HTTP/3 (QUIC).
+
+    Binds to config.host:config.port. When config.port is 0 (ephemeral),
+    the OS assigns a port; callers must pass the resolved TCP port (from
+    the bound TCP socket) so HTTP/3 shares the advertised address.
+
+    UDP has no listen() or backlog.
+
+    Args:
+        config: Server configuration with host and port.
+
+    Returns:
+        A bound, non-blocking UDP socket.
+
+    """
+    return _bind_udp_socket(config)
+
+
+def create_udp_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
+    """Create UDP sockets for *count* HTTP/3 workers.
+
+    Mirrors create_listeners: SO_REUSEPORT for independent sockets,
+    shared socket when unavailable.
+
+    Args:
+        config: Server configuration.
+        count: Number of worker sockets needed.
+
+    Returns:
+        A list of *count* UDP sockets.
+
+    """
+    if count < 1:
+        msg = f"count must be >= 1 (got {count})"
+        raise ValueError(msg)
+
+    if count == 1:
+        return [_bind_udp_socket(config, use_reuseport=False)]
+
+    if has_so_reuseport():
+        sockets: list[socket.socket] = []
+        try:
+            sockets.extend(
+                _bind_udp_socket(config, _log_bind=False, use_reuseport=True) for _ in range(count)
+            )
+        except Exception:
+            for s in sockets:
+                s.close()
+            raise
+        logger.info(
+            "Created %d independent UDP sockets with SO_REUSEPORT on %s:%d",
+            count,
+            config.host,
+            config.port,
+        )
+        return sockets
+
+    shared = _bind_udp_socket(config)
+    logger.info(
+        "Created shared UDP socket on %s:%d for %d workers (no SO_REUSEPORT)",
+        config.host,
+        config.port,
+        count,
+    )
+    return [shared] * count
+
+
 def has_so_reuseport() -> bool:
     """Check if SO_REUSEPORT is available on this platform."""
     return hasattr(socket, "SO_REUSEPORT") and sys.platform != "win32"
@@ -119,7 +188,7 @@ def _bind_unix_socket(config: ServerConfig) -> socket.socket:
 
     """
     path = config.uds
-    assert path is not None  # noqa: S101 — enforced by caller
+    assert path is not None
 
     # Remove stale socket file if it exists
     with contextlib.suppress(FileNotFoundError):
@@ -154,7 +223,12 @@ def cleanup_unix_socket(config: ServerConfig) -> None:
             logger.info("Removed socket file %s", config.uds)
 
 
-def _bind_socket(config: ServerConfig, *, _log_listen: bool = True) -> socket.socket:
+def _bind_socket(
+    config: ServerConfig,
+    *,
+    _log_listen: bool = True,
+    use_reuseport: bool = False,
+) -> socket.socket:
     """Create, configure, bind, and listen on a single TCP socket.
 
     Uses ``getaddrinfo`` to resolve the host, supporting both IPv4 and
@@ -162,6 +236,9 @@ def _bind_socket(config: ServerConfig, *, _log_listen: bool = True) -> socket.so
     (``IPV6_V6ONLY=False``) where possible so both IPv4 and IPv6 clients
     can connect.
 
+    When ``use_reuseport`` is False (default for single-worker dev), a
+    second instance binding to the same address will fail with EADDRINUSE,
+    ensuring single-instance semantics for development.
     """
     # Resolve host to get the correct address family
     infos = socket.getaddrinfo(
@@ -193,8 +270,9 @@ def _bind_socket(config: ServerConfig, *, _log_listen: bool = True) -> socket.so
             with contextlib.suppress(AttributeError, OSError):
                 sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
 
-        # SO_REUSEPORT allows multiple sockets to bind to the same port
-        if has_so_reuseport():
+        # SO_REUSEPORT: only enable for multi-worker (kernel distribution).
+        # Single-worker dev keeps it off so duplicate instances fail fast.
+        if use_reuseport and has_so_reuseport():
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
         sock.bind(sockaddr)
@@ -209,6 +287,67 @@ def _bind_socket(config: ServerConfig, *, _log_listen: bool = True) -> socket.so
                 actual_addr[1],
                 config.backlog,
             )
+
+        return sock
+
+    except OSError as exc:
+        sock.close()
+        if exc.errno == errno.EADDRINUSE or "already in use" in str(exc).lower():
+            raise OSError(
+                f"Address {config.host}:{config.port} is already in use. Is another server running?"
+            ) from exc
+        if exc.errno == errno.EACCES:
+            raise OSError(
+                f"Permission denied binding to {config.host}:{config.port}. "
+                "Try a port > 1024 or run with elevated permissions."
+            ) from exc
+        raise
+
+
+def _bind_udp_socket(
+    config: ServerConfig,
+    *,
+    _log_bind: bool = True,
+    use_reuseport: bool = False,
+) -> socket.socket:
+    """Create, configure, and bind a single UDP socket for HTTP/3.
+
+    UDP has no listen() or backlog. Uses same address resolution as TCP.
+
+    """
+    infos = socket.getaddrinfo(
+        config.host,
+        config.port,
+        family=socket.AF_UNSPEC,
+        type=socket.SOCK_DGRAM,
+        flags=socket.AI_PASSIVE,
+    )
+    if not infos:
+        msg = f"Could not resolve address {config.host}:{config.port}"
+        raise OSError(msg)
+
+    af, socktype, proto, _canonname, sockaddr = infos[0]
+    for info in infos:
+        if info[0] == socket.AF_INET6:
+            af, socktype, proto, _canonname, sockaddr = info
+            break
+
+    sock = socket.socket(af, socktype, proto)
+
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if af == socket.AF_INET6:
+            with contextlib.suppress(AttributeError, OSError):
+                sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        if use_reuseport and has_so_reuseport():
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+
+        sock.bind(sockaddr)
+        sock.setblocking(False)
+
+        if _log_bind:
+            actual_addr = sock.getsockname()
+            logger.info("UDP socket bound on %s:%d (HTTP/3)", actual_addr[0], actual_addr[1])
 
         return sock
 

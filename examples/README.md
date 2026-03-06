@@ -105,12 +105,12 @@ scrape_configs:
 
 **File:** `http3_prototype.py`
 
-This prototype demonstrates how HTTP/3/QUIC support would be integrated into pounce using the [aioquic](https://github.com/aiortc/aioquic) library.
+This example runs a minimal HTTP/3 server using pounce's [zoomies](https://github.com/lbliii/zoomies) integration (sans-I/O, free-threading-native QUIC/HTTP/3).
 
 ### Requirements
 
 ```bash
-pip install aioquic
+pip install pounce[h3]
 ```
 
 ### Generate TLS Certificate
@@ -142,22 +142,9 @@ curl --http3 https://localhost:4433
 ### What It Demonstrates
 
 - UDP socket binding for QUIC
-- ALPN negotiation for HTTP/3 (`h3`)
 - HTTP/3 request/response handling
 - ASGI scope creation for HTTP/3
-- Integration with aioquic library
-
-### Limitations
-
-This is a **conceptual prototype**, not a production-ready implementation:
-
-- No worker supervision
-- No graceful shutdown
-- No connection pooling
-- No performance optimization
-- No comprehensive error handling
-
-The full implementation in Phase 5c will integrate HTTP/3 into the existing worker architecture with proper supervision, lifecycle management, and production-grade features.
+- Integration with zoomies (sans-I/O QUIC/HTTP/3)
 
 ### Architecture
 
@@ -168,13 +155,13 @@ The full implementation in Phase 5c will integrate HTTP/3 into the existing work
            │
            ▼
 ┌─────────────────────┐
-│  H3ServerProtocol   │  ← HTTP/3 request/response
-│  (aioquic wrapper)  │
+│ ZoomiesDatagram     │  ← HTTP/3 request/response
+│ Protocol (zoomies)  │
 └──────────┬──────────┘
            │
            ▼
 ┌─────────────────────┐
-│   QuicConnection    │  ← QUIC transport (aioquic)
+│   QuicConnection    │  ← QUIC transport (zoomies)
 │   (RFC 9000)        │
 └──────────┬──────────┘
            │
@@ -187,5 +174,5 @@ The full implementation in Phase 5c will integrate HTTP/3 into the existing work
 ### See Also
 
 - [HTTP/3 Roadmap](../docs/design/http3-roadmap.md) — Full architectural design and implementation plan
-- [aioquic documentation](https://aioquic.readthedocs.io/) — Library reference
+- [zoomies](https://github.com/lbliii/zoomies) — Free-threading-native QUIC/HTTP/3 library
 - [RFC 9114: HTTP/3](https://www.rfc-editor.org/rfc/rfc9114.html) — Protocol specification

@@ -5,8 +5,6 @@ Tests for development error pages with rich tracebacks.
 
 import sys
 
-import pytest
-
 from pounce._debug import (
     _extract_frames,
     _get_source_context,
@@ -110,6 +108,7 @@ class TestSanitizeLocals:
 
     def test_sanitize_unprintable_values(self):
         """Test handling of values that can't be repr'd."""
+
         class UnprintableClass:
             def __repr__(self):
                 raise ValueError("Can't print this!")
@@ -130,6 +129,7 @@ class TestExtractFrames:
 
     def test_extract_frames_from_exception(self):
         """Test extracting frames from a real exception."""
+
         def inner():
             raise ValueError("Test error")
 
@@ -276,7 +276,7 @@ class TestSecurityConsiderations:
 
     def test_production_response_has_no_source_code(self):
         """Test that production errors don't expose source code."""
-        status, headers, body = create_production_error_response()
+        _status, _headers, body = create_production_error_response()
 
         # Should not contain any Python source code hints
         assert b"raise" not in body

@@ -32,10 +32,8 @@ Integrate with Prometheus:
 """
 
 import asyncio
-import random
-import time
 
-from pounce import run, ServerConfig
+from pounce import ServerConfig, run
 
 
 async def app(scope, receive, send):
@@ -47,14 +45,17 @@ async def app(scope, receive, send):
 
     # Dashboard
     if path == "/" or path == "/dashboard":
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", b"text/html")],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b"""
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/html")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"""
             <!DOCTYPE html>
             <html>
             <head>
@@ -75,7 +76,7 @@ async def app(scope, receive, send):
                 </style>
             </head>
             <body>
-                <h1>📊 Metrics Monitoring Dashboard</h1>
+                <h1>Metrics Monitoring Dashboard</h1>
 
                 <div class="card">
                     <h2>Live Metrics</h2>
@@ -181,60 +182,77 @@ async def app(scope, receive, send):
             </body>
             </html>
             """,
-        })
+            }
+        )
         return
 
     # Fast API endpoint (~10ms)
     if path == "/api/fast":
         await asyncio.sleep(0.01)  # 10ms
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", b"application/json")],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b'{"status": "ok", "latency": "10ms"}',
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"application/json")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b'{"status": "ok", "latency": "10ms"}',
+            }
+        )
         return
 
     # Slow API endpoint (~500ms)
     if path == "/api/slow":
         await asyncio.sleep(0.5)  # 500ms
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", b"application/json")],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b'{"status": "ok", "latency": "500ms"}',
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"application/json")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b'{"status": "ok", "latency": "500ms"}',
+            }
+        )
         return
 
     # Error endpoint (for testing error rate)
     if path == "/api/error":
-        await send({
-            "type": "http.response.start",
-            "status": 500,
-            "headers": [(b"content-type", b"application/json")],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b'{"error": "Simulated error for metrics demo"}',
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 500,
+                "headers": [(b"content-type", b"application/json")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b'{"error": "Simulated error for metrics demo"}',
+            }
+        )
         return
 
     # 404
-    await send({
-        "type": "http.response.start",
-        "status": 404,
-        "headers": [(b"content-type", b"text/plain")],
-    })
-    await send({
-        "type": "http.response.body",
-        "body": b"Not Found",
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 404,
+            "headers": [(b"content-type", b"text/plain")],
+        }
+    )
+    await send(
+        {
+            "type": "http.response.body",
+            "body": b"Not Found",
+        }
+    )
 
 
 if __name__ == "__main__":
@@ -242,11 +260,9 @@ if __name__ == "__main__":
         host="127.0.0.1",
         port=8000,
         workers=4,
-
         # Enable Prometheus metrics
         metrics_enabled=True,
         metrics_path="/metrics",
-
         # Enable lifecycle logging for more detailed metrics
         lifecycle_logging=True,
     )

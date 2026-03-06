@@ -1,8 +1,7 @@
-"""Throughput benchmarks for pounce — measures requests per second."""
+"""Latency benchmarks for pounce — measures request round-trip time."""
 
 import socket
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pytest
 
@@ -15,7 +14,7 @@ from tests.conftest import _wait_for_ready, with_lifespan
 
 @with_lifespan
 async def _minimal_app(scope: Scope, receive: Receive, send: Send) -> None:
-    """Minimal app that returns 200 OK."""
+    """Minimal app that returns 200 OK with small body."""
     await receive()
     body = b"ok"
     await send(
@@ -48,19 +47,6 @@ def _send_raw(addr: tuple[str, int], request: bytes, timeout: float = 5.0) -> by
         sock.close()
 
 
-def _run_requests(addr: tuple[str, int], count: int) -> int:
-    """Send count requests sequentially, return number of successful (200) responses."""
-    ok = 0
-    for _ in range(count):
-        try:
-            resp = _send_raw(addr, _REQUEST)
-            if b"200" in resp:
-                ok += 1
-        except ConnectionError, OSError, TimeoutError:
-            pass
-    return ok
-
-
 @pytest.fixture(scope="module")
 def worker_addr():
     """Start worker once for the module."""
@@ -78,27 +64,28 @@ def worker_addr():
 
 
 @pytest.mark.benchmark
-@pytest.mark.timeout(60)
-def test_throughput_burst(benchmark, worker_addr: tuple[str, int]) -> None:
-    """Measure requests/sec with 50 concurrent connections x 20 requests each."""
+@pytest.mark.timeout(30)
+def test_latency_simple_get(benchmark, worker_addr: tuple[str, int]) -> None:
+    """Measure latency of simple GET requests (p50/p95/p99)."""
     addr = worker_addr
-    num_connections = 50
-    requests_per_conn = 20
 
     def _run():
-        total_ok = 0
-        with ThreadPoolExecutor(max_workers=num_connections) as ex:
-            futures = [
-                ex.submit(_run_requests, addr, requests_per_conn) for _ in range(num_connections)
-            ]
-            for f in as_completed(futures, timeout=30):
-                total_ok += f.result()
-        expected = num_connections * requests_per_conn
-        assert total_ok >= expected * 0.9, f"Got {total_ok}/{expected} successful"
+        return _send_raw(addr, _REQUEST)
 
-    benchmark.pedantic(
-        _run,
-        rounds=5,
-        iterations=1,
-        warmup_rounds=1,
-    )
+    result = benchmark.pedantic(_run, rounds=1000, iterations=1, warmup_rounds=50)
+    assert b"200" in result
+
+
+@pytest.mark.benchmark
+@pytest.mark.timeout(30)
+def test_latency_throughput(benchmark, worker_addr: tuple[str, int]) -> None:
+    """Measure requests per second over 1000 sequential requests."""
+    addr = worker_addr
+
+    def _run():
+        for _ in range(100):
+            _send_raw(addr, _REQUEST)
+
+    benchmark.pedantic(_run, rounds=10, iterations=1, warmup_rounds=2)
+    # 100 requests x 10 rounds = 1000 requests total
+    # benchmark.stats reports mean/stdev of round time

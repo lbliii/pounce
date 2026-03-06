@@ -15,8 +15,8 @@ from pounce.asgi.bridge import (
     _COALESCE_THRESHOLD,
     _DISCONNECT_MESSAGE,
     _EMPTY_BODY_MESSAGE,
-    _sanitize_headers,
     SendState,
+    _sanitize_headers,
     build_scope,
     create_disconnect_receive,
     create_empty_receive,
@@ -1093,18 +1093,22 @@ class TestSanitizeHeaders:
 
         # This would be an injection attempt: the value contains CRLF
         # that could split into a second header
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [
-                (b"content-length", b"2"),
-                (b"x-safe", b"clean\r\nX-Injected: evil"),
-            ],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b"ok",
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-length", b"2"),
+                    (b"x-safe", b"clean\r\nX-Injected: evil"),
+                ],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"ok",
+            }
+        )
         output = bytes(transport.data)
         # The injected header must not appear as a separate header line.
         # After sanitization, "X-Injected: evil" is concatenated into
@@ -1132,18 +1136,22 @@ class TestHeadCompressionGuard:
             request_method=b"HEAD",
         )
 
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [
-                (b"content-type", b"text/plain"),
-                (b"content-length", b"1000"),
-            ],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": b"",  # HEAD: no body on wire
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"text/plain"),
+                    (b"content-length", b"1000"),
+                ],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"",  # HEAD: no body on wire
+            }
+        )
 
         output = bytes(transport.data)
         # No compression headers — compressor was disabled

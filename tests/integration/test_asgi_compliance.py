@@ -695,6 +695,33 @@ class TestRequestBody:
             thread.join(timeout=2)
             sock.close()
 
+    def test_expect_100_continue(self):
+        """Request with Expect: 100-continue receives a valid response.
+
+        Server may send 100 Continue before body, or go straight to final
+        response. Either way, client must not hang.
+        """
+        worker, sock, thread = start_worker(_body_echo_app)
+        addr = sock.getsockname()
+        try:
+            payload = b"hello"
+            request = (
+                b"POST / HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Expect: 100-continue\r\n"
+                b"Content-Length: " + str(len(payload)).encode() + b"\r\n"
+                b"Connection: close\r\n"
+                b"\r\n" + payload
+            )
+            response = send_raw_request(addr, request, timeout=3.0)
+            assert b"HTTP/1.1" in response
+            # Either 100 Continue or 200 OK — server must respond
+            assert b"100" in response or b"200" in response
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
     def test_large_body(self):
         """Large request bodies are delivered correctly."""
         worker, sock, thread = start_worker(_body_echo_app)
@@ -1395,6 +1422,100 @@ class TestCompressionWithBody:
             assert b"200" in response
             assert b"content-encoding" not in response.lower()
             assert payload in response
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
+
+# =========================================================================
+# 10. CRLF Injection Prevention (Production-Grade Security)
+# =========================================================================
+
+
+class TestCRLFInjectionPrevention:
+    """Malicious app headers with CRLF must not inject extra headers in response."""
+
+    def test_crlf_in_header_value_not_injected(self):
+        """App returns header value with CRLF; response must not contain injected header."""
+
+        async def malicious_headers_app(scope: Scope, receive: Receive, send: Send) -> None:
+            if scope["type"] == "lifespan":
+                while True:
+                    msg = await receive()
+                    if msg["type"] == "lifespan.startup":
+                        await send({"type": "lifespan.startup.complete"})
+                    elif msg["type"] == "lifespan.shutdown":
+                        await send({"type": "lifespan.shutdown.complete"})
+                        return
+                return
+            await receive()
+            # Attempt CRLF injection: value contains \r\n that could split into X-Injected
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"text/plain"),
+                        (b"content-length", b"2"),
+                        (b"x-custom", b"value\r\nX-Injected: evil"),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        worker, sock, thread = start_worker(malicious_headers_app)
+        addr = sock.getsockname()
+        try:
+            response = send_raw_request(
+                addr,
+                b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )
+            assert b"200" in response
+            # Injected header must NOT appear as separate header line
+            assert b"\r\nX-Injected:" not in response
+            assert b"\r\nx-injected:" not in response.lower()
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
+    def test_crlf_in_header_name_sanitized(self):
+        """App returns header name with CRLF; name is sanitized, no injection."""
+
+        async def malicious_name_app(scope: Scope, receive: Receive, send: Send) -> None:
+            if scope["type"] == "lifespan":
+                while True:
+                    msg = await receive()
+                    if msg["type"] == "lifespan.startup":
+                        await send({"type": "lifespan.startup.complete"})
+                    elif msg["type"] == "lifespan.shutdown":
+                        await send({"type": "lifespan.shutdown.complete"})
+                        return
+                return
+            await receive()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"text/plain"),
+                        (b"content-length", b"2"),
+                        (b"x-custom\r\nX-Injected", b"evil"),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        worker, sock, thread = start_worker(malicious_name_app)
+        addr = sock.getsockname()
+        try:
+            response = send_raw_request(
+                addr,
+                b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )
+            assert b"200" in response
+            assert b"\r\nX-Injected:" not in response
         finally:
             worker.shutdown()
             thread.join(timeout=2)

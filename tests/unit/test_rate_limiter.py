@@ -4,7 +4,6 @@ Tests for rate limiting and backpressure.
 """
 
 import time
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -218,15 +217,19 @@ class TestRateLimitWrapper:
         async def mock_app(scope, receive, send):
             nonlocal app_called
             app_called = True
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"content-type", b"text/plain")],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"OK",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"OK",
+                }
+            )
 
         # Create wrapper with high limits
         limiter = RateLimiter(rate=1000.0, burst=100)
@@ -258,6 +261,7 @@ class TestRateLimitWrapper:
     @pytest.mark.asyncio
     async def test_wrapper_blocks_requests_over_limit(self):
         """Test that wrapper blocks requests over rate limit."""
+
         async def mock_app(scope, receive, send):
             # Should not be called
             raise AssertionError("App should not be called when rate limited")
@@ -311,15 +315,19 @@ class TestRateLimitWrapper:
         async def mock_app(scope, receive, send):
             nonlocal app_called
             app_called = True
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"OK",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"OK",
+                }
+            )
 
         limiter = RateLimiter(rate=10.0, burst=5)
         wrapped = create_rate_limit_wrapper(mock_app, limiter)
@@ -385,15 +393,19 @@ class TestRateLimitWrapper:
         async def mock_app(scope, receive, send):
             nonlocal call_count
             call_count += 1
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b"OK",
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"OK",
+                }
+            )
 
         limiter = RateLimiter(rate=10.0, burst=2)
         wrapped = create_rate_limit_wrapper(mock_app, limiter)

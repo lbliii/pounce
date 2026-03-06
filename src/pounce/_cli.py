@@ -55,6 +55,7 @@ def main(args: list[str] | None = None) -> None:
         access_log=not parsed.no_access_log,
         ssl_certfile=parsed.ssl_certfile,
         ssl_keyfile=parsed.ssl_keyfile,
+        http3_enabled=parsed.http3,
         reload=parsed.reload,
         reload_include=reload_include,
         reload_dirs=reload_dirs,
@@ -212,6 +213,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--ssl-keyfile",
         default=None,
         help="Path to TLS private key file",
+    )
+    parser.add_argument(
+        "--http3",
+        action="store_true",
+        default=False,
+        help="Enable HTTP/3 (QUIC/UDP). Requires TLS (--ssl-certfile, --ssl-keyfile).",
     )
     parser.add_argument(
         "--reload",
