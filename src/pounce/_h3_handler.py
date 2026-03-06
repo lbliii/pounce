@@ -55,37 +55,6 @@ class _ZoomiesConnection:
     stream_body_ended: set[int] = field(default_factory=set)  # Streams that received terminal body
 
 
-def _pull_destination_cid_for_routing(
-    data: bytes,
-    known_cids: tuple[bytes, ...] = (),
-) -> bytes | None:
-    """Extract destination CID from QUIC datagram for connection routing.
-
-    For long headers: parses and returns destination_cid (RFC 9000 17.2).
-    For short headers: returns matching cid from known_cids if packet starts with it.
-    Returns None if parsing fails or no match.
-    Fallback for zoomies < 0.1.1 (pull_destination_cid_for_routing not yet on PyPI).
-    """
-    if len(data) < 7:
-        return None
-    try:
-        first_byte = data[0]
-        if first_byte & 0x80:  # Long header (PACKET_LONG_HEADER)
-            dest_cid_len = data[5]  # 1 byte header + 4 byte version
-            if dest_cid_len > 20:  # CONNECTION_ID_MAX_LEN
-                return None
-            if len(data) < 6 + dest_cid_len:
-                return None
-            return data[6 : 6 + dest_cid_len]
-        if first_byte & 0x40 and known_cids:  # Short header, fixed bit (PACKET_FIXED_BIT)
-            for cid in known_cids:
-                if cid and len(data) >= 1 + len(cid) and data[1 : 1 + len(cid)] == cid:
-                    return cid
-    except (ValueError, IndexError):
-        pass
-    return None
-
-
 def _create_zoomies_datagram_protocol(
     app: ASGIApp,
     config: ServerConfig,
@@ -103,11 +72,7 @@ def _create_zoomies_datagram_protocol(
         StreamDataReceived,
     )
     from zoomies.h3 import H3Connection
-
-    try:
-        from zoomies.packet import pull_destination_cid_for_routing
-    except ImportError:
-        pull_destination_cid_for_routing = _pull_destination_cid_for_routing
+    from zoomies.packet import pull_destination_cid_for_routing
 
     class ZoomiesDatagramProtocol(asyncio.DatagramProtocol):
         """HTTP/3 datagram protocol using zoomies sans-I/O."""

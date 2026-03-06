@@ -48,10 +48,10 @@ tls = ["truststore>=0.9"]
 fast = ["httptools>=0.6"]
 
 # HTTP/3 support (QUIC)
-h3 = ["bengal-zoomies>=0.1.0"]
+h3 = ["bengal-zoomies>=0.1.1"]
 
 # Full protocol support
-full = ["h2>=4.0", "wsproto>=1.2", "truststore>=0.9", "bengal-zoomies>=0.1.0"]
+full = ["h2>=4.0", "wsproto>=1.2", "truststore>=0.9", "bengal-zoomies>=0.1.1"]
 
 [project.scripts]
 pounce = "pounce._cli:main"
@@ -189,7 +189,7 @@ dev = [
     "h2>=4.0",
     "wsproto>=1.2",
     # Optional deps for ty resolution (unresolved-import)
-    "bengal-zoomies>=0.1.0",
+    "bengal-zoomies>=0.1.1",
     "opentelemetry-api>=1.0",
     "opentelemetry-sdk>=1.0",
     "opentelemetry-exporter-otlp-proto-http>=1.0",
