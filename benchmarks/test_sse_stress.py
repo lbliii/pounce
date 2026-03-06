@@ -133,7 +133,7 @@ async def _hold_sse_connection(
 
         writer.close()
         await writer.wait_closed()
-    except (ConnectionError, OSError):
+    except ConnectionError, OSError:
         pass
     return event_count
 

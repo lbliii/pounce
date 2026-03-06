@@ -1059,7 +1059,7 @@ class TestKeepAlive:
             try:
                 extra = tcp.recv(4096)
                 assert extra == b""  # Connection closed by server
-            except (ConnectionError, OSError, TimeoutError):
+            except ConnectionError, OSError, TimeoutError:
                 pass  # Also acceptable — connection is dead
 
         finally:

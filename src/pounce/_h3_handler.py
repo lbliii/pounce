@@ -379,7 +379,7 @@ def _create_zoomies_datagram_protocol(
                         end_stream=True,
                     )
                     self._flush(conn, addr)
-                except (OSError, ConnectionError):
+                except OSError, ConnectionError:
                     pass
                 if send_state.status == 0:
                     send_state.status = 500

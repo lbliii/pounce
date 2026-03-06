@@ -56,7 +56,7 @@ def _run_requests(addr: tuple[str, int], count: int) -> int:
             resp = _send_raw(addr, _REQUEST)
             if b"200" in resp:
                 ok += 1
-        except (ConnectionError, OSError, TimeoutError):
+        except ConnectionError, OSError, TimeoutError:
             pass
     return ok
 

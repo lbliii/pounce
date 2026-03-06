@@ -116,7 +116,7 @@ def _start_server(
             s = socket.create_connection(("127.0.0.1", port), timeout=0.5)
             s.close()
             return proc
-        except (ConnectionRefusedError, OSError):
+        except ConnectionRefusedError, OSError:
             time.sleep(0.2)
             if proc.poll() is not None:
                 _, stderr = proc.communicate()

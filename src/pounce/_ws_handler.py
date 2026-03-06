@@ -129,7 +129,7 @@ async def handle_websocket(
                     )
                 except TimeoutError:
                     break
-                except (ConnectionError, OSError):
+                except ConnectionError, OSError:
                     break
 
                 if not data:

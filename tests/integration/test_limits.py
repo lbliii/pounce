@@ -129,7 +129,7 @@ class TestRequestTimeout:
                         if not chunk:
                             break
                         resp += chunk
-                except (TimeoutError, ConnectionError, OSError):
+                except TimeoutError, ConnectionError, OSError:
                     pass
                 # The connection should have been closed
                 # (either 200 with partial body, timeout, or connection reset)
@@ -162,7 +162,7 @@ class TestRequestTimeout:
                     b"POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\n" + b"x" * 50
                 )
                 tcp.close()
-            except (ConnectionError, OSError):
+            except ConnectionError, OSError:
                 pass
             # Worker must not hang — subsequent request succeeds
             time.sleep(0.3)
@@ -222,7 +222,7 @@ class TestOversizedHeaders:
                         if not chunk:
                             break
                         resp += chunk
-                except (TimeoutError, ConnectionError, OSError):
+                except TimeoutError, ConnectionError, OSError:
                     pass
 
                 # Worker should respond with 400 or close the connection
@@ -453,7 +453,7 @@ class TestHeaderTimeout:
                         if not chunk:
                             break
                         resp += chunk
-                except (TimeoutError, ConnectionError, OSError):
+                except TimeoutError, ConnectionError, OSError:
                     pass
                 # Server should close or send 408
                 assert resp == b"" or b"408" in resp or b"400" in resp
@@ -503,7 +503,7 @@ class TestRequestTimeoutSlowBody:
                         if not chunk:
                             break
                         resp += chunk
-                except (TimeoutError, ConnectionError, OSError):
+                except TimeoutError, ConnectionError, OSError:
                     pass
                 # Connection should be closed (timeout or error)
                 assert True  # No crash
@@ -565,7 +565,7 @@ class TestClientDisconnectMidResponse:
                     resp += chunk
                 # Disconnect before reading body
                 tcp.close()
-            except (ConnectionError, OSError):
+            except ConnectionError, OSError:
                 pass
             # Worker must not crash — send another request
             time.sleep(0.2)
@@ -597,7 +597,7 @@ class TestClientDisconnectMidResponse:
                         break
                     resp += chunk
                 tcp.close()
-            except (ConnectionError, OSError):
+            except ConnectionError, OSError:
                 pass
             # Worker must not crash — send another request
             time.sleep(0.2)
@@ -659,9 +659,9 @@ class TestMaxConnections:
                     data = tcp2.recv(4096)
                     # Server may close immediately (empty) or send 503 when at capacity
                     assert data == b"" or data is None or b"503" in data
-                except (ConnectionError, OSError):
+                except ConnectionError, OSError:
                     pass  # Also fine — connection was rejected
-            except (ConnectionRefusedError, OSError):
+            except ConnectionRefusedError, OSError:
                 pass  # Server didn't accept at all
             finally:
                 tcp2.close()

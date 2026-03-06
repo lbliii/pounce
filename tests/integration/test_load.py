@@ -154,7 +154,7 @@ class TestLoad:
                 tcp6.connect(addr)
                 data = tcp6.recv(4096)
                 assert data == b"" or b"503" in data
-            except (ConnectionRefusedError, OSError, ConnectionError):
+            except ConnectionRefusedError, OSError, ConnectionError:
                 pass  # Connection rejected
             finally:
                 tcp6.close()
