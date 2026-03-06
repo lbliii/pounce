@@ -154,6 +154,7 @@ def create_h3_send(
                 return
 
             response_started = True
+            state.response_started = True
             state.status = status
             headers = _sanitize_headers(headers)
 

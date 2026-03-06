@@ -52,6 +52,7 @@ class _ZoomiesConnection:
         default_factory=dict
     )
     stream_body_bytes: dict[int, int] = field(default_factory=dict)
+    stream_body_ended: set[int] = field(default_factory=set)  # Streams that received terminal body
 
 
 def _create_zoomies_datagram_protocol(
@@ -235,6 +236,9 @@ def _create_zoomies_datagram_protocol(
             pair = conn.stream_tasks.get(stream_id)
             if pair is None:
                 return
+            # Ignore further data after body was truncated or ended
+            if stream_id in conn.stream_body_ended:
+                return
 
             _, body_queue = pair
             conn.stream_body_bytes[stream_id] = conn.stream_body_bytes.get(stream_id, 0) + len(
@@ -247,6 +251,7 @@ def _create_zoomies_datagram_protocol(
                     stream_id,
                     self._config.max_request_size,
                 )
+                conn.stream_body_ended.add(stream_id)
                 body_queue.put_nowait(
                     {
                         "type": "http.request",

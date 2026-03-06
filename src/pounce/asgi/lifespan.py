@@ -125,8 +125,9 @@ async def run_lifespan(
             )
             if not task.done():
                 task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await task
+                with suppress(asyncio.CancelledError, TimeoutError):
+                    # Secondary timeout: if app ignores cancellation, don't hang
+                    await asyncio.wait_for(task, timeout=2.0)
 
         if startup_failed:
             raise LifespanError(

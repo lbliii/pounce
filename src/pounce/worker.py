@@ -286,7 +286,7 @@ class Worker:
             try:
                 server.close()
                 await server.wait_closed()
-            except ValueError, OSError:
+            except (ValueError, OSError):
                 pass  # fd already closed by another worker sharing the socket
 
             # Per-worker shutdown hook — runs on this worker's event loop
@@ -370,7 +370,7 @@ class Worker:
                 await writer.drain()
                 writer.close()
                 await writer.wait_closed()
-            except OSError, ConnectionError:
+            except (OSError, ConnectionError):
                 pass
             return
 
@@ -391,7 +391,7 @@ class Worker:
                 await writer.drain()
                 writer.close()
                 await writer.wait_closed()
-            except OSError, ConnectionError:
+            except (OSError, ConnectionError):
                 pass
             return
 
@@ -469,7 +469,7 @@ class Worker:
                     try:
                         writer.close()
                         await writer.wait_closed()
-                    except OSError, ConnectionError:
+                    except (OSError, ConnectionError):
                         pass
                 return
 
@@ -565,7 +565,7 @@ class Worker:
                 except TimeoutError:
                     close_reason = "timeout"
                     break  # Timeout — close connection
-                except ConnectionError, OSError:
+                except (ConnectionError, OSError):
                     close_reason = "client_disconnect"
                     break
 
@@ -595,7 +595,7 @@ class Worker:
                 # Check if we can do another cycle (keep-alive)
                 try:
                     proto.start_new_cycle()
-                except h11.LocalProtocolError, RuntimeError:
+                except (h11.LocalProtocolError, RuntimeError):
                     break  # Connection can't be reused
 
                 # Next read is the start of a new request — use header_timeout
@@ -629,7 +629,7 @@ class Worker:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except OSError, ConnectionError:
+            except (OSError, ConnectionError):
                 pass
 
     # ------------------------------------------------------------------
@@ -690,6 +690,7 @@ class Worker:
                 send_state,
                 request_id=request_id,
                 config=self._config,
+                server=server,
             )
             await send_fn(
                 {
@@ -773,6 +774,7 @@ class Worker:
             request_method=request.method,
             request_id=request_id,
             config=self._config,
+            server=server,
         )
 
         # Create OpenTelemetry span for this request
@@ -838,9 +840,10 @@ class Worker:
         if timing:
             timing.add("app", elapsed_ms(app_start))
 
-        # If app returned without sending a response, send 500 now
-        if send_state.bytes_sent == 0:
-            status = send_state.status or 500
+        # If app returned without sending http.response.start, send 500 now.
+        # Do not treat empty-body responses (HEAD/204/304) as "no response".
+        if not send_state.response_started:
+            status = 500
             with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
                 await self._send_error(writer, proto, status, "Internal Server Error")
             send_state.status = status
@@ -1019,7 +1022,7 @@ class Worker:
                     except TimeoutError:
                         await body_queue.put(BodyReceived(data=b"", more=False))
                         return
-                    except ConnectionError, OSError:
+                    except (ConnectionError, OSError):
                         await body_queue.put(BodyReceived(data=b"", more=False))
                         return
 
@@ -1142,7 +1145,7 @@ class Worker:
                 if not data:
                     # Client disconnected — EOF
                     break
-        except ConnectionError, OSError:
+        except (ConnectionError, OSError):
             pass
         finally:
             disconnect.set()

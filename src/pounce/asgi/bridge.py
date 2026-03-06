@@ -39,6 +39,7 @@ class SendState:
 
     status: int = 0
     bytes_sent: int = 0
+    response_started: bool = False  # True when http.response.start was sent
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +268,7 @@ def create_send(
     request_method: bytes = b"GET",
     request_id: str | None = None,
     config: ServerConfig | None = None,
+    server: tuple[str, int] | None = None,
 ) -> Send:
     """Create an ASGI send callable that streams to the transport.
 
@@ -309,6 +311,7 @@ def create_send(
                 return
 
             response_started = True
+            state.response_started = True
             state.status = status
             headers: list[tuple[bytes, bytes]] = [
                 (
@@ -328,13 +331,16 @@ def create_send(
                 headers.append((b"x-request-id", request_id.encode("latin-1")))
 
             # Alt-Svc for HTTP/3 upgrade (RFC 7838)
+            # Use actual bound port from server tuple; config.port may be 0 (ephemeral)
             if config is not None and config.http3_enabled:
-                headers.append(
-                    (
-                        b"alt-svc",
-                        f'h3=":{config.port}"; ma=2592000'.encode("ascii"),
-                    ),
-                )
+                port = server[1] if server and server[1] > 0 else config.port
+                if port > 0:
+                    headers.append(
+                        (
+                            b"alt-svc",
+                            f'h3=":{port}"; ma=2592000'.encode("ascii"),
+                        ),
+                    )
 
             # SSE must not be compressed — EventSource API doesn't support it
             if compressor is not None:

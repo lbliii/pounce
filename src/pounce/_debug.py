@@ -132,7 +132,7 @@ def _get_source_context(filename: str, lineno: int, context: int = 5) -> list[tu
     try:
         with Path(filename).open(encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
-    except OSError, ValueError:
+    except (OSError, ValueError):
         return []
 
     start = max(0, lineno - context - 1)

@@ -20,6 +20,7 @@ import signal
 import socket
 import sys
 import threading
+from dataclasses import replace
 
 from pounce._runtime import WorkerMode, detect_worker_mode, is_gil_enabled
 from pounce._types import ASGIApp
@@ -268,20 +269,21 @@ class Server:
             and self._config.ssl_certfile
             and self._config.ssl_keyfile
         ):
-            try:
-                from pounce.protocols.h3 import is_h3_available
+            from pounce.protocols.h3 import is_h3_available
 
-                if is_h3_available():
-                    udp_sock = create_udp_listener(self._config)
-                    logger.info(
-                        "HTTP/3 enabled on %s:%d (UDP)",
-                        actual_addr[0],
-                        actual_addr[1],
-                    )
-            except ImportError:
-                logger.warning(
-                    "http3_enabled but aioquic not installed — install with pip install pounce[h3]"
+            if is_h3_available():
+                udp_sock = create_udp_listener(self._config)
+                logger.info(
+                    "HTTP/3 enabled on %s:%d (UDP)",
+                    actual_addr[0],
+                    actual_addr[1],
                 )
+            else:
+                logger.warning(
+                    "http3_enabled but HTTP/3 stack unavailable (zoomies not installed) — "
+                    "install with: pip install pounce[h3]"
+                )
+                self._config = replace(self._config, http3_enabled=False)
 
         logger.info(
             "Pounce server starting on %s:%d (single worker)",
@@ -350,13 +352,10 @@ class Server:
                     and self._config.ssl_certfile
                     and self._config.ssl_keyfile
                 ):
-                    try:
-                        from pounce.protocols.h3 import is_h3_available
+                    from pounce.protocols.h3 import is_h3_available
 
-                        if is_h3_available():
-                            udp_sock = create_udp_listener(self._config)
-                    except ImportError:
-                        pass
+                    if is_h3_available():
+                        udp_sock = create_udp_listener(self._config)
 
                 logger.info(
                     "Pounce server starting on %s:%d (single worker, reload)",
@@ -535,21 +534,22 @@ class Server:
             and self._config.ssl_certfile
             and self._config.ssl_keyfile
         ):
-            try:
-                from pounce.protocols.h3 import is_h3_available
+            from pounce.protocols.h3 import is_h3_available
 
-                if is_h3_available():
-                    udp_sockets = create_udp_listeners(self._config, effective_workers)
-                    logger.info(
-                        "HTTP/3 enabled on %s:%d (%d UDP workers)",
-                        self._config.host,
-                        self._config.port,
-                        effective_workers,
-                    )
-            except ImportError:
-                logger.warning(
-                    "http3_enabled but aioquic not installed — install with pip install pounce[h3]"
+            if is_h3_available():
+                udp_sockets = create_udp_listeners(self._config, effective_workers)
+                logger.info(
+                    "HTTP/3 enabled on %s:%d (%d UDP workers)",
+                    self._config.host,
+                    self._config.port,
+                    effective_workers,
                 )
+            else:
+                logger.warning(
+                    "http3_enabled but HTTP/3 stack unavailable (zoomies not installed) — "
+                    "install with: pip install pounce[h3]; disabling HTTP/3"
+                )
+                self._config = replace(self._config, http3_enabled=False)
 
         # Figure out the actual bind address from the first socket
         actual_addr = sockets[0].getsockname()

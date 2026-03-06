@@ -65,10 +65,8 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        # Exclude h3 extra: pylsqpack (aioquic dep) uses Limited API,
-        # which is not supported in Python 3.14 free-threaded build.
-        # HTTP/3 tests skip when aioquic is unavailable.
-        run: uv sync --group dev --extra h2 --extra ws --extra tls --extra fast
+        # Include h3 (bengal-zoomies) — zoomies is pure Python, compatible with 3.14t
+        run: uv sync --group dev --extra h2 --extra h3 --extra ws --extra tls --extra fast
 
       - name: Run tests
         run: uv run pytest tests/ -ra -q

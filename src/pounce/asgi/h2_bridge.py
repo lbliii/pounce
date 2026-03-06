@@ -80,6 +80,7 @@ def create_h2_send(
     request_method: bytes = b"GET",
     request_id: str | None = None,
     config: ServerConfig | None = None,
+    server: tuple[str, int] | None = None,
 ) -> Send:
     """Create an ASGI send callable for an HTTP/2 stream.
 
@@ -119,6 +120,7 @@ def create_h2_send(
                 return  # Don't mark response_started yet
 
             response_started = True
+            state.response_started = True
             state.status = status
 
             # Defense-in-depth: strip CR/LF from header values
@@ -155,13 +157,16 @@ def create_h2_send(
                     headers.append((b"server-timing", rendered))
 
             # Alt-Svc for HTTP/3 upgrade (RFC 7838)
+            # Use actual bound port from server tuple; config.port may be 0 (ephemeral)
             if config is not None and config.http3_enabled:
-                headers.append(
-                    (
-                        b"alt-svc",
-                        f'h3=":{config.port}"; ma=2592000'.encode("ascii"),
-                    ),
-                )
+                port = server[1] if server and server[1] > 0 else config.port
+                if port > 0:
+                    headers.append(
+                        (
+                            b"alt-svc",
+                            f'h3=":{port}"; ma=2592000'.encode("ascii"),
+                        ),
+                    )
 
             h2_conn.send_response_headers(stream_id, status, headers)
             _flush(h2_conn, writer)
