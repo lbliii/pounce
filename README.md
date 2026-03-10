@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Status: Beta](https://img.shields.io/badge/status-beta-yellow.svg)](https://pypi.org/project/bengal-pounce/)
 
-**A free-threading-native ASGI server for Python 3.14t.**
+**A Python ASGI server for production apps, streaming responses, and free-threaded Python.**
 
 ```python
 import pounce
@@ -18,13 +18,29 @@ pounce.run("myapp:app")
 
 ## What is Pounce?
 
-Pounce is a free-threading-native ASGI server for Python 3.14t. N worker threads share one interpreter, one copy of your app, one set of frozen config. On GIL builds, it falls back to multi-process automatically.
+Pounce is a Python ASGI server for Python 3.14+, with a worker model designed for
+free-threaded Python 3.14t. It runs standard ASGI applications, supports streaming
+responses, and gives you a clear upgrade path from process-based servers such as
+Uvicorn.
 
-**What's good about it:**
+On Python 3.14t, worker threads share one interpreter and one copy of your app. On GIL
+builds, Pounce falls back to multi-process workers automatically.
 
-- **Free-threading native** — Threads, not processes. One interpreter, N event loops, shared immutable state. Zero synchronization for immutable data.
-- **2026-native features** — Stdlib `compression.zstd` (PEP 784) for zero-dependency zstd content-encoding. Server-Timing headers for built-in observability.
-- **Streaming-first** — Chunked HTML, event streams, AI token delivery. Body chunks sent immediately to socket, never buffered.
+**Why people pick it:**
+
+- **ASGI-first** — Runs standard ASGI apps with CLI and programmatic entry points
+- **Free-threading ready** — Threads, not processes, on Python 3.14t
+- **Streaming-first** — Chunked HTML, event streams, and token streaming without buffering
+- **Production features** — TLS, compression, graceful shutdown, observability, worker tuning
+- **Protocol coverage** — HTTP/1.1, HTTP/2, WebSocket, and optional HTTP/3
+- **Migration path** — Familiar CLI for teams moving from Uvicorn-style deployments
+
+## Use Pounce For
+
+- **Serving ASGI apps in production** — Tunable workers, TLS, shutdown, and deployment controls
+- **Free-threaded Python deployments** — Shared-memory worker threads on Python 3.14t
+- **Streaming workloads** — Server-sent events, streamed HTML, and token-by-token responses
+- **Teams migrating from Uvicorn** — Similar CLI shape with a different worker model
 
 ---
 
@@ -67,6 +83,8 @@ pip install bengal-pounce[full]   # Everything above (except httptools)
 
 | Feature | Description | Docs |
 |---------|-------------|------|
+| **Deployment** | Production workers, compression, observability, and shutdown behavior | [Deployment →](https://lbliii.github.io/pounce/docs/deployment/) |
+| **Migration** | Move from Uvicorn with similar CLI concepts | [Migrate from Uvicorn →](https://lbliii.github.io/pounce/docs/tutorials/migrate-from-uvicorn/) |
 | **HTTP/1.1** | h11 (pure Python) or httptools (C-accelerated) | [HTTP/1.1 →](https://lbliii.github.io/pounce/docs/protocols/http1/) |
 | **HTTP/2** | Stream multiplexing via h2 | [HTTP/2 →](https://lbliii.github.io/pounce/docs/protocols/http2/) |
 | **HTTP/3** | QUIC/UDP via aioquic (requires TLS) | — |

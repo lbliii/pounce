@@ -5,15 +5,20 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bengal-pounce"
 version = "0.2.1"
-description = "A free-threading-native ASGI server for Python 3.14t"
+description = "Python ASGI server for production apps, streaming responses, and free-threaded Python"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 authors = [{ name = "Bengal Contributors", email = "lbeezr@icloud.com" }]
 keywords = [
     "asgi",
+    "asgi-server",
+    "python-asgi-server",
     "server",
     "http",
+    "uvicorn-alternative",
+    "streaming",
+    "production",
     "free-threading",
     "nogil",
     "websocket",
@@ -57,8 +62,8 @@ full = ["h2>=4.0", "wsproto>=1.2", "truststore>=0.9", "bengal-zoomies>=0.1.1"]
 pounce = "pounce._cli:main"
 
 [project.urls]
-Homepage = "https://github.com/lbliii/pounce"
-Documentation = "https://github.com/lbliii/pounce"
+Homepage = "https://lbliii.github.io/pounce/"
+Documentation = "https://lbliii.github.io/pounce/"
 Repository = "https://github.com/lbliii/pounce"
 Changelog = "https://github.com/lbliii/pounce/blob/main/CHANGELOG.md"
 

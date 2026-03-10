@@ -1,12 +1,12 @@
 ---
 title: Pounce
-description: A free-threading-native ASGI server for Python 3.14t
+description: A Python ASGI server for production apps, streaming responses, and free-threaded Python
 template: home.html
 weight: 100
 type: page
 draft: false
 lang: en
-keywords: [pounce, asgi, server, python, free-threading, nogil, http2, websocket]
+keywords: [pounce, python asgi server, uvicorn alternative, free-threading, nogil, streaming, http2, websocket]
 category: home
 
 # Hero configuration
@@ -24,11 +24,13 @@ cta_buttons:
 show_recent_posts: false
 ---
 
-## ASGI, Without the GIL
+## Python ASGI Server for Free-Threaded Python
 
-**Free-threading native. Streaming-first. Pure Python.**
+**Production-ready. Streaming-first. Free-threading aware.**
 
-Pounce is a pure-Python ASGI server designed from scratch for Python 3.14t. Instead of fork-based worker models, pounce runs N worker threads sharing a single interpreter — leveraging free-threading for true parallelism without memory duplication.
+Pounce is a pure-Python ASGI server designed for Python 3.14+ and optimized for
+Python 3.14t. Instead of relying solely on fork-based worker models, Pounce can run
+worker threads that share a single interpreter and one copy of your application.
 
 ```python
 import pounce
@@ -38,7 +40,7 @@ pounce.run("myapp:app")
 
 ---
 
-## What's good about it
+## Why Use Pounce
 
 :::{cards}
 :columns: 2
@@ -46,25 +48,36 @@ pounce.run("myapp:app")
 
 :::{card} Free-Threading Native
 :icon: cpu
-Real OS threads, not processes. N workers share one interpreter, one copy of the application, one set of frozen config — zero synchronization for immutable data.
+Real OS threads, not processes, on Python 3.14t. N workers share one interpreter, one
+copy of the application, and one set of frozen configuration.
 :::{/card}
 
 :::{card} Streaming-First
 :icon: zap
-The response pipeline sends body chunks immediately to the socket. Chunked HTML, event streams, AI token delivery — no buffering, instant delivery.
+The response pipeline sends body chunks immediately to the socket. Good fit for
+chunked HTML, event streams, and token delivery.
 :::{/card}
 
 :::{card} 2026-Native Features
 :icon: package
-First ASGI server with zero-dependency zstd compression via Python 3.14's stdlib (PEP 784). Server-Timing headers auto-injected for built-in observability.
+Python 3.14 stdlib `compression.zstd` support, plus Server-Timing headers for built-in
+observability.
 :::{/card}
 
 :::{card} Pure Python
 :icon: code
-No Rust, no C extensions in the server core. One dependency (h11). Debuggable, hackable, readable. Optional extras for HTTP/2, WebSocket, and TLS.
+No Rust and no C extensions in the server core. One required dependency (`h11`) with
+optional extras for HTTP/2, WebSocket, and TLS.
 :::{/card}
 
 :::{/cards}
+
+## Common Use Cases
+
+- Running standard ASGI apps with a Python-native server
+- Replacing Uvicorn deployments while keeping a familiar CLI
+- Serving streaming responses with low buffering overhead
+- Deploying free-threaded Python apps with shared-memory worker threads
 
 ---
 

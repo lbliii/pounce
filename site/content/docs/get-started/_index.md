@@ -1,12 +1,12 @@
 ---
 title: Get Started
-description: Install Pounce and serve your first ASGI application
+description: Install Pounce and serve your first ASGI application with a production-friendly Python ASGI server
 draft: false
 weight: 10
 lang: en
 type: doc
 tags: [getting-started, installation, quickstart]
-keywords: [install, setup, quickstart, asgi, server]
+keywords: [install, setup, quickstart, python asgi server, uvicorn migration]
 category: onboarding
 icon: rocket
 

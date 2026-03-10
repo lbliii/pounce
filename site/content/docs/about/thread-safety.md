@@ -79,6 +79,14 @@ If your app works correctly with Uvicorn's multi-process mode, it will work with
 If your app uses global mutable state (module-level dicts, caches without locks), you'll need to add synchronization for free-threading builds. This is a Python-wide concern, not Pounce-specific.
 :::
 
+## Code References
+
+| Pattern | File |
+|---------|------|
+| PEP 703 declaration | [src/pounce/__init__.py](https://github.com/lbliii/pounce/blob/main/src/pounce/__init__.py) |
+| GIL detection (worker mode) | [src/pounce/_runtime.py](https://github.com/lbliii/pounce/blob/main/src/pounce/_runtime.py) |
+| ServerConfig (frozen) | [src/pounce/config.py](https://github.com/lbliii/pounce/blob/main/src/pounce/config.py) |
+
 ## See Also
 
 - [[docs/about/architecture|Architecture]] — Server layer design
