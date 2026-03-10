@@ -1,11 +1,11 @@
 ---
 title: Documentation
-description: Everything you need to know about Pounce
+description: Documentation for running, deploying, and tuning the Pounce Python ASGI server
 draft: false
 weight: 10
 lang: en
 type: doc
-keywords: [pounce, documentation, asgi, server]
+keywords: [pounce, python asgi server, documentation, deployment, uvicorn migration]
 category: overview
 
 cascade:
@@ -13,6 +13,10 @@ cascade:
 ---
 
 ## Learn Pounce
+
+Pounce is a Python ASGI server for production apps, streaming workloads, and
+free-threaded Python. Start with installation, then move into deployment, protocol
+support, and migration guides.
 
 :::{cards}
 :columns: 2
@@ -41,6 +45,12 @@ ServerConfig, CLI options, TLS setup, and tuning parameters.
 :link: ./deployment/
 Workers, compression, production hardening, and scaling.
 :::{/card}
+
+::::{card} Migrate from Uvicorn
+:icon: repeat
+:link: ./tutorials/migrate-from-uvicorn
+Switch from Uvicorn with minimal CLI and deployment changes.
+::::{/card}
 
 :::{/cards}
 

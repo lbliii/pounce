@@ -1,12 +1,12 @@
 ---
 title: About
-description: Architecture, performance, and design philosophy behind Pounce
+description: Architecture, performance, thread model, and comparison guidance for the Pounce Python ASGI server
 draft: false
 weight: 20
 lang: en
 type: doc
 tags: [architecture, design, about]
-keywords: [architecture, performance, thread-safety, comparison]
+keywords: [python asgi server, architecture, performance, thread-safety, uvicorn alternative]
 category: explanation
 icon: info
 
@@ -17,6 +17,9 @@ cascade:
 :::{cards}
 :columns: 2
 :gap: medium
+
+Pounce is an ASGI server with a worker model tailored to Python 3.14t. This section
+explains how it works, where it fits, and how to compare it to more familiar servers.
 
 :::{card} Architecture
 :icon: layers
@@ -36,14 +39,14 @@ Streaming-first design and threading performance.
 :icon: shield
 :link: ./thread-safety
 :description: How Pounce handles shared state across workers
-Frozen config, per-request state, zero synchronization.
+Frozen configuration, per-request state, zero synchronization.
 :::{/card}
 
 :::{card} Comparison
 :icon: bar-chart-2
 :link: ./comparison
-:description: When Pounce fits and what it offers
-Architecture and deployment guidance.
+:description: When Pounce fits, when to choose alternatives, and how it compares to Uvicorn deployments
+Architecture and deployment guidance for choosing the right server.
 :::{/card}
 
 :::{card} FAQ

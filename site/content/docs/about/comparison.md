@@ -1,18 +1,20 @@
 ---
 title: When to Use Pounce
-description: Pounce's architecture and when it fits
+description: When Pounce fits, how it differs from process-based ASGI servers, and when to consider alternatives
 draft: false
 weight: 40
 lang: en
 type: doc
 tags: [architecture, deployment]
-keywords: [architecture, deployment, asgi, server]
+keywords: [python asgi server, uvicorn alternative, architecture, deployment, free-threading]
 category: explanation
 ---
 
 # When to Use Pounce
 
-Pounce is built for Python 3.14t and the free-threading model.
+Pounce is built for Python 3.14t and the free-threading model. If you are evaluating
+Python ASGI servers, the main distinction is its worker model: threads on 3.14t,
+automatic process fallback on GIL builds.
 
 ## Pounce's Model
 
@@ -29,9 +31,12 @@ Pounce is built for Python 3.14t and the free-threading model.
 - You need **streaming responses** with minimal latency
 - You want **stdlib compression** (zstd) without external dependencies
 - You prefer **pure Python** for debuggability and extensibility
+- You want a **Uvicorn-like CLI** with a different concurrency model
 
 ## When to Consider Alternatives
 
+- **Uvicorn** — A reasonable choice if you want a more familiar default in process-based deployments
+- **Hypercorn** — Worth considering if your team already depends on its deployment model or feature set
 - **Django Channels** — If you need deep Django integration, other servers may have more mature support
 - **Existing deployments** — If your current setup works and you're not on 3.14t, there's no urgent reason to switch
 
