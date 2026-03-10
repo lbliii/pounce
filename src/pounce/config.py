@@ -33,6 +33,13 @@ class ServerConfig:
     workers: int = 1
     backlog: int = 2048
 
+    # Per-worker thread pool for asyncio.to_thread() calls.
+    # In thread mode (3.14t), all workers share one process and the default
+    # ThreadPoolExecutor — causing contention under high concurrency.
+    # Setting this > 0 gives each worker its own executor.
+    # 0 = auto-size (min(32, cpu_count + 4) per worker).
+    executor_threads_per_worker: int = 0
+
     # Timeouts (seconds)
     keep_alive_timeout: float = 5.0
     request_timeout: float = 30.0
@@ -155,6 +162,12 @@ class ServerConfig:
             raise ValueError(msg)
         if self.backlog <= 0:
             msg = f"backlog must be > 0 (got {self.backlog})"
+            raise ValueError(msg)
+        if self.executor_threads_per_worker < 0:
+            msg = (
+                f"executor_threads_per_worker must be >= 0 "
+                f"(got {self.executor_threads_per_worker})"
+            )
             raise ValueError(msg)
         if self.keep_alive_timeout <= 0:
             msg = f"keep_alive_timeout must be > 0 (got {self.keep_alive_timeout})"

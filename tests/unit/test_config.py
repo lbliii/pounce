@@ -255,6 +255,26 @@ class TestServerConfigResolveWorkers:
             assert config.resolve_workers() == 8
 
 
+class TestExecutorThreadsPerWorker:
+    """Tests for executor_threads_per_worker config field."""
+
+    def test_default_is_zero(self):
+        config = ServerConfig()
+        assert config.executor_threads_per_worker == 0
+
+    def test_custom_value(self):
+        config = ServerConfig(executor_threads_per_worker=8)
+        assert config.executor_threads_per_worker == 8
+
+    def test_negative_raises(self):
+        with pytest.raises(ValueError, match="executor_threads_per_worker must be >= 0"):
+            ServerConfig(executor_threads_per_worker=-1)
+
+    def test_zero_allowed(self):
+        config = ServerConfig(executor_threads_per_worker=0)
+        assert config.executor_threads_per_worker == 0
+
+
 class TestServerConfigSlots:
     """ServerConfig uses __slots__ for memory efficiency."""
 

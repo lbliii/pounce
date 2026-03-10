@@ -21,15 +21,18 @@ on core lifecycle and HTTP/1.1 handling.
 import asyncio
 import contextlib
 import logging
+import os
 import socket
 import ssl
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
 
 import h11
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
+from pounce._profile import ProfileCollector, RequestProfile
 from pounce._errors import ParseError
 from pounce._h2_handler import handle_h2_connection
 from pounce._health import build_health_response
@@ -129,6 +132,7 @@ class Worker:
         "_loop",
         "_max_connections",
         "_otel_span_manager",
+        "_profile",
         "_sock",
         "_ssl_context",
         "_worker_id",
@@ -168,6 +172,8 @@ class Worker:
         self._lifecycle: LifecycleCollector = lifecycle_collector or NoopCollector()
         self._lifespan_state: dict[str, Any] = {}  # Populated after lifespan startup
         self._draining = False  # Set to True during graceful reload
+
+        self._profile = ProfileCollector(worker_id=worker_id)
 
         # Initialize OpenTelemetry span manager if configured
         if config.otel_endpoint:
@@ -219,6 +225,18 @@ class Worker:
         """Accept connections until shutdown is signaled."""
         self._loop = asyncio.get_running_loop()
         self._async_shutdown = asyncio.Event()
+
+        # Per-worker ThreadPoolExecutor — prevents all workers from sharing
+        # the process-wide default executor (critical in thread mode / 3.14t
+        # where all workers live in one process).
+        pool_size = self._config.executor_threads_per_worker
+        if pool_size == 0:
+            pool_size = min(32, (os.cpu_count() or 1) + 4)
+        executor = ThreadPoolExecutor(
+            max_workers=pool_size,
+            thread_name_prefix=f"pounce-exec-{self._worker_id}",
+        )
+        self._loop.set_default_executor(executor)
 
         # Per-worker startup hook — runs on this worker's event loop so
         # any async resources (httpx clients, DB pools) bind to the
@@ -304,6 +322,7 @@ class Worker:
             except Exception:
                 self._logger.debug("Worker shutdown hook raised (expected for most apps)")
 
+            executor.shutdown(wait=False)
             self._logger.info("Worker %d stopped", self._worker_id)
 
     async def _bridge_shutdown(self, ext_event: threading.Event) -> None:
@@ -498,7 +517,10 @@ class Worker:
         try:
             # Reusable helper: process a batch of events from the protocol
             # layer. Returns True if the connection should close.
-            async def _process_events(events: list) -> bool:
+            async def _process_events(
+                events: list,
+                profile_ctx: RequestProfile | None = None,
+            ) -> bool:
                 nonlocal request_count
                 idx = 0
                 while idx < len(events):
@@ -542,7 +564,10 @@ class Worker:
                             client_str,
                             initial_body=initial_body,
                             connection_id=conn_id,
+                            profile_ctx=profile_ctx,
                         )
+                        if profile_ctx is not None:
+                            self._profile.record(profile_ctx)
                     elif isinstance(event, ConnectionClosed):
                         return True  # Clean close
                 return False
@@ -557,6 +582,8 @@ class Worker:
             while True:
                 # Read data from the client
                 read_timeout = header_timeout if awaiting_headers else ka_timeout
+                should_sample = self._profile.should_sample()
+                read_start = monotonic_ns() if should_sample else 0
                 try:
                     data = await asyncio.wait_for(
                         reader.read(65536),
@@ -573,6 +600,8 @@ class Worker:
                     close_reason = "client_disconnect"
                     break  # Client disconnected
 
+                read_ms = elapsed_ms(read_start) if should_sample else 0.0
+                parse_start = monotonic_ns() if should_sample else 0
                 # Parse through the protocol layer
                 try:
                     events = proto.receive_data(data)
@@ -581,7 +610,14 @@ class Worker:
                     await self._send_error(writer, proto, 400, str(exc))
                     break
 
-                if await _process_events(events):
+                parse_ms = elapsed_ms(parse_start) if should_sample else 0.0
+                profile_ctx = (
+                    RequestProfile(read_ms=read_ms, parse_ms=parse_ms)
+                    if should_sample
+                    else None
+                )
+
+                if await _process_events(events, profile_ctx=profile_ctx):
                     return
 
                 # After processing events, we've handled a request — switch
@@ -648,6 +684,7 @@ class Worker:
         *,
         initial_body: list[BodyReceived] | None = None,
         connection_id: int = 0,
+        profile_ctx: RequestProfile | None = None,
     ) -> None:
         """Process a single HTTP request through the ASGI pipeline."""
         request_start = monotonic_ns()
@@ -764,6 +801,7 @@ class Worker:
             body_complete = True
 
         app_start = monotonic_ns()
+        profile_app_start = app_start if profile_ctx is not None else 0
         send_state = SendState()
         send = create_send(
             proto,
@@ -840,6 +878,9 @@ class Worker:
         if timing:
             timing.add("app", elapsed_ms(app_start))
 
+        if profile_ctx is not None:
+            profile_ctx.app_ms = elapsed_ms(profile_app_start)
+
         # If app returned without sending http.response.start, send 500 now.
         # Do not treat empty-body responses (HEAD/204/304) as "no response".
         if not send_state.response_started:
@@ -861,8 +902,11 @@ class Worker:
         )
 
         # Flush the writer
+        drain_start = monotonic_ns() if profile_ctx is not None else 0
         with contextlib.suppress(ConnectionError, OSError):
             await writer.drain()
+        if profile_ctx is not None:
+            profile_ctx.drain_ms = elapsed_ms(drain_start)
 
         # Access log
         if self._config.access_log:
