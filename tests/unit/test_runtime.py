@@ -2,7 +2,12 @@
 
 from unittest.mock import patch
 
-from pounce._runtime import default_worker_count, detect_worker_mode, is_gil_enabled
+from pounce._runtime import (
+    default_worker_count,
+    detect_worker_mode,
+    is_gil_enabled,
+    resolve_worker_execution_mode,
+)
 
 
 class TestIsGilEnabled:
@@ -57,3 +62,21 @@ class TestDefaultWorkerCount:
     def test_fallback_when_cpu_count_none(self):
         with patch("pounce._runtime.os.cpu_count", return_value=None):
             assert default_worker_count() == 1
+
+
+class TestResolveWorkerExecutionMode:
+    """resolve_worker_execution_mode() maps config to sync/async."""
+
+    def test_sync_explicit(self):
+        assert resolve_worker_execution_mode("sync") == "sync"
+
+    def test_async_explicit(self):
+        assert resolve_worker_execution_mode("async") == "async"
+
+    def test_auto_nogil_uses_sync(self):
+        with patch("pounce._runtime.is_gil_enabled", return_value=False):
+            assert resolve_worker_execution_mode("auto") == "sync"
+
+    def test_auto_gil_uses_async(self):
+        with patch("pounce._runtime.is_gil_enabled", return_value=True):
+            assert resolve_worker_execution_mode("auto") == "async"
