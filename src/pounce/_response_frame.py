@@ -29,8 +29,25 @@ def serialize_raw_response(
     Returns:
         Complete HTTP/1.1 response bytes ready for socket.sendall().
     """
+    head, _ = serialize_raw_response_parts(
+        status, headers, body, server_header=server_header, date_header=date_header
+    )
+    return head + body
+
+
+def serialize_raw_response_parts(
+    status: int,
+    headers: tuple[tuple[bytes, bytes], ...],
+    body: bytes,
+    *,
+    server_header: str = "pounce",
+    date_header: bytes | None = None,
+) -> tuple[bytes, bytes]:
+    """Serialize HTTP/1.1 response as (head, body) for scatter-gather send.
+
+    Use with socket.sendmsg([head, body]) to avoid concatenation.
+    """
     parts: list[bytes] = []
-    # Status line
     reason = _STATUS_REASONS.get(status, b"OK")
     parts.append(b"HTTP/1.1 " + str(status).encode() + b" " + reason + b"\r\n")
     parts.append(b"server: " + server_header.encode() + b"\r\n")
@@ -39,8 +56,8 @@ def serialize_raw_response(
     for name, value in headers:
         parts.append(name + b": " + value + b"\r\n")
     parts.append(b"\r\n")
-    parts.append(body)
-    return b"".join(parts)
+    head = b"".join(parts)
+    return (head, body)
 
 
 def get_date_header_bytes() -> bytes:

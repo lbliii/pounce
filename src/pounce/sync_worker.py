@@ -17,17 +17,15 @@ import queue
 import socket
 import ssl
 import threading
-from typing import Any, cast
-
 import time
+from typing import Any, cast
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._errors import ParseError
 from pounce._health import build_health_response
 from pounce._request_id import extract_or_generate
-from pounce._response_frame import get_date_header_bytes, serialize_raw_response
+from pounce._response_frame import get_date_header_bytes, serialize_raw_response_parts
 from pounce._types import ASGIApp
-from pounce.sync_protocol import RawRequest, RawResponse, SyncApp
 from pounce.asgi.bridge import build_scope
 from pounce.asgi.sync_bridge import NeedsAsync, call_asgi_sync
 from pounce.async_pool import AsyncPool, StreamingHandoff, WebSocketHandoff
@@ -46,6 +44,7 @@ from pounce.lifecycle import monotonic_ns as lifecycle_ns
 from pounce.logging import access_log
 from pounce.protocols._base import BodyReceived, ConnectionClosed, RequestReceived
 from pounce.protocols.h1 import H1Protocol
+from pounce.sync_protocol import RawRequest, SyncApp
 
 try:
     from pounce.protocols.h1_httptools import is_httptools_available
@@ -109,8 +108,9 @@ class SyncWorker:
         "_date_header_bytes",
         "_ext_shutdown",
         "_lifecycle",
-        "_logger",
         "_lifespan_state",
+        "_logger",
+        "_recv_buf",
         "_sock",
         "_ssl_context",
         "_sync_app",
@@ -151,6 +151,7 @@ class SyncWorker:
         self._active_connections = 0
         self._date_cache_sec = -1
         self._date_header_bytes = b""
+        self._recv_buf = bytearray(65536)
 
     def set_lifespan_state(self, state: dict[str, Any]) -> None:
         """Set the lifespan state dict shared with all requests."""
@@ -346,14 +347,20 @@ class SyncWorker:
                             self._date_cache_sec = now_sec
                             self._date_header_bytes = get_date_header_bytes()
                         date_hdr = self._date_header_bytes if self._config.date_header else None
-                        raw = serialize_raw_response(
+                        head, body_bytes = serialize_raw_response_parts(
                             raw_resp.status,
                             tuple(headers_list),
                             body_out,
                             server_header=self._config.server_header,
                             date_header=date_hdr,
                         )
-                        conn.sendall(raw)
+                        try:
+                            if hasattr(conn, "sendmsg"):
+                                conn.sendmsg([head, body_bytes])
+                            else:
+                                conn.sendall(head + body_bytes)
+                        except OSError:
+                            conn.sendall(head + body_bytes)
                         self._lifecycle.record(
                             ResponseCompleted(
                                 connection_id=conn_id,
@@ -531,13 +538,14 @@ class SyncWorker:
 
         while True:
             try:
-                chunk = conn.recv(65536)
+                n = conn.recv_into(self._recv_buf)
             except (ConnectionError, OSError, TimeoutError):
                 return (None, b"")
 
-            if not chunk:
+            if n <= 0:
                 return (None, b"")
 
+            chunk = bytes(self._recv_buf[:n])
             try:
                 events = proto.receive_data(chunk)
             except ParseError:
