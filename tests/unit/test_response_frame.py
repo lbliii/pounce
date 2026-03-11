@@ -1,6 +1,10 @@
 """Tests for pounce._response_frame — pre-built HTTP response serialization."""
 
-from pounce._response_frame import get_date_header_bytes, serialize_raw_response
+from pounce._response_frame import (
+    get_date_header_bytes,
+    serialize_raw_response,
+    serialize_raw_response_parts,
+)
 
 
 def test_serialize_raw_response_basic() -> None:
@@ -44,3 +48,16 @@ def test_serialize_raw_response_status_reasons() -> None:
     for status, reason in [(404, b"Not Found"), (500, b"Internal Server Error")]:
         raw = serialize_raw_response(status, (), b"", date_header=None)
         assert reason in raw
+
+
+def test_serialize_raw_response_parts() -> None:
+    """Parts (head, body) match concatenated serialize_raw_response."""
+    headers = ((b"content-type", b"application/json"), (b"content-length", b"2"))
+    body = b"{}"
+    head, body_out = serialize_raw_response_parts(200, headers, body, date_header=None)
+    assert head.startswith(b"HTTP/1.1 200 OK\r\n")
+    assert b"content-type: application/json\r\n" in head
+    assert head.endswith(b"\r\n\r\n")
+    assert body_out == body
+    full = serialize_raw_response(200, headers, body, date_header=None)
+    assert head + body_out == full

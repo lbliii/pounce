@@ -66,6 +66,13 @@ This appears directly in browser DevTools (Network tab → Timing), enabling zer
 - **SO_REUSEPORT** — Kernel-level load balancing across workers
 - **Graceful shutdown** — In-flight requests complete before workers exit
 
+## Fused Sync Path (Chirp)
+
+When Chirp runs behind Pounce with no middleware, sync handlers that return `dict`, `list`, `str`, or `bytes` use a fused path that bypasses ASGI and the HTTP protocol layer. Pounce uses:
+
+- **Reusable recv buffer** — `recv_into()` with a per-worker `bytearray` to avoid per-request allocations
+- **Scatter-gather send** — `sendmsg([head, body])` when available to avoid concatenating response head and body
+
 ## See Also
 
 - [[docs/deployment/compression|Compression]] — Configuration details
