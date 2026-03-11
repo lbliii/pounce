@@ -19,10 +19,13 @@ import ssl
 import threading
 from typing import Any, cast
 
+import time
+
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._errors import ParseError
 from pounce._health import build_health_response
 from pounce._request_id import extract_or_generate
+from pounce._response_frame import get_date_header_bytes, serialize_raw_response
 from pounce._types import ASGIApp
 from pounce.sync_protocol import RawRequest, RawResponse, SyncApp
 from pounce.asgi.bridge import build_scope
@@ -102,6 +105,8 @@ class SyncWorker:
         "_async_pool",
         "_config",
         "_conn_queue",
+        "_date_cache_sec",
+        "_date_header_bytes",
         "_ext_shutdown",
         "_lifecycle",
         "_logger",
@@ -144,6 +149,8 @@ class SyncWorker:
         self._lifespan_state: dict[str, Any] = {}
         self._logger = logging.getLogger(f"pounce.sync_worker.{worker_id}")
         self._active_connections = 0
+        self._date_cache_sec = -1
+        self._date_header_bytes = b""
 
     def set_lifespan_state(self, state: dict[str, Any]) -> None:
         """Set the lifespan state dict shared with all requests."""
@@ -311,7 +318,7 @@ class SyncWorker:
                     )
                     raw_resp = self._sync_app.handle_sync(raw_req)
                     if raw_resp is not None:
-                        # Fast path: direct response, no asyncio
+                        # Fast path: direct response, no asyncio, bypass h11
                         headers_list = list(raw_resp.headers)
                         compressor: Compressor | None = None
                         if self._config.compression:
@@ -333,8 +340,19 @@ class SyncWorker:
                                 (b"content-length", str(len(body_out)).encode("ascii"))
                             )
                         headers_list.append((b"connection", b"close"))
-                        raw = proto.send_response(raw_resp.status, headers_list)
-                        raw += proto.send_body(body_out, more=False)
+                        # Date header: cache per-second (RFC 7231 allows 1s resolution)
+                        now_sec = int(time.time())
+                        if now_sec != self._date_cache_sec:
+                            self._date_cache_sec = now_sec
+                            self._date_header_bytes = get_date_header_bytes()
+                        date_hdr = self._date_header_bytes if self._config.date_header else None
+                        raw = serialize_raw_response(
+                            raw_resp.status,
+                            tuple(headers_list),
+                            body_out,
+                            server_header=self._config.server_header,
+                            date_header=date_hdr,
+                        )
                         conn.sendall(raw)
                         self._lifecycle.record(
                             ResponseCompleted(
