@@ -27,11 +27,17 @@ import time
 from typing import Any
 
 from pounce._errors import SupervisorError
-from pounce._runtime import WorkerMode, detect_worker_mode
+from pounce._runtime import (
+    WorkerExecutionMode,
+    WorkerMode,
+    detect_worker_mode,
+    resolve_worker_execution_mode,
+)
 from pounce._types import ASGIApp
 from pounce.config import ServerConfig
 from pounce.h3_worker import H3Worker
 from pounce.lifecycle import LifecycleCollector
+from pounce.sync_worker import SyncWorker
 from pounce.worker import Worker
 
 logger = logging.getLogger("pounce.supervisor")
@@ -59,7 +65,7 @@ class _WorkerHandle:
         self,
         worker_id: int,
         target: threading.Thread | multiprocessing.Process,
-        worker: Worker | None,
+        worker: Worker | SyncWorker | None,
         generation: int = 0,
     ) -> None:
         self.worker_id = worker_id
@@ -105,6 +111,7 @@ class Supervisor:
         "_app_path",
         "_config",
         "_effective_workers",
+        "_execution_mode",
         "_generation",
         "_h3_handles",
         "_handles",
@@ -133,6 +140,9 @@ class Supervisor:
         self._app = app
         self._app_path = app_path
         self._mode: WorkerMode = mode or detect_worker_mode()
+        self._execution_mode: WorkerExecutionMode = resolve_worker_execution_mode(
+            config.worker_mode
+        )
         self._shutdown_event = threading.Event()
         self._lifecycle_lock = threading.Lock()
         self._reload_in_progress = False
@@ -193,9 +203,11 @@ class Supervisor:
         self._udp_sockets = udp_sockets or []
         self._install_signals()
 
+        exec_label = f"{self._execution_mode}+" if self._execution_mode == "sync" else ""
         logger.info(
-            "Supervisor starting %d %s worker(s)",
+            "Supervisor starting %d %s%s worker(s)",
             self._effective_workers,
+            exec_label,
             self._mode,
         )
 
@@ -370,24 +382,36 @@ class Supervisor:
             self._effective_workers,
             self._generation,
         )
+        use_sync = self._mode == "thread" and self._execution_mode == "sync"
+        per_worker_max = (
+            self._config.max_connections // self._effective_workers
+            if self._config.max_connections > 0
+            else 0
+        )
+
         new_handles: list[_WorkerHandle] = []
         for i in range(self._effective_workers):
-            per_worker_max = (
-                self._config.max_connections // self._effective_workers
-                if self._config.max_connections > 0
-                else 0
-            )
-
-            worker = Worker(
-                self._config,
-                self._app,
-                self._sockets[i],
-                worker_id=i + self._effective_workers,  # Different ID to avoid conflicts
-                shutdown_event=self._shutdown_event,
-                max_connections=per_worker_max,
-                ssl_context=self._ssl_context,
-                lifecycle_collector=self._lifecycle_collector,
-            )
+            if use_sync:
+                worker = SyncWorker(
+                    self._config,
+                    self._app,
+                    self._sockets[i],
+                    worker_id=i + self._effective_workers,
+                    shutdown_event=self._shutdown_event,
+                    ssl_context=self._ssl_context,
+                    lifecycle_collector=self._lifecycle_collector,
+                )
+            else:
+                worker = Worker(
+                    self._config,
+                    self._app,
+                    self._sockets[i],
+                    worker_id=i + self._effective_workers,
+                    shutdown_event=self._shutdown_event,
+                    max_connections=per_worker_max,
+                    ssl_context=self._ssl_context,
+                    lifecycle_collector=self._lifecycle_collector,
+                )
             worker.set_lifespan_state(self._lifespan_state)
 
             target = threading.Thread(
@@ -466,16 +490,30 @@ class Supervisor:
             else 0
         )
 
-        worker = Worker(
-            self._config,
-            self._app,
-            self._sockets[worker_id],
-            worker_id=worker_id,
-            shutdown_event=self._shutdown_event,
-            max_connections=per_worker_max,
-            ssl_context=self._ssl_context,
-            lifecycle_collector=self._lifecycle_collector,
+        use_sync = (
+            self._mode == "thread" and self._execution_mode == "sync"
         )
+        if use_sync:
+            worker = SyncWorker(
+                self._config,
+                self._app,
+                self._sockets[worker_id],
+                worker_id=worker_id,
+                shutdown_event=self._shutdown_event,
+                ssl_context=self._ssl_context,
+                lifecycle_collector=self._lifecycle_collector,
+            )
+        else:
+            worker = Worker(
+                self._config,
+                self._app,
+                self._sockets[worker_id],
+                worker_id=worker_id,
+                shutdown_event=self._shutdown_event,
+                max_connections=per_worker_max,
+                ssl_context=self._ssl_context,
+                lifecycle_collector=self._lifecycle_collector,
+            )
         # Inject lifespan state for ASGI scope["state"]
         worker.set_lifespan_state(self._lifespan_state)
 

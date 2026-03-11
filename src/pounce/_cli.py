@@ -65,6 +65,7 @@ def main(args: list[str] | None = None) -> None:
         shutdown_timeout=parsed.shutdown_timeout,
         uds=parsed.uds,
         health_check_path=parsed.health_check_path,
+        worker_mode=parsed.worker_mode,
     )
 
     # Run the server — pass the original import string so that the reload
@@ -167,6 +168,16 @@ def _build_parser() -> argparse.ArgumentParser:
             "Number of workers (default: 1). "
             "Use 0 for auto-detect (one per CPU core). "
             "On nogil builds workers are threads; on GIL builds they are processes."
+        ),
+    )
+    parser.add_argument(
+        "--worker-mode",
+        default="auto",
+        choices=["auto", "sync", "async"],
+        help=(
+            "Worker execution model (default: auto). "
+            "auto: sync on 3.14t, async on GIL. sync: blocking I/O (request-response only). "
+            "async: event loop (streaming, WebSocket)."
         ),
     )
     parser.add_argument(

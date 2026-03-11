@@ -33,6 +33,12 @@ class ServerConfig:
     workers: int = 1
     backlog: int = 2048
 
+    # Worker execution model (multi-worker only)
+    # "auto": sync on 3.14t, async on GIL (default)
+    # "sync": force sync workers (fast path; streaming hands off to async pool)
+    # "async": force async workers (current behavior)
+    worker_mode: str = "auto"
+
     # Per-worker thread pool for asyncio.to_thread() calls.
     # In thread mode (3.14t), all workers share one process and the default
     # ThreadPoolExecutor — causing contention under high concurrency.
@@ -148,6 +154,7 @@ class ServerConfig:
 
     _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error", "critical"})
     _VALID_LOG_FORMATS: frozenset[str] = frozenset({"text", "json"})
+    _VALID_WORKER_MODES: frozenset[str] = frozenset({"auto", "sync", "async"})
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
@@ -211,6 +218,12 @@ class ServerConfig:
             msg = (
                 f"log_format must be one of {sorted(self._VALID_LOG_FORMATS)} "
                 f"(got {self.log_format!r})"
+            )
+            raise ValueError(msg)
+        if self.worker_mode.lower() not in self._VALID_WORKER_MODES:
+            msg = (
+                f"worker_mode must be one of {sorted(self._VALID_WORKER_MODES)} "
+                f"(got {self.worker_mode!r})"
             )
             raise ValueError(msg)
         if (self.ssl_certfile is None) != (self.ssl_keyfile is None):
