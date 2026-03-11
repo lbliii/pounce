@@ -21,6 +21,7 @@ import time
 from typing import Any, cast
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
+from pounce._cpu_affinity import maybe_pin_worker
 from pounce._errors import ParseError
 from pounce._health import build_health_response
 from pounce._request_id import extract_or_generate
@@ -46,25 +47,12 @@ from pounce.protocols._base import BodyReceived, ConnectionClosed, RequestReceiv
 from pounce.protocols.h1 import H1Protocol
 from pounce.sync_protocol import RawRequest, SyncApp
 
-try:
-    from pounce.protocols.h1_httptools import is_httptools_available
-
-    _use_httptools = is_httptools_available()
-except ImportError:
-    _use_httptools = False
-
 
 def _create_h1_protocol(
     *,
     max_incomplete_event_size: int | None = None,
 ) -> H1Protocol:
-    """Create the best available HTTP/1.1 protocol handler."""
-    if _use_httptools:
-        from pounce.protocols.h1_httptools import H1HttpToolsProtocol
-
-        return H1HttpToolsProtocol(  # type: ignore[return-value]
-            max_incomplete_event_size=max_incomplete_event_size,
-        )
+    """Create an HTTP/1.1 protocol handler."""
     return H1Protocol(max_incomplete_event_size=max_incomplete_event_size)
 
 
@@ -168,6 +156,7 @@ class SyncWorker:
 
     def run(self) -> None:
         """Accept connections until shutdown (blocking)."""
+        maybe_pin_worker(self._worker_id, self._config)
         _POLL_INTERVAL = 0.25
 
         runner = asyncio.Runner()

@@ -36,7 +36,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "h11>=0.14.0", # HTTP/1.1 parser (pure Python, well-tested, ~2k LOC)
+    "h11>=0.14.0",  # HTTP/1.1 parser (pure Python, well-tested, ~2k LOC)
 ]
 
 [project.optional-dependencies]
@@ -48,9 +48,6 @@ ws = ["wsproto>=1.2"]
 
 # TLS termination
 tls = ["truststore>=0.9"]
-
-# C-accelerated HTTP/1.1 parsing
-fast = ["httptools>=0.6"]
 
 # HTTP/3 support (QUIC)
 h3 = ["bengal-zoomies>=0.1.1"]

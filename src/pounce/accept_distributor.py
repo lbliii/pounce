@@ -1,0 +1,84 @@
+"""
+AcceptDistributor — single-thread accept with round-robin to workers.
+
+Eliminates thundering herd on macOS/Windows where SO_REUSEPORT is
+unavailable. One thread accepts connections and distributes them
+evenly to SyncWorkers via per-worker queues.
+
+"""
+
+import logging
+import queue
+import socket
+import ssl
+import threading
+
+logger = logging.getLogger("pounce.accept_distributor")
+
+
+def is_shared_socket(sockets: list[socket.socket]) -> bool:
+    """True if all workers share the same socket (no SO_REUSEPORT)."""
+    if len(sockets) < 2:
+        return False
+    first_id = id(sockets[0])
+    return all(id(s) == first_id for s in sockets)
+
+
+class AcceptDistributor:
+    """Single thread that accepts connections and feeds a shared queue.
+
+    Used when SO_REUSEPORT is unavailable (macOS, Windows). Avoids
+    thundering herd where all workers block on accept() on the same fd.
+
+    All SyncWorkers pull from the same shared queue so the first idle
+    worker handles the next connection — no head-of-line blocking.
+
+    """
+
+    __slots__ = (
+        "_conn_queue",
+        "_ext_shutdown",
+        "_logger",
+        "_sock",
+        "_ssl_context",
+    )
+
+    def __init__(
+        self,
+        sock: socket.socket,
+        conn_queue: queue.Queue[tuple[socket.socket, object]],
+        *,
+        shutdown_event: threading.Event | None = None,
+        ssl_context: ssl.SSLContext | None = None,
+    ) -> None:
+        self._sock = sock
+        self._conn_queue = conn_queue
+        self._ext_shutdown = shutdown_event
+        self._ssl_context = ssl_context
+        self._logger = logging.getLogger("pounce.accept_distributor")
+
+    def run(self) -> None:
+        """Accept connections and enqueue for workers until shutdown."""
+        self._sock.setblocking(True)
+        _ACCEPT_POLL_INTERVAL = 0.25
+
+        while not (self._ext_shutdown and self._ext_shutdown.is_set()):
+            self._sock.settimeout(_ACCEPT_POLL_INTERVAL)
+            try:
+                conn, addr = self._sock.accept()
+            except TimeoutError:
+                continue
+            except OSError:
+                if self._ext_shutdown and self._ext_shutdown.is_set():
+                    break
+                raise
+
+            conn.setblocking(True)
+            if self._ssl_context:
+                try:
+                    conn = self._ssl_context.wrap_socket(conn, server_side=True)
+                except ssl.SSLError:
+                    conn.close()
+                    continue
+
+            self._conn_queue.put((conn, addr))

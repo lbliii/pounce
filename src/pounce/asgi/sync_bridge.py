@@ -47,6 +47,8 @@ def call_asgi_sync(
     app: ASGIApp,
     scope: dict[str, Any],
     body: bytes,
+    *,
+    runner: asyncio.Runner | None = None,
 ) -> SyncResponse:
     """Run an ASGI app from a sync context.
 
@@ -61,6 +63,9 @@ def call_asgi_sync(
         app: The ASGI application.
         scope: ASGI scope dict.
         body: Full request body (for non-streaming requests).
+        runner: Reusable asyncio.Runner owned by the calling worker thread.
+            Avoids creating/destroying an event loop per request. When None,
+            a temporary Runner is created (slow fallback).
 
     Returns:
         SyncResponse with status, headers, body. If the app indicated
@@ -99,13 +104,16 @@ def call_asgi_sync(
     async def run_app() -> None:
         await app(scope, receive, send)
 
-    runner = asyncio.Runner()
+    owns_runner = runner is None
+    if owns_runner:
+        runner = asyncio.Runner()
     try:
         runner.run(run_app())
     except NeedsAsync:
         pass  # Expected — caller will hand off
     finally:
-        runner.close()
+        if owns_runner:
+            runner.close()
 
     return SyncResponse(
         status=status,

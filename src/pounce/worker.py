@@ -32,6 +32,7 @@ from typing import Any, cast
 import h11
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
+from pounce._cpu_affinity import maybe_pin_worker
 from pounce._profile import ProfileCollector, RequestProfile
 from pounce._errors import ParseError
 from pounce._h2_handler import handle_h2_connection
@@ -71,32 +72,12 @@ from pounce.protocols._base import (
 )
 from pounce.protocols.h1 import H1Protocol
 
-# Auto-detect httptools for C-accelerated HTTP/1.1 parsing.
-# Falls back to h11 (pure Python) when httptools is not installed.
-try:
-    from pounce.protocols.h1_httptools import is_httptools_available
-
-    _use_httptools = is_httptools_available()
-except ImportError:
-    _use_httptools = False
-
 
 def _create_h1_protocol(
     *,
     max_incomplete_event_size: int | None = None,
 ) -> H1Protocol:
-    """Create the best available HTTP/1.1 protocol handler.
-
-    Uses httptools when installed (``pip install pounce[fast]``),
-    falls back to h11 (pure Python) otherwise.
-
-    """
-    if _use_httptools:
-        from pounce.protocols.h1_httptools import H1HttpToolsProtocol
-
-        return H1HttpToolsProtocol(  # type: ignore[return-value]
-            max_incomplete_event_size=max_incomplete_event_size,
-        )
+    """Create an HTTP/1.1 protocol handler."""
     return H1Protocol(max_incomplete_event_size=max_incomplete_event_size)
 
 
@@ -219,6 +200,7 @@ class Worker:
 
     def run(self) -> None:
         """Start the worker's event loop (blocking)."""
+        maybe_pin_worker(self._worker_id, self._config)
         asyncio.run(self._serve())
 
     async def _serve(self) -> None:

@@ -66,6 +66,7 @@ def main(args: list[str] | None = None) -> None:
         uds=parsed.uds,
         health_check_path=parsed.health_check_path,
         worker_mode=parsed.worker_mode,
+        cpu_affinity=parsed.cpu_affinity,
     )
 
     # Run the server — pass the original import string so that the reload
@@ -179,6 +180,12 @@ def _build_parser() -> argparse.ArgumentParser:
             "auto: sync on 3.14t, async on GIL. sync: blocking I/O (request-response only). "
             "async: event loop (streaming, WebSocket)."
         ),
+    )
+    parser.add_argument(
+        "--cpu-affinity",
+        action="store_true",
+        default=False,
+        help="Pin each worker to a CPU core (Linux only). Reduces cache thrashing.",
     )
     parser.add_argument(
         "--log-level",

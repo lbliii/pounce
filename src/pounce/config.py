@@ -39,6 +39,10 @@ class ServerConfig:
     # "async": force async workers (current behavior)
     worker_mode: str = "auto"
 
+    # CPU affinity (Linux only): pin each worker to a dedicated core.
+    # Reduces cache thrashing; no-op on non-Linux or when sched_setaffinity fails.
+    cpu_affinity: bool = False
+
     # Per-worker thread pool for asyncio.to_thread() calls.
     # In thread mode (3.14t), all workers share one process and the default
     # ThreadPoolExecutor — causing contention under high concurrency.

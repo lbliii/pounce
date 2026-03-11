@@ -5,7 +5,6 @@ thin factory function that selects between protocol backends.
 """
 
 import asyncio
-from unittest.mock import patch
 
 import pytest
 
@@ -782,35 +781,20 @@ class TestAutoChunkedEncoding:
 
 
 class TestCreateH1Protocol:
-    """_create_h1_protocol() selects the best available HTTP/1.1 backend."""
+    """_create_h1_protocol() returns H1Protocol (h11)."""
 
-    def test_fallback_to_h11(self):
-        """Without httptools, returns H1Protocol (h11)."""
+    def test_returns_h11_protocol(self):
+        """Returns H1Protocol (h11) for HTTP/1.1 parsing."""
         from pounce.worker import _create_h1_protocol
 
-        with patch("pounce.worker._use_httptools", False):
-            proto = _create_h1_protocol()
-
+        proto = _create_h1_protocol()
         assert type(proto).__name__ == "H1Protocol"
-
-    def test_httptools_when_available(self):
-        """With httptools available, returns H1HttpToolsProtocol."""
-        httptools = pytest.importorskip("httptools")  # noqa: F841
-
-        from pounce.worker import _create_h1_protocol
-
-        with patch("pounce.worker._use_httptools", True):
-            proto = _create_h1_protocol()
-
-        assert type(proto).__name__ == "H1HttpToolsProtocol"
 
     def test_passes_max_incomplete_event_size(self):
         """max_incomplete_event_size is forwarded to the h11 backend."""
         from pounce.worker import _create_h1_protocol
 
-        with patch("pounce.worker._use_httptools", False):
-            proto = _create_h1_protocol(max_incomplete_event_size=8192)
-
+        proto = _create_h1_protocol(max_incomplete_event_size=8192)
         # h11 stores this on its Connection object
         assert proto._conn._max_incomplete_event_size == 8192
 
