@@ -24,6 +24,7 @@ from dataclasses import replace
 
 from pounce._runtime import WorkerMode, detect_worker_mode, is_gil_enabled
 from pounce._types import ASGIApp
+from pounce.sync_protocol import SyncApp
 from pounce.asgi.lifespan import run_lifespan
 from pounce.config import ServerConfig
 from pounce.lifecycle import LifecycleCollector
@@ -69,6 +70,7 @@ class Server:
         "_shutdown_event",
         "_ssl_context",
         "_supervisor",
+        "_sync_app",
     )
 
     def __init__(
@@ -78,11 +80,13 @@ class Server:
         *,
         app_path: str | None = None,
         lifecycle_collector: LifecycleCollector | None = None,
+        sync_app: SyncApp | None = None,
     ) -> None:
         self._config = config
         self._app = app
         self._app_path = app_path
         self._lifecycle_collector = lifecycle_collector
+        self._sync_app = sync_app
         self._ssl_context = None
         self._shutdown_event = threading.Event()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -571,6 +575,7 @@ class Server:
             ssl_context=self._ssl_context,
             lifecycle_collector=self._lifecycle_collector,
             app_path=self._app_path,
+            sync_app=self._sync_app,
         )
 
         # Start file watcher for reload mode

@@ -10,22 +10,24 @@ upgrade, raises NeedsAsync — the supervisor hands off to the async pool
 
 """
 
+import asyncio
 import contextlib
 import logging
+import queue
 import socket
 import ssl
 import threading
 from typing import Any, cast
-
-import h11
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._errors import ParseError
 from pounce._health import build_health_response
 from pounce._request_id import extract_or_generate
 from pounce._types import ASGIApp
+from pounce.sync_protocol import RawRequest, RawResponse, SyncApp
 from pounce.asgi.bridge import build_scope
 from pounce.asgi.sync_bridge import NeedsAsync, call_asgi_sync
+from pounce.async_pool import AsyncPool, StreamingHandoff, WebSocketHandoff
 from pounce.config import ServerConfig
 from pounce.lifecycle import (
     ClientDisconnected,
@@ -97,13 +99,16 @@ class SyncWorker:
     __slots__ = (
         "_active_connections",
         "_app",
+        "_async_pool",
         "_config",
+        "_conn_queue",
         "_ext_shutdown",
         "_lifecycle",
         "_logger",
         "_lifespan_state",
         "_sock",
         "_ssl_context",
+        "_sync_app",
         "_worker_id",
     )
 
@@ -111,14 +116,20 @@ class SyncWorker:
         self,
         config: ServerConfig,
         app: ASGIApp,
-        sock: socket.socket,
+        sock: socket.socket | None,
         *,
         worker_id: int = 0,
         shutdown_event: threading.Event | None = None,
         ssl_context: ssl.SSLContext | None = None,
         lifecycle_collector: LifecycleCollector | None = None,
+        async_pool: AsyncPool | None = None,
+        conn_queue: queue.Queue[tuple[socket.socket, object]] | None = None,
+        sync_app: SyncApp | None = None,
     ) -> None:
         self._config = config
+        self._async_pool = async_pool
+        self._conn_queue = conn_queue
+        self._sync_app = sync_app
         if config.middleware:
             from pounce._middleware import MiddlewareStack
 
@@ -149,34 +160,68 @@ class SyncWorker:
 
     def run(self) -> None:
         """Accept connections until shutdown (blocking)."""
-        self._sock.setblocking(True)
+        _POLL_INTERVAL = 0.25
+
+        runner = asyncio.Runner()
+        try:
+            if self._conn_queue is not None:
+                self._run_from_queue(_POLL_INTERVAL, runner)
+            else:
+                self._run_accept_loop(_POLL_INTERVAL, runner)
+        finally:
+            runner.close()
+
+    def _run_from_queue(self, poll_interval: float, runner: asyncio.Runner) -> None:
+        """Get connections from distributor queue (no thundering herd)."""
+        assert self._conn_queue is not None
         while not (self._ext_shutdown and self._ext_shutdown.is_set()):
             try:
+                conn, addr = self._conn_queue.get(timeout=poll_interval)
+            except queue.Empty:
+                continue
+            self._handle_connection(conn, addr, runner)
+
+    def _run_accept_loop(self, poll_interval: float, runner: asyncio.Runner) -> None:
+        """Accept directly from socket (SO_REUSEPORT or single worker)."""
+        assert self._sock is not None
+        self._sock.setblocking(True)
+        while not (self._ext_shutdown and self._ext_shutdown.is_set()):
+            self._sock.settimeout(poll_interval)
+            try:
                 conn, addr = self._sock.accept()
+            except TimeoutError:
+                continue
             except OSError:
                 if self._ext_shutdown and self._ext_shutdown.is_set():
                     break
                 raise
+            conn.setblocking(True)
             if self._ssl_context:
                 try:
                     conn = self._ssl_context.wrap_socket(conn, server_side=True)
                 except ssl.SSLError:
                     conn.close()
                     continue
-            self._handle_connection(conn, addr)
+            self._handle_connection(conn, addr, runner)
 
-    def _handle_connection(self, conn: socket.socket, addr: tuple[str, int]) -> None:
+    def _handle_connection(
+        self, conn: socket.socket, addr: tuple[str, int], runner: asyncio.Runner
+    ) -> None:
         """Handle a single TCP connection through request-response cycles."""
         self._active_connections += 1
+        handed_off = False
         try:
-            self._handle_connection_impl(conn, addr)
+            handed_off = self._handle_connection_impl(conn, addr, runner)
         finally:
             self._active_connections -= 1
-            with contextlib.suppress(OSError, ConnectionError):
-                conn.close()
+            if not handed_off:
+                with contextlib.suppress(OSError, ConnectionError):
+                    conn.close()
 
-    def _handle_connection_impl(self, conn: socket.socket, addr: tuple[str, int]) -> None:
-        """Inner connection handling (called with _active_connections already incremented)."""
+    def _handle_connection_impl(
+        self, conn: socket.socket, addr: tuple[str, int], runner: asyncio.Runner
+    ) -> bool:
+        """Inner connection handling. Returns True if handed off to async pool."""
         conn.settimeout(self._config.header_timeout)
         try:
             peername = conn.getpeername()
@@ -212,15 +257,12 @@ class SyncWorker:
         )
         request_count = 0
         max_requests = self._config.max_requests_per_connection
-        ka_timeout = self._config.keep_alive_timeout
 
         try:
             while True:
                 if self._ext_shutdown and self._ext_shutdown.is_set():
                     break
-                conn.settimeout(
-                    self._config.header_timeout if request_count == 0 else ka_timeout
-                )
+                conn.settimeout(self._config.header_timeout)
                 request, body = self._recv_request(conn, proto)
                 if request is None:
                     break
@@ -238,8 +280,84 @@ class SyncWorker:
                 )
 
                 if _is_websocket_upgrade(request):
+                    if self._async_pool:
+                        self._async_pool.accept_handoff(
+                            WebSocketHandoff(
+                                conn=conn,
+                                request=request,
+                                client=client,
+                                server=server,
+                                scope={},
+                            )
+                        )
+                        return True
                     self._send_error(conn, proto, 501, "WebSocket requires worker_mode=async")
                     break
+
+                # Fused sync path: try SyncApp.handle_sync() before ASGI
+                if self._sync_app is not None:
+                    target = request.target
+                    path_bytes = target.split(b"?", 1)[0] if b"?" in target else target
+                    query_bytes = target.split(b"?", 1)[1] if b"?" in target else b""
+                    raw_req = RawRequest(
+                        method=request.method,
+                        path=path_bytes,
+                        query_string=query_bytes,
+                        headers=request.headers,
+                        body=body,
+                        client=client,
+                        server=server,
+                        http_version=request.http_version,
+                    )
+                    raw_resp = self._sync_app.handle_sync(raw_req)
+                    if raw_resp is not None:
+                        # Fast path: direct response, no asyncio
+                        headers_list = list(raw_resp.headers)
+                        compressor: Compressor | None = None
+                        if self._config.compression:
+                            accept_enc = _get_header(request.headers, b"accept-encoding")
+                            if accept_enc:
+                                enc = negotiate_encoding(accept_enc)
+                                if enc:
+                                    compressor = create_compressor(enc)
+                        if compressor and len(raw_resp.body) >= self._config.compression_min_size:
+                            body_out = compressor.compress(raw_resp.body) + compressor.flush()
+                            headers_list.append(
+                                (b"content-encoding", compressor.encoding.encode("ascii"))
+                            )
+                            headers_list = [(n, v) for n, v in headers_list if n.lower() != b"content-length"]
+                        else:
+                            body_out = raw_resp.body
+                        if not any(n.lower() == b"content-length" for n, _ in headers_list):
+                            headers_list.append(
+                                (b"content-length", str(len(body_out)).encode("ascii"))
+                            )
+                        headers_list.append((b"connection", b"close"))
+                        raw = proto.send_response(raw_resp.status, headers_list)
+                        raw += proto.send_body(body_out, more=False)
+                        conn.sendall(raw)
+                        self._lifecycle.record(
+                            ResponseCompleted(
+                                connection_id=conn_id,
+                                worker_id=self._worker_id,
+                                status=raw_resp.status,
+                                bytes_sent=len(body_out),
+                                duration_ms=0,
+                                timestamp_ns=lifecycle_ns(),
+                            )
+                        )
+                        if self._config.access_log:
+                            access_log(
+                                request.method.decode("ascii", errors="replace"),
+                                path_bytes.decode("ascii", errors="replace"),
+                                raw_resp.status,
+                                len(body_out),
+                                0,
+                                client_str,
+                            )
+                        if max_requests > 0 and request_count >= max_requests:
+                            break
+                        break
 
                 scope = build_scope(request, self._config, client, server, state=self._lifespan_state)
                 is_trusted = bool(
@@ -247,18 +365,21 @@ class SyncWorker:
                     and ("*" in self._config.trusted_hosts or client[0] in self._config.trusted_hosts)
                 )
                 request_id = extract_or_generate(request.headers, trusted=is_trusted)
-                scope.setdefault("extensions", {})["request_id"] = request_id
+                extensions = scope.setdefault("extensions", {})
+                extensions["request_id"] = request_id
+                extensions["pounce.inline_sync"] = True
 
                 if (
                     self._config.health_check_path
                     and scope["path"] == self._config.health_check_path
                     and request.method == b"GET"
                 ):
-                    status, headers, body_bytes = build_health_response(
+                    status, health_headers, body_bytes = build_health_response(
                         worker_id=self._worker_id,
                         active_connections=1,
                     )
-                    raw = proto.send_response(status, headers)
+                    health_headers = list(health_headers) + [(b"connection", b"close")]
+                    raw = proto.send_response(status, health_headers)
                     raw += proto.send_body(body_bytes, more=False)
                     conn.sendall(raw)
                     self._lifecycle.record(
@@ -279,8 +400,19 @@ class SyncWorker:
                             cast(ASGIApp, self._app),
                             scope,
                             body,
+                            runner=runner,
                         )
                     except NeedsAsync:
+                        if self._async_pool:
+                            self._async_pool.accept_handoff(
+                                StreamingHandoff(
+                                    conn=conn,
+                                    scope=scope,
+                                    body=body,
+                                    request_id=request_id,
+                                )
+                            )
+                            return True
                         self._send_error(
                             conn,
                             proto,
@@ -315,6 +447,7 @@ class SyncWorker:
                         )
                     if request_id:
                         headers.append((b"x-request-id", request_id.encode("latin-1")))
+                    headers.append((b"connection", b"close"))
 
                     raw = proto.send_response(response.status, headers)
                     raw += proto.send_body(body_out, more=False)
@@ -342,10 +475,12 @@ class SyncWorker:
 
                 if max_requests > 0 and request_count >= max_requests:
                     break
-                try:
-                    proto.start_new_cycle()
-                except (h11.LocalProtocolError, RuntimeError):
-                    break
+
+                # Sync workers: one request per connection (like Gunicorn sync).
+                # Keep-alive wastes worker time waiting for the next request
+                # while other accepted connections queue. Closing lets the
+                # worker immediately serve the next waiting connection.
+                break
         except (ConnectionError, OSError):
             self._lifecycle.record(
                 ClientDisconnected(
@@ -367,6 +502,7 @@ class SyncWorker:
                     timestamp_ns=lifecycle_ns(),
                 )
             )
+        return False
 
     def _recv_request(
         self, conn: socket.socket, proto: H1Protocol
