@@ -97,8 +97,8 @@ class TestBuildScope:
             client=("127.0.0.1", 5000),
             server=("0.0.0.0", 8000),
         )
-        assert [b"host", b"example.com"] in scope["headers"]
-        assert [b"accept", b"text/html"] in scope["headers"]
+        assert (b"host", b"example.com") in scope["headers"]
+        assert (b"accept", b"text/html") in scope["headers"]
 
     def test_asgi_version(self):
         scope = build_scope(
