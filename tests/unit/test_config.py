@@ -85,6 +85,10 @@ class TestServerConfigDefaults:
         assert config.ssl_certfile is None
         assert config.ssl_keyfile is None
 
+    def test_default_worker_mode(self):
+        config = ServerConfig()
+        assert config.worker_mode == "auto"
+
 
 class TestServerConfigOverrides:
     """ServerConfig fields can be overridden at construction."""
@@ -147,6 +151,10 @@ class TestServerConfigOverrides:
     def test_custom_keep_alive_timeout(self):
         config = ServerConfig(keep_alive_timeout=30.0)
         assert config.keep_alive_timeout == 30.0
+
+    def test_custom_worker_mode(self):
+        config = ServerConfig(worker_mode="sync")
+        assert config.worker_mode == "sync"
 
 
 class TestServerConfigFrozen:
@@ -222,6 +230,10 @@ class TestServerConfigValidation:
         with pytest.raises(ValueError, match="max_requests_per_connection must be >= 0"):
             ServerConfig(max_requests_per_connection=-1)
 
+    def test_invalid_worker_mode_raises(self):
+        with pytest.raises(ValueError, match="worker_mode must be one of"):
+            ServerConfig(worker_mode="invalid")
+
     def test_ssl_certfile_without_keyfile_raises(self):
         with pytest.raises(ValueError, match="ssl_certfile and ssl_keyfile must both"):
             ServerConfig(ssl_certfile="/path/to/cert.pem")
@@ -253,6 +265,26 @@ class TestServerConfigResolveWorkers:
         config = ServerConfig(workers=0)
         with patch("pounce._runtime.os.cpu_count", return_value=8):
             assert config.resolve_workers() == 8
+
+
+class TestExecutorThreadsPerWorker:
+    """Tests for executor_threads_per_worker config field."""
+
+    def test_default_is_zero(self):
+        config = ServerConfig()
+        assert config.executor_threads_per_worker == 0
+
+    def test_custom_value(self):
+        config = ServerConfig(executor_threads_per_worker=8)
+        assert config.executor_threads_per_worker == 8
+
+    def test_negative_raises(self):
+        with pytest.raises(ValueError, match="executor_threads_per_worker must be >= 0"):
+            ServerConfig(executor_threads_per_worker=-1)
+
+    def test_zero_allowed(self):
+        config = ServerConfig(executor_threads_per_worker=0)
+        assert config.executor_threads_per_worker == 0
 
 
 class TestServerConfigSlots:

@@ -66,6 +66,27 @@ This appears directly in browser DevTools (Network tab → Timing), enabling zer
 - **SO_REUSEPORT** — Kernel-level load balancing across workers
 - **Graceful shutdown** — In-flight requests complete before workers exit
 
+## Fused Sync Path (Chirp)
+
+When Chirp runs behind Pounce with no middleware, sync handlers that return `dict`, `list`, `str`, or `bytes` use a fused path that bypasses ASGI and the HTTP protocol layer. Pounce uses:
+
+- **Reusable recv buffer** — `recv_into()` with a per-worker `bytearray` to avoid per-request allocations
+- **Scatter-gather send** — `sendmsg([head, body])` when available to avoid concatenating response head and body
+
+## HTTP Parsing
+
+Pounce uses **h11** (pure Python) for HTTP/1.1 parsing. h11 is free-threading safe and avoids C extensions that re-enable the GIL on Python 3.14t.
+
+## CPU Affinity (Linux)
+
+On Linux, you can pin each worker to a dedicated CPU core with `--cpu-affinity`. This reduces cache thrashing and can improve throughput on multi-core systems:
+
+```bash
+pounce myapp:app --workers 8 --cpu-affinity
+```
+
+No-op on non-Linux platforms or when `sched_setaffinity` fails (e.g. restricted cpusets in containers).
+
 ## See Also
 
 - [[docs/deployment/compression|Compression]] — Configuration details

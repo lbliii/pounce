@@ -39,7 +39,7 @@ async def _noop_app(scope: Scope, receive: Receive, send: Send) -> None:
     """Minimal ASGI app that does nothing."""
 
 
-def _make_sockets(count: int) -> list[socket.socket]:
+def _make_sockets(count: int, blocking: bool = False) -> list[socket.socket]:
     """Create ephemeral sockets for testing."""
     sockets: list[socket.socket] = []
     for _ in range(count):
@@ -47,7 +47,7 @@ def _make_sockets(count: int) -> list[socket.socket]:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("127.0.0.1", 0))
         sock.listen(1)
-        sock.setblocking(False)
+        sock.setblocking(blocking)
         sockets.append(sock)
     return sockets
 
@@ -117,7 +117,9 @@ class TestSupervisorThreadMode:
 
     def test_spawn_and_shutdown(self):
         """Spawn 2 thread workers, then shut down."""
-        config = ServerConfig(workers=2, host="127.0.0.1", port=0, access_log=False)
+        config = ServerConfig(
+            workers=2, host="127.0.0.1", port=0, access_log=False, worker_mode="async"
+        )
         sup = Supervisor(config, _noop_app, mode="thread")
         sockets = _make_sockets(2)
 
@@ -151,7 +153,9 @@ class TestSupervisorRespawn:
 
     def test_respawn_increments_restart_count(self):
         """_respawn_worker tracks restart count."""
-        config = ServerConfig(workers=2, host="127.0.0.1", port=0, access_log=False)
+        config = ServerConfig(
+            workers=2, host="127.0.0.1", port=0, access_log=False, worker_mode="async"
+        )
         sup = Supervisor(config, _noop_app, mode="thread")
         sockets = _make_sockets(2)
 

@@ -14,6 +14,7 @@ import logging
 import socket
 import threading
 
+from pounce._cpu_affinity import maybe_pin_worker
 from pounce._types import ASGIApp
 from pounce.config import ServerConfig
 from pounce.protocols.h3 import is_h3_available
@@ -70,6 +71,7 @@ class H3Worker:
 
     def run(self) -> None:
         """Start the H3 worker's event loop (blocking)."""
+        maybe_pin_worker(self._worker_id, self._config)
         asyncio.run(self._serve())
 
     async def _serve(self) -> None:

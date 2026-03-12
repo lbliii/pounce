@@ -33,6 +33,23 @@ class ServerConfig:
     workers: int = 1
     backlog: int = 2048
 
+    # Worker execution model (multi-worker only)
+    # "auto": sync on 3.14t, async on GIL (default)
+    # "sync": force sync workers (fast path; streaming hands off to async pool)
+    # "async": force async workers (current behavior)
+    worker_mode: str = "auto"
+
+    # CPU affinity (Linux only): pin each worker to a dedicated core.
+    # Reduces cache thrashing; no-op on non-Linux or when sched_setaffinity fails.
+    cpu_affinity: bool = False
+
+    # Per-worker thread pool for asyncio.to_thread() calls.
+    # In thread mode (3.14t), all workers share one process and the default
+    # ThreadPoolExecutor — causing contention under high concurrency.
+    # Setting this > 0 gives each worker its own executor.
+    # 0 = auto-size (min(32, cpu_count + 4) per worker).
+    executor_threads_per_worker: int = 0
+
     # Timeouts (seconds)
     keep_alive_timeout: float = 5.0
     request_timeout: float = 30.0
@@ -141,6 +158,7 @@ class ServerConfig:
 
     _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error", "critical"})
     _VALID_LOG_FORMATS: frozenset[str] = frozenset({"text", "json"})
+    _VALID_WORKER_MODES: frozenset[str] = frozenset({"auto", "sync", "async"})
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
@@ -155,6 +173,11 @@ class ServerConfig:
             raise ValueError(msg)
         if self.backlog <= 0:
             msg = f"backlog must be > 0 (got {self.backlog})"
+            raise ValueError(msg)
+        if self.executor_threads_per_worker < 0:
+            msg = (
+                f"executor_threads_per_worker must be >= 0 (got {self.executor_threads_per_worker})"
+            )
             raise ValueError(msg)
         if self.keep_alive_timeout <= 0:
             msg = f"keep_alive_timeout must be > 0 (got {self.keep_alive_timeout})"
@@ -200,6 +223,14 @@ class ServerConfig:
                 f"(got {self.log_format!r})"
             )
             raise ValueError(msg)
+        normalized = self.worker_mode.lower()
+        if normalized not in self._VALID_WORKER_MODES:
+            msg = (
+                f"worker_mode must be one of {sorted(self._VALID_WORKER_MODES)} "
+                f"(got {self.worker_mode!r})"
+            )
+            raise ValueError(msg)
+        object.__setattr__(self, "worker_mode", normalized)
         if (self.ssl_certfile is None) != (self.ssl_keyfile is None):
             msg = "ssl_certfile and ssl_keyfile must both be set or both be None"
             raise ValueError(msg)

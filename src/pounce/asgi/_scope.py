@@ -11,6 +11,8 @@ from urllib.parse import unquote
 
 from pounce.protocols._base import RequestReceived
 
+_ASGI_VERSION: dict[str, str] = {"version": "3.0", "spec_version": "2.4"}
+
 
 def build_base_scope(
     request: RequestReceived,
@@ -39,26 +41,28 @@ def build_base_scope(
         ASGI scope dict ready for protocol-specific additions.
 
     """
-    target = request.target.decode("ascii", errors="replace")
-
-    if "?" in target:
-        path, _, query_string = target.partition("?")
+    # Split bytes target once — derive both raw_path and decoded path/query
+    raw_target = request.target
+    qmark = raw_target.find(b"?")
+    if qmark >= 0:
+        raw_path = raw_target[:qmark]
+        query_string = raw_target[qmark + 1 :]
+        path = unquote(raw_path.decode("ascii", errors="replace"))
     else:
-        path = target
-        query_string = ""
+        raw_path = raw_target
+        query_string = b""
+        path = unquote(raw_target.decode("ascii", errors="replace"))
 
-    path = unquote(path)
-    # ASGI spec: header names must be lowercased
-    headers: list[list[bytes]] = [[name.lower(), value] for name, value in request.headers]
+    headers = tuple((name.lower(), value) for name, value in request.headers)
 
     scope: dict[str, Any] = {
         "type": scope_type,
-        "asgi": {"version": "3.0", "spec_version": "2.4"},
+        "asgi": _ASGI_VERSION,
         "http_version": http_version,
         "method": request.method.decode("ascii"),
         "path": path,
-        "raw_path": request.target.split(b"?")[0],
-        "query_string": query_string.encode("ascii"),
+        "raw_path": raw_path,
+        "query_string": query_string,
         "root_path": root_path,
         "scheme": scheme,
         "server": server,
