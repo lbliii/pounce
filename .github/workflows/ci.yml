@@ -66,7 +66,7 @@ jobs:
 
       - name: Install dependencies
         # Include h3 (bengal-zoomies) — zoomies is pure Python, compatible with 3.14t
-        run: uv sync --group dev --extra h2 --extra h3 --extra ws --extra tls --extra fast
+        run: uv sync --group dev --extra h2 --extra h3 --extra ws --extra tls
 
       - name: Run tests
         run: uv run pytest tests/ -ra -q
