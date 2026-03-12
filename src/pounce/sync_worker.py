@@ -521,7 +521,7 @@ class SyncWorker:
                 # while other accepted connections queue. Closing lets the
                 # worker immediately serve the next waiting connection.
                 break
-        except (ConnectionError, OSError):
+        except ConnectionError, OSError:
             self._lifecycle.record(
                 ClientDisconnected(
                     connection_id=conn_id,
@@ -554,7 +554,7 @@ class SyncWorker:
         while True:
             try:
                 n = conn.recv_into(self._recv_buf)
-            except (ConnectionError, OSError, TimeoutError):
+            except ConnectionError, OSError, TimeoutError:
                 return (None, b"")
 
             if n <= 0:
@@ -608,5 +608,5 @@ class SyncWorker:
             )
             raw += proto.send_body(body, more=False)
             conn.sendall(raw)
-        except (OSError, ConnectionError):
+        except OSError, ConnectionError:
             pass

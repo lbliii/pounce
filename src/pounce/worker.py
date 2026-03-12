@@ -286,7 +286,7 @@ class Worker:
             try:
                 server.close()
                 await server.wait_closed()
-            except (ValueError, OSError):
+            except ValueError, OSError:
                 pass  # fd already closed by another worker sharing the socket
 
             # Per-worker shutdown hook — runs on this worker's event loop
