@@ -1,7 +1,5 @@
 """Tests for pounce.asgi.sync_bridge — sync ASGI invocation."""
 
-import pytest
-
 from pounce._types import Scope, Send
 from pounce.asgi.sync_bridge import SyncResponse, call_asgi_sync
 
@@ -13,7 +11,7 @@ async def _simple_app(scope: Scope, receive: object, send: Send) -> None:
 
 
 async def _streaming_app(scope: Scope, receive: object, send: Send) -> None:
-    """ASGI app that streams response (triggers NeedsAsync)."""
+    """ASGI app that streams response (triggers NeedsAsyncError)."""
     await send({"type": "http.response.start", "status": 200, "headers": []})
     await send({"type": "http.response.body", "body": b"chunk1", "more_body": True})
 

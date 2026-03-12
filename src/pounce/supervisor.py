@@ -35,12 +35,12 @@ from pounce._runtime import (
     resolve_worker_execution_mode,
 )
 from pounce._types import ASGIApp
-from pounce.sync_protocol import SyncApp
 from pounce.accept_distributor import AcceptDistributor, is_shared_socket
 from pounce.async_pool import AsyncPool
 from pounce.config import ServerConfig
 from pounce.h3_worker import H3Worker
 from pounce.lifecycle import LifecycleCollector
+from pounce.sync_protocol import SyncApp
 from pounce.sync_worker import SyncWorker
 from pounce.worker import Worker
 
@@ -113,11 +113,11 @@ class Supervisor:
     __slots__ = (
         "_accept_distributor_handle",
         "_app",
-        "_conn_queue",
         "_app_path",
         "_async_pool",
         "_async_pool_handle",
         "_config",
+        "_conn_queue",
         "_effective_workers",
         "_execution_mode",
         "_generation",

@@ -6,7 +6,7 @@ for bottleneck analysis. See docs/benchmark-pounce-chirp-deep-dive.md.
 
 import os
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 def _enabled() -> bool:
@@ -33,7 +33,7 @@ class RequestProfile:
 class ProfileCollector:
     """Collects sampled request timings and logs summaries."""
 
-    __slots__ = ("_enabled", "_interval", "_count", "_samples", "_worker_id")
+    __slots__ = ("_count", "_enabled", "_interval", "_samples", "_worker_id")
 
     def __init__(self, worker_id: int = 0) -> None:
         self._enabled = _enabled()

@@ -60,10 +60,10 @@ class AcceptDistributor:
     def run(self) -> None:
         """Accept connections and enqueue for workers until shutdown."""
         self._sock.setblocking(True)
-        _ACCEPT_POLL_INTERVAL = 0.25
+        accept_poll_interval = 0.25
 
         while not (self._ext_shutdown and self._ext_shutdown.is_set()):
-            self._sock.settimeout(_ACCEPT_POLL_INTERVAL)
+            self._sock.settimeout(accept_poll_interval)
             try:
                 conn, addr = self._sock.accept()
             except TimeoutError:

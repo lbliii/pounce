@@ -24,7 +24,6 @@ from dataclasses import replace
 
 from pounce._runtime import WorkerMode, detect_worker_mode, is_gil_enabled
 from pounce._types import ASGIApp
-from pounce.sync_protocol import SyncApp
 from pounce.asgi.lifespan import run_lifespan
 from pounce.config import ServerConfig
 from pounce.lifecycle import LifecycleCollector
@@ -38,6 +37,7 @@ from pounce.net.listener import (
 )
 from pounce.net.tls import create_tls_context, is_tls_configured
 from pounce.supervisor import Supervisor
+from pounce.sync_protocol import SyncApp
 from pounce.worker import Worker, _worker_lifecycle_receive, _worker_lifecycle_send
 
 logger = logging.getLogger("pounce")

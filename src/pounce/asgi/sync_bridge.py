@@ -5,7 +5,7 @@ For simple request-response (no streaming receive, no streaming send),
 collects the response in memory and returns it as a SyncResponse.
 
 If the app sends more_body=True (streaming) or the scope type is
-websocket, raises NeedsAsync so the caller can hand off to the async pool.
+websocket, raises NeedsAsyncError so the caller can hand off to the async pool.
 
 """
 
@@ -16,13 +16,17 @@ from typing import Any
 from pounce._types import ASGIApp
 
 
-class NeedsAsync(Exception):
+class NeedsAsyncError(Exception):
     """Raised when the ASGI app requires async (streaming, WebSocket).
 
     The SyncWorker catches this and hands off the connection to the
     AsyncPool for multiplexed I/O handling.
 
     """
+
+
+# Backwards compatibility
+NeedsAsync = NeedsAsyncError
 
 
 @dataclass(slots=True)
@@ -99,21 +103,25 @@ def call_asgi_sync(
             body_parts.append(message.get("body", b""))
             if message.get("more_body", False):
                 needs_async = True
-                raise NeedsAsync()
+                raise NeedsAsyncError()
 
     async def run_app() -> None:
         await app(scope, receive, send)
 
-    owns_runner = runner is None
-    if owns_runner:
-        runner = asyncio.Runner()
+    runner_impl: asyncio.Runner
+    if runner is not None:
+        runner_impl = runner
+        owns_runner = False
+    else:
+        runner_impl = asyncio.Runner()
+        owns_runner = True
     try:
-        runner.run(run_app())
-    except NeedsAsync:
+        runner_impl.run(run_app())
+    except NeedsAsyncError:
         pass  # Expected — caller will hand off
     finally:
         if owns_runner:
-            runner.close()
+            runner_impl.close()
 
     return SyncResponse(
         status=status,

@@ -33,10 +33,10 @@ import h11
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._cpu_affinity import maybe_pin_worker
-from pounce._profile import ProfileCollector, RequestProfile
 from pounce._errors import ParseError
 from pounce._h2_handler import handle_h2_connection
 from pounce._health import build_health_response
+from pounce._profile import ProfileCollector, RequestProfile
 from pounce._request_id import extract_or_generate
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp, Receive, Send

@@ -5,7 +5,7 @@ One request at a time per thread, no asyncio. On 3.14t, runs in a thread
 with true parallelism. Handles HTTP/1.1 keep-alive in a tight recv/send loop.
 
 When the ASGI app returns a streaming response (more_body=True) or WebSocket
-upgrade, raises NeedsAsync — the supervisor hands off to the async pool
+upgrade, raises NeedsAsyncError — the supervisor hands off to the async pool
 (Phase 2). For Phase 1, streaming requests receive 501 Not Implemented.
 
 """
@@ -28,7 +28,7 @@ from pounce._request_id import extract_or_generate
 from pounce._response_frame import get_date_header_bytes, serialize_raw_response_parts
 from pounce._types import ASGIApp
 from pounce.asgi.bridge import build_scope
-from pounce.asgi.sync_bridge import NeedsAsync, call_asgi_sync
+from pounce.asgi.sync_bridge import NeedsAsyncError, call_asgi_sync
 from pounce.async_pool import AsyncPool, StreamingHandoff, WebSocketHandoff
 from pounce.config import ServerConfig
 from pounce.lifecycle import (
@@ -157,14 +157,14 @@ class SyncWorker:
     def run(self) -> None:
         """Accept connections until shutdown (blocking)."""
         maybe_pin_worker(self._worker_id, self._config)
-        _POLL_INTERVAL = 0.25
+        poll_interval = 0.25
 
         runner = asyncio.Runner()
         try:
             if self._conn_queue is not None:
-                self._run_from_queue(_POLL_INTERVAL, runner)
+                self._run_from_queue(poll_interval, runner)
             else:
-                self._run_accept_loop(_POLL_INTERVAL, runner)
+                self._run_accept_loop(poll_interval, runner)
         finally:
             runner.close()
 
@@ -176,7 +176,7 @@ class SyncWorker:
                 conn, addr = self._conn_queue.get(timeout=poll_interval)
             except queue.Empty:
                 continue
-            self._handle_connection(conn, addr, runner)
+            self._handle_connection(conn, cast(tuple[str, int], addr), runner)
 
     def _run_accept_loop(self, poll_interval: float, runner: asyncio.Runner) -> None:
         """Accept directly from socket (SO_REUSEPORT or single worker)."""
@@ -228,7 +228,11 @@ class SyncWorker:
         client_str = f"{client[0]}:{client[1]}"
         try:
             sockname = conn.getsockname()
-            server = (str(sockname[0]), int(sockname[1])) if len(sockname) >= 2 else (self._config.host, self._config.port)
+            server = (
+                (str(sockname[0]), int(sockname[1]))
+                if len(sockname) >= 2
+                else (self._config.host, self._config.port)
+            )
         except OSError:
             server = (self._config.host, self._config.port)
         if self._config.uds:
@@ -322,7 +326,9 @@ class SyncWorker:
                             headers_list.append(
                                 (b"content-encoding", compressor.encoding.encode("ascii"))
                             )
-                            headers_list = [(n, v) for n, v in headers_list if n.lower() != b"content-length"]
+                            headers_list = [
+                                (n, v) for n, v in headers_list if n.lower() != b"content-length"
+                            ]
                         else:
                             body_out = raw_resp.body
                         if not any(n.lower() == b"content-length" for n, _ in headers_list):
@@ -373,10 +379,14 @@ class SyncWorker:
                             break
                         break
 
-                scope = build_scope(request, self._config, client, server, state=self._lifespan_state)
+                scope = build_scope(
+                    request, self._config, client, server, state=self._lifespan_state
+                )
                 is_trusted = bool(
                     self._config.trusted_hosts
-                    and ("*" in self._config.trusted_hosts or client[0] in self._config.trusted_hosts)
+                    and (
+                        "*" in self._config.trusted_hosts or client[0] in self._config.trusted_hosts
+                    )
                 )
                 request_id = extract_or_generate(request.headers, trusted=is_trusted)
                 extensions = scope.setdefault("extensions", {})
@@ -392,7 +402,7 @@ class SyncWorker:
                         worker_id=self._worker_id,
                         active_connections=1,
                     )
-                    health_headers = list(health_headers) + [(b"connection", b"close")]
+                    health_headers = [*list(health_headers), (b"connection", b"close")]
                     raw = proto.send_response(status, health_headers)
                     raw += proto.send_body(body_bytes, more=False)
                     conn.sendall(raw)
@@ -416,7 +426,7 @@ class SyncWorker:
                             body,
                             runner=runner,
                         )
-                    except NeedsAsync:
+                    except NeedsAsyncError:
                         if self._async_pool:
                             self._async_pool.accept_handoff(
                                 StreamingHandoff(
@@ -456,9 +466,7 @@ class SyncWorker:
                         body_out = response.body
 
                     if not any(n.lower() == b"content-length" for n, _ in headers):
-                        headers.append(
-                            (b"content-length", str(len(body_out)).encode("ascii"))
-                        )
+                        headers.append((b"content-length", str(len(body_out)).encode("ascii")))
                     if request_id:
                         headers.append((b"x-request-id", request_id.encode("latin-1")))
                     headers.append((b"connection", b"close"))
@@ -495,7 +503,7 @@ class SyncWorker:
                 # while other accepted connections queue. Closing lets the
                 # worker immediately serve the next waiting connection.
                 break
-        except (ConnectionError, OSError):
+        except ConnectionError, OSError:
             self._lifecycle.record(
                 ClientDisconnected(
                     connection_id=conn_id,
@@ -528,7 +536,7 @@ class SyncWorker:
         while True:
             try:
                 n = conn.recv_into(self._recv_buf)
-            except (ConnectionError, OSError, TimeoutError):
+            except ConnectionError, OSError, TimeoutError:
                 return (None, b"")
 
             if n <= 0:
@@ -581,5 +589,5 @@ class SyncWorker:
             )
             raw += proto.send_body(body, more=False)
             conn.sendall(raw)
-        except (OSError, ConnectionError):
+        except OSError, ConnectionError:
             pass

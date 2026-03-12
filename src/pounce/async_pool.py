@@ -8,22 +8,20 @@ streams and continues the ASGI lifecycle.
 """
 
 import asyncio
+import contextlib
 import logging
 import queue
 import socket
+import ssl
 import threading
 from dataclasses import dataclass
 from typing import Any
 
-import h11
-
 from pounce._compression import Compressor, create_compressor
-from pounce._errors import ParseError
-from pounce._request_id import extract_or_generate
-from pounce._types import ASGIApp, Receive, Send
-from pounce.asgi.bridge import SendState, build_scope, create_send
+from pounce._types import ASGIApp
+from pounce.asgi.bridge import SendState, create_send
 from pounce.config import ServerConfig
-from pounce.protocols._base import BodyReceived, RequestReceived
+from pounce.protocols._base import RequestReceived
 from pounce.protocols.h1 import H1Protocol
 
 
@@ -80,9 +78,10 @@ class AsyncPool:
         "_app",
         "_config",
         "_ext_shutdown",
+        "_handoff_tasks",
         "_lifecycle",
-        "_logger",
         "_lifespan_state",
+        "_logger",
         "_loop",
         "_queue",
         "_ssl_context",
@@ -104,6 +103,7 @@ class AsyncPool:
         self._lifecycle = lifecycle_collector
         self._lifespan_state: dict[str, Any] = {}
         self._queue: queue.Queue[HandoffRequest] = queue.Queue()
+        self._handoff_tasks: set[asyncio.Task[None]] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._logger = logging.getLogger("pounce.async_pool")
 
@@ -130,7 +130,9 @@ class AsyncPool:
                 await asyncio.sleep(0.25)
                 continue
 
-            asyncio.create_task(self._handle_handoff_async(handoff))
+            task = asyncio.create_task(self._handle_handoff_async(handoff))
+            self._handoff_tasks.add(task)
+            task.add_done_callback(self._handoff_tasks.discard)
 
     async def _handle_handoff_async(self, handoff: HandoffRequest) -> None:
         """Handle a handoff (async task)."""
@@ -141,10 +143,8 @@ class AsyncPool:
                 await self._handle_websocket_handoff(handoff)
         except Exception:
             self._logger.exception("Error handling handoff")
-            try:
+            with contextlib.suppress(OSError):
                 handoff.conn.close()
-            except OSError:
-                pass
 
     async def _handle_streaming_handoff(self, handoff: StreamingHandoff) -> None:
         """Handle HTTP streaming handoff: wrap socket, run app from scratch."""
@@ -156,10 +156,8 @@ class AsyncPool:
         protocol = asyncio.StreamReaderProtocol(reader)
         loop = asyncio.get_running_loop()
         try:
-            transport, _ = await loop.connect_accepted_socket(
-                lambda: protocol, conn
-            )
-        except (OSError, ConnectionError):
+            transport, _ = await loop.connect_accepted_socket(lambda: protocol, conn)
+        except OSError, ConnectionError:
             conn.close()
             return
 
@@ -229,13 +227,13 @@ class AsyncPool:
                     raw += proto.send_body(b"Internal Server Error", more=False)
                     writer.write(raw)
                     await writer.drain()
-                except (OSError, ConnectionError):
+                except OSError, ConnectionError:
                     pass
         finally:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except (OSError, ConnectionError):
+            except OSError, ConnectionError:
                 pass
 
     async def _handle_websocket_handoff(self, handoff: WebSocketHandoff) -> None:
@@ -247,16 +245,12 @@ class AsyncPool:
         protocol = asyncio.StreamReaderProtocol(reader)
         loop = asyncio.get_running_loop()
         try:
-            transport, _ = await loop.connect_accepted_socket(
-                lambda: protocol, conn
-            )
-        except (OSError, ConnectionError):
+            transport, _ = await loop.connect_accepted_socket(lambda: protocol, conn)
+        except OSError, ConnectionError:
             conn.close()
             return
 
-        writer = asyncio.StreamWriter(
-            transport, protocol, reader, loop
-        )
+        writer = asyncio.StreamWriter(transport, protocol, reader, loop)
         client_str = f"{handoff.client[0]}:{handoff.client[1]}"
 
         try:
@@ -277,5 +271,5 @@ class AsyncPool:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except (OSError, ConnectionError):
+            except OSError, ConnectionError:
                 pass
