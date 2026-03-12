@@ -1,9 +1,9 @@
 """
-AcceptDistributor — single-thread accept with round-robin to workers.
+AcceptDistributor — single-thread accept feeding a shared worker queue.
 
 Eliminates thundering herd on macOS/Windows where SO_REUSEPORT is
-unavailable. One thread accepts connections and distributes them
-evenly to SyncWorkers via per-worker queues.
+unavailable. One thread accepts connections and enqueues them into a
+single shared queue from which all SyncWorkers pull.
 
 """
 

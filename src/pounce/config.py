@@ -223,12 +223,14 @@ class ServerConfig:
                 f"(got {self.log_format!r})"
             )
             raise ValueError(msg)
-        if self.worker_mode.lower() not in self._VALID_WORKER_MODES:
+        normalized = self.worker_mode.lower()
+        if normalized not in self._VALID_WORKER_MODES:
             msg = (
                 f"worker_mode must be one of {sorted(self._VALID_WORKER_MODES)} "
                 f"(got {self.worker_mode!r})"
             )
             raise ValueError(msg)
+        object.__setattr__(self, "worker_mode", normalized)
         if (self.ssl_certfile is None) != (self.ssl_keyfile is None):
             msg = "ssl_certfile and ssl_keyfile must both be set or both be None"
             raise ValueError(msg)

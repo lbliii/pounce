@@ -286,7 +286,7 @@ class Worker:
             try:
                 server.close()
                 await server.wait_closed()
-            except ValueError, OSError:
+            except (ValueError, OSError):
                 pass  # fd already closed by another worker sharing the socket
 
             # Per-worker shutdown hook — runs on this worker's event loop
@@ -304,7 +304,7 @@ class Worker:
             except Exception:
                 self._logger.debug("Worker shutdown hook raised (expected for most apps)")
 
-            executor.shutdown(wait=False)
+            executor.shutdown(wait=True, cancel_futures=True)
             self._logger.info("Worker %d stopped", self._worker_id)
 
     async def _bridge_shutdown(self, ext_event: threading.Event) -> None:

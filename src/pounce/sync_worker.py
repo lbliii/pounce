@@ -448,6 +448,24 @@ class SyncWorker:
                         self._logger.exception("ASGI app error")
                         self._send_error(conn, proto, 500, "Internal Server Error")
                         break
+                    if response.needs_async:
+                        if self._async_pool:
+                            self._async_pool.accept_handoff(
+                                StreamingHandoff(
+                                    conn=conn,
+                                    scope=scope,
+                                    body=body,
+                                    request_id=request_id,
+                                )
+                            )
+                            return True
+                        self._send_error(
+                            conn,
+                            proto,
+                            501,
+                            "Streaming responses require worker_mode=async or handoff",
+                        )
+                        break
 
                     compressor: Compressor | None = None
                     if self._config.compression:
@@ -503,7 +521,7 @@ class SyncWorker:
                 # while other accepted connections queue. Closing lets the
                 # worker immediately serve the next waiting connection.
                 break
-        except ConnectionError, OSError:
+        except (ConnectionError, OSError):
             self._lifecycle.record(
                 ClientDisconnected(
                     connection_id=conn_id,
@@ -536,7 +554,7 @@ class SyncWorker:
         while True:
             try:
                 n = conn.recv_into(self._recv_buf)
-            except ConnectionError, OSError, TimeoutError:
+            except (ConnectionError, OSError, TimeoutError):
                 return (None, b"")
 
             if n <= 0:
@@ -546,6 +564,7 @@ class SyncWorker:
             try:
                 events = proto.receive_data(chunk)
             except ParseError:
+                self._send_error(conn, proto, 400, "Bad Request")
                 return (None, b"")
 
             for event in events:
@@ -589,5 +608,5 @@ class SyncWorker:
             )
             raw += proto.send_body(body, more=False)
             conn.sendall(raw)
-        except OSError, ConnectionError:
+        except (OSError, ConnectionError):
             pass

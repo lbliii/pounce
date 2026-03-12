@@ -157,7 +157,7 @@ class AsyncPool:
         loop = asyncio.get_running_loop()
         try:
             transport, _ = await loop.connect_accepted_socket(lambda: protocol, conn)
-        except OSError, ConnectionError:
+        except (OSError, ConnectionError):
             conn.close()
             return
 
@@ -227,13 +227,13 @@ class AsyncPool:
                     raw += proto.send_body(b"Internal Server Error", more=False)
                     writer.write(raw)
                     await writer.drain()
-                except OSError, ConnectionError:
+                except (OSError, ConnectionError):
                     pass
         finally:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except OSError, ConnectionError:
+            except (OSError, ConnectionError):
                 pass
 
     async def _handle_websocket_handoff(self, handoff: WebSocketHandoff) -> None:
@@ -246,7 +246,7 @@ class AsyncPool:
         loop = asyncio.get_running_loop()
         try:
             transport, _ = await loop.connect_accepted_socket(lambda: protocol, conn)
-        except OSError, ConnectionError:
+        except (OSError, ConnectionError):
             conn.close()
             return
 
@@ -271,5 +271,5 @@ class AsyncPool:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except OSError, ConnectionError:
+            except (OSError, ConnectionError):
                 pass

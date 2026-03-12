@@ -58,6 +58,7 @@ def resolve_worker_execution_mode(worker_mode: str) -> WorkerExecutionMode:
         "async" otherwise (GIL builds or explicit "async").
 
     """
+    worker_mode = worker_mode.lower()
     if worker_mode == "sync":
         return "sync"
     if worker_mode == "async":

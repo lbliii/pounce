@@ -29,7 +29,6 @@ from typing import Any
 
 from pounce._errors import SupervisorError
 from pounce._runtime import (
-    WorkerExecutionMode,
     WorkerMode,
     detect_worker_mode,
     resolve_worker_execution_mode,
@@ -151,9 +150,14 @@ class Supervisor:
         self._app_path = app_path
         self._sync_app = sync_app
         self._mode: WorkerMode = mode or detect_worker_mode()
-        self._execution_mode: WorkerExecutionMode = resolve_worker_execution_mode(
-            config.worker_mode
-        )
+        self._execution_mode = resolve_worker_execution_mode(config.worker_mode)
+        # Sync workers only supported in thread mode (3.14t). On GIL/process, fall back to async.
+        if self._execution_mode == "sync" and self._mode == "process":
+            logger.warning(
+                "worker_mode='sync' is only supported in thread mode (3.14t). "
+                "Falling back to async workers."
+            )
+            self._execution_mode = "async"
         self._shutdown_event = threading.Event()
         self._async_pool: AsyncPool | None = None
         self._async_pool_handle: threading.Thread | None = None
@@ -338,12 +342,20 @@ class Supervisor:
         # Signal all workers to stop
         self._shutdown_event.set()
 
-        # Join with timeout (TCP and H3 workers)
+        # Join with timeout (AcceptDistributor, AsyncPool, TCP and H3 workers)
         deadline = time.monotonic() + self._config.shutdown_timeout
         if self._accept_distributor_handle is not None:
             remaining = max(0.1, deadline - time.monotonic())
             self._accept_distributor_handle.join(timeout=remaining)
             self._accept_distributor_handle = None
+        if self._async_pool_handle is not None:
+            remaining = max(0.1, deadline - time.monotonic())
+            self._async_pool_handle.join(timeout=remaining)
+            if self._async_pool_handle.is_alive():
+                logger.warning(
+                    "AsyncPool thread still alive after shutdown timeout during restart."
+                )
+            self._async_pool_handle = None
         for handle in self._handles:
             remaining = max(0.1, deadline - time.monotonic())
             handle.target.join(timeout=remaining)
@@ -377,6 +389,21 @@ class Supervisor:
         use_accept_distributor = (
             use_sync and self._effective_workers > 1 and is_shared_socket(self._sockets)
         )
+        if use_sync:
+            self._async_pool = AsyncPool(
+                self._config,
+                self._app,
+                shutdown_event=self._shutdown_event,
+                ssl_context=self._ssl_context,
+                lifecycle_collector=self._lifecycle_collector,
+            )
+            self._async_pool.set_lifespan_state(self._lifespan_state)
+            self._async_pool_handle = threading.Thread(
+                target=self._async_pool.run,
+                name="pounce-async-pool",
+                daemon=True,
+            )
+            self._async_pool_handle.start()
         if use_accept_distributor and self._conn_queue is not None:
             distributor = AcceptDistributor(
                 self._sockets[0],

@@ -63,6 +63,9 @@ def call_asgi_sync(
     on the response so the caller can hand off. The response may be
     partial (headers + first body chunk).
 
+    Raises NeedsAsyncError immediately for WebSocket scopes (caller must
+    hand off before invoking the app).
+
     Args:
         app: The ASGI application.
         scope: ASGI scope dict.
@@ -76,6 +79,9 @@ def call_asgi_sync(
         streaming, needs_async is True and the caller should hand off.
 
     """
+    if scope.get("type") == "websocket":
+        raise NeedsAsyncError()
+
     response_started = False
     status = 200
     headers: list[tuple[bytes, bytes]] = []
