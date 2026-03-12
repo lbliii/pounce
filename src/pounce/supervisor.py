@@ -228,9 +228,7 @@ class Supervisor:
 
         use_sync = self._mode == "thread" and self._execution_mode == "sync"
         use_accept_distributor = (
-            use_sync
-            and self._effective_workers > 1
-            and is_shared_socket(self._sockets)
+            use_sync and self._effective_workers > 1 and is_shared_socket(self._sockets)
         )
         if use_sync:
             self._async_pool = AsyncPool(
@@ -377,9 +375,7 @@ class Supervisor:
 
         use_sync = self._mode == "thread" and self._execution_mode == "sync"
         use_accept_distributor = (
-            use_sync
-            and self._effective_workers > 1
-            and is_shared_socket(self._sockets)
+            use_sync and self._effective_workers > 1 and is_shared_socket(self._sockets)
         )
         if use_accept_distributor and self._conn_queue is not None:
             distributor = AcceptDistributor(
@@ -580,9 +576,7 @@ class Supervisor:
             else 0
         )
 
-        use_sync = (
-            self._mode == "thread" and self._execution_mode == "sync"
-        )
+        use_sync = self._mode == "thread" and self._execution_mode == "sync"
         if use_sync:
             worker_sock_sync: socket.socket | None = self._sockets[worker_id]
             if self._conn_queue is not None:

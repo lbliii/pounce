@@ -176,8 +176,7 @@ class ServerConfig:
             raise ValueError(msg)
         if self.executor_threads_per_worker < 0:
             msg = (
-                f"executor_threads_per_worker must be >= 0 "
-                f"(got {self.executor_threads_per_worker})"
+                f"executor_threads_per_worker must be >= 0 (got {self.executor_threads_per_worker})"
             )
             raise ValueError(msg)
         if self.keep_alive_timeout <= 0:

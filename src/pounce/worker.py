@@ -594,9 +594,7 @@ class Worker:
 
                 parse_ms = elapsed_ms(parse_start) if should_sample else 0.0
                 profile_ctx = (
-                    RequestProfile(read_ms=read_ms, parse_ms=parse_ms)
-                    if should_sample
-                    else None
+                    RequestProfile(read_ms=read_ms, parse_ms=parse_ms) if should_sample else None
                 )
 
                 if await _process_events(events, profile_ctx=profile_ctx):
