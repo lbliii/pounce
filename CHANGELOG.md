@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.2] — 2026-03-12
+
+### Added
+
+- **Sync worker mode** — `SyncWorker` for blocking I/O request-response workloads. On Python 3.14t, runs in threads with true parallelism. One request at a time per thread, no asyncio. Streaming and WebSocket requests hand off to an async pool. CLI: `--worker-mode auto|sync|async` (default: auto — sync on 3.14t, async on GIL)
+- **CPU affinity** — Pin each worker to a dedicated CPU core (Linux only). Reduces cache thrashing. CLI: `--cpu-affinity`
+- **Per-worker ThreadPoolExecutor** — `executor_threads_per_worker` config prevents executor contention when multiple workers share one process (3.14t thread mode). 0 = auto-size
+- **Response frame templates** — Fused sync path with `recv_into` buffer and `sendmsg` scatter-gather for lower overhead
+- **Sync ASGI bridge** — `call_asgi_sync()` and `SyncApp` protocol for sync-style ASGI dispatch without asyncio
+- **Async pool** — `AsyncPool` for streaming/WebSocket handoff from sync workers
+- **Accept distributor** — Kernel-level connection distribution for multi-worker sync mode
+- **Documentation** — Performance guide (`docs/about/performance.md`), thread-safety guide (`docs/about/thread-safety.md`)
+
+### Changed
+
+- **Scope building** — Optimized: cached ASGI version, tuple-based structures, deduplicated target split
+- **Project metadata** — Updated description and keywords; Homepage/Documentation URLs point to lbliii.github.io
+
+### Removed
+
+- **httptools backend** — `pounce[fast]` extra removed. HTTP/1.1 parsing is h11-only (pure Python, free-threading compatible). httptools used Limited API C extensions incompatible with free-threaded Python.
+
+---
+
 ## [0.2.1] — 2026-03-06
 
 ### Changed
@@ -539,6 +563,7 @@ Initial release of Pounce — a free-threading-native ASGI server for Python 3.1
 - `py.typed` PEP 561 marker
 - `_Py_mod_gil = 0` free-threading declaration
 
+[0.2.2]: https://github.com/lbliii/pounce/releases/tag/v0.2.2
 [0.2.1]: https://github.com/lbliii/pounce/releases/tag/v0.2.1
 [0.2.0]: https://github.com/lbliii/pounce/releases/tag/v0.2.0
 [0.1.0]: https://github.com/lbliii/pounce/releases/tag/v0.1.0

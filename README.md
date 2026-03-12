@@ -55,12 +55,11 @@ Requires Python 3.14+
 **Optional extras:**
 
 ```bash
-pip install bengal-pounce[fast]   # httptools C-accelerated HTTP/1.1
 pip install bengal-pounce[h2]     # HTTP/2 stream multiplexing
 pip install bengal-pounce[ws]     # WebSocket via wsproto
 pip install bengal-pounce[tls]    # TLS with truststore
 pip install bengal-pounce[h3]     # HTTP/3 (QUIC/UDP, requires TLS)
-pip install bengal-pounce[full]   # Everything above (except httptools)
+pip install bengal-pounce[full]   # All protocol extras
 ```
 
 ---
@@ -85,7 +84,7 @@ pip install bengal-pounce[full]   # Everything above (except httptools)
 |---------|-------------|------|
 | **Deployment** | Production workers, compression, observability, and shutdown behavior | [Deployment →](https://lbliii.github.io/pounce/docs/deployment/) |
 | **Migration** | Move from Uvicorn with similar CLI concepts | [Migrate from Uvicorn →](https://lbliii.github.io/pounce/docs/tutorials/migrate-from-uvicorn/) |
-| **HTTP/1.1** | h11 (pure Python) or httptools (C-accelerated) | [HTTP/1.1 →](https://lbliii.github.io/pounce/docs/protocols/http1/) |
+| **HTTP/1.1** | h11 (pure Python) | [HTTP/1.1 →](https://lbliii.github.io/pounce/docs/protocols/http1/) |
 | **HTTP/2** | Stream multiplexing via h2 | [HTTP/2 →](https://lbliii.github.io/pounce/docs/protocols/http2/) |
 | **HTTP/3** | QUIC/UDP via aioquic (requires TLS) | — |
 | **WebSocket** | Full RFC 6455 via wsproto (including WS over H2) | [WebSocket →](https://lbliii.github.io/pounce/docs/protocols/websocket/) |
@@ -131,7 +130,7 @@ its own asyncio event loop. Shared memory, no fork overhead, no IPC.
 On **GIL builds**: workers are processes. Same API, same config. The supervisor detects the
 runtime via `sys._is_gil_enabled()` and adapts automatically.
 
-A request flows through: socket accept -> protocol parser (h11 or httptools) -> ASGI scope
+A request flows through: socket accept -> protocol parser (h11) -> ASGI scope
 construction -> `app(scope, receive, send)` -> response serialization -> socket write.
 
 </details>
@@ -142,11 +141,11 @@ construction -> `app(scope, receive, send)` -> response serialization -> socket 
 | Protocol | Backend | Install |
 |----------|---------|---------|
 | HTTP/1.1 | h11 (pure Python, default) | built-in |
-| HTTP/1.1 | httptools (C-accelerated) | `pounce[fast]` |
+| HTTP/1.1 | h11 (pure Python) | built-in |
 | HTTP/2 | h2 (stream multiplexing, priority signals) | `pounce[h2]` |
 | WebSocket | wsproto (including WS over H2) | `pounce[ws]` |
 | TLS | stdlib ssl + truststore | `pounce[tls]` |
-| All | Everything above (except httptools) | `pounce[full]` |
+| All | Everything above | `pounce[full]` |
 
 Compression uses Python 3.14's stdlib `compression.zstd` — zero external dependencies.
 

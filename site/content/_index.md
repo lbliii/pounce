@@ -85,12 +85,11 @@ optional extras for HTTP/2, WebSocket, and TLS.
 
 | Protocol | Backend | Install |
 |----------|---------|---------|
-| HTTP/1.1 | h11 (pure Python, default) | built-in |
-| HTTP/1.1 | httptools (C-accelerated) | `pounce[fast]` |
+| HTTP/1.1 | h11 (pure Python) | built-in |
 | HTTP/2 | h2 (stream multiplexing, priority) | `pounce[h2]` |
 | WebSocket | wsproto (including WS over H2) | `pounce[ws]` |
 | TLS | stdlib ssl + truststore | `pounce[tls]` |
-| All | Everything above (except httptools) | `pounce[full]` |
+| All | Everything above | `pounce[full]` |
 
 ---
 
