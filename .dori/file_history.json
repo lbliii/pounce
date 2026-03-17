@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-03-17T14:39:19.766147+00:00",
+  "updated_at": "2026-03-17T17:55:54.894511+00:00",
   "files": {
     "src/pounce/server.py": {
       "skills_applied": [
@@ -299,6 +299,253 @@
       ],
       "last_revised": null,
       "last_audited": null,
+      "last_polished": null
+    },
+    "docs/deployment/graceful-reload.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "docs/deployment/graceful-shutdown.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "docs/deployment/hot-reload.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "docs/deployment/opentelemetry.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "docs/deployment/prometheus-metrics.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "docs/deployment/request-queueing.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "docs/deployment/sentry.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "docs/design/http3-roadmap.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "docs/development/error-pages.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "docs/features/websocket-compression.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "CHANGELOG.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "CLAUDE.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "README.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "docs/ARD.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "docs/FEATURES.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "docs/PRD.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "docs/deployment/rate-limiting.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "docs/features/lifecycle-logging.md": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "pyproject.toml": {
+      "skills_applied": [
+        {
+          "skill": "doc-audit",
+          "command": "::a",
+          "at": "2026-03-17T17:55:54.770931+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": "2026-03-17T17:55:54.770931+00:00",
       "last_polished": null
     }
   }

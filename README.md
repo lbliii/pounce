@@ -104,7 +104,7 @@ pip install bengal-pounce[full]   # All protocol extras
 | **Migration** | Move from Uvicorn with similar CLI concepts | [Migrate from Uvicorn →](https://lbliii.github.io/pounce/docs/tutorials/migrate-from-uvicorn/) |
 | **HTTP/1.1** | h11 (async) + fast built-in parser (sync) | [HTTP/1.1 →](https://lbliii.github.io/pounce/docs/protocols/http1/) |
 | **HTTP/2** | Stream multiplexing via h2 | [HTTP/2 →](https://lbliii.github.io/pounce/docs/protocols/http2/) |
-| **HTTP/3** | QUIC/UDP via aioquic (requires TLS) | — |
+| **HTTP/3** | QUIC/UDP via bengal-zoomies (requires TLS) | — |
 | **WebSocket** | Full RFC 6455 via wsproto (including WS over H2) | [WebSocket →](https://lbliii.github.io/pounce/docs/protocols/websocket/) |
 | **Static Files** | Zero-copy sendfile, pre-compressed, ETags | [Static Files →](docs/features/) |
 | **Middleware** | ASGI3 middleware stack support | [Middleware →](docs/features/) |

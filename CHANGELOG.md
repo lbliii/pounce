@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] — 2026-03-17
+
+Multi-worker sync performance — matching uvicorn at 30k req/s, pure Python.
+
+### Added
+
+- **Fast HTTP/1.1 parser** — `_fast_h1.py` replaces h11 on the sync worker hot path. Direct bytes parsing (~3 µs/req vs ~22 µs for h11) with full safety checks: method validation, header size limits (16 KiB), null byte/control character injection rejection, duplicate Content-Length detection, Content-Length + Transfer-Encoding conflict detection (RFC 7230 §3.3.3 request smuggling prevention)
+- **Shared header utility** — `_headers.py` consolidates 7 copies of `_get_header` scattered across worker, sync_worker, async_pool, and handler modules into a single `get_header()` function
+- **Shared request pipeline** — `_request_pipeline.py` provides `prepare_request()`, `negotiate_compressor()`, `log_request()`, and `is_trusted_peer()` — shared between Worker and SyncWorker for feature parity and code deduplication
+- **TCP_NODELAY** — Set on accepted connections in `accept_distributor.py` for lower latency
+
+### Changed
+
+- **Middleware classification cached** — `MiddlewareStack.__init__` now classifies middleware once via `inspect.signature` instead of per-request, eliminating repeated reflection overhead
+- **`ConnectionClosed` → `ConnectionCompleted`** — Lifecycle event renamed for clarity (`lifecycle.py`, `metrics.py`). The protocol-level `ConnectionClosed` in `protocols/_base.py` is unchanged
+- **`trusted_hosts` type** — Changed from `tuple[str, ...]` to `frozenset[str]` for O(1) lookup. Added `trusted_hosts_wildcard: bool` flag computed in `__post_init__` to avoid per-request `"*" in trusted_hosts` checks
+- **Single-pass header scanning** — `asgi/bridge.py` response send path now detects Content-Length and Transfer-Encoding in a single pass instead of separate `any()` calls
+- **OpenTelemetry optimizations** — `_otel.py` pre-instantiates `TraceContextTextMapPropagator` at module level and filters to only trace headers (`traceparent`, `tracestate`) before conversion
+- **Static file header extraction** — `_static.py` extracts `if-none-match`, `range`, and `accept-encoding` in a single pass over request headers
+- **Shared socket for thread workers** — `net/listener.py` `create_listeners()` gains `shared=True` parameter; thread workers share one socket fd instead of using SO_REUSEPORT (avoids macOS distribution issues)
+- **Server orchestrator refactored** — `server.py` simplified lifecycle state machine
+- **Supervisor simplified** — `supervisor.py` streamlined worker spawning and health monitoring
+- **Sync worker performance** — `sync_worker.py` major refactor for throughput parity with uvicorn
+
+---
+
 ## [0.2.2] — 2026-03-12
 
 ### Added
@@ -563,6 +589,7 @@ Initial release of Pounce — a free-threading-native ASGI server for Python 3.1
 - `py.typed` PEP 561 marker
 - `_Py_mod_gil = 0` free-threading declaration
 
+[0.3.0]: https://github.com/lbliii/pounce/releases/tag/v0.3.0
 [0.2.2]: https://github.com/lbliii/pounce/releases/tag/v0.2.2
 [0.2.1]: https://github.com/lbliii/pounce/releases/tag/v0.2.1
 [0.2.0]: https://github.com/lbliii/pounce/releases/tag/v0.2.0

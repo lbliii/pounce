@@ -269,7 +269,7 @@ When behind a proxy (nginx, HAProxy), rate limiting may see the proxy IP instead
 ```python
 config = ServerConfig(
     rate_limit_enabled=True,
-    trusted_hosts=("X-Forwarded-For", "X-Real-IP"),
+    trusted_hosts=frozenset({"127.0.0.1", "10.0.0.0/8"}),
 )
 ```
 

@@ -1,8 +1,8 @@
 # Architecture Design Document: Pounce
 
-**Version**: 0.2.0
-**Date**: 2026-02-07
-**Status**: Phase 4 implemented
+**Version**: 0.3.0
+**Date**: 2026-03-17
+**Status**: Phase 5b implemented + multi-worker sync performance
 
 ---
 
@@ -17,8 +17,9 @@
 3. **Typed end-to-end.** Zero `type: ignore` comments. Every internal interface has complete
    type annotations. The type checker (`ty`) is a first-class development tool.
 
-4. **One dependency.** `h11` for HTTP/1.1 parsing. Everything else is optional. The server
-   owns its I/O, its lifecycle, and its threading model.
+4. **One dependency.** `h11` for HTTP/1.1 parsing (with a built-in fast parser for the sync
+   worker hot path). Everything else is optional. The server owns its I/O, its lifecycle,
+   and its threading model.
 
 5. **ASGI and nothing more.** Pounce is a server, not a framework. It accepts an ASGI
    callable and serves it. No routing, no middleware, no opinions about application structure.
@@ -218,8 +219,8 @@ exits.
 flowchart TD
     A["Client connects (TCP)"]
     B["Worker (accept)\nasyncio event loop picks up new connection"]
-    C["H1Protocol (parse)\nh11 state machine: IDLE → SEND_RESPONSE\nReads bytes → produces h11 events"]
-    D["ASGI Bridge (translate)\nConstruct scope dict from h11 request\nCreate receive() → feeds request body\nCreate send() → captures response events"]
+    C["Protocol Parser\nAsync: h11 state machine\nSync: fast built-in parser (~3 µs)\nReads bytes → produces protocol events"]
+    D["ASGI Bridge (translate)\nConstruct scope dict from parsed request\nCreate receive() → feeds request body\nCreate send() → captures response events"]
     E["ASGI App (execute)\napp(scope, receive, send)\nApp reads body via receive()\nApp sends response via send()"]
     F["H1Protocol (serialize)\nsend() calls → h11 response bytes\nWrite to socket"]
     G{Keep-alive?}
@@ -502,7 +503,17 @@ This separation enables:
 - **Protocol reuse:** Same protocol handler works with any I/O backend
 - **Clear error boundaries:** Parse errors are protocol errors, not I/O errors
 
-### 6.2 h11 Integration
+### 6.2 HTTP/1.1 Parsing
+
+#### 6.2a Fast Built-in Parser (Sync Worker Hot Path)
+
+The sync worker uses `_fast_h1.py`, a purpose-built HTTP/1.1 parser that operates directly
+on bytes (~3 µs/request vs ~22 µs for h11). It enforces safety checks: method validation,
+header size limits (16 KiB), null byte/control character injection rejection, duplicate
+Content-Length detection, and Content-Length + Transfer-Encoding conflict detection
+(request smuggling prevention per RFC 7230 §3.3.3).
+
+#### 6.2b h11 Integration (Async Worker)
 
 h11 is a sans-I/O HTTP/1.1 implementation. It manages an internal state machine:
 
@@ -717,8 +728,9 @@ offering `httptools` as an optional C-accelerated parser in phase 4.
 same philosophy as the rest of the ecosystem. httptools is a C binding that's faster but
 adds a compilation step and is harder to debug.
 
-**Trade-off:** ~30-40% lower parsing throughput compared to httptools. Acceptable for phase
-1. Phase 4 adds httptools as an optional drop-in replacement.
+**Trade-off:** The built-in fast H1 parser (`_fast_h1.py`) now provides ~3 µs parsing on the
+sync worker hot path, dramatically closing the gap with httptools. h11 (~22 µs) remains the
+async worker default. httptools is available as an optional drop-in replacement.
 
 ### 8.3 asyncio Only (No Trio, No anyio)
 
@@ -800,7 +812,7 @@ enabled or set to non-default values.
 
 ## 10. Testing Strategy
 
-**Current state:** 426 tests passing (Phase 4 + ASGI compliance suite + httptools).
+**Current state:** ~989 tests passing (Phase 5b + ASGI compliance suite + httptools).
 
 ### 10.1 Unit Tests (Protocol Layer)
 

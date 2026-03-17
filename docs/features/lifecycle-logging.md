@@ -10,7 +10,7 @@ Lifecycle logging captures events throughout the request/response lifecycle:
 - **request.started** — HTTP request head parsed
 - **response.completed** — HTTP response fully sent (with duration)
 - **client.disconnected** — Client closed connection unexpectedly
-- **connection.closed** — TCP connection closed (with stats)
+- **connection.completed** — TCP connection completed (with stats)
 - **request.slow** — Request exceeded duration threshold
 
 All events include **correlation IDs** (connection_id, worker_id) for distributed tracing and debugging.
@@ -35,7 +35,7 @@ config = ServerConfig(
 {"event": "ConnectionOpened", "connection_id": 1, "worker_id": 1, "client_addr": "127.0.0.1", "protocol": "h1", "timestamp": "2026-02-12T10:15:30.123456Z"}
 {"event": "RequestStarted", "connection_id": 1, "worker_id": 1, "method": "GET", "path": "/api/users", "http_version": "1.1", "timestamp": "2026-02-12T10:15:30.125000Z"}
 {"event": "ResponseCompleted", "connection_id": 1, "worker_id": 1, "status": 200, "bytes_sent": 1024, "duration_ms": 3500.0, "slow": true, "timestamp": "2026-02-12T10:15:33.625000Z"}
-{"event": "ConnectionClosed", "connection_id": 1, "worker_id": 1, "requests_served": 1, "total_bytes_sent": 1024, "duration_ms": 3502.5, "reason": "complete", "timestamp": "2026-02-12T10:15:33.627500Z"}
+{"event": "ConnectionCompleted", "connection_id": 1, "worker_id": 1, "requests_served": 1, "total_bytes_sent": 1024, "duration_ms": 3502.5, "reason": "complete", "timestamp": "2026-02-12T10:15:33.627500Z"}
 ```
 
 ## Configuration
@@ -219,12 +219,12 @@ Emitted when the client closes the connection unexpectedly.
 }
 ```
 
-### ConnectionClosed
+### ConnectionCompleted
 
 Emitted when a TCP connection is closed (by either side).
 
 **Fields:**
-- `event`: "ConnectionClosed"
+- `event`: "ConnectionCompleted"
 - `connection_id`: Correlation ID
 - `worker_id`: Worker that owned the connection
 - `requests_served`: Number of requests processed on this connection
@@ -243,7 +243,7 @@ Emitted when a TCP connection is closed (by either side).
 **Example:**
 ```json
 {
-  "event": "ConnectionClosed",
+  "event": "ConnectionCompleted",
   "connection_id": 1,
   "worker_id": 1,
   "requests_served": 5,
@@ -294,7 +294,7 @@ Example output:
 {"event": "ConnectionOpened", "connection_id": 42, ...}
 {"event": "RequestStarted", "connection_id": 42, "path": "/api/users", ...}
 {"event": "ResponseCompleted", "connection_id": 42, "status": 200, "duration_ms": 150.5, ...}
-{"event": "ConnectionClosed", "connection_id": 42, "requests_served": 1, ...}
+{"event": "ConnectionCompleted", "connection_id": 42, "requests_served": 1, ...}
 ```
 
 ### 3. Identify Connection Issues
@@ -331,7 +331,7 @@ Check how many requests are served per connection (HTTP/1.1 keep-alive efficienc
 
 ```bash
 # Get requests_served distribution
-cat app.log | jq -r 'select(.event == "ConnectionClosed") | .requests_served' | sort -n | uniq -c
+cat app.log | jq -r 'select(.event == "ConnectionCompleted") | .requests_served' | sort -n | uniq -c
 ```
 
 Example:
@@ -433,7 +433,7 @@ Lifecycle logging overhead is **minimal**:
 - **JSON serialization:** ~10μs per event
 - **Log writing:** Async, non-blocking
 
-For a typical request (ConnectionOpened → RequestStarted → ResponseCompleted → ConnectionClosed):
+For a typical request (ConnectionOpened → RequestStarted → ResponseCompleted → ConnectionCompleted):
 - **4 events** × 10μs = **40μs total overhead**
 - **< 0.1% overhead** for most applications
 
