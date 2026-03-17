@@ -18,18 +18,24 @@ make gh-release     # GitHub release (triggers PyPI)
 ## Project Structure
 
 ```
-src/pounce/           # Main source (~58 files)
+src/pounce/           # Main source (~61 files)
   server.py           # Top-level orchestrator, lifecycle state machine
   supervisor.py       # Worker spawning, health monitoring, auto-restart
   worker.py           # Main async loop, connection/request handling
+  sync_worker.py      # Synchronous worker (fast H1 parser hot path)
   config.py           # Frozen ServerConfig dataclass (50+ options)
   asgi/               # ASGI bridge (scope construction, streaming send/receive)
   protocols/          # Sans-I/O protocol handlers (H1, H2, WebSocket, H3)
+  net/                # Socket listeners, TLS setup
+  _fast_h1.py         # Fast HTTP/1.1 parser (~3 µs, sync worker hot path)
+  _headers.py         # Shared header lookup utilities
+  _request_pipeline.py # Shared request pipeline (prepare, compress, log)
   _compression.py     # zstd/gzip content negotiation
-  _middleware.py       # CORS, security headers
+  _middleware.py       # CORS, security headers, cached classification
   _static.py          # Static file serving with ETags
   _cli.py             # CLI (argparse)
-tests/unit/           # ~53 unit test files
+  accept_distributor.py # Connection distribution with TCP_NODELAY
+tests/unit/           # ~51 unit test files
 tests/integration/    # ~15 integration test files
 examples/             # 17 example apps
 docs/                 # Architecture docs, feature specs, deployment guides

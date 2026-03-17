@@ -36,7 +36,7 @@ Complete feature set for pounce — the free-threading-native ASGI server for Py
 
 ### HTTP/3 (Planned)
 - 🔄 **Phase 5c** (Q2 2026) — QUIC/UDP transport
-- 🔄 aioquic integration for pure-Python QUIC
+- 🔄 bengal-zoomies for pure-Python QUIC
 - 🔄 0-RTT connection resumption
 - 🔄 Alt-Svc discovery
 
@@ -193,7 +193,7 @@ terminationGracePeriodSeconds: 40  # > shutdown_timeout + buffer
 - `RequestStarted` — HTTP request head parsed
 - `ResponseCompleted` — Response sent (with duration)
 - `ClientDisconnected` — Unexpected client disconnect
-- `ConnectionClosed` — Connection closed with stats
+- `ConnectionCompleted` — Connection completed with stats
 
 **Configuration:**
 ```python
@@ -311,7 +311,7 @@ ServerConfig(
 ### Compression
 - ✅ **zstd** — Stdlib compression.zstd (PEP 784), zero dependencies
 - ✅ **gzip** — Stdlib zlib
-- ✅ **brotli** — Optional (brotli package)
+- ❌ **brotli** — Excluded (C extension re-enables GIL on 3.14t)
 - ✅ Automatic Accept-Encoding negotiation
 - ✅ Minimum size threshold
 - ✅ Pre-compressed file serving
@@ -423,7 +423,8 @@ ServerConfig(
 - ✅ Configurable max requests per connection
 
 ### Efficient Parsing
-- ✅ h11 pure Python parser (default)
+- ✅ Built-in fast H1 parser (~3 µs/req, sync worker hot path)
+- ✅ h11 pure Python parser (async worker)
 - ✅ httptools C-accelerated parser (optional, 2-3x faster)
 - ✅ h2 for HTTP/2 HPACK compression
 
@@ -546,7 +547,7 @@ ServerConfig(
 
 ## Testing
 
-- ✅ **600+ unit tests** covering all features
+- ✅ **900+ tests** covering all features
 - ✅ **Integration tests** for multi-worker scenarios
 - ✅ **ASGI compliance tests** for spec conformance
 - ✅ **46 tests skipped** for optional dependencies (httptools, h2, wsproto)

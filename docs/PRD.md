@@ -1,8 +1,8 @@
 # Product Requirements Document: Pounce
 
-**Version**: 0.2.0
-**Date**: 2026-02-07
-**Status**: Phase 4 implemented
+**Version**: 0.3.0
+**Date**: 2026-03-17
+**Status**: Phase 5b implemented + multi-worker sync performance
 
 ---
 
