@@ -43,8 +43,12 @@ try:
     from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
     _HAS_OTEL = True
+    _PROPAGATOR = TraceContextTextMapPropagator()
 except ImportError:
     _HAS_OTEL = False
+    _PROPAGATOR = None
+
+_TRACE_HEADER_NAMES = (b"traceparent", b"tracestate")
 
 
 def is_otel_available() -> bool:
@@ -116,15 +120,14 @@ def extract_trace_context(headers: Sequence[tuple[bytes, bytes]]) -> Any:
     if not _HAS_OTEL:
         return None
 
-    # Convert headers to dict format for propagator
-    headers_dict = {
-        name.decode("latin1").lower(): value.decode("latin1", errors="replace")
-        for name, value in headers
-    }
+    # Convert only trace headers to dict format for propagator
+    headers_dict: dict[str, str] = {}
+    for name, value in headers:
+        if name in _TRACE_HEADER_NAMES:
+            headers_dict[name.decode("latin1")] = value.decode("latin1", errors="replace")
 
     # Extract context using W3C Trace Context propagator
-    propagator = TraceContextTextMapPropagator()
-    return propagator.extract(carrier=headers_dict)
+    return _PROPAGATOR.extract(carrier=headers_dict)
 
 
 def inject_trace_context(headers: list[tuple[bytes, bytes]]) -> list[tuple[bytes, bytes]]:
@@ -145,8 +148,7 @@ def inject_trace_context(headers: list[tuple[bytes, bytes]]) -> list[tuple[bytes
 
     # Create carrier dict for injection
     carrier: dict[str, str] = {}
-    propagator = TraceContextTextMapPropagator()
-    propagator.inject(carrier=carrier)
+    _PROPAGATOR.inject(carrier=carrier)
 
     # Add injected headers
     updated_headers = list(headers)

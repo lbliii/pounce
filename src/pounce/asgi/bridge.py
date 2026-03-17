@@ -366,19 +366,39 @@ def create_send(
             # Inject Content-Encoding if compressing
             if compressor is not None:
                 headers.append((b"content-encoding", compressor.encoding.encode("ascii")))
-                # Remove content-length since compressed size differs
-                headers = [(n, v) for n, v in headers if n.lower() != b"content-length"]
-
-            # Auto-inject chunked transfer encoding when the ASGI app
-            # doesn't provide Content-Length.  Without either CL or
-            # chunked TE, HTTP/1.1 keep-alive connections have no way
-            # to delimit response boundaries — the browser hangs.
-            # This matches Uvicorn / Hypercorn behaviour and is the
-            # standard expectation of any ASGI framework.
-            has_content_length = any(n.lower() == b"content-length" for n, _ in headers)
-            has_transfer_encoding = any(n.lower() == b"transfer-encoding" for n, _ in headers)
-            if not has_content_length and not has_transfer_encoding:
-                headers.append((b"transfer-encoding", b"chunked"))
+                # Remove content-length since compressed size differs;
+                # also detect transfer-encoding in a single pass.
+                filtered: list[tuple[bytes, bytes]] = []
+                has_transfer_encoding = False
+                for n, v in headers:
+                    nl = n.lower()
+                    if nl == b"content-length":
+                        continue
+                    if nl == b"transfer-encoding":
+                        has_transfer_encoding = True
+                    filtered.append((n, v))
+                headers = filtered
+                # Compressor removed CL, so inject chunked if no TE
+                if not has_transfer_encoding:
+                    headers.append((b"transfer-encoding", b"chunked"))
+            else:
+                # No compressor — check if CL or TE is present.
+                # Auto-inject chunked transfer encoding when the ASGI app
+                # doesn't provide Content-Length.  Without either CL or
+                # chunked TE, HTTP/1.1 keep-alive connections have no way
+                # to delimit response boundaries — the browser hangs.
+                has_content_length = False
+                has_transfer_encoding = False
+                for n, _ in headers:
+                    nl = n.lower()
+                    if nl == b"content-length":
+                        has_content_length = True
+                    elif nl == b"transfer-encoding":
+                        has_transfer_encoding = True
+                    if has_content_length or has_transfer_encoding:
+                        break
+                if not has_content_length and not has_transfer_encoding:
+                    headers.append((b"transfer-encoding", b"chunked"))
 
             # Inject Server-Timing header
             if timing is not None:

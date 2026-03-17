@@ -20,6 +20,7 @@ Example:
 
 """
 
+import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -146,7 +147,7 @@ class MiddlewareStack:
 
     """
 
-    __slots__ = ("_app", "_middleware")
+    __slots__ = ("_app", "_exception_handlers", "_middleware", "_post_response", "_pre_request")
 
     def __init__(
         self,
@@ -155,6 +156,25 @@ class MiddlewareStack:
     ) -> None:
         self._middleware = middleware
         self._app = app
+
+        # Classify middleware once by duck-typing callable signature
+        self._pre_request: list[Middleware] = []
+        self._post_response: list[Middleware] = []
+        self._exception_handlers: list[Middleware] = []
+
+        for mw in middleware:
+            sig = inspect.signature(mw)
+            param_count = len(sig.parameters)
+
+            if param_count == 1:
+                # Single param = pre-request
+                self._pre_request.append(mw)
+            elif param_count == 2:
+                # Two params = exception middleware (scope, exc)
+                self._exception_handlers.append(mw)
+            elif param_count == 3:
+                # Three params = post-response (scope, status, headers)
+                self._post_response.append(mw)
 
     async def __call__(self, scope: dict[str, Any], receive: Receive, send: Send) -> None:
         """Execute middleware stack around app call.
@@ -165,27 +185,9 @@ class MiddlewareStack:
         4. Run exception middleware if app raises
 
         """
-        # Separate middleware by type
-        pre_request = []
-        post_response = []
-        exception_handlers = []
-
-        for mw in self._middleware:
-            # Duck-type based on callable signature
-            import inspect
-
-            sig = inspect.signature(mw)
-            params = list(sig.parameters.keys())
-
-            if len(params) == 1:
-                # Single param = pre-request
-                pre_request.append(mw)
-            elif len(params) == 2:
-                # Two params = exception middleware (scope, exc)
-                exception_handlers.append(mw)
-            elif len(params) == 3:
-                # Three params = post-response (scope, status, headers)
-                post_response.append(mw)
+        pre_request = self._pre_request
+        post_response = self._post_response
+        exception_handlers = self._exception_handlers
 
         # Execute pre-request middleware
         modified_scope = scope

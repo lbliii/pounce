@@ -79,7 +79,7 @@ class ClientDisconnected:
 
 
 @dataclass(frozen=True, slots=True)
-class ConnectionClosed:
+class ConnectionCompleted:
     """The TCP connection was closed (by either side)."""
 
     connection_id: int
@@ -93,7 +93,7 @@ class ConnectionClosed:
 
 # Union of all lifecycle event types
 type LifecycleEvent = (
-    ConnectionOpened | RequestStarted | ResponseCompleted | ClientDisconnected | ConnectionClosed
+    ConnectionOpened | RequestStarted | ResponseCompleted | ClientDisconnected | ConnectionCompleted
 )
 
 
@@ -277,7 +277,7 @@ class LoggingCollector:
         - RequestStarted: DEBUG
         - ResponseCompleted: INFO (slow requests), DEBUG (fast)
         - ClientDisconnected: WARNING
-        - ConnectionClosed: DEBUG
+        - ConnectionCompleted: DEBUG
 
         """
         # Convert event to dict for logging
@@ -318,7 +318,7 @@ class LoggingCollector:
         elif isinstance(event, ClientDisconnected):
             level = logging.WARNING
             msg = "Client disconnected"
-        elif isinstance(event, ConnectionClosed):
+        elif isinstance(event, ConnectionCompleted):
             level = logging.DEBUG
             msg = "Connection closed"
         else:

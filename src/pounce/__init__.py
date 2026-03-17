@@ -77,7 +77,8 @@ class ServerConfigKwargs(TypedDict, total=False):
     reload_include: tuple[str, ...]
     reload_dirs: tuple[str, ...]
     h11_max_incomplete_event_size: int | None
-    trusted_hosts: tuple[str, ...]
+    trusted_hosts: frozenset[str]
+    trusted_hosts_wildcard: bool
     health_check_path: str | None
     uds: str | None
     ssl_certfile: str | None

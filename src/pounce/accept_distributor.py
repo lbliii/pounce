@@ -74,6 +74,7 @@ class AcceptDistributor:
                 raise
 
             conn.setblocking(True)
+            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             if self._ssl_context:
                 try:
                     conn = self._ssl_context.wrap_socket(conn, server_side=True)

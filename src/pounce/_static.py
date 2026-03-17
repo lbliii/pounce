@@ -163,8 +163,22 @@ class StaticFiles:
                 await self._app(scope, receive, send)
             return
 
+        # Extract needed headers in a single pass
+        headers = scope.get("headers", [])
+        if_none_match: bytes | None = None
+        range_header: bytes | None = None
+        accept_encoding: bytes | None = None
+        for hdr_name, hdr_value in headers:
+            lower_name = hdr_name.lower()
+            if lower_name == b"if-none-match":
+                if_none_match = hdr_value
+            elif lower_name == b"range":
+                range_header = hdr_value
+            elif lower_name == b"accept-encoding":
+                accept_encoding = hdr_value
+
         # Try to resolve to static file
-        file = self._resolve_file(path, scope.get("headers", []))
+        file = self._resolve_file(path, accept_encoding)
         if file is None:
             # Not a static file, pass to app if available
             if self._app is not None:
@@ -187,12 +201,11 @@ class StaticFiles:
             return
 
         # Check conditional requests (If-None-Match)
-        if self._check_not_modified(scope.get("headers", []), file):
+        if if_none_match and if_none_match.decode("latin1").strip() == file.etag:
             await self._send_304(file, send)
             return
 
         # Check Range header
-        range_header = self._get_header(scope.get("headers", []), b"range")
         if range_header and method == "GET":
             ranges = self._parse_range_header(range_header.decode("latin1"), file.size)
             if ranges is not None:
@@ -202,7 +215,7 @@ class StaticFiles:
         # Send full file
         await self._send_file(file, method, send)
 
-    def _resolve_file(self, url_path: str, headers: list[tuple[bytes, bytes]]) -> StaticFile | None:
+    def _resolve_file(self, url_path: str, accept_encoding: bytes | None) -> StaticFile | None:
         """Resolve URL path to static file.
 
         Returns:
@@ -239,7 +252,7 @@ class StaticFiles:
             # Security: prevent path traversal
             try:
                 resolved = file_path.resolve()
-                mount_resolved = mount.directory.resolve()
+                mount_resolved = mount.directory
                 # Check if resolved path is within mount directory
                 # Use is_relative_to() which handles symlinks correctly
                 if not resolved.is_relative_to(mount_resolved):
@@ -274,7 +287,7 @@ class StaticFiles:
                 return None
 
             # Check for precompressed variants
-            final_path, encoding = self._find_precompressed(resolved, mount, headers, file_stat)
+            final_path, encoding = self._find_precompressed(resolved, mount, accept_encoding, file_stat)
 
             # Get final stats (might be different if precompressed)
             try:
@@ -303,7 +316,7 @@ class StaticFiles:
         self,
         path: Path,
         mount: StaticMount,
-        headers: list[tuple[bytes, bytes]],
+        accept_encoding: bytes | None,
         original_stat: os.stat_result,
     ) -> tuple[Path, str | None]:
         """Find precompressed variant if available and client supports.
@@ -317,8 +330,6 @@ class StaticFiles:
         if not mount.precompressed:
             return (path, None)
 
-        # Parse Accept-Encoding header
-        accept_encoding = self._get_header(headers, b"accept-encoding")
         if not accept_encoding:
             return (path, None)
 

@@ -47,17 +47,29 @@ def create_listener(config: ServerConfig) -> socket.socket:
     return _bind_socket(config)
 
 
-def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
+def create_listeners(
+    config: ServerConfig,
+    count: int,
+    *,
+    shared: bool = False,
+) -> list[socket.socket]:
     """Create server sockets for *count* workers.
 
-    On platforms with ``SO_REUSEPORT`` each worker gets its own
-    independently bound socket so the kernel distributes connections.
-    When ``SO_REUSEPORT`` is unavailable, a single socket is created and
-    the same object is returned for every worker (shared-fd strategy).
+    When *shared* is True (recommended for thread workers), a single socket
+    is created and returned for every worker — all threads call ``accept()``
+    on the same fd and the kernel distributes connections naturally.
+
+    When *shared* is False (required for process workers), each worker gets
+    its own independently bound ``SO_REUSEPORT`` socket on platforms that
+    support it.  On platforms without ``SO_REUSEPORT`` the shared strategy
+    is used as a fallback regardless of this flag.
 
     Args:
         config: Server configuration.
         count: Number of worker sockets needed.
+        shared: If True, all workers share a single socket fd.  Use this
+            for thread-based workers to avoid macOS SO_REUSEPORT
+            distribution issues.
 
     Returns:
         A list of *count* sockets.  Callers must not close a shared socket
@@ -70,11 +82,23 @@ def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
 
     if config.uds is not None:
         # Unix sockets are shared — all workers accept from the same fd
-        shared = _bind_unix_socket(config)
-        return [shared] * count
+        shared_sock = _bind_unix_socket(config)
+        return [shared_sock] * count
 
     if count == 1:
         return [_bind_socket(config, use_reuseport=False)]
+
+    # Thread workers share one socket — kernel accept queue distributes
+    # connections naturally without SO_REUSEPORT quirks.
+    if shared:
+        shared_sock = _bind_socket(config)
+        logger.info(
+            "Created shared socket on %s:%d for %d workers",
+            config.host,
+            config.port,
+            count,
+        )
+        return [shared_sock] * count
 
     if has_so_reuseport():
         # Each worker binds independently — kernel distributes connections
@@ -97,14 +121,14 @@ def create_listeners(config: ServerConfig, count: int) -> list[socket.socket]:
         return sockets
 
     # Shared-socket fallback — one socket, all workers accept from it
-    shared = _bind_socket(config)
+    shared_sock = _bind_socket(config)
     logger.info(
         "Created shared socket on %s:%d for %d workers (no SO_REUSEPORT)",
         config.host,
         config.port,
         count,
     )
-    return [shared] * count
+    return [shared_sock] * count
 
 
 def create_udp_listener(config: ServerConfig) -> socket.socket:

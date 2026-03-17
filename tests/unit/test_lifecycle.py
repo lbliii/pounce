@@ -5,7 +5,7 @@ import threading
 from pounce.lifecycle import (
     BufferedCollector,
     ClientDisconnected,
-    ConnectionClosed,
+    ConnectionCompleted,
     ConnectionOpened,
     LifecycleEvent,
     NoopCollector,
@@ -73,7 +73,7 @@ class TestEventTypes:
         assert event.during_streaming is True
 
     def test_connection_closed_fields(self):
-        event = ConnectionClosed(
+        event = ConnectionCompleted(
             connection_id=1,
             worker_id=0,
             requests_served=5,
@@ -254,7 +254,7 @@ class TestBufferedCollector:
             )
         )
         collector.record(
-            ConnectionClosed(
+            ConnectionCompleted(
                 connection_id=1,
                 worker_id=0,
                 requests_served=1,
@@ -270,4 +270,4 @@ class TestBufferedCollector:
         assert isinstance(events[0], ConnectionOpened)
         assert isinstance(events[1], RequestStarted)
         assert isinstance(events[2], ResponseCompleted)
-        assert isinstance(events[3], ConnectionClosed)
+        assert isinstance(events[3], ConnectionCompleted)

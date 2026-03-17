@@ -22,17 +22,20 @@ from typing import Any, cast
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._cpu_affinity import maybe_pin_worker
-from pounce._errors import ParseError
+from pounce._fast_h1 import ParseError
+from pounce._fast_h1 import parse_request as _fast_parse
+from pounce._headers import get_header as _get_header
 from pounce._health import build_health_response
-from pounce._request_id import extract_or_generate
+from pounce._request_pipeline import log_request, negotiate_compressor, prepare_request
 from pounce._response_frame import get_date_header_bytes, serialize_raw_response_parts
+from pounce._timing import elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
-from pounce.asgi.bridge import build_scope
 from pounce.asgi.sync_bridge import NeedsAsyncError, call_asgi_sync
 from pounce.async_pool import AsyncPool, StreamingHandoff, WebSocketHandoff
 from pounce.config import ServerConfig
 from pounce.lifecycle import (
     ClientDisconnected,
+    ConnectionCompleted,
     ConnectionOpened,
     LifecycleCollector,
     NoopCollector,
@@ -40,29 +43,26 @@ from pounce.lifecycle import (
     ResponseCompleted,
     next_connection_id,
 )
-from pounce.lifecycle import ConnectionClosed as LifecycleConnectionClosed
 from pounce.lifecycle import monotonic_ns as lifecycle_ns
-from pounce.logging import access_log
-from pounce.protocols._base import BodyReceived, ConnectionClosed, RequestReceived
-from pounce.protocols.h1 import H1Protocol
+from pounce.protocols._base import RequestReceived
 from pounce.sync_protocol import RawRequest, SyncApp
 
-
-def _create_h1_protocol(
-    *,
-    max_incomplete_event_size: int | None = None,
-) -> H1Protocol:
-    """Create an HTTP/1.1 protocol handler."""
-    return H1Protocol(max_incomplete_event_size=max_incomplete_event_size)
-
-
-def _get_header(headers: tuple[tuple[bytes, bytes], ...], name: bytes) -> bytes | None:
-    """Get a header value by lowercase name."""
-    name_lower = name.lower()
-    for hname, hvalue in headers:
-        if hname.lower() == name_lower:
-            return hvalue
-    return None
+_STATUS_PHRASES: dict[int, bytes] = {
+    200: b"200 OK",
+    201: b"201 Created",
+    204: b"204 No Content",
+    301: b"301 Moved Permanently",
+    302: b"302 Found",
+    304: b"304 Not Modified",
+    400: b"400 Bad Request",
+    403: b"403 Forbidden",
+    404: b"404 Not Found",
+    405: b"405 Method Not Allowed",
+    500: b"500 Internal Server Error",
+    501: b"501 Not Implemented",
+    502: b"502 Bad Gateway",
+    503: b"503 Service Unavailable",
+}
 
 
 def _is_websocket_upgrade(request: RequestReceived) -> bool:
@@ -75,6 +75,15 @@ def _is_websocket_upgrade(request: RequestReceived) -> bool:
         elif name.lower() == b"upgrade" and value.lower() == b"websocket":
             has_websocket = True
     return has_upgrade and has_websocket
+
+
+def _wants_close(request: RequestReceived) -> bool:
+    """True if the client sent ``Connection: close``."""
+    for name, value in request.headers:
+        if name.lower() == b"connection":
+            return b"close" in value.lower()
+    # HTTP/1.0 defaults to close unless keep-alive is explicit
+    return request.http_version == "1.0"
 
 
 class SyncWorker:
@@ -123,12 +132,7 @@ class SyncWorker:
         self._async_pool = async_pool
         self._conn_queue = conn_queue
         self._sync_app = sync_app
-        if config.middleware:
-            from pounce._middleware import MiddlewareStack
-
-            self._app = MiddlewareStack(config.middleware, app)
-        else:
-            self._app = app
+        self._app = app
         self._sock = sock
         self._worker_id = worker_id
         self._ext_shutdown = shutdown_event
@@ -193,6 +197,7 @@ class SyncWorker:
                     break
                 raise
             conn.setblocking(True)
+            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             if self._ssl_context:
                 try:
                     conn = self._ssl_context.wrap_socket(conn, server_side=True)
@@ -253,22 +258,26 @@ class SyncWorker:
             )
         )
 
-        proto = _create_h1_protocol(
-            max_incomplete_event_size=self._config.h11_max_incomplete_event_size,
-        )
         request_count = 0
         max_requests = self._config.max_requests_per_connection
+
+        keep_alive_timeout = self._config.keep_alive_timeout
 
         try:
             while True:
                 if self._ext_shutdown and self._ext_shutdown.is_set():
                     break
-                conn.settimeout(self._config.header_timeout)
-                request, body = self._recv_request(conn, proto)
+
+                # First request uses header_timeout; subsequent use keep_alive_timeout
+                timeout = self._config.header_timeout if request_count == 0 else keep_alive_timeout
+                conn.settimeout(timeout)
+                request, body = self._recv_request_fast(conn)
                 if request is None:
                     break
 
+                close_after = _wants_close(request)
                 request_count += 1
+                request_start = monotonic_ns()
                 self._lifecycle.record(
                     RequestStarted(
                         connection_id=conn_id,
@@ -276,7 +285,7 @@ class SyncWorker:
                         method=request.method.decode("ascii", errors="replace"),
                         path=request.target.decode("ascii", errors="replace"),
                         http_version=request.http_version,
-                        timestamp_ns=lifecycle_ns(),
+                        timestamp_ns=request_start,
                     )
                 )
 
@@ -292,10 +301,16 @@ class SyncWorker:
                             )
                         )
                         return True
-                    self._send_error(conn, proto, 501, "WebSocket requires worker_mode=async")
+                    self._send_error(conn,501, "WebSocket requires worker_mode=async")
                     break
 
-                # Fused sync path: try SyncApp.handle_sync() before ASGI
+                # Connection header: close only when client asks or max_requests hit
+                at_limit = max_requests > 0 and request_count >= max_requests
+                conn_header = b"close" if (close_after or at_limit) else b"keep-alive"
+
+                # Fused sync path: try SyncApp.handle_sync() before ASGI.
+                # This bypasses h11 entirely (raw serialization), so we always
+                # close the connection — h11 state can't be recycled.
                 if self._sync_app is not None:
                     target = request.target
                     path_bytes = target.split(b"?", 1)[0] if b"?" in target else target
@@ -329,12 +344,16 @@ class SyncWorker:
                             headers_list = [
                                 (n, v) for n, v in headers_list if n.lower() != b"content-length"
                             ]
-                        else:
-                            body_out = raw_resp.body
-                        if not any(n.lower() == b"content-length" for n, _ in headers_list):
+                            # CL was removed; always inject new CL for compressed body
                             headers_list.append(
                                 (b"content-length", str(len(body_out)).encode("ascii"))
                             )
+                        else:
+                            body_out = raw_resp.body
+                            if not any(n.lower() == b"content-length" for n, _ in headers_list):
+                                headers_list.append(
+                                    (b"content-length", str(len(body_out)).encode("ascii"))
+                                )
                         headers_list.append((b"connection", b"close"))
                         # Date header: cache per-second (RFC 7231 allows 1s resolution)
                         now_sec = int(time.time())
@@ -356,42 +375,33 @@ class SyncWorker:
                                 conn.sendall(head + body_bytes)
                         except OSError:
                             conn.sendall(head + body_bytes)
+                        duration = elapsed_ms(request_start)
                         self._lifecycle.record(
                             ResponseCompleted(
                                 connection_id=conn_id,
                                 worker_id=self._worker_id,
                                 status=raw_resp.status,
                                 bytes_sent=len(body_out),
-                                duration_ms=0,
+                                duration_ms=duration,
                                 timestamp_ns=lifecycle_ns(),
                             )
                         )
-                        if self._config.access_log:
-                            access_log(
-                                request.method.decode("ascii", errors="replace"),
-                                path_bytes.decode("ascii", errors="replace"),
-                                raw_resp.status,
-                                len(body_out),
-                                0,
-                                client_str,
-                            )
-                        if max_requests > 0 and request_count >= max_requests:
-                            break
+                        log_request(
+                            self._config,
+                            request.method.decode("ascii", errors="replace"),
+                            path_bytes.decode("ascii", errors="replace"),
+                            raw_resp.status,
+                            len(body_out),
+                            duration,
+                            client_str,
+                            http_version=request.http_version,
+                        )
                         break
 
-                scope = build_scope(
-                    request, self._config, client, server, state=self._lifespan_state
+                scope, request_id = prepare_request(
+                    request, self._config, client, server, self._lifespan_state
                 )
-                is_trusted = bool(
-                    self._config.trusted_hosts
-                    and (
-                        "*" in self._config.trusted_hosts or client[0] in self._config.trusted_hosts
-                    )
-                )
-                request_id = extract_or_generate(request.headers, trusted=is_trusted)
-                extensions = scope.setdefault("extensions", {})
-                extensions["request_id"] = request_id
-                extensions["pounce.inline_sync"] = True
+                scope.setdefault("extensions", {})["pounce.inline_sync"] = True
 
                 if (
                     self._config.health_check_path
@@ -402,125 +412,161 @@ class SyncWorker:
                         worker_id=self._worker_id,
                         active_connections=1,
                     )
-                    health_headers = [*list(health_headers), (b"connection", b"close")]
-                    raw = proto.send_response(status, health_headers)
-                    raw += proto.send_body(body_bytes, more=False)
-                    conn.sendall(raw)
+                    health_headers = [*list(health_headers), (b"connection", conn_header)]
+                    now_sec = int(time.time())
+                    if now_sec != self._date_cache_sec:
+                        self._date_cache_sec = now_sec
+                        self._date_header_bytes = get_date_header_bytes()
+                    date_hdr = self._date_header_bytes if self._config.date_header else None
+                    head, body_out_bytes = serialize_raw_response_parts(
+                        status,
+                        tuple(health_headers),
+                        body_bytes,
+                        server_header=self._config.server_header,
+                        date_header=date_hdr,
+                    )
+                    conn.sendall(head + body_out_bytes)
+                    health_duration = elapsed_ms(request_start)
                     self._lifecycle.record(
                         ResponseCompleted(
                             connection_id=conn_id,
                             worker_id=self._worker_id,
                             status=status,
                             bytes_sent=len(body_bytes),
-                            duration_ms=0,
+                            duration_ms=health_duration,
                             timestamp_ns=lifecycle_ns(),
                         )
                     )
-                    if self._config.access_log:
-                        access_log("GET", scope["path"], status, len(body_bytes), 0, client_str)
-                else:
-                    try:
-                        response = call_asgi_sync(
-                            cast(ASGIApp, self._app),
-                            scope,
-                            body,
-                            runner=runner,
-                        )
-                    except NeedsAsyncError:
-                        if self._async_pool:
-                            self._async_pool.accept_handoff(
-                                StreamingHandoff(
-                                    conn=conn,
-                                    scope=scope,
-                                    body=body,
-                                    request_id=request_id,
-                                )
-                            )
-                            return True
-                        self._send_error(
-                            conn,
-                            proto,
-                            501,
-                            "Streaming responses require worker_mode=async or handoff",
-                        )
-                        break
-                    except Exception:
-                        self._logger.exception("ASGI app error")
-                        self._send_error(conn, proto, 500, "Internal Server Error")
-                        break
-                    if response.needs_async:
-                        if self._async_pool:
-                            self._async_pool.accept_handoff(
-                                StreamingHandoff(
-                                    conn=conn,
-                                    scope=scope,
-                                    body=body,
-                                    request_id=request_id,
-                                )
-                            )
-                            return True
-                        self._send_error(
-                            conn,
-                            proto,
-                            501,
-                            "Streaming responses require worker_mode=async or handoff",
-                        )
-                        break
-
-                    compressor: Compressor | None = None
-                    if self._config.compression:
-                        accept_enc = _get_header(request.headers, b"accept-encoding")
-                        if accept_enc:
-                            enc = negotiate_encoding(accept_enc)
-                            if enc:
-                                compressor = create_compressor(enc)
-
-                    headers = list(response.headers)
-                    if compressor:
-                        body_out = compressor.compress(response.body) + compressor.flush()
-                        headers.append((b"content-encoding", compressor.encoding.encode("ascii")))
-                        headers = [(n, v) for n, v in headers if n.lower() != b"content-length"]
-                    else:
-                        body_out = response.body
-
-                    if not any(n.lower() == b"content-length" for n, _ in headers):
-                        headers.append((b"content-length", str(len(body_out)).encode("ascii")))
-                    if request_id:
-                        headers.append((b"x-request-id", request_id.encode("latin-1")))
-                    headers.append((b"connection", b"close"))
-
-                    raw = proto.send_response(response.status, headers)
-                    raw += proto.send_body(body_out, more=False)
-                    conn.sendall(raw)
-
-                    self._lifecycle.record(
-                        ResponseCompleted(
-                            connection_id=conn_id,
-                            worker_id=self._worker_id,
-                            status=response.status,
-                            bytes_sent=len(body_out),
-                            duration_ms=0,
-                            timestamp_ns=lifecycle_ns(),
-                        )
+                    log_request(
+                        self._config,
+                        "GET",
+                        scope["path"],
+                        status,
+                        len(body_bytes),
+                        health_duration,
+                        client_str,
+                        http_version=request.http_version,
+                        request_id=request_id,
                     )
-                    if self._config.access_log:
-                        access_log(
-                            scope["method"],
-                            scope["path"],
-                            response.status,
-                            len(body_out),
-                            0,
-                            client_str,
-                        )
+                    if close_after or at_limit:
+                        break
+                    continue
 
-                if max_requests > 0 and request_count >= max_requests:
+                try:
+                    response = call_asgi_sync(
+                        cast(ASGIApp, self._app),
+                        scope,
+                        body,
+                        runner=runner,
+                    )
+                except NeedsAsyncError:
+                    if self._async_pool:
+                        self._async_pool.accept_handoff(
+                            StreamingHandoff(
+                                conn=conn,
+                                scope=scope,
+                                body=body,
+                                request_id=request_id,
+                            )
+                        )
+                        return True
+                    self._send_error(conn, 501, "Streaming responses require worker_mode=async or handoff")
+                    break
+                except Exception:
+                    self._logger.exception("ASGI app error")
+                    self._send_error(conn, 500, "Internal Server Error")
+                    break
+                if response.needs_async:
+                    if self._async_pool:
+                        self._async_pool.accept_handoff(
+                            StreamingHandoff(
+                                conn=conn,
+                                scope=scope,
+                                body=body,
+                                request_id=request_id,
+                            )
+                        )
+                        return True
+                    self._send_error(conn, 501, "Streaming responses require worker_mode=async or handoff"
+                    )
                     break
 
-                # Sync workers: one request per connection (like Gunicorn sync).
-                # Keep-alive wastes worker time waiting for the next request
-                # while other accepted connections queue. Closing lets the
-                # worker immediately serve the next waiting connection.
-                break
+                compressor: Compressor | None = negotiate_compressor(
+                    self._config, request.headers
+                )
+
+                headers = list(response.headers)
+                if compressor:
+                    body_out = compressor.compress(response.body) + compressor.flush()
+                    headers.append((b"content-encoding", compressor.encoding.encode("ascii")))
+                    headers = [(n, v) for n, v in headers if n.lower() != b"content-length"]
+                    # CL was removed; always inject new CL for compressed body
+                    headers.append((b"content-length", str(len(body_out)).encode("ascii")))
+                else:
+                    body_out = response.body
+                    if not any(n.lower() == b"content-length" for n, _ in headers):
+                        headers.append(
+                            (b"content-length", str(len(body_out)).encode("ascii"))
+                        )
+                if request_id:
+                    headers.append((b"x-request-id", request_id.encode("latin-1")))
+                headers.append((b"connection", conn_header))
+
+                # Date header: cache per-second (RFC 7231 allows 1s resolution)
+                now_sec = int(time.time())
+                if now_sec != self._date_cache_sec:
+                    self._date_cache_sec = now_sec
+                    self._date_header_bytes = get_date_header_bytes()
+                date_hdr = self._date_header_bytes if self._config.date_header else None
+
+                # Date header: cache per-second (RFC 7231 allows 1s resolution)
+                now_sec = int(time.time())
+                if now_sec != self._date_cache_sec:
+                    self._date_cache_sec = now_sec
+                    self._date_header_bytes = get_date_header_bytes()
+                date_hdr = self._date_header_bytes if self._config.date_header else None
+
+                # Bypass h11 for response serialization — raw bytes are faster
+                head, body_bytes_out = serialize_raw_response_parts(
+                    response.status,
+                    tuple(headers),
+                    body_out,
+                    server_header=self._config.server_header,
+                    date_header=date_hdr,
+                )
+                try:
+                    if hasattr(conn, "sendmsg"):
+                        conn.sendmsg([head, body_bytes_out])
+                    else:
+                        conn.sendall(head + body_bytes_out)
+                except OSError:
+                    conn.sendall(head + body_bytes_out)
+
+                asgi_duration = elapsed_ms(request_start)
+                self._lifecycle.record(
+                    ResponseCompleted(
+                        connection_id=conn_id,
+                        worker_id=self._worker_id,
+                        status=response.status,
+                        bytes_sent=len(body_out),
+                        duration_ms=asgi_duration,
+                        timestamp_ns=lifecycle_ns(),
+                    )
+                )
+                log_request(
+                    self._config,
+                    scope["method"],
+                    scope["path"],
+                    response.status,
+                    len(body_out),
+                    asgi_duration,
+                    client_str,
+                    http_version=request.http_version,
+                    request_id=request_id,
+                )
+
+                if close_after or at_limit:
+                    break
         except ConnectionError, OSError:
             self._lifecycle.record(
                 ClientDisconnected(
@@ -532,7 +578,7 @@ class SyncWorker:
             )
         finally:
             self._lifecycle.record(
-                LifecycleConnectionClosed(
+                ConnectionCompleted(
                     connection_id=conn_id,
                     worker_id=self._worker_id,
                     requests_served=request_count,
@@ -544,69 +590,60 @@ class SyncWorker:
             )
         return False
 
-    def _recv_request(
-        self, conn: socket.socket, proto: H1Protocol
+    def _recv_request_fast(
+        self, conn: socket.socket
     ) -> tuple[RequestReceived | None, bytes]:
-        """Read until we have a complete HTTP request. Returns (request, body) or (None, b"")."""
-        body_parts: list[bytes] = []
-        received_request: RequestReceived | None = None
+        """Read a complete HTTP request using the fast parser.
+
+        Accumulates data in the recv buffer until a complete request
+        (headers + body based on Content-Length) is available.
+        Returns (request, body) or (None, b"") on connection close/error.
+        """
+        buf = self._recv_buf
+        mv = memoryview(buf)
+        total = 0
 
         while True:
             try:
-                n = conn.recv_into(self._recv_buf)
+                n = conn.recv_into(mv[total:])
             except ConnectionError, OSError, TimeoutError:
                 return (None, b"")
 
             if n <= 0:
                 return (None, b"")
 
-            chunk = bytes(self._recv_buf[:n])
+            total += n
             try:
-                events = proto.receive_data(chunk)
+                request, body, consumed, chunked = _fast_parse(mv, total)
             except ParseError:
-                self._send_error(conn, proto, 400, "Bad Request")
+                self._send_error(conn, 400, "Bad Request")
                 return (None, b"")
 
-            for event in events:
-                if isinstance(event, RequestReceived):
-                    received_request = event
-                elif isinstance(event, BodyReceived):
-                    body_parts.append(event.data)
-                    if not event.more:
-                        return (received_request or None, b"".join(body_parts))
-                elif isinstance(event, ConnectionClosed):
+            if request is not None:
+                if chunked:
+                    # Chunked encoding not supported in sync fast path
+                    self._send_error(conn, 501, "Chunked Transfer-Encoding not supported")
                     return (None, b"")
+                # Shift any unconsumed bytes to the front for pipelining
+                if consumed < total:
+                    leftover = total - consumed
+                    buf[:leftover] = buf[consumed:total]
+                return (request, body)
 
-            if received_request and not body_parts:
-                content_length = _get_header(received_request.headers, b"content-length")
-                if content_length is None or content_length == b"0":
-                    return (received_request, b"")
-                transfer_encoding = _get_header(received_request.headers, b"transfer-encoding")
-                if transfer_encoding and b"chunked" in transfer_encoding.lower():
-                    pass
-                else:
-                    try:
-                        cl = int(content_length)
-                        if cl == 0:
-                            return (received_request, b"")
-                    except ValueError:
-                        pass
+            # Buffer full but still no complete request — reject
+            if total >= len(buf):
+                self._send_error(conn, 400, "Request Too Large")
+                return (None, b"")
 
-    def _send_error(
-        self, conn: socket.socket, proto: H1Protocol, status: int, message: str
-    ) -> None:
-        """Send a plain-text error response."""
+    def _send_error(self, conn: socket.socket, status: int, message: str) -> None:
+        """Send a plain-text error response (raw bytes, no h11)."""
         body = message.encode("utf-8")
-        try:
-            raw = proto.send_response(
-                status,
-                [
-                    (b"content-type", b"text/plain; charset=utf-8"),
-                    (b"content-length", str(len(body)).encode("ascii")),
-                    (b"connection", b"close"),
-                ],
+        phrase = _STATUS_PHRASES.get(status, str(status).encode("ascii") + b" Error")
+        with contextlib.suppress(OSError, ConnectionError):
+            conn.sendall(
+                b"HTTP/1.1 " + phrase + b"\r\n"
+                b"content-type: text/plain; charset=utf-8\r\n"
+                b"content-length: " + str(len(body)).encode("ascii") + b"\r\n"
+                b"connection: close\r\n"
+                b"\r\n" + body
             )
-            raw += proto.send_body(body, more=False)
-            conn.sendall(raw)
-        except OSError, ConnectionError:
-            pass

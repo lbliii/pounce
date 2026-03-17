@@ -110,107 +110,7 @@ class Server:
 
         """
         configure_logging(self._config)
-
-        # Configure OpenTelemetry if endpoint is set
-        if self._config.otel_endpoint:
-            try:
-                from pounce._otel import configure_otel, is_otel_available
-
-                if is_otel_available():
-                    configure_otel(
-                        endpoint=self._config.otel_endpoint,
-                        service_name=self._config.otel_service_name,
-                    )
-                else:
-                    logger.warning(
-                        "OpenTelemetry endpoint configured but opentelemetry package not installed. "
-                        "Install with: pip install opentelemetry-api opentelemetry-sdk "
-                        "opentelemetry-exporter-otlp-proto-http"
-                    )
-            except Exception:
-                logger.exception("Failed to configure OpenTelemetry")
-
-        # Configure lifecycle logging if enabled
-        if self._config.lifecycle_logging and self._lifecycle_collector is None:
-            from pounce.lifecycle import LoggingCollector
-
-            self._lifecycle_collector = LoggingCollector(
-                slow_request_threshold_ms=self._config.log_slow_requests_threshold * 1000,
-                log_format=self._config.log_format,
-                health_check_path=self._config.health_check_path,
-            )
-            logger.debug("Lifecycle event logging enabled")
-
-        # Configure Prometheus metrics if enabled
-        if self._config.metrics_enabled and self._lifecycle_collector is None:
-            from pounce._metrics_handler import wrap_app_with_metrics
-            from pounce.metrics import PrometheusCollector
-
-            self._lifecycle_collector = PrometheusCollector()
-            # Wrap app to intercept /metrics requests
-            self._app = wrap_app_with_metrics(
-                self._app,
-                self._lifecycle_collector,
-                self._config.metrics_path,
-            )
-            logger.info("Prometheus metrics enabled at %s", self._config.metrics_path)
-
-        # Configure rate limiting if enabled
-        if self._config.rate_limit_enabled:
-            from pounce._rate_limiter import RateLimiter, create_rate_limit_wrapper
-
-            rate_limiter = RateLimiter(
-                rate=self._config.rate_limit_requests_per_second,
-                burst=self._config.rate_limit_burst,
-            )
-            self._app = create_rate_limit_wrapper(self._app, rate_limiter)
-            logger.info(
-                "Rate limiting enabled: %.1f req/s per IP (burst: %d)",
-                self._config.rate_limit_requests_per_second,
-                self._config.rate_limit_burst,
-            )
-
-        # Configure request queueing if enabled
-        if self._config.request_queue_enabled:
-            from pounce._request_queue import QueueMetrics, RequestQueue, create_queue_wrapper
-
-            request_queue = RequestQueue(max_depth=self._config.request_queue_max_depth)
-            queue_metrics = QueueMetrics()
-            self._app = create_queue_wrapper(self._app, request_queue, queue_metrics)
-            logger.info(
-                "Request queueing enabled: max depth %d",
-                self._config.request_queue_max_depth
-                if self._config.request_queue_max_depth > 0
-                else -1,
-            )
-
-        # Configure Sentry error tracking if enabled
-        if self._config.sentry_dsn:
-            from pounce._sentry import create_sentry_wrapper, init_sentry, is_sentry_available
-
-            if is_sentry_available():
-                try:
-                    init_sentry(
-                        dsn=self._config.sentry_dsn,
-                        environment=self._config.sentry_environment,
-                        release=self._config.sentry_release,
-                        traces_sample_rate=self._config.sentry_traces_sample_rate,
-                        profiles_sample_rate=self._config.sentry_profiles_sample_rate,
-                        debug=self._config.debug,
-                    )
-                    self._app = create_sentry_wrapper(self._app)
-                    logger.info(
-                        "Sentry error tracking enabled: environment=%s release=%s",
-                        self._config.sentry_environment or "none",
-                        self._config.sentry_release or "none",
-                    )
-                except Exception:
-                    logger.exception("Failed to initialize Sentry")
-            else:
-                logger.warning(
-                    "Sentry DSN configured but sentry-sdk not installed. "
-                    "Install with: pip install sentry-sdk"
-                )
+        self._apply_integrations()
 
         effective_workers = self._config.resolve_workers()
         mode = detect_worker_mode()
@@ -265,31 +165,7 @@ class Server:
 
         sock = create_listener(self._config)
         actual_addr = sock.getsockname()
-
-        udp_sock: socket.socket | None = None
-        if (
-            self._config.http3_enabled
-            and is_tls_configured(self._config)
-            and self._config.ssl_certfile
-            and self._config.ssl_keyfile
-        ):
-            from pounce.protocols.h3 import is_h3_available
-
-            if is_h3_available():
-                # Bind UDP to same port as TCP (critical when config.port==0 ephemeral)
-                udp_config = replace(self._config, port=actual_addr[1])
-                udp_sock = create_udp_listener(udp_config)
-                logger.info(
-                    "HTTP/3 enabled on %s:%d (UDP)",
-                    actual_addr[0],
-                    actual_addr[1],
-                )
-            else:
-                logger.warning(
-                    "http3_enabled but HTTP/3 stack unavailable (zoomies not installed) — "
-                    "install with: pip install pounce[h3]"
-                )
-                self._config = replace(self._config, http3_enabled=False)
+        udp_sock = self._create_udp_listener_if_h3(actual_addr)
 
         logger.info(
             "Pounce server starting on %s:%d (single worker)",
@@ -350,19 +226,7 @@ class Server:
 
                 sock = create_listener(self._config)
                 actual_addr = sock.getsockname()
-
-                udp_sock: socket.socket | None = None
-                if (
-                    self._config.http3_enabled
-                    and is_tls_configured(self._config)
-                    and self._config.ssl_certfile
-                    and self._config.ssl_keyfile
-                ):
-                    from pounce.protocols.h3 import is_h3_available
-
-                    if is_h3_available():
-                        udp_config = replace(self._config, port=actual_addr[1])
-                        udp_sock = create_udp_listener(udp_config)
+                udp_sock = self._create_udp_listener_if_h3(actual_addr)
 
                 logger.info(
                     "Pounce server starting on %s:%d (single worker, reload)",
@@ -532,33 +396,11 @@ class Server:
         the supervisor and triggers ``restart_workers()`` on changes.
 
         """
-        sockets = create_listeners(self._config, effective_workers)
+        sockets = create_listeners(
+            self._config, effective_workers, shared=(mode == "thread")
+        )
         actual_addr = sockets[0].getsockname()
-
-        udp_sockets: list[socket.socket] = []
-        if (
-            self._config.http3_enabled
-            and is_tls_configured(self._config)
-            and self._config.ssl_certfile
-            and self._config.ssl_keyfile
-        ):
-            from pounce.protocols.h3 import is_h3_available
-
-            if is_h3_available():
-                udp_config = replace(self._config, port=actual_addr[1])
-                udp_sockets = create_udp_listeners(udp_config, effective_workers)
-                logger.info(
-                    "HTTP/3 enabled on %s:%d (%d UDP workers)",
-                    actual_addr[0],
-                    actual_addr[1],
-                    effective_workers,
-                )
-            else:
-                logger.warning(
-                    "http3_enabled but HTTP/3 stack unavailable (zoomies not installed) — "
-                    "install with: pip install pounce[h3]; disabling HTTP/3"
-                )
-                self._config = replace(self._config, http3_enabled=False)
+        udp_sockets = self._create_udp_listeners_if_h3(actual_addr, effective_workers)
 
         logger.info(
             "Pounce server starting on %s:%d (%d %s workers)",
@@ -741,6 +583,183 @@ class Server:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _apply_integrations(self) -> None:
+        """Configure optional integrations and wrap the app.
+
+        Wrapping order (outermost first):
+        1. Sentry (catches exceptions from all inner layers)
+        2. Request queue (load shedding)
+        3. Rate limiter (per-IP throttling)
+        4. Metrics endpoint (intercepts /metrics)
+        5. App (innermost)
+
+        """
+        # Configure OpenTelemetry if endpoint is set
+        if self._config.otel_endpoint:
+            try:
+                from pounce._otel import configure_otel, is_otel_available
+
+                if is_otel_available():
+                    configure_otel(
+                        endpoint=self._config.otel_endpoint,
+                        service_name=self._config.otel_service_name,
+                    )
+                else:
+                    logger.warning(
+                        "OpenTelemetry endpoint configured but opentelemetry package not installed. "
+                        "Install with: pip install opentelemetry-api opentelemetry-sdk "
+                        "opentelemetry-exporter-otlp-proto-http"
+                    )
+            except Exception:
+                logger.exception("Failed to configure OpenTelemetry")
+
+        # Configure lifecycle logging if enabled
+        if self._config.lifecycle_logging and self._lifecycle_collector is None:
+            from pounce.lifecycle import LoggingCollector
+
+            self._lifecycle_collector = LoggingCollector(
+                slow_request_threshold_ms=self._config.log_slow_requests_threshold * 1000,
+                log_format=self._config.log_format,
+                health_check_path=self._config.health_check_path,
+            )
+            logger.debug("Lifecycle event logging enabled")
+
+        # Configure Prometheus metrics if enabled
+        if self._config.metrics_enabled and self._lifecycle_collector is None:
+            from pounce._metrics_handler import wrap_app_with_metrics
+            from pounce.metrics import PrometheusCollector
+
+            self._lifecycle_collector = PrometheusCollector()
+            self._app = wrap_app_with_metrics(
+                self._app,
+                self._lifecycle_collector,
+                self._config.metrics_path,
+            )
+            logger.info("Prometheus metrics enabled at %s", self._config.metrics_path)
+
+        # Wrap app with middleware if configured (before rate limiter/queue
+        # so middleware runs inside those wrappers)
+        if self._config.middleware:
+            from pounce._middleware import MiddlewareStack
+
+            self._app = MiddlewareStack(self._config.middleware, self._app)
+
+        # Configure rate limiting if enabled
+        if self._config.rate_limit_enabled:
+            from pounce._rate_limiter import RateLimiter, create_rate_limit_wrapper
+
+            rate_limiter = RateLimiter(
+                rate=self._config.rate_limit_requests_per_second,
+                burst=self._config.rate_limit_burst,
+            )
+            self._app = create_rate_limit_wrapper(self._app, rate_limiter)
+            logger.info(
+                "Rate limiting enabled: %.1f req/s per IP (burst: %d)",
+                self._config.rate_limit_requests_per_second,
+                self._config.rate_limit_burst,
+            )
+
+        # Configure request queueing if enabled
+        if self._config.request_queue_enabled:
+            from pounce._request_queue import QueueMetrics, RequestQueue, create_queue_wrapper
+
+            request_queue = RequestQueue(max_depth=self._config.request_queue_max_depth)
+            queue_metrics = QueueMetrics()
+            self._app = create_queue_wrapper(self._app, request_queue, queue_metrics)
+            logger.info(
+                "Request queueing enabled: max depth %d",
+                self._config.request_queue_max_depth
+                if self._config.request_queue_max_depth > 0
+                else -1,
+            )
+
+        # Configure Sentry error tracking if enabled
+        if self._config.sentry_dsn:
+            from pounce._sentry import create_sentry_wrapper, init_sentry, is_sentry_available
+
+            if is_sentry_available():
+                try:
+                    init_sentry(
+                        dsn=self._config.sentry_dsn,
+                        environment=self._config.sentry_environment,
+                        release=self._config.sentry_release,
+                        traces_sample_rate=self._config.sentry_traces_sample_rate,
+                        profiles_sample_rate=self._config.sentry_profiles_sample_rate,
+                        debug=self._config.debug,
+                    )
+                    self._app = create_sentry_wrapper(self._app)
+                    logger.info(
+                        "Sentry error tracking enabled: environment=%s release=%s",
+                        self._config.sentry_environment or "none",
+                        self._config.sentry_release or "none",
+                    )
+                except Exception:
+                    logger.exception("Failed to initialize Sentry")
+            else:
+                logger.warning(
+                    "Sentry DSN configured but sentry-sdk not installed. "
+                    "Install with: pip install sentry-sdk"
+                )
+
+    def _create_udp_listener_if_h3(
+        self, actual_addr: tuple[str, int]
+    ) -> socket.socket | None:
+        """Create a single UDP listener for HTTP/3 if configured and available."""
+        if not (
+            self._config.http3_enabled
+            and is_tls_configured(self._config)
+            and self._config.ssl_certfile
+            and self._config.ssl_keyfile
+        ):
+            return None
+
+        from pounce.protocols.h3 import is_h3_available
+
+        if is_h3_available():
+            udp_config = replace(self._config, port=actual_addr[1])
+            udp_sock = create_udp_listener(udp_config)
+            logger.info("HTTP/3 enabled on %s:%d (UDP)", actual_addr[0], actual_addr[1])
+            return udp_sock
+
+        logger.warning(
+            "http3_enabled but HTTP/3 stack unavailable (zoomies not installed) — "
+            "install with: pip install pounce[h3]"
+        )
+        self._config = replace(self._config, http3_enabled=False)
+        return None
+
+    def _create_udp_listeners_if_h3(
+        self, actual_addr: tuple[str, int], count: int
+    ) -> list[socket.socket]:
+        """Create multiple UDP listeners for HTTP/3 if configured and available."""
+        if not (
+            self._config.http3_enabled
+            and is_tls_configured(self._config)
+            and self._config.ssl_certfile
+            and self._config.ssl_keyfile
+        ):
+            return []
+
+        from pounce.protocols.h3 import is_h3_available
+
+        if is_h3_available():
+            udp_config = replace(self._config, port=actual_addr[1])
+            udp_sockets = create_udp_listeners(udp_config, count)
+            logger.info(
+                "HTTP/3 enabled on %s:%d (%d UDP workers)",
+                actual_addr[0],
+                actual_addr[1],
+                count,
+            )
+            return udp_sockets
+
+        logger.warning(
+            "http3_enabled but HTTP/3 stack unavailable (zoomies not installed) — "
+            "install with: pip install pounce[h3]; disabling HTTP/3"
+        )
+        self._config = replace(self._config, http3_enabled=False)
+        return []
 
     def _print_banner(self, effective_workers: int, mode: WorkerMode) -> None:
         """Print the startup banner to stderr."""

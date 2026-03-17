@@ -31,19 +31,22 @@ from typing import Any, cast
 
 import h11
 
-from pounce._compression import Compressor, create_compressor, negotiate_encoding
+from pounce._compression import Compressor
 from pounce._cpu_affinity import maybe_pin_worker
 from pounce._errors import ParseError
 from pounce._h2_handler import handle_h2_connection
 from pounce._health import build_health_response
 from pounce._profile import ProfileCollector, RequestProfile
-from pounce._request_id import extract_or_generate
+from pounce._request_pipeline import (
+    log_request,
+    negotiate_compressor,
+    prepare_request,
+)
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp, Receive, Send
 from pounce._ws_handler import handle_websocket
 from pounce.asgi.bridge import (
     SendState,
-    build_scope,
     create_disconnect_receive,
     create_receive_with_disconnect,
     create_send,
@@ -51,6 +54,7 @@ from pounce.asgi.bridge import (
 from pounce.config import ServerConfig
 from pounce.lifecycle import (
     ClientDisconnected,
+    ConnectionCompleted,
     ConnectionOpened,
     LifecycleCollector,
     NoopCollector,
@@ -59,12 +63,8 @@ from pounce.lifecycle import (
     next_connection_id,
 )
 from pounce.lifecycle import (
-    ConnectionClosed as LifecycleConnectionClosed,
-)
-from pounce.lifecycle import (
     monotonic_ns as lifecycle_ns,
 )
-from pounce.logging import access_log
 from pounce.protocols._base import (
     BodyReceived,
     ConnectionClosed,
@@ -132,14 +132,7 @@ class Worker:
         lifecycle_collector: LifecycleCollector | None = None,
     ) -> None:
         self._config = config
-
-        # Wrap app with middleware if configured
-        if config.middleware:
-            from pounce._middleware import MiddlewareStack
-
-            self._app = MiddlewareStack(config.middleware, app)
-        else:
-            self._app = app
+        self._app = app
 
         self._sock = sock
         self._worker_id = worker_id
@@ -396,6 +389,11 @@ class Worker:
                 pass
             return
 
+        # Disable Nagle's algorithm for low-latency request-response
+        raw_sock = writer.get_extra_info("socket")
+        if raw_sock is not None:
+            raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
         self._active_connections += 1
         conn_id = next_connection_id()
         conn_start = lifecycle_ns()
@@ -454,7 +452,7 @@ class Worker:
                 finally:
                     self._active_connections -= 1
                     self._lifecycle.record(
-                        LifecycleConnectionClosed(
+                        ConnectionCompleted(
                             connection_id=conn_id,
                             worker_id=self._worker_id,
                             requests_served=0,
@@ -629,7 +627,7 @@ class Worker:
         finally:
             self._active_connections -= 1
             self._lifecycle.record(
-                LifecycleConnectionClosed(
+                ConnectionCompleted(
                     connection_id=conn_id,
                     worker_id=self._worker_id,
                     requests_served=request_count,
@@ -680,16 +678,10 @@ class Worker:
             )
         )
 
-        # Build ASGI scope
-        scope = build_scope(request, self._config, client, server, state=self._lifespan_state)
-
-        # Generate or extract request ID for tracing
-        is_trusted_peer = bool(
-            self._config.trusted_hosts
-            and ("*" in self._config.trusted_hosts or client[0] in self._config.trusted_hosts)
+        # Build ASGI scope and extract request ID
+        scope, request_id = prepare_request(
+            request, self._config, client, server, self._lifespan_state
         )
-        request_id = extract_or_generate(request.headers, trusted=is_trusted_peer)
-        scope.setdefault("extensions", {})["request_id"] = request_id
 
         # Built-in health check — respond before ASGI dispatch.
         # Skips access log to reduce noise from k8s/load balancer probes.
@@ -730,17 +722,7 @@ class Worker:
             timing = ServerTiming()
             timing.add("parse", elapsed_ms(request_start))
 
-        # Single-pass header lookup — scan once instead of per-header
-        compressor: Compressor | None = None
-        if self._config.compression:
-            accept_encoding = _get_header_from_tuple(
-                request.headers,
-                b"accept-encoding",
-            )
-            if accept_encoding:
-                encoding = negotiate_encoding(accept_encoding)
-                if encoding:
-                    compressor = create_compressor(encoding)
+        compressor: Compressor | None = negotiate_compressor(self._config, request.headers)
 
         # Determine body status and create receive callable.
         # All paths now create a disconnect event so the ASGI app can
@@ -889,23 +871,17 @@ class Worker:
             profile_ctx.drain_ms = elapsed_ms(drain_start)
 
         # Access log
-        if self._config.access_log:
-            duration = elapsed_ms(request_start)
-            target = request.target.decode("ascii", errors="replace")
-            method = request.method.decode("ascii", errors="replace")
-            http_version = scope.get("http_version", "1.1")
-            log_filter = self._config.access_log_filter
-            if log_filter is None or log_filter(method, target, send_state.status):
-                access_log(
-                    method,
-                    target,
-                    send_state.status,
-                    send_state.bytes_sent,
-                    duration,
-                    client_str,
-                    http_version=http_version,
-                    request_id=request_id,
-                )
+        log_request(
+            self._config,
+            request.method.decode("ascii", errors="replace"),
+            request.target.decode("ascii", errors="replace"),
+            send_state.status,
+            send_state.bytes_sent,
+            elapsed_ms(request_start),
+            client_str,
+            http_version=scope.get("http_version", "1.1"),
+            request_id=request_id,
+        )
 
     async def _run_with_disconnect_monitor(
         self,
@@ -1285,18 +1261,3 @@ def _is_websocket_upgrade(request: RequestReceived) -> bool:
     return has_upgrade_connection and has_websocket_upgrade
 
 
-def _get_header_from_tuple(
-    headers: tuple[tuple[bytes, bytes], ...],
-    name: bytes,
-) -> bytes | None:
-    """Get a header value by lowercase name from a headers tuple.
-
-    Single linear scan — use when only one header is needed.  For
-    multiple lookups, build a dict with ``_headers_to_dict``.
-
-    """
-    name_lower = name.lower()
-    for header_name, header_value in headers:
-        if header_name.lower() == name_lower:
-            return header_value
-    return None

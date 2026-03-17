@@ -122,7 +122,7 @@ class TestFileResolution:
 
     def test_resolve_simple_file(self, static_handler, temp_static_dir):
         """Test resolving a simple file."""
-        file = static_handler._resolve_file("/static/index.html", [])
+        file = static_handler._resolve_file("/static/index.html", None)
 
         assert file is not None
         assert file.path == temp_static_dir / "index.html"
@@ -132,7 +132,7 @@ class TestFileResolution:
 
     def test_resolve_subdirectory_file(self, static_handler, temp_static_dir):
         """Test resolving file in subdirectory."""
-        file = static_handler._resolve_file("/static/assets/image.png", [])
+        file = static_handler._resolve_file("/static/assets/image.png", None)
 
         assert file is not None
         assert file.path == temp_static_dir / "assets" / "image.png"
@@ -140,7 +140,7 @@ class TestFileResolution:
 
     def test_resolve_directory_index(self, static_handler, temp_static_dir):
         """Test resolving directory returns index.html."""
-        file = static_handler._resolve_file("/static/", [])
+        file = static_handler._resolve_file("/static/", None)
 
         assert file is not None
         assert file.path == temp_static_dir / "index.html"
@@ -149,29 +149,29 @@ class TestFileResolution:
         """Test root mount / resolves / and /docs/ to index.html."""
         handler = StaticFiles(mounts=[StaticMount("/", temp_static_dir)])
 
-        file_root = handler._resolve_file("/", [])
+        file_root = handler._resolve_file("/", None)
         assert file_root is not None
         assert file_root.path == temp_static_dir / "index.html"
 
-        file_docs = handler._resolve_file("/docs/", [])
+        file_docs = handler._resolve_file("/docs/", None)
         assert file_docs is not None
         assert file_docs.path == temp_static_dir / "docs" / "index.html"
 
     def test_resolve_nonexistent_file(self, static_handler):
         """Test resolving non-existent file returns None."""
-        file = static_handler._resolve_file("/static/nonexistent.txt", [])
+        file = static_handler._resolve_file("/static/nonexistent.txt", None)
 
         assert file is None
 
     def test_path_traversal_blocked(self, static_handler):
         """Test path traversal attempts are blocked."""
-        file = static_handler._resolve_file("/static/../../../etc/passwd", [])
+        file = static_handler._resolve_file("/static/../../../etc/passwd", None)
 
         assert file is None
 
     def test_hidden_files_blocked(self, static_handler):
         """Test hidden files are blocked."""
-        file = static_handler._resolve_file("/static/.env", [])
+        file = static_handler._resolve_file("/static/.env", None)
 
         assert file is None
 
@@ -185,7 +185,7 @@ class TestFileResolution:
         ]
 
         for path, expected_mime in tests:
-            file = static_handler._resolve_file(path, [])
+            file = static_handler._resolve_file(path, None)
             assert file is not None
             assert file.mime_type == expected_mime
 
@@ -195,7 +195,7 @@ class TestETagGeneration:
 
     def test_etag_format(self, static_handler):
         """Test ETag has correct format."""
-        file = static_handler._resolve_file("/static/index.html", [])
+        file = static_handler._resolve_file("/static/index.html", None)
 
         assert file is not None
         assert file.etag.startswith('W/"')
@@ -204,8 +204,8 @@ class TestETagGeneration:
 
     def test_etag_deterministic(self, static_handler):
         """Test ETag is deterministic for same file."""
-        file1 = static_handler._resolve_file("/static/index.html", [])
-        file2 = static_handler._resolve_file("/static/index.html", [])
+        file1 = static_handler._resolve_file("/static/index.html", None)
+        file2 = static_handler._resolve_file("/static/index.html", None)
 
         assert file1 is not None
         assert file2 is not None
@@ -217,9 +217,7 @@ class TestPrecompressedFiles:
 
     def test_precompressed_gzip(self, static_handler, temp_static_dir):
         """Test serving .gz variant when client supports gzip."""
-        headers = [(b"accept-encoding", b"gzip, deflate")]
-
-        file = static_handler._resolve_file("/static/style.css", headers)
+        file = static_handler._resolve_file("/static/style.css", b"gzip, deflate")
 
         assert file is not None
         assert file.path == temp_static_dir / "style.css.gz"
@@ -229,9 +227,7 @@ class TestPrecompressedFiles:
 
     def test_precompressed_no_encoding(self, static_handler, temp_static_dir):
         """Test serving original when no Accept-Encoding."""
-        headers = []
-
-        file = static_handler._resolve_file("/static/style.css", headers)
+        file = static_handler._resolve_file("/static/style.css", None)
 
         assert file is not None
         assert file.path == temp_static_dir / "style.css"
@@ -239,9 +235,7 @@ class TestPrecompressedFiles:
 
     def test_precompressed_unsupported_encoding(self, static_handler, temp_static_dir):
         """Test serving original when client doesn't support compression."""
-        headers = [(b"accept-encoding", b"br")]  # Brotli only
-
-        file = static_handler._resolve_file("/static/style.css", headers)
+        file = static_handler._resolve_file("/static/style.css", b"br")
 
         assert file is not None
         assert file.path == temp_static_dir / "style.css"
@@ -315,7 +309,7 @@ class TestConditionalRequests:
     def test_not_modified_match(self, static_handler):
         """Test 304 response when ETag matches."""
         # First, get the ETag
-        file = static_handler._resolve_file("/static/index.html", [])
+        file = static_handler._resolve_file("/static/index.html", None)
         assert file is not None
 
         # Then check with If-None-Match
@@ -326,7 +320,7 @@ class TestConditionalRequests:
 
     def test_not_modified_no_match(self, static_handler):
         """Test full response when ETag doesn't match."""
-        file = static_handler._resolve_file("/static/index.html", [])
+        file = static_handler._resolve_file("/static/index.html", None)
         assert file is not None
 
         # Check with different ETag
@@ -337,7 +331,7 @@ class TestConditionalRequests:
 
     def test_not_modified_no_header(self, static_handler):
         """Test full response when no If-None-Match header."""
-        file = static_handler._resolve_file("/static/index.html", [])
+        file = static_handler._resolve_file("/static/index.html", None)
         assert file is not None
 
         headers = []
