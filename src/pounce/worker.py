@@ -391,7 +391,7 @@ class Worker:
 
         # Disable Nagle's algorithm for low-latency request-response
         raw_sock = writer.get_extra_info("socket")
-        if raw_sock is not None:
+        if raw_sock is not None and raw_sock.family in (socket.AF_INET, socket.AF_INET6):
             raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
         self._active_connections += 1
@@ -1259,5 +1259,3 @@ def _is_websocket_upgrade(request: RequestReceived) -> bool:
             has_websocket_upgrade = value.lower() == b"websocket"
 
     return has_upgrade_connection and has_websocket_upgrade
-
-

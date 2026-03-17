@@ -287,7 +287,9 @@ class StaticFiles:
                 return None
 
             # Check for precompressed variants
-            final_path, encoding = self._find_precompressed(resolved, mount, accept_encoding, file_stat)
+            final_path, encoding = self._find_precompressed(
+                resolved, mount, accept_encoding, file_stat
+            )
 
             # Get final stats (might be different if precompressed)
             try:

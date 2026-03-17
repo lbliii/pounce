@@ -397,9 +397,7 @@ class Server:
         the supervisor and triggers ``restart_workers()`` on changes.
 
         """
-        sockets = create_listeners(
-            self._config, effective_workers, shared=(mode == "thread")
-        )
+        sockets = create_listeners(self._config, effective_workers, shared=(mode == "thread"))
         actual_addr = sockets[0].getsockname()
         udp_sockets = self._create_udp_listeners_if_h3(actual_addr, effective_workers)
 
@@ -632,11 +630,14 @@ class Server:
             from pounce.metrics import PrometheusCollector
 
             self._lifecycle_collector = PrometheusCollector()
-            self._app = cast(ASGIApp, wrap_app_with_metrics(
-                self._app,
-                self._lifecycle_collector,
-                self._config.metrics_path,
-            ))
+            self._app = cast(
+                ASGIApp,
+                wrap_app_with_metrics(
+                    self._app,
+                    self._lifecycle_collector,
+                    self._config.metrics_path,
+                ),
+            )
             logger.info("Prometheus metrics enabled at %s", self._config.metrics_path)
 
         # Wrap app with middleware if configured (before rate limiter/queue
@@ -703,9 +704,7 @@ class Server:
                     "Install with: pip install sentry-sdk"
                 )
 
-    def _create_udp_listener_if_h3(
-        self, actual_addr: tuple[str, int]
-    ) -> socket.socket | None:
+    def _create_udp_listener_if_h3(self, actual_addr: tuple[str, int]) -> socket.socket | None:
         """Create a single UDP listener for HTTP/3 if configured and available."""
         if not (
             self._config.http3_enabled

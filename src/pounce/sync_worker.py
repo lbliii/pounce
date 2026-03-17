@@ -58,6 +58,7 @@ _STATUS_PHRASES: dict[int, bytes] = {
     403: b"403 Forbidden",
     404: b"404 Not Found",
     405: b"405 Method Not Allowed",
+    413: b"413 Content Too Large",
     500: b"500 Internal Server Error",
     501: b"501 Not Implemented",
     502: b"502 Bad Gateway",
@@ -108,6 +109,7 @@ class SyncWorker:
         "_lifespan_state",
         "_logger",
         "_recv_buf",
+        "_recv_buf_len",
         "_sock",
         "_ssl_context",
         "_sync_app",
@@ -144,6 +146,7 @@ class SyncWorker:
         self._date_cache_sec = -1
         self._date_header_bytes = b""
         self._recv_buf = bytearray(65536)
+        self._recv_buf_len = 0
 
     def set_lifespan_state(self, state: dict[str, Any]) -> None:
         """Set the lifespan state dict shared with all requests."""
@@ -197,7 +200,8 @@ class SyncWorker:
                     break
                 raise
             conn.setblocking(True)
-            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            if conn.family in (socket.AF_INET, socket.AF_INET6):
+                conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             if self._ssl_context:
                 try:
                     conn = self._ssl_context.wrap_socket(conn, server_side=True)
@@ -224,6 +228,7 @@ class SyncWorker:
         self, conn: socket.socket, addr: tuple[str, int], runner: asyncio.Runner
     ) -> bool:
         """Inner connection handling. Returns True if handed off to async pool."""
+        self._recv_buf_len = 0  # Reset buffer state for new connection
         conn.settimeout(self._config.header_timeout)
         try:
             peername = conn.getpeername()
@@ -301,7 +306,7 @@ class SyncWorker:
                             )
                         )
                         return True
-                    self._send_error(conn,501, "WebSocket requires worker_mode=async")
+                    self._send_error(conn, 501, "WebSocket requires worker_mode=async")
                     break
 
                 # Connection header: close only when client asks or max_requests hit
@@ -470,7 +475,9 @@ class SyncWorker:
                             )
                         )
                         return True
-                    self._send_error(conn, 501, "Streaming responses require worker_mode=async or handoff")
+                    self._send_error(
+                        conn, 501, "Streaming responses require worker_mode=async or handoff"
+                    )
                     break
                 except Exception:
                     self._logger.exception("ASGI app error")
@@ -487,13 +494,12 @@ class SyncWorker:
                             )
                         )
                         return True
-                    self._send_error(conn, 501, "Streaming responses require worker_mode=async or handoff"
+                    self._send_error(
+                        conn, 501, "Streaming responses require worker_mode=async or handoff"
                     )
                     break
 
-                compressor: Compressor | None = negotiate_compressor(
-                    self._config, request.headers
-                )
+                compressor: Compressor | None = negotiate_compressor(self._config, request.headers)
 
                 headers = list(response.headers)
                 if compressor:
@@ -505,19 +511,10 @@ class SyncWorker:
                 else:
                     body_out = response.body
                     if not any(n.lower() == b"content-length" for n, _ in headers):
-                        headers.append(
-                            (b"content-length", str(len(body_out)).encode("ascii"))
-                        )
+                        headers.append((b"content-length", str(len(body_out)).encode("ascii")))
                 if request_id:
                     headers.append((b"x-request-id", request_id.encode("latin-1")))
                 headers.append((b"connection", conn_header))
-
-                # Date header: cache per-second (RFC 7231 allows 1s resolution)
-                now_sec = int(time.time())
-                if now_sec != self._date_cache_sec:
-                    self._date_cache_sec = now_sec
-                    self._date_header_bytes = get_date_header_bytes()
-                date_hdr = self._date_header_bytes if self._config.date_header else None
 
                 # Date header: cache per-second (RFC 7231 allows 1s resolution)
                 now_sec = int(time.time())
@@ -590,9 +587,7 @@ class SyncWorker:
             )
         return False
 
-    def _recv_request_fast(
-        self, conn: socket.socket
-    ) -> tuple[RequestReceived | None, bytes]:
+    def _recv_request_fast(self, conn: socket.socket) -> tuple[RequestReceived | None, bytes]:
         """Read a complete HTTP request using the fast parser.
 
         Accumulates data in the recv buffer until a complete request
@@ -601,38 +596,43 @@ class SyncWorker:
         """
         buf = self._recv_buf
         mv = memoryview(buf)
-        total = 0
+        total = self._recv_buf_len
 
         while True:
             try:
                 n = conn.recv_into(mv[total:])
             except ConnectionError, OSError, TimeoutError:
+                self._recv_buf_len = 0
                 return (None, b"")
 
             if n <= 0:
+                self._recv_buf_len = 0
                 return (None, b"")
 
             total += n
             try:
                 request, body, consumed, chunked = _fast_parse(mv, total)
             except ParseError:
+                self._recv_buf_len = 0
                 self._send_error(conn, 400, "Bad Request")
                 return (None, b"")
 
             if request is not None:
                 if chunked:
-                    # Chunked encoding not supported in sync fast path
+                    self._recv_buf_len = 0
                     self._send_error(conn, 501, "Chunked Transfer-Encoding not supported")
                     return (None, b"")
-                # Shift any unconsumed bytes to the front for pipelining
-                if consumed < total:
-                    leftover = total - consumed
+                # Persist any unconsumed bytes for the next call (pipelining)
+                leftover = total - consumed
+                if leftover > 0:
                     buf[:leftover] = buf[consumed:total]
+                self._recv_buf_len = leftover
                 return (request, body)
 
             # Buffer full but still no complete request — reject
             if total >= len(buf):
-                self._send_error(conn, 400, "Request Too Large")
+                self._recv_buf_len = 0
+                self._send_error(conn, 413, "Request Too Large")
                 return (None, b"")
 
     def _send_error(self, conn: socket.socket, status: int, message: str) -> None:

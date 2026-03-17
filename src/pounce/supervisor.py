@@ -542,7 +542,7 @@ class Supervisor:
                 self._effective_workers,
             )
             self._conn_queue = shared_queue
-        elif self._conn_queue is None:
+        else:
             self._conn_queue = None
 
     def _create_worker(self, worker_id: int, socket_index: int) -> Worker | SyncWorker:

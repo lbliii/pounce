@@ -30,10 +30,19 @@ _SPACE = b" "
 _HTTP_1_1 = "1.1"
 _HTTP_1_0 = "1.0"
 
-_VALID_METHODS = frozenset({
-    b"GET", b"HEAD", b"POST", b"PUT", b"DELETE",
-    b"PATCH", b"OPTIONS", b"TRACE", b"CONNECT",
-})
+_VALID_METHODS = frozenset(
+    {
+        b"GET",
+        b"HEAD",
+        b"POST",
+        b"PUT",
+        b"DELETE",
+        b"PATCH",
+        b"OPTIONS",
+        b"TRACE",
+        b"CONNECT",
+    }
+)
 
 # Max header block size (16 KiB) — matches nginx default
 _MAX_HEADER_SIZE = 16384
@@ -43,9 +52,7 @@ class ParseError(Exception):
     """Raised when the request is malformed and the connection should close."""
 
 
-def parse_request(
-    buf: memoryview, length: int
-) -> tuple[RequestReceived | None, bytes, int, bool]:
+def parse_request(buf: memoryview, length: int) -> tuple[RequestReceived | None, bytes, int, bool]:
     """Parse an HTTP request from a buffer.
 
     Returns:

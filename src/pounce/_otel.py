@@ -123,7 +123,7 @@ def extract_trace_context(headers: Sequence[tuple[bytes, bytes]]) -> Any:
     # Convert only trace headers to dict format for propagator
     headers_dict: dict[str, str] = {}
     for name, value in headers:
-        if name in _TRACE_HEADER_NAMES:
+        if name.lower() in _TRACE_HEADER_NAMES:
             headers_dict[name.decode("latin1")] = value.decode("latin1", errors="replace")
 
     # Extract context using W3C Trace Context propagator
