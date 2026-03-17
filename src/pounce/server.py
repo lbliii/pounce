@@ -21,6 +21,7 @@ import socket
 import sys
 import threading
 from dataclasses import replace
+from typing import cast
 
 from pounce._runtime import WorkerMode, detect_worker_mode, is_gil_enabled
 from pounce._types import ASGIApp
@@ -631,11 +632,11 @@ class Server:
             from pounce.metrics import PrometheusCollector
 
             self._lifecycle_collector = PrometheusCollector()
-            self._app = wrap_app_with_metrics(
+            self._app = cast(ASGIApp, wrap_app_with_metrics(
                 self._app,
                 self._lifecycle_collector,
                 self._config.metrics_path,
-            )
+            ))
             logger.info("Prometheus metrics enabled at %s", self._config.metrics_path)
 
         # Wrap app with middleware if configured (before rate limiter/queue
@@ -643,7 +644,7 @@ class Server:
         if self._config.middleware:
             from pounce._middleware import MiddlewareStack
 
-            self._app = MiddlewareStack(self._config.middleware, self._app)
+            self._app = cast(ASGIApp, MiddlewareStack(self._config.middleware, self._app))
 
         # Configure rate limiting if enabled
         if self._config.rate_limit_enabled:
@@ -653,7 +654,7 @@ class Server:
                 rate=self._config.rate_limit_requests_per_second,
                 burst=self._config.rate_limit_burst,
             )
-            self._app = create_rate_limit_wrapper(self._app, rate_limiter)
+            self._app = cast(ASGIApp, create_rate_limit_wrapper(self._app, rate_limiter))
             logger.info(
                 "Rate limiting enabled: %.1f req/s per IP (burst: %d)",
                 self._config.rate_limit_requests_per_second,
@@ -666,7 +667,7 @@ class Server:
 
             request_queue = RequestQueue(max_depth=self._config.request_queue_max_depth)
             queue_metrics = QueueMetrics()
-            self._app = create_queue_wrapper(self._app, request_queue, queue_metrics)
+            self._app = cast(ASGIApp, create_queue_wrapper(self._app, request_queue, queue_metrics))
             logger.info(
                 "Request queueing enabled: max depth %d",
                 self._config.request_queue_max_depth
@@ -688,7 +689,7 @@ class Server:
                         profiles_sample_rate=self._config.sentry_profiles_sample_rate,
                         debug=self._config.debug,
                     )
-                    self._app = create_sentry_wrapper(self._app)
+                    self._app = cast(ASGIApp, create_sentry_wrapper(self._app))
                     logger.info(
                         "Sentry error tracking enabled: environment=%s release=%s",
                         self._config.sentry_environment or "none",

@@ -127,6 +127,8 @@ def extract_trace_context(headers: Sequence[tuple[bytes, bytes]]) -> Any:
             headers_dict[name.decode("latin1")] = value.decode("latin1", errors="replace")
 
     # Extract context using W3C Trace Context propagator
+    if _PROPAGATOR is None:
+        return None
     return _PROPAGATOR.extract(carrier=headers_dict)
 
 
@@ -148,6 +150,8 @@ def inject_trace_context(headers: list[tuple[bytes, bytes]]) -> list[tuple[bytes
 
     # Create carrier dict for injection
     carrier: dict[str, str] = {}
+    if _PROPAGATOR is None:
+        return headers
     _PROPAGATOR.inject(carrier=carrier)
 
     # Add injected headers

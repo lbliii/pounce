@@ -23,7 +23,7 @@ Example:
 import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from pounce._types import Receive, Send
 
@@ -158,9 +158,9 @@ class MiddlewareStack:
         self._app = app
 
         # Classify middleware once by duck-typing callable signature
-        self._pre_request: list[Middleware] = []
-        self._post_response: list[Middleware] = []
-        self._exception_handlers: list[Middleware] = []
+        self._pre_request: list[PreRequestMiddleware] = []
+        self._post_response: list[PostResponseMiddleware] = []
+        self._exception_handlers: list[ExceptionMiddleware] = []
 
         for mw in middleware:
             sig = inspect.signature(mw)
@@ -168,13 +168,13 @@ class MiddlewareStack:
 
             if param_count == 1:
                 # Single param = pre-request
-                self._pre_request.append(mw)
+                self._pre_request.append(cast(PreRequestMiddleware, mw))
             elif param_count == 2:
                 # Two params = exception middleware (scope, exc)
-                self._exception_handlers.append(mw)
+                self._exception_handlers.append(cast(ExceptionMiddleware, mw))
             elif param_count == 3:
                 # Three params = post-response (scope, status, headers)
-                self._post_response.append(mw)
+                self._post_response.append(cast(PostResponseMiddleware, mw))
 
     async def __call__(self, scope: dict[str, Any], receive: Receive, send: Send) -> None:
         """Execute middleware stack around app call.

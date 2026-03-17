@@ -44,6 +44,24 @@ builds, Pounce falls back to multi-process workers automatically.
 
 ---
 
+## Performance
+
+Pounce matches uvicorn on multi-worker throughput — pure Python, no C extensions.
+
+| Scenario | Pounce | Uvicorn | Notes |
+|----------|--------|---------|-------|
+| 1 worker | ~12k req/s | ~12k req/s | Async event loop, h11 parser |
+| 4 workers (threads) | ~30k req/s | ~30k req/s | Linear scaling on Python 3.14t |
+
+*Measured with `wrk -t4 -c100 -d10s` on macOS, plain-text "hello world" ASGI app.*
+
+Key optimizations in the sync worker path:
+- **Fast HTTP/1.1 parser** — Direct bytes parsing (~3 µs/req) replaces h11 (~22 µs/req) with full safety checks (method validation, header size limits, request smuggling detection)
+- **Keep-alive connections** — Connection reuse eliminates TCP handshake overhead
+- **Shared socket distribution** — Single accept queue for thread workers avoids macOS SO_REUSEPORT limitations
+
+---
+
 ## Installation
 
 ```bash
@@ -84,7 +102,7 @@ pip install bengal-pounce[full]   # All protocol extras
 |---------|-------------|------|
 | **Deployment** | Production workers, compression, observability, and shutdown behavior | [Deployment →](https://lbliii.github.io/pounce/docs/deployment/) |
 | **Migration** | Move from Uvicorn with similar CLI concepts | [Migrate from Uvicorn →](https://lbliii.github.io/pounce/docs/tutorials/migrate-from-uvicorn/) |
-| **HTTP/1.1** | h11 (pure Python) | [HTTP/1.1 →](https://lbliii.github.io/pounce/docs/protocols/http1/) |
+| **HTTP/1.1** | h11 (async) + fast built-in parser (sync) | [HTTP/1.1 →](https://lbliii.github.io/pounce/docs/protocols/http1/) |
 | **HTTP/2** | Stream multiplexing via h2 | [HTTP/2 →](https://lbliii.github.io/pounce/docs/protocols/http2/) |
 | **HTTP/3** | QUIC/UDP via aioquic (requires TLS) | — |
 | **WebSocket** | Full RFC 6455 via wsproto (including WS over H2) | [WebSocket →](https://lbliii.github.io/pounce/docs/protocols/websocket/) |
@@ -130,8 +148,9 @@ its own asyncio event loop. Shared memory, no fork overhead, no IPC.
 On **GIL builds**: workers are processes. Same API, same config. The supervisor detects the
 runtime via `sys._is_gil_enabled()` and adapts automatically.
 
-A request flows through: socket accept -> protocol parser (h11) -> ASGI scope
+A request flows through: socket accept -> protocol parser -> ASGI scope
 construction -> `app(scope, receive, send)` -> response serialization -> socket write.
+Async workers use h11; sync workers use a fast built-in parser for lower latency.
 
 </details>
 
@@ -140,8 +159,7 @@ construction -> `app(scope, receive, send)` -> response serialization -> socket 
 
 | Protocol | Backend | Install |
 |----------|---------|---------|
-| HTTP/1.1 | h11 (pure Python, default) | built-in |
-| HTTP/1.1 | h11 (pure Python) | built-in |
+| HTTP/1.1 | h11 (async) / fast built-in parser (sync) | built-in |
 | HTTP/2 | h2 (stream multiplexing, priority signals) | `pounce[h2]` |
 | WebSocket | wsproto (including WS over H2) | `pounce[ws]` |
 | TLS | stdlib ssl + truststore | `pounce[tls]` |
