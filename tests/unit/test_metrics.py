@@ -3,7 +3,7 @@
 import time
 
 from pounce.lifecycle import (
-    ConnectionClosed,
+    ConnectionCompleted,
     ConnectionOpened,
     RequestStarted,
     ResponseCompleted,
@@ -50,7 +50,7 @@ class TestPrometheusCollector:
         assert snap["connections_active"] == 2
 
         collector.record(
-            ConnectionClosed(
+            ConnectionCompleted(
                 connection_id=1,
                 worker_id=0,
                 requests_served=1,

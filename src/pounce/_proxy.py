@@ -17,7 +17,7 @@ from typing import Any
 def apply_proxy_headers(
     scope: dict[str, Any],
     *,
-    trusted_hosts: tuple[str, ...],
+    trusted_hosts: frozenset[str],
 ) -> dict[str, Any]:
     """Rewrite ASGI scope fields using proxy headers from a trusted peer.
 

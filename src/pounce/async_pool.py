@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pounce._compression import Compressor, create_compressor
+from pounce._headers import get_header as _get_header
 from pounce._types import ASGIApp
 from pounce.asgi.bridge import SendState, create_send
 from pounce.config import ServerConfig
@@ -31,15 +32,6 @@ def _create_h1_protocol(
 ) -> H1Protocol:
     """Create an HTTP/1.1 protocol handler."""
     return H1Protocol(max_incomplete_event_size=max_incomplete_event_size)
-
-
-def _get_header(headers: tuple[tuple[bytes, bytes], ...], name: bytes) -> bytes | None:
-    """Get a header value by lowercase name."""
-    name_lower = name.lower()
-    for hname, hvalue in headers:
-        if hname.lower() == name_lower:
-            return hvalue
-    return None
 
 
 @dataclass(slots=True)

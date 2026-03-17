@@ -19,6 +19,7 @@ import contextlib
 import logging
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
+from pounce._headers import get_header as _get_header_from_tuple
 from pounce._health import build_health_response
 from pounce._request_id import extract_or_generate
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
@@ -33,18 +34,6 @@ from pounce.protocols._base import (
     WebSocketDataReceived,
     WebSocketDisconnected,
 )
-
-
-def _get_header_from_tuple(
-    headers: tuple[tuple[bytes, bytes], ...],
-    name: bytes,
-) -> bytes | None:
-    """Get a header value by lowercase name from a headers tuple."""
-    name_lower = name.lower()
-    for header_name, header_value in headers:
-        if header_name.lower() == name_lower:
-            return header_value
-    return None
 
 
 async def handle_h2_connection(
@@ -111,7 +100,7 @@ async def handle_h2_connection(
         # Generate or extract request ID for tracing
         is_trusted_peer = bool(
             config.trusted_hosts
-            and ("*" in config.trusted_hosts or client[0] in config.trusted_hosts)
+            and (config.trusted_hosts_wildcard or client[0] in config.trusted_hosts)
         )
         request_id = extract_or_generate(request.headers, trusted=is_trusted_peer)
         scope.setdefault("extensions", {})["request_id"] = request_id

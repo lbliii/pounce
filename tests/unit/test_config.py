@@ -78,7 +78,7 @@ class TestServerConfigDefaults:
 
     def test_default_trusted_hosts(self):
         config = ServerConfig()
-        assert config.trusted_hosts == ()
+        assert config.trusted_hosts == frozenset()
 
     def test_default_ssl(self):
         config = ServerConfig()
@@ -126,7 +126,7 @@ class TestServerConfigOverrides:
 
     def test_custom_trusted_hosts(self):
         config = ServerConfig(trusted_hosts=("10.0.0.1", "10.0.0.2"))
-        assert config.trusted_hosts == ("10.0.0.1", "10.0.0.2")
+        assert config.trusted_hosts == frozenset({"10.0.0.1", "10.0.0.2"})
 
     def test_ssl_paths(self):
         config = ServerConfig(
@@ -341,8 +341,8 @@ class TestNewConfigFields:
 
     def test_default_trusted_hosts_empty(self):
         config = ServerConfig()
-        assert config.trusted_hosts == ()
+        assert config.trusted_hosts == frozenset()
 
     def test_custom_trusted_hosts(self):
         config = ServerConfig(trusted_hosts=("10.0.0.1", "10.0.0.2"))
-        assert config.trusted_hosts == ("10.0.0.1", "10.0.0.2")
+        assert config.trusted_hosts == frozenset({"10.0.0.1", "10.0.0.2"})

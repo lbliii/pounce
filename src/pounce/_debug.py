@@ -31,6 +31,8 @@ try:
 except ImportError:
     _HAS_ROSETTES = False
 
+_SENSITIVE_HEADERS = frozenset({b"authorization", b"cookie", b"token"})
+
 
 def is_rosettes_available() -> bool:
     """Check if Rosettes syntax highlighter is available."""
@@ -383,9 +385,7 @@ def _render_request_details(
     headers_text = "\n".join(
         f"{name.decode('latin1')}: {value.decode('latin1', errors='replace')}"
         for name, value in headers
-        if not any(
-            sensitive in name.lower() for sensitive in [b"authorization", b"cookie", b"token"]
-        )
+        if not any(sensitive in name.lower() for sensitive in _SENSITIVE_HEADERS)
     )
 
     return f"""    <div class="request-details">

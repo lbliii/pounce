@@ -126,6 +126,7 @@ class Supervisor:
         "_lifecycle_lock",
         "_lifespan_state",
         "_mode",
+        "_per_worker_max",
         "_reload_in_progress",
         "_shutdown_event",
         "_sockets",
@@ -173,6 +174,7 @@ class Supervisor:
         self._ssl_context = ssl_context
         self._lifecycle_collector = lifecycle_collector
         self._lifespan_state: dict[str, Any] = {}  # Set after lifespan startup
+        self._per_worker_max = 0
         self._generation = 0  # Incremented on each reload
 
     @property
@@ -222,6 +224,12 @@ class Supervisor:
         self._udp_sockets = udp_sockets or []
         self._install_signals()
 
+        self._per_worker_max = (
+            self._config.max_connections // self._effective_workers
+            if self._config.max_connections > 0
+            else 0
+        )
+
         exec_label = f"{self._execution_mode}+" if self._execution_mode == "sync" else ""
         logger.info(
             "Supervisor starting %d %s%s worker(s)",
@@ -230,48 +238,7 @@ class Supervisor:
             self._mode,
         )
 
-        use_sync = self._mode == "thread" and self._execution_mode == "sync"
-        use_accept_distributor = (
-            use_sync and self._effective_workers > 1 and is_shared_socket(self._sockets)
-        )
-        if use_sync:
-            self._async_pool = AsyncPool(
-                self._config,
-                self._app,
-                shutdown_event=self._shutdown_event,
-                ssl_context=self._ssl_context,
-                lifecycle_collector=self._lifecycle_collector,
-            )
-            self._async_pool.set_lifespan_state(self._lifespan_state)
-            self._async_pool_handle = threading.Thread(
-                target=self._async_pool.run,
-                name="pounce-async-pool",
-                daemon=True,
-            )
-            self._async_pool_handle.start()
-            logger.debug("AsyncPool started for streaming/WebSocket handoffs")
-
-        if use_accept_distributor:
-            shared_queue: queue.Queue[tuple[socket.socket, object]] = queue.Queue()
-            distributor = AcceptDistributor(
-                self._sockets[0],
-                shared_queue,
-                shutdown_event=self._shutdown_event,
-                ssl_context=self._ssl_context,
-            )
-            self._accept_distributor_handle = threading.Thread(
-                target=distributor.run,
-                name="pounce-accept-distributor",
-                daemon=True,
-            )
-            self._accept_distributor_handle.start()
-            logger.debug(
-                "AcceptDistributor started (shared queue, %d workers)",
-                self._effective_workers,
-            )
-            self._conn_queue = shared_queue
-        else:
-            self._conn_queue = None
+        self._setup_sync_infrastructure()
 
         # Spawn initial TCP workers
         for i in range(self._effective_workers):
@@ -385,38 +352,7 @@ class Supervisor:
         self._handles.clear()
         self._h3_handles.clear()
 
-        use_sync = self._mode == "thread" and self._execution_mode == "sync"
-        use_accept_distributor = (
-            use_sync and self._effective_workers > 1 and is_shared_socket(self._sockets)
-        )
-        if use_sync:
-            self._async_pool = AsyncPool(
-                self._config,
-                self._app,
-                shutdown_event=self._shutdown_event,
-                ssl_context=self._ssl_context,
-                lifecycle_collector=self._lifecycle_collector,
-            )
-            self._async_pool.set_lifespan_state(self._lifespan_state)
-            self._async_pool_handle = threading.Thread(
-                target=self._async_pool.run,
-                name="pounce-async-pool",
-                daemon=True,
-            )
-            self._async_pool_handle.start()
-        if use_accept_distributor and self._conn_queue is not None:
-            distributor = AcceptDistributor(
-                self._sockets[0],
-                self._conn_queue,
-                shutdown_event=self._shutdown_event,
-                ssl_context=self._ssl_context,
-            )
-            self._accept_distributor_handle = threading.Thread(
-                target=distributor.run,
-                name="pounce-accept-distributor",
-                daemon=True,
-            )
-            self._accept_distributor_handle.start()
+        self._setup_sync_infrastructure()
 
         # Respawn TCP workers
         for i in range(self._effective_workers):
@@ -489,43 +425,12 @@ class Supervisor:
             self._effective_workers,
             self._generation,
         )
-        use_sync = self._mode == "thread" and self._execution_mode == "sync"
-        per_worker_max = (
-            self._config.max_connections // self._effective_workers
-            if self._config.max_connections > 0
-            else 0
-        )
-
         new_handles: list[_WorkerHandle] = []
         for i in range(self._effective_workers):
-            if use_sync:
-                worker_sock: socket.socket | None = self._sockets[i]
-                if self._conn_queue is not None:
-                    worker_sock = None
-                worker = SyncWorker(
-                    self._config,
-                    self._app,
-                    worker_sock,
-                    worker_id=i + self._effective_workers,
-                    shutdown_event=self._shutdown_event,
-                    ssl_context=self._ssl_context,
-                    lifecycle_collector=self._lifecycle_collector,
-                    async_pool=self._async_pool,
-                    conn_queue=self._conn_queue,
-                    sync_app=self._sync_app,
-                )
-            else:
-                worker = Worker(
-                    self._config,
-                    self._app,
-                    self._sockets[i],
-                    worker_id=i + self._effective_workers,
-                    shutdown_event=self._shutdown_event,
-                    max_connections=per_worker_max,
-                    ssl_context=self._ssl_context,
-                    lifecycle_collector=self._lifecycle_collector,
-                )
-            worker.set_lifespan_state(self._lifespan_state)
+            worker = self._create_worker(
+                worker_id=i + self._effective_workers,
+                socket_index=i,
+            )
 
             target = threading.Thread(
                 target=worker.run,
@@ -595,23 +500,62 @@ class Supervisor:
     # Spawning
     # ------------------------------------------------------------------
 
-    def _spawn_worker(self, worker_id: int) -> None:
-        """Create and start a single worker."""
-        per_worker_max = (
-            self._config.max_connections // self._effective_workers
-            if self._config.max_connections > 0
-            else 0
-        )
-
+    def _setup_sync_infrastructure(self) -> None:
+        """Create AsyncPool and AcceptDistributor for sync worker mode."""
         use_sync = self._mode == "thread" and self._execution_mode == "sync"
+        use_accept_distributor = (
+            use_sync and self._effective_workers > 1 and is_shared_socket(self._sockets)
+        )
         if use_sync:
-            worker_sock_sync: socket.socket | None = self._sockets[worker_id]
-            if self._conn_queue is not None:
-                worker_sock_sync = None
-            worker = SyncWorker(
+            self._async_pool = AsyncPool(
                 self._config,
                 self._app,
-                worker_sock_sync,
+                shutdown_event=self._shutdown_event,
+                ssl_context=self._ssl_context,
+                lifecycle_collector=self._lifecycle_collector,
+            )
+            self._async_pool.set_lifespan_state(self._lifespan_state)
+            self._async_pool_handle = threading.Thread(
+                target=self._async_pool.run,
+                name="pounce-async-pool",
+                daemon=True,
+            )
+            self._async_pool_handle.start()
+            logger.debug("AsyncPool started for streaming/WebSocket handoffs")
+
+        if use_accept_distributor:
+            shared_queue: queue.Queue[tuple[socket.socket, object]] = queue.Queue()
+            distributor = AcceptDistributor(
+                self._sockets[0],
+                shared_queue,
+                shutdown_event=self._shutdown_event,
+                ssl_context=self._ssl_context,
+            )
+            self._accept_distributor_handle = threading.Thread(
+                target=distributor.run,
+                name="pounce-accept-distributor",
+                daemon=True,
+            )
+            self._accept_distributor_handle.start()
+            logger.debug(
+                "AcceptDistributor started (shared queue, %d workers)",
+                self._effective_workers,
+            )
+            self._conn_queue = shared_queue
+        else:
+            self._conn_queue = None
+
+    def _create_worker(self, worker_id: int, socket_index: int) -> Worker | SyncWorker:
+        """Create a Worker or SyncWorker based on the execution mode."""
+        use_sync = self._mode == "thread" and self._execution_mode == "sync"
+        if use_sync:
+            worker_sock: socket.socket | None = self._sockets[socket_index]
+            if self._conn_queue is not None:
+                worker_sock = None
+            worker: Worker | SyncWorker = SyncWorker(
+                self._config,
+                self._app,
+                worker_sock,
                 worker_id=worker_id,
                 shutdown_event=self._shutdown_event,
                 ssl_context=self._ssl_context,
@@ -624,15 +568,19 @@ class Supervisor:
             worker = Worker(
                 self._config,
                 self._app,
-                self._sockets[worker_id],
+                self._sockets[socket_index],
                 worker_id=worker_id,
                 shutdown_event=self._shutdown_event,
-                max_connections=per_worker_max,
+                max_connections=self._per_worker_max,
                 ssl_context=self._ssl_context,
                 lifecycle_collector=self._lifecycle_collector,
             )
-        # Inject lifespan state for ASGI scope["state"]
         worker.set_lifespan_state(self._lifespan_state)
+        return worker
+
+    def _spawn_worker(self, worker_id: int) -> None:
+        """Create and start a single worker."""
+        worker = self._create_worker(worker_id, socket_index=worker_id)
 
         if self._mode == "thread":
             target: threading.Thread | multiprocessing.Process = threading.Thread(

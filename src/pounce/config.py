@@ -94,7 +94,8 @@ class ServerConfig:
     h11_max_incomplete_event_size: int | None = None  # None = h11 default (16 KB)
 
     # Headers to trust from proxy (empty = direct connection)
-    trusted_hosts: tuple[str, ...] = field(default_factory=tuple)
+    trusted_hosts: frozenset[str] = field(default_factory=frozenset)
+    trusted_hosts_wildcard: bool = False
 
     # Built-in health check endpoint (None = disabled)
     health_check_path: str | None = None
@@ -231,6 +232,10 @@ class ServerConfig:
             )
             raise ValueError(msg)
         object.__setattr__(self, "worker_mode", normalized)
+        # Normalize trusted_hosts to frozenset if passed as tuple/list
+        if not isinstance(self.trusted_hosts, frozenset):
+            object.__setattr__(self, "trusted_hosts", frozenset(self.trusted_hosts))
+        object.__setattr__(self, "trusted_hosts_wildcard", "*" in self.trusted_hosts)
         if (self.ssl_certfile is None) != (self.ssl_keyfile is None):
             msg = "ssl_certfile and ssl_keyfile must both be set or both be None"
             raise ValueError(msg)

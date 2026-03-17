@@ -16,6 +16,7 @@ import asyncio
 import contextlib
 import logging
 
+from pounce._headers import get_header as _get_header_from_tuple
 from pounce._timing import elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
 from pounce.asgi.ws_bridge import build_ws_scope, create_ws_receive, create_ws_send
@@ -26,18 +27,6 @@ from pounce.protocols._base import (
     WebSocketDataReceived,
     WebSocketDisconnected,
 )
-
-
-def _get_header_from_tuple(
-    headers: tuple[tuple[bytes, bytes], ...],
-    name: bytes,
-) -> bytes | None:
-    """Get a header value by lowercase name from a headers tuple."""
-    name_lower = name.lower()
-    for header_name, header_value in headers:
-        if header_name.lower() == name_lower:
-            return header_value
-    return None
 
 
 async def handle_websocket(

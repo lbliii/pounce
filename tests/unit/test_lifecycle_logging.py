@@ -12,7 +12,7 @@ import pytest
 from pounce.config import ServerConfig
 from pounce.lifecycle import (
     ClientDisconnected,
-    ConnectionClosed,
+    ConnectionCompleted,
     ConnectionOpened,
     LoggingCollector,
     RequestStarted,
@@ -182,10 +182,10 @@ class TestLoggingCollector:
             assert mock_log.call_args[0][0] == logging.WARNING
 
     def test_connection_closed_logged_at_debug(self):
-        """Test that ConnectionClosed is logged at DEBUG level."""
+        """Test that ConnectionCompleted is logged at DEBUG level."""
         collector = LoggingCollector(log_format="json")
 
-        event = ConnectionClosed(
+        event = ConnectionCompleted(
             connection_id=1,
             worker_id=1,
             requests_served=5,
@@ -207,7 +207,7 @@ class TestLoggingCollector:
             else:
                 log_data = json.loads(log_message)
 
-            assert log_data["event"] == "ConnectionClosed"
+            assert log_data["event"] == "ConnectionCompleted"
             assert log_data["requests_served"] == 5
             assert log_data["reason"] == "complete"
 

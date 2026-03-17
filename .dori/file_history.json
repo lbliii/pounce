@@ -1,0 +1,305 @@
+{
+  "version": "1.0",
+  "updated_at": "2026-03-17T14:39:19.766147+00:00",
+  "files": {
+    "src/pounce/server.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/supervisor.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/worker.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/sync_worker.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/config.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/asgi/bridge.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/asgi/h2_bridge.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/asgi/h3_bridge.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/protocols/h1.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/protocols/h2.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_middleware.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_static.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_otel.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_proxy.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_debug.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_profile.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_rate_limiter.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_hot_reload.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_health.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_importer.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/lifecycle.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/metrics.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/async_pool.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr",
+          "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    }
+  }
+}

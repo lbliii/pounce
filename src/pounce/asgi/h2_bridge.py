@@ -148,7 +148,8 @@ def create_h2_send(
             # Inject Content-Encoding if compressing
             if compressor is not None:
                 headers.append((b"content-encoding", compressor.encoding.encode("ascii")))
-                headers = [(n, v) for n, v in headers if n.lower() != b"content-length"]
+                # Remove content-length since compressed size differs
+                headers = [pair for pair in headers if pair[0].lower() != b"content-length"]
 
             # Inject Server-Timing header
             if timing is not None:

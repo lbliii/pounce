@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
+from pounce._headers import get_header as _get_header_from_list
 from pounce._health import build_health_response
 from pounce._request_id import extract_or_generate
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
@@ -26,18 +27,6 @@ from pounce.asgi.h3_bridge import build_h3_scope, create_h3_receive, create_h3_s
 from pounce.config import ServerConfig
 from pounce.logging import access_log
 from pounce.protocols.h3 import is_h3_available
-
-
-def _get_header_from_list(
-    headers: list[tuple[bytes, bytes]] | tuple[tuple[bytes, bytes], ...],
-    name: bytes,
-) -> bytes | None:
-    """Get a header value by lowercase name from a headers list."""
-    name_lower = name.lower()
-    for header_name, header_value in headers:
-        if header_name.lower() == name_lower:
-            return header_value
-    return None
 
 
 @dataclass
@@ -298,7 +287,7 @@ def _create_zoomies_datagram_protocol(
             is_trusted = bool(
                 self._config.trusted_hosts
                 and (
-                    "*" in self._config.trusted_hosts
+                    self._config.trusted_hosts_wildcard
                     or scope["client"][0] in self._config.trusted_hosts
                 )
             )

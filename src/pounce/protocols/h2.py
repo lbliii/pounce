@@ -240,6 +240,7 @@ class H2Connection:
                 authority = b""
                 h2_protocol = b""
                 headers_list: list[tuple[bytes, bytes]] = []
+                has_host = False
 
                 for name, value in event.headers:
                     name_bytes = name.encode() if isinstance(name, str) else name
@@ -257,9 +258,11 @@ class H2Connection:
                         h2_protocol = value_bytes
                     elif not name_bytes.startswith(b":"):
                         headers_list.append((name_bytes, value_bytes))
+                        if name_bytes == b"host":
+                            has_host = True
 
                 # Add host header from :authority if not present
-                if authority and not any(n == b"host" for n, _ in headers_list):
+                if authority and not has_host:
                     headers_list.insert(0, (b"host", authority))
 
                 request = RequestReceived(

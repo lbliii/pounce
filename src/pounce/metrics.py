@@ -22,7 +22,7 @@ from collections import defaultdict
 
 from pounce.lifecycle import (
     ClientDisconnected,
-    ConnectionClosed,
+    ConnectionCompleted,
     ConnectionOpened,
     LifecycleEvent,
     RequestStarted,
@@ -102,7 +102,7 @@ class PrometheusCollector:
         with self._lock:
             if isinstance(event, ConnectionOpened):
                 self._connections_active += 1
-            elif isinstance(event, ConnectionClosed):
+            elif isinstance(event, ConnectionCompleted):
                 self._connections_active = max(0, self._connections_active - 1)
                 self._bytes_sent_total += event.total_bytes_sent
             elif isinstance(event, RequestStarted):
@@ -111,7 +111,6 @@ class PrometheusCollector:
                 self._requests_in_flight = max(0, self._requests_in_flight - 1)
                 # We don't have method in ResponseCompleted, use status only
                 status_str = str(event.status)
-                f"{event.status // 100}xx"
                 self._requests_total[("", status_str)] += 1
                 # Duration histogram — increment only the first matching
                 # bucket; export() computes the cumulative sum.
