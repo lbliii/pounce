@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.1] — 2026-03-19
+
+Public error type exports for downstream consumers.
+
+### Added
+
+- Re-export `PounceError`, `LifespanError`, `TLSError`, `SupervisorError`, and `ReloadError` from `pounce` top-level package so downstream packages (e.g. chirp) can `from pounce import PounceError` instead of reaching into private `pounce._errors`
+
+---
+
 ## [0.3.0] — 2026-03-17
 
 Multi-worker sync performance — matching uvicorn at 30k req/s, pure Python.
@@ -589,6 +599,7 @@ Initial release of Pounce — a free-threading-native ASGI server for Python 3.1
 - `py.typed` PEP 561 marker
 - `_Py_mod_gil = 0` free-threading declaration
 
+[0.3.1]: https://github.com/lbliii/pounce/releases/tag/v0.3.1
 [0.3.0]: https://github.com/lbliii/pounce/releases/tag/v0.3.0
 [0.2.2]: https://github.com/lbliii/pounce/releases/tag/v0.2.2
 [0.2.1]: https://github.com/lbliii/pounce/releases/tag/v0.2.1
