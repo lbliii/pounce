@@ -71,6 +71,7 @@ def log_request(
     *,
     http_version: str = "1.1",
     request_id: str | None = None,
+    worker_id: int | None = None,
 ) -> None:
     """Log an access log entry, respecting the access_log_filter."""
     if not config.access_log:
@@ -87,4 +88,5 @@ def log_request(
         client_str,
         http_version=http_version,
         request_id=request_id,
+        worker_id=worker_id,
     )

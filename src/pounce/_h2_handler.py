@@ -45,6 +45,8 @@ async def handle_h2_connection(
     client: tuple[str, int],
     server: tuple[str, int],
     client_str: str,
+    *,
+    worker_id: int | None = None,
 ) -> None:
     """Handle a full HTTP/2 connection with multiplexed streams.
 
@@ -199,6 +201,7 @@ async def handle_h2_connection(
                     client_str,
                     http_version="2",
                     request_id=request_id,
+                    worker_id=worker_id,
                 )
 
     try:

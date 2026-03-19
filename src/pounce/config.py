@@ -67,7 +67,7 @@ class ServerConfig:
     # Logging
     access_log: bool = True
     log_level: str = "info"
-    log_format: str = "text"  # "text" or "json"
+    log_format: str = "auto"  # "auto", "text", or "json"
     # Optional filter: (method, path, status) -> bool.  True = log, False = skip.
     access_log_filter: Callable[[str, str, int], bool] | None = None
 
@@ -158,7 +158,7 @@ class ServerConfig:
     sentry_profiles_sample_rate: float = 0.1  # Profiling sample rate (0.0-1.0)
 
     _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error", "critical"})
-    _VALID_LOG_FORMATS: frozenset[str] = frozenset({"text", "json"})
+    _VALID_LOG_FORMATS: frozenset[str] = frozenset({"auto", "text", "json"})
     _VALID_WORKER_MODES: frozenset[str] = frozenset({"auto", "sync", "async"})
 
     def __post_init__(self) -> None:
