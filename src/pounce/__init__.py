@@ -39,6 +39,13 @@ except Exception:  # Package not installed in editable/dist mode
 
 from typing import TypedDict, Unpack  # noqa: E402
 
+from pounce._errors import (  # noqa: E402
+    LifespanError,
+    PounceError,
+    ReloadError,
+    SupervisorError,
+    TLSError,
+)
 from pounce._middleware import (  # noqa: E402
     CORSMiddleware,
     Response,
@@ -108,13 +115,18 @@ def run(app: str, **kwargs: Unpack[ServerConfigKwargs]) -> None:
 __all__ = [
     "ASGIApp",
     "CORSMiddleware",
+    "LifespanError",
+    "PounceError",
     "Receive",
+    "ReloadError",
     "Response",
     "Scope",
     "SecurityHeadersMiddleware",
     "Send",
     "ServerConfig",
     "StaticFiles",
+    "SupervisorError",
+    "TLSError",
     "__version__",
     "create_static_handler",
     "run",
