@@ -44,6 +44,13 @@ from pounce._middleware import (  # noqa: E402
     Response,
     SecurityHeadersMiddleware,
 )
+from pounce._errors import (  # noqa: E402
+    LifespanError,
+    PounceError,
+    ReloadError,
+    SupervisorError,
+    TLSError,
+)
 from pounce._static import StaticFiles, create_static_handler  # noqa: E402
 from pounce._types import ASGIApp, Receive, Scope, Send  # noqa: E402
 from pounce.config import ServerConfig  # noqa: E402
@@ -108,13 +115,18 @@ def run(app: str, **kwargs: Unpack[ServerConfigKwargs]) -> None:
 __all__ = [
     "ASGIApp",
     "CORSMiddleware",
+    "LifespanError",
+    "PounceError",
     "Receive",
+    "ReloadError",
     "Response",
     "Scope",
     "SecurityHeadersMiddleware",
     "Send",
     "ServerConfig",
     "StaticFiles",
+    "SupervisorError",
+    "TLSError",
     "__version__",
     "create_static_handler",
     "run",
