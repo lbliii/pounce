@@ -208,8 +208,12 @@ class TestJSONAccessLog:
     def test_json_access_log_is_flat(self):
         """JSON output has access fields as top-level keys, not nested in 'message'."""
         parsed = self._capture_json_line(
-            method="GET", path="/api", status=200, bytes_sent=512,
-            duration_ms=3.5, client="127.0.0.1:5000",
+            method="GET",
+            path="/api",
+            status=200,
+            bytes_sent=512,
+            duration_ms=3.5,
+            client="127.0.0.1:5000",
         )
         assert parsed["method"] == "GET"
         assert parsed["path"] == "/api"
@@ -223,8 +227,13 @@ class TestJSONAccessLog:
     def test_json_access_log_uses_short_keys(self):
         """JSON output uses short key names."""
         parsed = self._capture_json_line(
-            method="GET", path="/", status=200, bytes_sent=0,
-            duration_ms=1.0, client="c:80", request_id="abcdef1234567890",
+            method="GET",
+            path="/",
+            status=200,
+            bytes_sent=0,
+            duration_ms=1.0,
+            client="c:80",
+            request_id="abcdef1234567890",
         )
         assert "ts" in parsed
         assert "req_id" in parsed
@@ -232,51 +241,81 @@ class TestJSONAccessLog:
 
     def test_json_5xx_level_is_warn(self):
         parsed = self._capture_json_line(
-            method="GET", path="/fail", status=500, bytes_sent=0,
-            duration_ms=10.0, client="c:80",
+            method="GET",
+            path="/fail",
+            status=500,
+            bytes_sent=0,
+            duration_ms=10.0,
+            client="c:80",
         )
         assert parsed["level"] == "warn"
         assert parsed["status"] == 500
 
     def test_json_2xx_level_is_info(self):
         parsed = self._capture_json_line(
-            method="GET", path="/ok", status=200, bytes_sent=100,
-            duration_ms=5.0, client="c:80",
+            method="GET",
+            path="/ok",
+            status=200,
+            bytes_sent=100,
+            duration_ms=5.0,
+            client="c:80",
         )
         assert parsed["level"] == "info"
 
     def test_json_includes_request_id(self):
         parsed = self._capture_json_line(
-            method="GET", path="/api", status=200, bytes_sent=0,
-            duration_ms=1.0, client="c:80", request_id="abc123def456",
+            method="GET",
+            path="/api",
+            status=200,
+            bytes_sent=0,
+            duration_ms=1.0,
+            client="c:80",
+            request_id="abc123def456",
         )
         assert "req_id" in parsed
 
     def test_json_no_request_id_when_none(self):
         parsed = self._capture_json_line(
-            method="GET", path="/api", status=200, bytes_sent=0,
-            duration_ms=1.0, client="c:80",
+            method="GET",
+            path="/api",
+            status=200,
+            bytes_sent=0,
+            duration_ms=1.0,
+            client="c:80",
         )
         assert "req_id" not in parsed
 
     def test_json_has_timestamp(self):
         parsed = self._capture_json_line(
-            method="GET", path="/", status=200, bytes_sent=0,
-            duration_ms=1.0, client="c:80",
+            method="GET",
+            path="/",
+            status=200,
+            bytes_sent=0,
+            duration_ms=1.0,
+            client="c:80",
         )
         assert "ts" in parsed
 
     def test_json_includes_worker_id(self):
         parsed = self._capture_json_line(
-            method="GET", path="/", status=200, bytes_sent=0,
-            duration_ms=1.0, client="c:80", worker_id=5,
+            method="GET",
+            path="/",
+            status=200,
+            bytes_sent=0,
+            duration_ms=1.0,
+            client="c:80",
+            worker_id=5,
         )
         assert parsed["worker"] == 5
 
     def test_json_no_worker_when_none(self):
         parsed = self._capture_json_line(
-            method="GET", path="/", status=200, bytes_sent=0,
-            duration_ms=1.0, client="c:80",
+            method="GET",
+            path="/",
+            status=200,
+            bytes_sent=0,
+            duration_ms=1.0,
+            client="c:80",
         )
         assert "worker" not in parsed
 
@@ -297,31 +336,47 @@ class TestPrettyAccessLog:
 
     def test_pretty_contains_method_and_path(self):
         line = self._capture_pretty_line(
-            method="GET", path="/api/users", status=200, bytes_sent=1234,
-            duration_ms=5.3, client="127.0.0.1:5000",
+            method="GET",
+            path="/api/users",
+            status=200,
+            bytes_sent=1234,
+            duration_ms=5.3,
+            client="127.0.0.1:5000",
         )
         assert "GET" in line
         assert "/api/users" in line
 
     def test_pretty_contains_status(self):
         line = self._capture_pretty_line(
-            method="GET", path="/", status=404, bytes_sent=0,
-            duration_ms=1.0, client="c:80",
+            method="GET",
+            path="/",
+            status=404,
+            bytes_sent=0,
+            duration_ms=1.0,
+            client="c:80",
         )
         assert "404" in line
 
     def test_pretty_contains_ansi_color(self):
         """Pretty mode includes ANSI escape codes."""
         line = self._capture_pretty_line(
-            method="GET", path="/", status=200, bytes_sent=100,
-            duration_ms=1.0, client="c:80",
+            method="GET",
+            path="/",
+            status=200,
+            bytes_sent=100,
+            duration_ms=1.0,
+            client="c:80",
         )
         assert "\033[" in line  # Contains ANSI escape
 
     def test_pretty_human_bytes(self):
         line = self._capture_pretty_line(
-            method="GET", path="/", status=200, bytes_sent=7730,
-            duration_ms=1.0, client="c:80",
+            method="GET",
+            path="/",
+            status=200,
+            bytes_sent=7730,
+            duration_ms=1.0,
+            client="c:80",
         )
         assert "7.7kB" in line
 
