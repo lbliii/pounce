@@ -39,6 +39,8 @@ async def handle_websocket(
     client: tuple[str, int],
     server: tuple[str, int],
     client_str: str,
+    *,
+    worker_id: int | None = None,
 ) -> None:
     """Handle a WebSocket connection after HTTP/1.1 upgrade detection.
 
@@ -182,4 +184,4 @@ async def handle_websocket(
     if config.access_log:
         duration = elapsed_ms(request_start)
         target = request.target.decode("ascii", errors="replace")
-        access_log("WS", target, 101, 0, duration, client_str)
+        access_log("WS", target, 101, 0, duration, client_str, worker_id=worker_id)

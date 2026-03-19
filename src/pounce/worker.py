@@ -443,6 +443,7 @@ class Worker:
                         client,
                         server,
                         client_str,
+                        worker_id=self._worker_id,
                     )
                 except Exception:
                     self._logger.exception(
@@ -532,6 +533,7 @@ class Worker:
                                 client,
                                 server,
                                 client_str,
+                                worker_id=self._worker_id,
                             )
                             return True  # WS takes over
                         await self._handle_request(
@@ -881,6 +883,7 @@ class Worker:
             client_str,
             http_version=scope.get("http_version", "1.1"),
             request_id=request_id,
+            worker_id=self._worker_id,
         )
 
     async def _run_with_disconnect_monitor(

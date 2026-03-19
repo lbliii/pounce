@@ -23,6 +23,7 @@ import threading
 from dataclasses import replace
 from typing import cast
 
+import pounce.logging as pounce_logging
 from pounce._runtime import WorkerMode, detect_worker_mode, is_gil_enabled
 from pounce._types import ASGIApp
 from pounce.asgi.lifespan import run_lifespan
@@ -762,12 +763,43 @@ class Server:
         return []
 
     def _print_banner(self, effective_workers: int, mode: WorkerMode) -> None:
-        """Print the startup banner to stderr."""
+        """Print the startup banner to stderr.
+
+        In JSON mode, emits a single structured JSON log line.
+        In text/pretty mode, prints a human-friendly ASCII banner.
+        """
         scheme = "https" if self._config.ssl_certfile else "http"
         url = f"{scheme}://{self._config.host}:{self._config.port}"
 
         gil_status = "nogil" if not is_gil_enabled() else "GIL"
         mode_label = f"{mode}s" if effective_workers > 1 else "single"
+
+        if pounce_logging._resolved_format == "json":
+            import json as json_module
+            from datetime import UTC, datetime
+
+            banner: dict[str, object] = {
+                "ts": datetime.now(tz=UTC).isoformat(),
+                "level": "info",
+                "event": "startup",
+                "version": _get_version(),
+                "python": sys.version.split()[0],
+                "gil": gil_status,
+                "url": url,
+                "pid": os.getpid(),
+                "workers": effective_workers,
+                "worker_mode": mode_label,
+            }
+            if self._ssl_context is not None:
+                banner["tls"] = True
+            if self._config.http3_enabled:
+                banner["http3"] = True
+            if self._config.compression:
+                banner["compression"] = True
+            if self._config.root_path:
+                banner["root_path"] = self._config.root_path
+            sys.stderr.write(json_module.dumps(banner, default=str) + "\n")
+            return
 
         lines = [
             "",

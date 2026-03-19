@@ -195,9 +195,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--log-format",
-        default="text",
-        choices=["text", "json"],
-        help="Log output format (default: text)",
+        default="auto",
+        choices=["auto", "text", "json"],
+        help="Log output format: auto (pretty on TTY, JSON when piped), text, or json (default: auto)",
     )
     parser.add_argument(
         "--root-path",

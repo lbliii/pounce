@@ -400,6 +400,7 @@ class SyncWorker:
                             duration,
                             client_str,
                             http_version=request.http_version,
+                            worker_id=self._worker_id,
                         )
                         break
 
@@ -452,6 +453,7 @@ class SyncWorker:
                         client_str,
                         http_version=request.http_version,
                         request_id=request_id,
+                        worker_id=self._worker_id,
                     )
                     if close_after or at_limit:
                         break
@@ -560,6 +562,7 @@ class SyncWorker:
                     client_str,
                     http_version=request.http_version,
                     request_id=request_id,
+                    worker_id=self._worker_id,
                 )
 
                 if close_after or at_limit:
