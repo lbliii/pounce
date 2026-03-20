@@ -284,8 +284,9 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=10.0,
         help=(
-            "Seconds to wait for connections to drain on shutdown (default: 10). "
-            "Use a lower value (e.g. 2) for faster exit during development."
+            "Max seconds per worker (and per accept/async helper thread) during shutdown; "
+            "worker joins run in parallel (default: 10). "
+            "Lower values (e.g. 2) exit faster during development."
         ),
     )
 

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Graceful shutdown** — `shutdown_timeout` is applied per worker (TCP and H3 worker threads/processes join in parallel) instead of a single monotonic deadline shared across all joins. AcceptDistributor and AsyncPool each use up to `shutdown_timeout` independently. Full shutdown calls `start_draining()` on thread-mode workers so new connections receive 503 while draining. Thread workers that outlive the join are logged accurately (cannot SIGTERM a thread); process workers still get SIGTERM/SIGKILL.
+- **Worker executor teardown** — Per-worker `ThreadPoolExecutor.shutdown()` runs via `run_in_executor` on a dedicated one-thread pool (not the loop default executor being torn down), wrapped in `asyncio.wait_for` so the event loop is not blocked indefinitely by stuck sync handlers.
+
 ---
 
 ## [0.3.1] — 2026-03-19

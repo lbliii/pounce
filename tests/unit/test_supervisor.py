@@ -11,7 +11,7 @@ import pytest
 from pounce._errors import SupervisorError
 from pounce._types import Receive, Scope, Send
 from pounce.config import ServerConfig
-from pounce.supervisor import Supervisor, _WorkerHandle
+from pounce.supervisor import Supervisor, _WorkerHandle, _parallel_join_targets
 
 
 def _wait_for_handles(
@@ -315,3 +315,25 @@ class TestWorkerHandle:
         handle.restart_count += 1
         assert handle.restart_count == 1
         assert len(handle.restarts) == 1
+
+
+class TestParallelJoinTargets:
+    """``_parallel_join_targets`` joins N threads with independent timeouts."""
+
+    def test_parallel_join_finishes_in_parallel_wall_time(self) -> None:
+        """N short sleeps should complete in ~one interval, not N * interval."""
+        results: list[int] = []
+
+        def work(i: int) -> None:
+            time.sleep(0.06)
+            results.append(i)
+
+        threads = [threading.Thread(target=work, args=(i,)) for i in range(5)]
+        for t in threads:
+            t.start()
+        start = time.monotonic()
+        _parallel_join_targets(threads, 5.0)
+        elapsed = time.monotonic() - start
+        assert len(results) == 5
+        assert all(not t.is_alive() for t in threads)
+        assert elapsed < 0.35
