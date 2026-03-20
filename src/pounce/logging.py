@@ -116,9 +116,14 @@ def configure_logging(config: ServerConfig) -> None:
     global _json_logging, _resolved_format
     level = getattr(logging, config.log_level.upper(), logging.INFO)
 
-    # Resolve "auto" format
+    # Resolve "auto" format — pretty on an interactive terminal, else JSON.
+    # Some IDEs attach stdout as a TTY but not stderr; check both.
     fmt = config.log_format.lower()
-    _resolved_format = ("pretty" if sys.stderr.isatty() else "json") if fmt == "auto" else fmt
+    if fmt == "auto":
+        interactive = sys.stderr.isatty() or sys.stdout.isatty()
+        _resolved_format = "pretty" if interactive else "json"
+    else:
+        _resolved_format = fmt
     _json_logging = _resolved_format == "json"
 
     formatter: logging.Formatter

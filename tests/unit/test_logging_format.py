@@ -87,10 +87,21 @@ class TestAutoFormatDetection:
     def test_auto_resolves_to_json_when_piped(self):
         import pounce.logging as pounce_logging
 
-        with patch("sys.stderr") as mock_stderr:
+        with patch("sys.stderr") as mock_stderr, patch("sys.stdout") as mock_stdout:
             mock_stderr.isatty.return_value = False
+            mock_stdout.isatty.return_value = False
             configure_logging(ServerConfig(log_format="auto"))
         assert pounce_logging._resolved_format == "json"
+
+    def test_auto_resolves_to_pretty_when_stdout_tty_only(self):
+        """IDEs may report stderr as non-TTY but stdout as TTY."""
+        import pounce.logging as pounce_logging
+
+        with patch("sys.stderr") as mock_stderr, patch("sys.stdout") as mock_stdout:
+            mock_stderr.isatty.return_value = False
+            mock_stdout.isatty.return_value = True
+            configure_logging(ServerConfig(log_format="auto"))
+        assert pounce_logging._resolved_format == "pretty"
 
     def test_explicit_text_stays_text(self):
         import pounce.logging as pounce_logging

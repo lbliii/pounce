@@ -11,7 +11,7 @@ import pytest
 from pounce._errors import SupervisorError
 from pounce._types import Receive, Scope, Send
 from pounce.config import ServerConfig
-from pounce.supervisor import Supervisor, _WorkerHandle, _parallel_join_targets
+from pounce.supervisor import Supervisor, _parallel_join_targets, _WorkerHandle
 
 
 def _wait_for_handles(
