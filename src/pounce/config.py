@@ -55,6 +55,9 @@ class ServerConfig:
     request_timeout: float = 30.0
     header_timeout: float = 10.0
     startup_timeout: float = 30.0
+    # Graceful shutdown: max seconds per worker join (parallel in multi-worker),
+    # and per auxiliary thread (AcceptDistributor, AsyncPool). Not a single shared
+    # deadline split across all workers.
     shutdown_timeout: float = 10.0
 
     # Limits

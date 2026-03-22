@@ -297,20 +297,42 @@ class Worker:
             except Exception:
                 self._logger.debug("Worker shutdown hook raised (expected for most apps)")
 
-            executor.shutdown(wait=True, cancel_futures=True)
+            # Run executor shutdown on a dedicated pool — ``asyncio.to_thread`` /
+            # ``run_in_executor(None, ...)`` would use this worker's default executor
+            # (the same ``ThreadPoolExecutor`` we are closing).
+            def _shutdown_sync() -> None:
+                executor.shutdown(wait=True, cancel_futures=True)
+
+            loop = asyncio.get_running_loop()
+            shutdown_helper = ThreadPoolExecutor(max_workers=1)
+            try:
+                await asyncio.wait_for(
+                    loop.run_in_executor(shutdown_helper, _shutdown_sync),
+                    timeout=self._config.shutdown_timeout,
+                )
+            except TimeoutError:
+                self._logger.warning(
+                    "Worker %d: executor thread pool did not shut down within %.1fs — "
+                    "aborting wait (stuck sync handlers may keep non-daemon threads alive)",
+                    self._worker_id,
+                    self._config.shutdown_timeout,
+                )
+                executor.shutdown(wait=False, cancel_futures=True)
+            finally:
+                shutdown_helper.shutdown(wait=False)
             self._logger.info("Worker %d stopped", self._worker_id)
 
     async def _bridge_shutdown(self, ext_event: threading.Event) -> None:
         """Poll an external ``threading.Event`` and set the async shutdown.
 
-        Runs as a background task inside the worker's event loop.  Checks
-        the threading event every 0.25 s — fast enough for responsive
-        shutdown without measurable overhead.
+        Runs as a background task inside the worker's event loop.  Polls
+        the threading event every 50 ms for responsive shutdown without
+        busy-waiting.
 
         """
         loop = asyncio.get_running_loop()
         while not ext_event.is_set():
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.05)
         # Trigger the asyncio-side shutdown
         if self._async_shutdown is not None:
             loop.call_soon(self._async_shutdown.set)

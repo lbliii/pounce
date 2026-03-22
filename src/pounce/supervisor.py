@@ -16,6 +16,7 @@ Responsibilities:
 
 """
 
+import concurrent.futures
 import contextlib
 import logging
 import multiprocessing
@@ -44,6 +45,33 @@ from pounce.sync_worker import SyncWorker
 from pounce.worker import Worker
 
 logger = logging.getLogger("pounce.supervisor")
+
+
+def _parallel_join_targets(
+    targets: list[threading.Thread | multiprocessing.Process],
+    timeout_per: float,
+) -> None:
+    """Join each worker thread/process in parallel with its own timeout.
+
+    ``shutdown_timeout`` is applied **per worker** (not split across N workers).
+    Wall-clock time is roughly ``timeout_per`` when all workers finish together,
+    instead of one shared deadline that starved later workers in the join order.
+
+    Args:
+        targets: Threads or processes to ``join``.
+        timeout_per: Maximum seconds to wait for each target.
+
+    """
+
+    if not targets:
+        return
+
+    def join_one(target: threading.Thread | multiprocessing.Process) -> None:
+        target.join(timeout=timeout_per)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(targets)) as pool:
+        list(pool.map(join_one, targets))
+
 
 # Maximum worker restarts within `_RESTART_WINDOW` seconds before giving up
 _MAX_RESTARTS = 5
@@ -266,6 +294,16 @@ class Supervisor:
         """Signal all workers to stop (non-blocking)."""
         self._shutdown_event.set()
 
+    def _signal_workers_start_draining(self) -> None:
+        """Mark async workers as draining (503 new connections) during shutdown.
+
+        Thread-mode workers expose a ``Worker`` / ``SyncWorker`` instance; process
+        workers do not (``handle.worker`` is None).
+        """
+        for handle in self._handles:
+            if handle.worker is not None:
+                handle.worker.start_draining()
+
     def restart_workers(self) -> None:
         """Gracefully restart all workers (for dev reload).
 
@@ -308,29 +346,36 @@ class Supervisor:
 
         # Signal all workers to stop
         self._shutdown_event.set()
+        self._signal_workers_start_draining()
 
-        # Join with timeout (AcceptDistributor, AsyncPool, TCP and H3 workers)
-        deadline = time.monotonic() + self._config.shutdown_timeout
+        # Join with timeout (AcceptDistributor, AsyncPool, TCP and H3 workers).
+        # ``shutdown_timeout`` is per auxiliary thread and per worker (parallel joins).
+        per = self._config.shutdown_timeout
         if self._accept_distributor_handle is not None:
-            remaining = max(0.1, deadline - time.monotonic())
-            self._accept_distributor_handle.join(timeout=remaining)
+            self._accept_distributor_handle.join(timeout=per)
             self._accept_distributor_handle = None
         if self._async_pool_handle is not None:
-            remaining = max(0.1, deadline - time.monotonic())
-            self._async_pool_handle.join(timeout=remaining)
+            self._async_pool_handle.join(timeout=per)
             if self._async_pool_handle.is_alive():
                 logger.warning(
                     "AsyncPool thread still alive after shutdown timeout during restart."
                 )
             self._async_pool_handle = None
+        if self._handles:
+            _parallel_join_targets([h.target for h in self._handles], per)
         for handle in self._handles:
-            remaining = max(0.1, deadline - time.monotonic())
-            handle.target.join(timeout=remaining)
             if handle.target.is_alive():
-                self._force_stop(handle)
+                self._force_stop(handle, per)
+        if self._h3_handles:
+            _parallel_join_targets([h.target for h in self._h3_handles], per)
         for handle in self._h3_handles:
-            remaining = max(0.1, deadline - time.monotonic())
-            handle.target.join(timeout=remaining)
+            if handle.target.is_alive():
+                logger.warning(
+                    "H3 worker %d thread did not finish join within %.1fs — "
+                    "OS threads cannot be killed; remaining work may run until process exit",
+                    handle.worker_id,
+                    per,
+                )
 
         # Thread mode: cannot force-kill threads. If any old worker still alive,
         # do not spawn replacements — would cause split-brain (old + new serving).
@@ -479,13 +524,13 @@ class Supervisor:
                     reload_timeout,
                 )
 
-        # Join old workers with remaining timeout
+        # Join old workers — ``shutdown_timeout`` per worker (parallel joins).
+        join_per = self._config.shutdown_timeout
+        if old_handles:
+            _parallel_join_targets([h.target for h in old_handles], join_per)
         for handle in old_handles:
-            remaining = max(0.1, deadline - time.monotonic())
-            handle.target.join(timeout=remaining)
             if handle.target.is_alive():
-                logger.warning("Worker %d still alive after join timeout", handle.worker_id)
-                self._force_stop(handle)
+                self._force_stop(handle, join_per)
 
         # Replace handles with new generation
         self._handles = new_handles
@@ -727,8 +772,8 @@ class Supervisor:
         """Wait for all workers to finish draining connections, then clean up.
 
         Signals shutdown to all workers, waits for them to finish processing
-        active connections (up to shutdown_timeout), then force-terminates
-        any workers that haven't stopped.
+        active connections (see ``shutdown_timeout`` on ``ServerConfig``), then
+        force-terminates **process** workers that haven't stopped.
 
         Workers will reject new connections but finish existing ones for
         clean shutdown (important for Kubernetes graceful termination).
@@ -739,62 +784,65 @@ class Supervisor:
 
         # Signal shutdown (may already be set)
         self._shutdown_event.set()
+        self._signal_workers_start_draining()
 
-        # Join workers with timeout. Workers will stop accepting new connections
-        # immediately and finish processing active connections before exiting.
-        deadline = time.monotonic() + self._config.shutdown_timeout
+        # ``shutdown_timeout`` is per auxiliary thread and per worker (parallel joins).
+        per = self._config.shutdown_timeout
         if self._accept_distributor_handle is not None:
-            remaining = max(0.1, deadline - time.monotonic())
-            self._accept_distributor_handle.join(timeout=remaining)
+            self._accept_distributor_handle.join(timeout=per)
             if self._accept_distributor_handle.is_alive():
                 logger.debug("AcceptDistributor still draining (will exit with process)")
         if self._async_pool_handle is not None:
-            remaining = max(0.1, deadline - time.monotonic())
-            self._async_pool_handle.join(timeout=remaining)
+            self._async_pool_handle.join(timeout=per)
             if self._async_pool_handle.is_alive():
                 logger.debug("AsyncPool still draining (will exit with process)")
 
+        if self._handles:
+            _parallel_join_targets([h.target for h in self._handles], per)
         for handle in self._handles:
-            remaining = max(0.1, deadline - time.monotonic())
-            logger.debug(
-                "Waiting for worker %d to drain (timeout: %.1fs)",
-                handle.worker_id,
-                remaining,
-            )
-            handle.target.join(timeout=remaining)
-
             if handle.target.is_alive():
-                logger.warning(
-                    "Worker %d did not stop within shutdown_timeout (%.1fs) — force terminating",
-                    handle.worker_id,
-                    self._config.shutdown_timeout,
-                )
-                self._force_stop(handle)
+                self._force_stop(handle, per)
             else:
                 logger.debug("Worker %d stopped cleanly", handle.worker_id)
 
+        if self._h3_handles:
+            _parallel_join_targets([h.target for h in self._h3_handles], per)
         for handle in self._h3_handles:
-            remaining = max(0.1, deadline - time.monotonic())
-            handle.target.join(timeout=remaining)
             if handle.target.is_alive():
                 logger.warning(
-                    "H3 worker %d did not stop within shutdown_timeout — forcing",
+                    "H3 worker %d thread did not finish join within %.1fs — "
+                    "OS threads cannot be killed; remaining work may run until process exit",
                     handle.worker_id,
+                    per,
                 )
             else:
                 logger.debug("H3 worker %d stopped cleanly", handle.worker_id)
 
         logger.info("All workers stopped")
 
-    def _force_stop(self, handle: _WorkerHandle) -> None:
-        """Force-terminate a worker that did not drain in time."""
+    def _force_stop(self, handle: _WorkerHandle, join_timeout: float) -> None:
+        """Force-terminate a worker that did not drain in time.
+
+        Process workers receive SIGTERM then SIGKILL. Thread workers cannot be
+        terminated from Python; they are daemon threads and may outlive this join.
+        """
         if isinstance(handle.target, multiprocessing.Process):
+            logger.warning(
+                "Worker %d (process) did not exit after %.1fs — sending SIGTERM",
+                handle.worker_id,
+                join_timeout,
+            )
             handle.target.terminate()
             handle.target.join(timeout=2.0)
             if handle.target.is_alive():
                 handle.target.kill()
-        # Threads cannot be forcibly killed — they will exit when the
-        # process exits since they are daemon threads.
+        else:
+            logger.warning(
+                "Worker %d (thread) did not exit after %.1fs join — cannot force-kill; "
+                "daemon thread may still run until process exit",
+                handle.worker_id,
+                join_timeout,
+            )
 
     # ------------------------------------------------------------------
     # Signals
