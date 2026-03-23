@@ -119,7 +119,7 @@ A single HTTP request flows through:
 flowchart LR
     A[Socket Accept] --> B[TLS Unwrap]
     B --> C{Protocol\nDetection}
-    C -->|h1| D1[h11 / httptools]
+    C -->|h1| D1[h11 / fast parser]
     C -->|h2| D2[h2]
     D1 --> E[ASGI Scope\nConstruction]
     D2 --> E
@@ -146,9 +146,10 @@ The bridge is per-request — created and destroyed within a single connection h
 | `worker.py` | Worker | asyncio loop, request handling |
 | `config.py` | Shared | Frozen `ServerConfig` |
 | `protocols/h1.py` | Protocol | HTTP/1.1 via h11 |
-| `protocols/h1_httptools.py` | Protocol | HTTP/1.1 via httptools |
 | `protocols/h2.py` | Protocol | HTTP/2 via h2 |
+| `protocols/h3.py` | Protocol | HTTP/3 via bengal-zoomies |
 | `protocols/ws.py` | Protocol | WebSocket via wsproto |
+| `_fast_h1.py` | Protocol | Fast H1 parser (~3 µs/req) |
 | `asgi/bridge.py` | Bridge | HTTP ASGI scope/receive/send |
 | `asgi/h2_bridge.py` | Bridge | HTTP/2 ASGI bridge |
 | `asgi/ws_bridge.py` | Bridge | WebSocket ASGI bridge |

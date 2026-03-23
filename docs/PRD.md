@@ -1,8 +1,8 @@
 # Product Requirements Document: Pounce
 
-**Version**: 0.3.0
-**Date**: 2026-03-17
-**Status**: Phase 5b implemented + multi-worker sync performance
+**Version**: 0.4.0
+**Date**: 2026-03-23
+**Status**: All four protocols (H1/H2/H3/WS), free-threading workers, built-in observability and deployment features
 
 ---
 
@@ -12,7 +12,7 @@ Pounce is a pure-Python ASGI server built for Python 3.14t's free-threading mode
 real OS threads sharing a single interpreter for parallel request handling — no fork model,
 no GIL contention, no per-process memory duplication.
 
-Pounce targets Python 3.14+ and is designed as the production server for the Bengal
+Pounce targets Python 3.14+ and is designed as the server for the Bengal
 ecosystem, with first-class support for chirp applications. It leverages Python 3.14's
 new stdlib features — `compression.zstd` for HTTP content encoding, `concurrent.interpreters`
 for future isolation models — alongside free-threading for a server that could only exist
@@ -79,7 +79,7 @@ without contention. But no ASGI server is built to exploit this:
 
 ### 3.1 Primary: Chirp Application Developers
 
-Developers building chirp applications who need a production server. Today they run
+Developers building chirp applications who need a server. Today they run
 `uvicorn myapp:app`. With pounce, they run `pounce myapp:app` and get thread-based
 parallelism on 3.14t with zero configuration.
 
@@ -259,18 +259,18 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 
 | Extra | Dependency | Purpose |
 |-------|------------|---------|
-| `pounce[fast]` | httptools | C-accelerated HTTP/1.1 parsing |
 | `pounce[h2]` | h2 | HTTP/2 protocol support |
 | `pounce[ws]` | wsproto | WebSocket protocol support |
 | `pounce[tls]` | truststore | System certificate store for TLS |
-| `pounce[full]` | All of the above (except fast) | Full protocol support |
+| `pounce[h3]` | bengal-zoomies | HTTP/3 (QUIC/UDP) support |
+| `pounce[full]` | All of the above | Full protocol support |
 
 ### Excluded
 
 | Dependency | Reason |
 |------------|--------|
 | uvloop | Replaces asyncio's event loop with C extension; pounce proves pure Python is enough |
-| httptools | Now available as `pounce[fast]` optional extra; h11 remains the pure-Python default |
+| httptools | Replaced by built-in fast H1 parser (~3 µs/req); no C extension needed |
 | anyio | Server doesn't need backend-agnostic async; asyncio is sufficient |
 | click | CLI uses argparse; no additional dependency needed |
 | brotli / brotlicffi | C extension that re-enables the GIL on Python 3.14t, defeating free-threading |
@@ -325,9 +325,9 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 - [x] POST request body reading fixed (concurrent body reader, xfail tests removed)
 - [x] Benchmark suite with reproducible results (wrk/hey runner, comparison mode)
 - [x] Profiling infrastructure (py-spy flame graphs, tracemalloc memory)
-- [x] Optional httptools backend (`pounce[fast]`) for C-accelerated parsing
+- [x] Built-in fast H1 parser (~3 µs/req) replacing httptools dependency
 - [x] Hot-path optimizations: bodyless fast-path, write coalescing, pre-computed constants
-- [x] 426 tests passing (unit + integration + ASGI compliance + httptools)
+- [x] 426 tests passing (unit + integration + ASGI compliance)
 
 ---
 
@@ -335,7 +335,7 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 
 | Risk | Impact | Likelihood | Mitigation |
 |------|--------|------------|------------|
-| h11 too slow for production throughput | Blocks performance targets | Medium | Benchmark early; httptools as optional accelerator |
+| h11 too slow for throughput targets | Blocks performance targets | **Resolved** | Built-in fast H1 parser (~3 µs/req) for sync worker hot path; h11 used for async path |
 | asyncio event loops not truly parallel on 3.14t | Blocks core value proposition | Low | Test early on 3.14t nightlies; asyncio is documented as nogil-ready |
 | Subtle threading bugs without GIL safety net | Data corruption, crashes | Medium | Immutable by default; extensive stress testing under ThreadSanitizer |
 | SO_REUSEPORT not available on macOS | Uneven load distribution | Low | Fallback to single-accept with round-robin dispatch |
@@ -349,16 +349,22 @@ edge, small VMs). Thread-based workers share memory instead of duplicating it pe
 
 Pounce deliberately does not:
 
-- **Include application logic.** No routing, no middleware, no templates. That's chirp.
+- **Include application logic.** No routing, no templates. That's chirp. (Pounce does
+  include server-level middleware for CORS, auth, and request transformation — but routing
+  and business logic belong in the framework.)
 - **Include a WSGI adapter.** ASGI only. Use Gunicorn for WSGI.
-- **Include HTTP/3 in initial phases.** QUIC requires UDP socket handling that's
-  architecturally different. WebTransport (HTTP/3 based) has ~82% browser coverage as of
-  2026 and is growing — this is a Phase 5 exploration, not a hard exclusion.
-- **Include static file serving.** The ASGI app handles static files (or use a CDN).
 - **Include a process manager.** Pounce manages its own workers but doesn't replace systemd,
   supervisor, or container orchestration.
 - **Vendor h11.** Dependencies are dependencies, not vendored copies.
 - **Support Python < 3.14.** Free-threading is the reason pounce exists.
+
+### Resolved (previously out of scope, now shipped)
+
+- **~~HTTP/3~~** — Implemented via bengal-zoomies (pure Python QUIC). Separate H3 worker
+  with datagram protocol. Requires TLS.
+- **~~Static file serving~~** — Built-in with zero-copy sendfile(), ETags, range requests,
+  and pre-compressed file serving.
+- **~~Middleware~~** — Server-level ASGI3 middleware stack with pre/post-request hooks.
 
 ---
 
@@ -377,14 +383,14 @@ Pounce deliberately does not:
    `app.run()` currently starts a dev server. Should it detect pounce and use it automatically?
    Or should `app.run()` always be for development, with `pounce myapp:app` for production?
 
-4. **What metrics should be built-in?** Granian includes Prometheus metrics. Pounce could
-   expose connection count, request count, and latency histogram via an optional endpoint or
-   callback. Or leave it entirely to middleware in the ASGI app.
+4. **~~What metrics should be built-in?~~** **Resolved: Prometheus metrics implemented.**
+   Built-in `/metrics` endpoint with request count, duration histograms, connection gauges,
+   and worker stats. Thread-safe counters, Prometheus text format export.
 
-5. **~~Should pounce support hot reload for production?~~** **Resolved: dev reload implemented
-   in Phase 3.** `--reload` enables a poll-based file watcher that triggers graceful worker
-   restarts on source changes. This is dev-mode only. Production hot reload (zero-downtime
-   deploys with new workers draining old ones) remains a future consideration.
+5. **~~Should pounce support hot reload for production?~~** **Resolved: both dev and
+   production reload implemented.** `--reload` enables file watcher for development.
+   `SIGHUP` triggers graceful rolling restart for zero-downtime production deploys
+   (new worker generation spawned, old workers drained).
 
 6. **Should pounce explore `concurrent.interpreters` as a third worker model?**
    Subinterpreters (PEP 734, new in 3.14) offer isolation without fork overhead — no memory

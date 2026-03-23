@@ -10,10 +10,10 @@ Pounce provides a comprehensive feature set for modern web applications, with pa
 
 ## Core Protocol Support
 
-- **HTTP/1.1** — Pure Python (h11) or C-accelerated (httptools)
+- **HTTP/1.1** — Pure Python (h11) + fast built-in parser (~3 µs/req)
 - **HTTP/2** — Stream multiplexing, server push, priority signals
 - **WebSocket** — Full RFC 6455 support with compression
-- **HTTP/3** — Planned for Q2 2026
+- **HTTP/3** — QUIC/UDP via bengal-zoomies (requires TLS)
 
 [Learn more about protocols →](/docs/protocols/)
 

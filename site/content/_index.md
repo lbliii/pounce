@@ -26,7 +26,7 @@ show_recent_posts: false
 
 ## Python ASGI Server for Free-Threaded Python
 
-**Production-ready. Streaming-first. Free-threading aware.**
+**Streaming-first. Free-threading native. Batteries included.**
 
 Pounce is a pure-Python ASGI server designed for Python 3.14+ and optimized for
 Python 3.14t. Instead of relying solely on fork-based worker models, Pounce can run

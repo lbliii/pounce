@@ -39,7 +39,7 @@ pounce myapp:app --host 0.0.0.0 --port 8000 --workers 4 --reload
 | `--no-access-log` | `--no-access-log` | Same |
 | `--factory` | *(automatic)* | Use `myapp:create_app()` syntax |
 | `--http h11` | *(default)* | h11 is the default backend |
-| `--http httptools` | `pounce[fast]` | Install extra, auto-detected |
+| `--http httptools` | *(not needed)* | Built-in fast parser handles this |
 | `--ws websockets` | `pounce[ws]` | Uses wsproto instead |
 | `--h11-max-incomplete-event-size` | `--h11-max-incomplete-event-size` | Same (h11 backend only) |
 
