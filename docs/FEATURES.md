@@ -5,8 +5,8 @@ Complete feature set for pounce — the free-threading-native ASGI server for Py
 ## Core Protocol Support
 
 ### HTTP/1.1
-- ✅ Pure Python parser (h11) — zero dependencies
-- ✅ C-accelerated parser (httptools) — optional, 2-3x faster
+- ✅ Pure Python parser (h11)
+- ✅ Fast built-in parser (~3 µs/req, sync worker hot path)
 - ✅ Keep-alive connection pooling
 - ✅ Chunked transfer encoding
 - ✅ Request/response streaming
@@ -28,21 +28,23 @@ Complete feature set for pounce — the free-threading-native ASGI server for Py
 - ✅ RFC 6455 compliant (wsproto)
 - ✅ WebSocket over HTTP/1.1
 - ✅ WebSocket over HTTP/2 (RFC 8441)
-- ✅ **Compression** (permessage-deflate) — Phase 5b
+- ✅ **Compression** (permessage-deflate, RFC 7692)
 - ✅ Per-message deflate negotiation
 - ✅ Configurable compression parameters
 
 **Docs:** [WebSocket Compression](./features/websocket-compression.md)
 
-### HTTP/3 (Planned)
-- 🔄 **Phase 5c** (Q2 2026) — QUIC/UDP transport
-- 🔄 bengal-zoomies for pure-Python QUIC
-- 🔄 0-RTT connection resumption
-- 🔄 Alt-Svc discovery
+### HTTP/3
+- ✅ QUIC/UDP transport via bengal-zoomies (pure Python)
+- ✅ Separate datagram protocol worker
+- ✅ Requires TLS (ssl_certfile + ssl_keyfile)
+- ✅ Configurable idle timeout (`http3_idle_timeout`)
+- 🔄 0-RTT connection resumption (planned)
+- 🔄 Connection migration (planned)
 
 **Docs:** [HTTP/3 Roadmap](./design/http3-roadmap.md)
 
-## Phase 5b Features (Production-Ready)
+## Server Features
 
 ### 1. Static File Serving
 - ✅ Zero-copy sendfile() on supported platforms
@@ -181,7 +183,7 @@ terminationGracePeriodSeconds: 40  # > shutdown_timeout + buffer
 **Docs:** [Graceful Shutdown](./deployment/graceful-shutdown.md)
 
 ### 8. Structured Lifecycle Event Logging
-- ✅ Rich structured logging for production debugging
+- ✅ Rich structured logging for debugging and monitoring
 - ✅ JSON or text format output
 - ✅ Correlation IDs (connection_id, worker_id)
 - ✅ Slow request detection and logging
@@ -245,6 +247,68 @@ ServerConfig(
 ```
 
 **Docs:** [WebSocket Compression](./features/websocket-compression.md)
+
+### 11. Rate Limiting
+- ✅ Per-IP token bucket rate limiting
+- ✅ Configurable requests/second and burst size
+- ✅ Returns 429 Too Many Requests when exceeded
+- ✅ Thread-safe for free-threading
+
+**Configuration:**
+```python
+ServerConfig(
+    rate_limit_enabled=True,
+    rate_limit_requests_per_second=100,
+    rate_limit_burst=200,
+)
+```
+
+**Docs:** [Rate Limiting](./deployment/rate-limiting.md)
+
+### 12. Request Queueing
+- ✅ Bounded request queue for overload protection
+- ✅ Returns 503 Service Unavailable when queue is full
+- ✅ Configurable queue depth
+
+**Configuration:**
+```python
+ServerConfig(
+    request_queue_enabled=True,
+    request_queue_max_depth=1000,
+)
+```
+
+**Docs:** [Request Queueing](./deployment/request-queueing.md)
+
+### 13. Sentry Integration
+- ✅ Error tracking and exception capture
+- ✅ Performance monitoring and profiling
+- ✅ Request context capture
+- ✅ Graceful degradation if sentry-sdk not installed
+
+**Configuration:**
+```python
+ServerConfig(
+    sentry_dsn="https://...",
+    sentry_environment="staging",
+    sentry_traces_sample_rate=0.1,
+)
+```
+
+**Docs:** [Sentry Integration](./deployment/sentry.md)
+
+### 14. Proxy Header Support
+- ✅ Trusted reverse proxy support
+- ✅ X-Forwarded-For/Proto/Host handling
+- ✅ RFC 7239 `Forwarded` header support
+- ✅ Spoofing prevention via trusted host list
+
+**Configuration:**
+```python
+ServerConfig(
+    trusted_hosts=["10.0.0.0/8"],
+)
+```
 
 ## Built-in Observability
 
@@ -346,7 +410,7 @@ ServerConfig(
 )
 ```
 
-### Production Safety
+### Safety Defaults
 - ✅ Sensitive data redaction (error pages)
 - ✅ Debug mode disabled by default
 - ✅ Header size limits
@@ -425,7 +489,6 @@ ServerConfig(
 ### Efficient Parsing
 - ✅ Built-in fast H1 parser (~3 µs/req, sync worker hot path)
 - ✅ h11 pure Python parser (async worker)
-- ✅ httptools C-accelerated parser (optional, 2-3x faster)
 - ✅ h2 for HTTP/2 HPACK compression
 
 ### Backpressure
@@ -489,7 +552,7 @@ ServerConfig(
 | **HTTP/2** | ✅ Yes | ❌ No | ✅ Yes | ✅ Yes |
 | **WebSocket** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes |
 | **WS Compression** | ✅ Built-in | ❌ No | ❌ No | ❌ No |
-| **HTTP/3** | 🔄 Phase 5c | ❌ No | ✅ Yes | ❌ No |
+| **HTTP/3** | ✅ Yes | ❌ No | ✅ Yes | ❌ No |
 | **Static files** | ✅ Built-in | ❌ No | ❌ No | ❌ No |
 | **Middleware** | ✅ Built-in | ❌ No | ❌ No | ❌ No |
 | **OpenTelemetry** | ✅ Native | ⚠️ Via lib | ⚠️ Via lib | ❌ No |
@@ -498,6 +561,9 @@ ServerConfig(
 | **Dev error pages** | ✅ Rich | ❌ No | ❌ No | ❌ No |
 | **Pure Python** | ✅ Yes | ✅ Yes | ✅ Yes | ❌ Rust core |
 | **zstd compression** | ✅ Stdlib | ❌ No | ❌ No | ❌ No |
+| **Rate limiting** | ✅ Built-in | ❌ No | ❌ No | ❌ No |
+| **Request queueing** | ✅ Built-in | ❌ No | ❌ No | ❌ No |
+| **Sentry** | ✅ Native | ❌ No | ❌ No | ❌ No |
 
 ## Ecosystem Integration
 
@@ -523,18 +589,17 @@ ServerConfig(
 
 ## Roadmap
 
-### Phase 5b (Current — COMPLETE)
-- ✅ All 10 features implemented and tested
+### Implemented
+- ✅ HTTP/1.1, HTTP/2, HTTP/3, WebSocket (all four protocols)
+- ✅ Free-threading worker model with GIL fallback
+- ✅ Static files, middleware, compression, rate limiting, request queueing
+- ✅ OpenTelemetry, Prometheus, Sentry, lifecycle logging
+- ✅ Graceful shutdown, graceful reload, health checks
 
-### Phase 5c (Q2 2026)
-- 🔄 HTTP/3 (QUIC) support
-- 🔄 Advanced stream prioritization
-- 🔄 Connection migration
-
-### Phase 5d (Future)
-- 🔄 Custom QUIC congestion control (BBR)
-- 🔄 Advanced observability dashboards
-- 🔄 Performance optimizations
+### Planned
+- 🔄 HTTP/3 0-RTT connection resumption
+- 🔄 HTTP/3 connection migration
+- 🔄 `concurrent.interpreters` as third worker model (PEP 734)
 
 ## Documentation
 
@@ -550,7 +615,7 @@ ServerConfig(
 - ✅ **900+ tests** covering all features
 - ✅ **Integration tests** for multi-worker scenarios
 - ✅ **ASGI compliance tests** for spec conformance
-- ✅ **46 tests skipped** for optional dependencies (httptools, h2, wsproto)
+- ✅ **46 tests skipped** for optional dependencies (h2, wsproto)
 
 **Run tests:**
 ```bash
@@ -569,4 +634,4 @@ pounce is part of the Bengal ecosystem. See [CONTRIBUTING.md](../CONTRIBUTING.md
 
 ---
 
-**Built with ❤️ for Python 3.14t free-threading.**
+**Built for Python 3.14t free-threading.**

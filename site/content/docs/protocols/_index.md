@@ -6,7 +6,7 @@ weight: 30
 lang: en
 type: doc
 tags: [protocols, http, websocket]
-keywords: [http, http2, websocket, h11, httptools, h2, wsproto]
+keywords: [http, http2, http3, websocket, h11, h2, wsproto, quic]
 category: explanation
 icon: globe
 
@@ -23,7 +23,7 @@ Pounce supports multiple protocols through a modular handler system. The core sh
 :::{card} HTTP/1.1
 :icon: arrow-right
 :link: ./http1
-:description: Default protocol — h11 (pure Python) or httptools (C-accelerated)
+:description: Default protocol — h11 (pure Python) + fast built-in parser (~3 µs/req)
 The foundation of Pounce's request handling.
 :::{/card}
 

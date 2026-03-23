@@ -1,48 +1,51 @@
 ---
 title: HTTP/1.1
-description: HTTP/1.1 protocol handling via h11 or httptools
+description: HTTP/1.1 protocol handling via h11 and built-in fast parser
 draft: false
 weight: 10
 lang: en
 type: doc
-tags: [http, h11, httptools, protocol]
-keywords: [http, http1, h11, httptools, keep-alive, chunked]
+tags: [http, h11, protocol]
+keywords: [http, http1, h11, keep-alive, chunked]
 category: reference
 ---
 
 ## Overview
 
-HTTP/1.1 is Pounce's default and only required protocol. Two backends are available:
+HTTP/1.1 is Pounce's default and only required protocol. Two parsers are used depending on
+the worker mode:
 
-| Backend | Type | Install | Best For |
-|---------|------|---------|----------|
-| h11 | Pure Python | Built-in | Debugging, portability |
-| httptools | C extension | `pounce[fast]` | Maximum throughput |
+| Parser | Type | Worker | Speed |
+|--------|------|--------|-------|
+| h11 | Pure Python | Async workers | ~22 µs/req |
+| Built-in fast parser | Pure Python | Sync workers | ~3 µs/req |
 
-Pounce auto-detects httptools at import time. If installed, it's used automatically.
+The sync worker hot path automatically uses the fast built-in parser (`_fast_h1.py`) for
+simple request-response handling. Complex requests (chunked bodies, trailer headers) fall
+through to h11.
 
 ## h11 Backend
 
-The default backend. Pure Python, no compilation needed:
+The async worker parser. Pure Python, no compilation needed:
 
 ```python
 import pounce
 
-# Uses h11 by default
 pounce.run("myapp:app")
 ```
 
 h11 is a state-machine-based HTTP/1.1 parser. It's well-tested, handles edge cases correctly, and is easy to debug.
 
-## httptools Backend
+## Fast Built-in Parser
 
-For higher throughput, install the httptools extra:
+The sync worker hot path uses a custom parser that provides ~3 µs/req parsing with full
+safety checks:
 
-```bash
-uv add "bengal-pounce[fast]"
-```
-
-httptools wraps the Node.js HTTP parser (llhttp) in a Python C extension. It's significantly faster for parsing but adds a compiled dependency.
+- Method validation (rejects unknown methods)
+- Header size limits (16 KB, prevents exhaustion)
+- Null byte and control character injection detection
+- Duplicate Content-Length detection (request smuggling prevention)
+- Content-Length + Transfer-Encoding conflict detection
 
 ## Keep-Alive
 

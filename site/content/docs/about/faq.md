@@ -24,9 +24,9 @@ Yes. On GIL builds, Pounce automatically uses processes instead of threads. The 
 
 Python 3.14 or later. For thread-based workers (the primary use case), you need a free-threading build (Python 3.14t).
 
-### Is Pounce production-ready?
+### What's the current status?
 
-Pounce is in beta. HTTP/1.1, HTTP/2, WebSocket, TLS, multi-worker, compression, and streaming are all implemented and tested (426 tests). Use it in production if you're comfortable with a young project.
+Pounce is in beta. All four protocols (HTTP/1.1, HTTP/2, HTTP/3, WebSocket) are implemented along with TLS, multi-worker, compression, static files, middleware, rate limiting, OpenTelemetry, Prometheus, and streaming — covered by ~989 tests. It's a young project, so expect rough edges.
 
 ## Compatibility
 

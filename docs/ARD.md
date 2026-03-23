@@ -639,8 +639,8 @@ experimental and would require an ASGI extension. Future exploration only.
            ├── pounce/protocols/
            │      ├── _base.py            (depends on _errors.py; ProtocolHandler, events)
            │      ├── h1.py               (external: h11; depends on _base.py)
-           │      ├── h1_httptools.py     (external: httptools; optional pounce[fast])
            │      ├── h2.py               (external: h2; depends on _base.py)
+           │      ├── h3.py               (external: bengal-zoomies; depends on _base.py)
            │      └── ws.py               (external: wsproto; depends on _base.py)
            │
            │  ── Compression (depends on config) ───────────────────
@@ -717,20 +717,21 @@ experimental and would require an ASGI extension. Future exploration only.
 complexity. Pounce exists to prove that free-threaded Python is fast enough. If we use Rust
 for I/O, we're proving Rust is fast — which is already known.
 
-**Trade-off:** Lower ceiling on raw I/O throughput compared to Granian. Mitigated by
-offering `httptools` as an optional C-accelerated parser in phase 4.
+**Trade-off:** Lower ceiling on raw I/O throughput compared to Granian. Mitigated by the
+built-in fast H1 parser (`_fast_h1.py`, ~3 µs/req) on the sync worker hot path.
 
-### 8.2 h11 Over httptools
+### 8.2 h11 + Fast Built-in Parser
 
-**Decision:** h11 is the default HTTP parser. httptools is an optional accelerator.
+**Decision:** h11 is the async worker parser. The sync worker hot path uses a custom
+built-in parser (`_fast_h1.py`) for ~3 µs/req parsing.
 
 **Rationale:** h11 is pure Python, sans-I/O, well-tested, and debuggable. It follows the
-same philosophy as the rest of the ecosystem. httptools is a C binding that's faster but
-adds a compilation step and is harder to debug.
+same philosophy as the rest of the ecosystem. The built-in fast parser provides the speed
+benefit that httptools once offered, without requiring a C extension. httptools was removed
+because its C extensions are incompatible with free-threaded Python.
 
-**Trade-off:** The built-in fast H1 parser (`_fast_h1.py`) now provides ~3 µs parsing on the
-sync worker hot path, dramatically closing the gap with httptools. h11 (~22 µs) remains the
-async worker default. httptools is available as an optional drop-in replacement.
+**Trade-off:** The fast parser handles simple request-response only (no chunked bodies,
+trailer headers, or obs-fold). Complex requests fall through to h11.
 
 ### 8.3 asyncio Only (No Trio, No anyio)
 
@@ -812,7 +813,7 @@ enabled or set to non-default values.
 
 ## 10. Testing Strategy
 
-**Current state:** ~989 tests passing (Phase 5b + ASGI compliance suite + httptools).
+**Current state:** ~989 tests passing (ASGI compliance suite + all protocol handlers).
 
 ### 10.1 Unit Tests (Protocol Layer)
 
@@ -893,10 +894,9 @@ def test_get_hello(hello_app):
 
 ### 10.7 Unit Tests (Phase 4 Additions)
 
-- httptools backend: `H1HttpToolsProtocol` parsing, serialization, keep-alive, error handling
+- Fast H1 parser: `_fast_h1.py` parsing, method validation, header limits, smuggling detection
 - ASGI bridge: `create_empty_receive()` bodyless fast-path, write coalescing threshold
 - Worker: `_create_h1_protocol()` runtime protocol selection
-- Package exports: Phase 4 symbols (`create_empty_receive`, `H1HttpToolsProtocol`)
 
 ### 10.8 Integration Tests (Phase 4 Additions)
 

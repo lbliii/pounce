@@ -31,13 +31,13 @@ builds, Pounce falls back to multi-process workers automatically.
 - **ASGI-first** — Runs standard ASGI apps with CLI and programmatic entry points
 - **Free-threading ready** — Threads, not processes, on Python 3.14t
 - **Streaming-first** — Chunked HTML, event streams, and token streaming without buffering
-- **Production features** — TLS, compression, graceful shutdown, observability, worker tuning
-- **Protocol coverage** — HTTP/1.1, HTTP/2, WebSocket, and optional HTTP/3
+- **Four protocols** — HTTP/1.1, HTTP/2, HTTP/3 (QUIC), and WebSocket (including WS over H2)
+- **Batteries included** — TLS, compression, static files, middleware, rate limiting, observability
 - **Migration path** — Familiar CLI for teams moving from Uvicorn-style deployments
 
 ## Use Pounce For
 
-- **Serving ASGI apps in production** — Tunable workers, TLS, shutdown, and deployment controls
+- **Serving ASGI apps** — Tunable workers, TLS, graceful shutdown, and deployment controls
 - **Free-threaded Python deployments** — Shared-memory worker threads on Python 3.14t
 - **Streaming workloads** — Server-sent events, streamed HTML, and token-by-token responses
 - **Teams migrating from Uvicorn** — Similar CLI shape with a different worker model
@@ -104,7 +104,7 @@ pip install bengal-pounce[full]   # All protocol extras
 | **Migration** | Move from Uvicorn with similar CLI concepts | [Migrate from Uvicorn →](https://lbliii.github.io/pounce/docs/tutorials/migrate-from-uvicorn/) |
 | **HTTP/1.1** | h11 (async) + fast built-in parser (sync) | [HTTP/1.1 →](https://lbliii.github.io/pounce/docs/protocols/http1/) |
 | **HTTP/2** | Stream multiplexing via h2 | [HTTP/2 →](https://lbliii.github.io/pounce/docs/protocols/http2/) |
-| **HTTP/3** | QUIC/UDP via bengal-zoomies (requires TLS) | — |
+| **HTTP/3** | QUIC/UDP via bengal-zoomies (requires TLS) | [HTTP/3 →](docs/design/http3-roadmap.md) |
 | **WebSocket** | Full RFC 6455 via wsproto (including WS over H2) | [WebSocket →](https://lbliii.github.io/pounce/docs/protocols/websocket/) |
 | **Static Files** | Zero-copy sendfile, pre-compressed, ETags | [Static Files →](docs/features/) |
 | **Middleware** | ASGI3 middleware stack support | [Middleware →](docs/features/) |
@@ -116,6 +116,10 @@ pip install bengal-pounce[full]   # All protocol extras
 | **Compression** | zstd (stdlib PEP 784) + gzip + WS compression | [Compression →](https://lbliii.github.io/pounce/docs/deployment/compression/) |
 | **Workers** | Auto-detect: threads (3.14t) or processes (GIL) | [Workers →](https://lbliii.github.io/pounce/docs/deployment/workers/) |
 | **Auto Reload** | Graceful restart on file changes | [Reload →](docs/deployment/graceful-reload.md) |
+| **Rate Limiting** | Per-IP token bucket with 429 responses | [Rate Limiting →](docs/deployment/rate-limiting.md) |
+| **Request Queueing** | Bounded queue with 503 load shedding | [Request Queueing →](docs/deployment/request-queueing.md) |
+| **Prometheus** | Built-in `/metrics` endpoint | [Metrics →](docs/deployment/prometheus-metrics.md) |
+| **Sentry** | Error tracking and performance monitoring | [Sentry →](docs/deployment/sentry.md) |
 
 📚 **Full documentation**: [lbliii.github.io/pounce](https://lbliii.github.io/pounce/) | **[Complete Feature List →](docs/FEATURES.md)**
 
@@ -182,6 +186,8 @@ Compression uses Python 3.14's stdlib `compression.zstd` — zero external depen
 - **Observable.** Structured lifecycle events — frozen dataclasses with nanosecond timestamps.
   Zero overhead when no collector is attached.
 - **Chirp companion.** Built to serve Chirp apps natively, but works with any ASGI framework.
+- **Batteries included.** Static files, middleware, rate limiting, request queueing,
+  Prometheus metrics, Sentry, and OpenTelemetry — all built in, all optional.
 
 ---
 

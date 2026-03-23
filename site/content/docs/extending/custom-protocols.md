@@ -19,8 +19,8 @@ The existing handlers are:
 | Handler | Protocol | Module |
 |---------|----------|--------|
 | `H1Protocol` | HTTP/1.1 (h11) | `protocols/h1.py` |
-| `H1HttptoolsProtocol` | HTTP/1.1 (httptools) | `protocols/h1_httptools.py` |
 | `H2Protocol` | HTTP/2 (h2) | `protocols/h2.py` |
+| `H3Protocol` | HTTP/3 (bengal-zoomies) | `protocols/h3.py` |
 | `WSProtocol` | WebSocket (wsproto) | `protocols/ws.py` |
 
 ## Interface
