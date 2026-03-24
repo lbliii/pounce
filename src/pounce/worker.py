@@ -400,8 +400,7 @@ class Worker:
         # silently closing, so clients get actionable feedback.
         with self._conn_lock:
             at_capacity = (
-                self._max_connections > 0
-                and self._active_connections >= self._max_connections
+                self._max_connections > 0 and self._active_connections >= self._max_connections
             )
         if at_capacity:
             try:
