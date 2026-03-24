@@ -105,6 +105,7 @@ class Worker:
         "_app",
         "_async_shutdown",
         "_config",
+        "_conn_lock",
         "_draining",
         "_ext_shutdown",
         "_lifecycle",
@@ -140,6 +141,7 @@ class Worker:
         self._async_shutdown: asyncio.Event | None = None  # created inside event loop
         self._loop: asyncio.AbstractEventLoop | None = None  # set in _serve
         self._active_connections = 0
+        self._conn_lock = threading.Lock()
         self._max_connections = max_connections
         self._ssl_context = ssl_context
         self._logger = logging.getLogger(f"pounce.worker.{worker_id}")
@@ -189,7 +191,8 @@ class Worker:
             True if the worker has no active connections.
 
         """
-        return self._active_connections == 0
+        with self._conn_lock:
+            return self._active_connections == 0
 
     def run(self) -> None:
         """Start the worker's event loop (blocking)."""
@@ -260,11 +263,13 @@ class Worker:
                 bridge_task.cancel()
 
             # Log connection draining status
-            if self._active_connections > 0:
+            with self._conn_lock:
+                active = self._active_connections
+            if active > 0:
                 self._logger.info(
                     "Worker %d draining %d active connection(s)...",
                     self._worker_id,
-                    self._active_connections,
+                    active,
                 )
             else:
                 self._logger.debug(
@@ -393,7 +398,12 @@ class Worker:
         # Connection backpressure — reject when at capacity.
         # Send a minimal HTTP 503 response with Retry-After instead of
         # silently closing, so clients get actionable feedback.
-        if self._max_connections > 0 and self._active_connections >= self._max_connections:
+        with self._conn_lock:
+            at_capacity = (
+                self._max_connections > 0
+                and self._active_connections >= self._max_connections
+            )
+        if at_capacity:
             try:
                 writer.write(
                     b"HTTP/1.1 503 Service Unavailable\r\n"
@@ -416,7 +426,8 @@ class Worker:
         if raw_sock is not None and raw_sock.family in (socket.AF_INET, socket.AF_INET6):
             raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
-        self._active_connections += 1
+        with self._conn_lock:
+            self._active_connections += 1
         conn_id = next_connection_id()
         conn_start = lifecycle_ns()
         peername = writer.get_extra_info("peername")
@@ -473,7 +484,8 @@ class Worker:
                         client_str,
                     )
                 finally:
-                    self._active_connections -= 1
+                    with self._conn_lock:
+                        self._active_connections -= 1
                     self._lifecycle.record(
                         ConnectionCompleted(
                             connection_id=conn_id,
@@ -649,7 +661,8 @@ class Worker:
             close_reason = "error"
             self._logger.exception("Unhandled error on connection from %s", client_str)
         finally:
-            self._active_connections -= 1
+            with self._conn_lock:
+                self._active_connections -= 1
             self._lifecycle.record(
                 ConnectionCompleted(
                     connection_id=conn_id,
@@ -711,9 +724,11 @@ class Worker:
         # Skips access log to reduce noise from k8s/load balancer probes.
         health_path = self._config.health_check_path
         if health_path is not None and scope["path"] == health_path and request.method == b"GET":
+            with self._conn_lock:
+                active = self._active_connections
             status, resp_headers, body = build_health_response(
                 worker_id=self._worker_id,
-                active_connections=self._active_connections,
+                active_connections=active,
             )
             send_state = SendState()
             send_state.status = status

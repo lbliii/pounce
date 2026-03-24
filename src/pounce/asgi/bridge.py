@@ -342,13 +342,6 @@ def create_send(
                         ),
                     )
 
-            # SSE must not be compressed — EventSource API doesn't support it
-            if compressor is not None:
-                for name, value in headers:
-                    if name == b"content-type" and b"text/event-stream" in value:
-                        compressor = None
-                        break
-
             # Bodyless responses (RFC 9110 §6.4.1): 1xx, 204, 304 MUST NOT
             # contain a message body.  Disable compression so the compressor's
             # flush() doesn't produce gzip/zstd trailer bytes that h11 would
@@ -363,24 +356,32 @@ def create_send(
             if compressor is not None and request_method == b"HEAD":
                 compressor = None
 
-            # Inject Content-Encoding if compressing
+            # Inject Content-Encoding if compressing.  Single pass over
+            # headers to: detect SSE (disable compressor), remove
+            # Content-Length, and detect Transfer-Encoding.
             if compressor is not None:
-                headers.append((b"content-encoding", compressor.encoding.encode("ascii")))
-                # Remove content-length since compressed size differs;
-                # also detect transfer-encoding in a single pass.
                 filtered: list[tuple[bytes, bytes]] = []
                 has_transfer_encoding = False
+                is_sse = False
                 for n, v in headers:
                     nl = n.lower()
                     if nl == b"content-length":
                         continue
                     if nl == b"transfer-encoding":
                         has_transfer_encoding = True
+                    elif nl == b"content-type" and b"text/event-stream" in v:
+                        is_sse = True
                     filtered.append((n, v))
-                headers = filtered
-                # Compressor removed CL, so inject chunked if no TE
-                if not has_transfer_encoding:
-                    headers.append((b"transfer-encoding", b"chunked"))
+                if is_sse:
+                    # SSE must not be compressed — EventSource API
+                    # doesn't support it.  Restore original headers.
+                    compressor = None
+                else:
+                    headers = filtered
+                    headers.append((b"content-encoding", compressor.encoding.encode("ascii")))
+                    # Compressor removed CL, so inject chunked if no TE
+                    if not has_transfer_encoding:
+                        headers.append((b"transfer-encoding", b"chunked"))
             else:
                 # No compressor — check if CL or TE is present.
                 # Auto-inject chunked transfer encoding when the ASGI app

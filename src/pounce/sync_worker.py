@@ -101,6 +101,7 @@ class SyncWorker:
         "_app",
         "_async_pool",
         "_config",
+        "_conn_lock",
         "_conn_queue",
         "_date_cache_sec",
         "_date_header_bytes",
@@ -143,6 +144,7 @@ class SyncWorker:
         self._lifespan_state: dict[str, Any] = {}
         self._logger = logging.getLogger(f"pounce.sync_worker.{worker_id}")
         self._active_connections = 0
+        self._conn_lock = threading.Lock()
         self._date_cache_sec = -1
         self._date_header_bytes = b""
         self._recv_buf = bytearray(65536)
@@ -159,7 +161,8 @@ class SyncWorker:
 
     def is_idle(self) -> bool:
         """True if no connection is currently being handled."""
-        return self._active_connections == 0
+        with self._conn_lock:
+            return self._active_connections == 0
 
     def run(self) -> None:
         """Accept connections until shutdown (blocking)."""
@@ -214,12 +217,14 @@ class SyncWorker:
         self, conn: socket.socket, addr: tuple[str, int], runner: asyncio.Runner
     ) -> None:
         """Handle a single TCP connection through request-response cycles."""
-        self._active_connections += 1
+        with self._conn_lock:
+            self._active_connections += 1
         handed_off = False
         try:
             handed_off = self._handle_connection_impl(conn, addr, runner)
         finally:
-            self._active_connections -= 1
+            with self._conn_lock:
+                self._active_connections -= 1
             if not handed_off:
                 with contextlib.suppress(OSError, ConnectionError):
                     conn.close()
