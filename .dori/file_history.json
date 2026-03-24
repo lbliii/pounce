@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-03-17T17:55:54.894511+00:00",
+  "updated_at": "2026-03-23T23:29:48.371693+00:00",
   "files": {
     "src/pounce/server.py": {
       "skills_applied": [
@@ -8,6 +8,12 @@
           "skill": "layered-review",
           "command": "::lr",
           "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        },
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
           "source": "explicit"
         }
       ],
@@ -22,6 +28,12 @@
           "command": "::lr",
           "at": "2026-03-17T14:39:19.689879+00:00",
           "source": "explicit"
+        },
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
         }
       ],
       "last_revised": null,
@@ -34,6 +46,12 @@
           "skill": "layered-review",
           "command": "::lr",
           "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        },
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
           "source": "explicit"
         }
       ],
@@ -48,6 +66,12 @@
           "command": "::lr",
           "at": "2026-03-17T14:39:19.689879+00:00",
           "source": "explicit"
+        },
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
         }
       ],
       "last_revised": null,
@@ -60,6 +84,12 @@
           "skill": "layered-review",
           "command": "::lr",
           "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        },
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
           "source": "explicit"
         }
       ],
@@ -74,6 +104,12 @@
           "command": "::lr",
           "at": "2026-03-17T14:39:19.689879+00:00",
           "source": "explicit"
+        },
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
         }
       ],
       "last_revised": null,
@@ -87,6 +123,12 @@
           "command": "::lr",
           "at": "2026-03-17T14:39:19.689879+00:00",
           "source": "explicit"
+        },
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
         }
       ],
       "last_revised": null,
@@ -99,6 +141,12 @@
           "skill": "layered-review",
           "command": "::lr",
           "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        },
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
           "source": "explicit"
         }
       ],
@@ -139,6 +187,12 @@
           "command": "::lr",
           "at": "2026-03-17T14:39:19.689879+00:00",
           "source": "explicit"
+        },
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
         }
       ],
       "last_revised": null,
@@ -151,6 +205,12 @@
           "skill": "layered-review",
           "command": "::lr",
           "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        },
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
           "source": "explicit"
         }
       ],
@@ -178,6 +238,12 @@
           "command": "::lr",
           "at": "2026-03-17T14:39:19.689879+00:00",
           "source": "explicit"
+        },
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
         }
       ],
       "last_revised": null,
@@ -190,6 +256,12 @@
           "skill": "layered-review",
           "command": "::lr",
           "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        },
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
           "source": "explicit"
         }
       ],
@@ -216,6 +288,12 @@
           "skill": "layered-review",
           "command": "::lr",
           "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        },
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
           "source": "explicit"
         }
       ],
@@ -269,6 +347,12 @@
           "command": "::lr",
           "at": "2026-03-17T14:39:19.689879+00:00",
           "source": "explicit"
+        },
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
         }
       ],
       "last_revised": null,
@@ -282,6 +366,12 @@
           "command": "::lr",
           "at": "2026-03-17T14:39:19.689879+00:00",
           "source": "explicit"
+        },
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
         }
       ],
       "last_revised": null,
@@ -294,6 +384,12 @@
           "skill": "layered-review",
           "command": "::lr",
           "at": "2026-03-17T14:39:19.689879+00:00",
+          "source": "explicit"
+        },
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
           "source": "explicit"
         }
       ],
@@ -546,6 +642,162 @@
       ],
       "last_revised": null,
       "last_audited": "2026-03-17T17:55:54.770931+00:00",
+      "last_polished": null
+    },
+    "src/pounce/_fast_h1.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_headers.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_request_pipeline.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_compression.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_cli.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/accept_distributor.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/asgi/ws_bridge.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/protocols/": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/net/": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_response_frame.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_h2_handler.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
+      "last_polished": null
+    },
+    "src/pounce/_h3_handler.py": {
+      "skills_applied": [
+        {
+          "skill": "layered-review",
+          "command": "::lr from a production-grade performance perspective",
+          "at": "2026-03-23T23:29:48.288310+00:00",
+          "source": "explicit"
+        }
+      ],
+      "last_revised": null,
+      "last_audited": null,
       "last_polished": null
     }
   }
