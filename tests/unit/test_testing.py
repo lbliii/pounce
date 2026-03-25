@@ -1,6 +1,5 @@
 """Unit tests for the pounce.testing module."""
 
-
 import pytest
 
 from pounce._types import Receive, Scope, Send
