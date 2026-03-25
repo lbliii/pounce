@@ -17,7 +17,7 @@ First-class testing API, graceful shutdown overhaul, thread-safety fixes, and do
 
 - **Testing API** — `pounce.testing.TestServer` runs a real pounce server in a background thread for tests. Supports context manager (`with TestServer(app) as server:`), async context manager, and a `serve()` async helper. Exposes `.url`, `.host`, `.port`, `.is_running`. Auto-registered `pounce_server` pytest fixture via `pytest11` entry point — install pounce and the fixture is available automatically. (#15)
 - **`Server.bound_addr`** — Public property exposing the server's bound `(host, port)` tuple after startup, used by `TestServer` for ephemeral port discovery. (#15)
-- **`Server._started_event`** — `threading.Event` set when the server is ready to accept connections, enabling reliable startup synchronization in `TestServer`. (#15)
+- **Server startup readiness signal** — Internal `threading.Event` set when the server is ready to accept connections, enabling reliable startup synchronization in `TestServer`. (#15)
 
 ### Changed
 

@@ -182,8 +182,8 @@ Compression uses Python 3.14's stdlib `compression.zstd` — zero external depen
 from pounce.testing import TestServer
 import httpx
 
-def test_homepage():
-    with TestServer(app) as server:
+def test_homepage(my_app):
+    with TestServer(my_app) as server:
         resp = httpx.get(f"{server.url}/")
         assert resp.status_code == 200
 ```
@@ -191,7 +191,7 @@ def test_homepage():
 The `pounce_server` pytest fixture is auto-registered when pounce is installed:
 
 ```python
-def test_api(pounce_server):
+def test_api(pounce_server, my_app):
     server = pounce_server(my_app)
     resp = httpx.get(f"{server.url}/health")
     assert resp.status_code == 200
