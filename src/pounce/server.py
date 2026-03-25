@@ -66,11 +66,13 @@ class Server:
         "_app",
         "_app_path",
         "_async_shutdown",
+        "_bound_addr",
         "_config",
         "_lifecycle_collector",
         "_loop",
         "_shutdown_event",
         "_ssl_context",
+        "_started_event",
         "_supervisor",
         "_sync_app",
     )
@@ -91,6 +93,8 @@ class Server:
         self._sync_app = sync_app
         self._ssl_context = None
         self._shutdown_event = threading.Event()
+        self._started_event = threading.Event()
+        self._bound_addr: tuple[str, int] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._async_shutdown: asyncio.Event | None = None
         self._supervisor: Supervisor | None = None
@@ -155,6 +159,11 @@ class Server:
             with contextlib.suppress(RuntimeError):
                 loop.call_soon_threadsafe(async_shutdown.set)
 
+    @property
+    def bound_addr(self) -> tuple[str, int] | None:
+        """The actual (host, port) the server bound to, or ``None`` if not yet started."""
+        return self._bound_addr
+
     # ------------------------------------------------------------------
     # Single-worker fast path (no supervisor overhead)
     # ------------------------------------------------------------------
@@ -167,6 +176,7 @@ class Server:
 
         sock = create_listener(self._config)
         actual_addr = sock.getsockname()
+        self._bound_addr = (actual_addr[0], actual_addr[1])
         udp_sock = self._create_udp_listener_if_h3(actual_addr)
 
         logger.info(
@@ -342,6 +352,7 @@ class Server:
                 h3_task = asyncio.create_task(self._run_single_h3(udp_sock))
 
             logger.info("Ready to accept connections")
+            self._started_event.set()
 
             try:
                 await self._async_shutdown.wait()
