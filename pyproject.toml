@@ -58,6 +58,9 @@ full = ["h2>=4.0", "wsproto>=1.2", "truststore>=0.9", "bengal-zoomies>=0.1.1"]
 [project.scripts]
 pounce = "pounce._cli:main"
 
+[project.entry-points."pytest11"]
+pounce = "pounce.testing"
+
 [project.urls]
 Homepage = "https://lbliii.github.io/pounce/"
 Documentation = "https://lbliii.github.io/pounce/"

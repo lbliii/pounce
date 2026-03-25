@@ -92,11 +92,11 @@ class ServerConfigKwargs(TypedDict, total=False):
     ssl_keyfile: str | None
 
 
-def run(app: str, **kwargs: Unpack[ServerConfigKwargs]) -> None:
+def run(app: str | ASGIApp, **kwargs: Unpack[ServerConfigKwargs]) -> None:
     """Start a pounce server.
 
     Args:
-        app: ASGI application string (e.g., "myapp:app").
+        app: ASGI application import string (e.g., "myapp:app") or callable.
         **kwargs: Server configuration overrides passed to ServerConfig.
 
     Example:
@@ -104,11 +104,15 @@ def run(app: str, **kwargs: Unpack[ServerConfigKwargs]) -> None:
         >>> pounce.run("myapp:app", host="0.0.0.0", port=8000, workers=4)
 
     """
-    from pounce._importer import import_app
     from pounce.server import Server
 
     config = ServerConfig(**kwargs)
-    server = Server(config, import_app(app))
+    if isinstance(app, str):
+        from pounce._importer import import_app
+
+        server = Server(config, import_app(app), app_path=app)
+    else:
+        server = Server(config, app)
     server.run()
 
 
