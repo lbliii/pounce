@@ -93,6 +93,7 @@ pip install bengal-pounce[full]   # All protocol extras
 | **HTTP/3** | `pounce myapp:app --http3 --ssl-certfile cert.pem --ssl-keyfile key.pem` |
 | **Dev reload** | `pounce myapp:app --reload` |
 | **App factory** | `pounce myapp:create_app()` |
+| **Testing** | `with TestServer(app) as server: ...` |
 
 ---
 
@@ -120,6 +121,7 @@ pip install bengal-pounce[full]   # All protocol extras
 | **Request Queueing** | Bounded queue with 503 load shedding | [Request Queueing →](docs/deployment/request-queueing.md) |
 | **Prometheus** | Built-in `/metrics` endpoint | [Metrics →](docs/deployment/prometheus-metrics.md) |
 | **Sentry** | Error tracking and performance monitoring | [Sentry →](docs/deployment/sentry.md) |
+| **Testing** | `TestServer` + pytest fixture for integration tests | [Testing →](https://lbliii.github.io/pounce/docs/testing/) |
 
 📚 **Full documentation**: [lbliii.github.io/pounce](https://lbliii.github.io/pounce/) | **[Complete Feature List →](docs/FEATURES.md)**
 
@@ -170,6 +172,30 @@ Async workers use h11; sync workers use a fast built-in parser for lower latency
 | All | Everything above | `pounce[full]` |
 
 Compression uses Python 3.14's stdlib `compression.zstd` — zero external dependencies.
+
+</details>
+
+<details>
+<summary><strong>Testing</strong> — Real server for integration tests</summary>
+
+```python
+from pounce.testing import TestServer
+import httpx
+
+def test_homepage(my_app):
+    with TestServer(my_app) as server:
+        resp = httpx.get(f"{server.url}/")
+        assert resp.status_code == 200
+```
+
+The `pounce_server` pytest fixture is auto-registered when pounce is installed:
+
+```python
+def test_api(pounce_server, my_app):
+    server = pounce_server(my_app)
+    resp = httpx.get(f"{server.url}/health")
+    assert resp.status_code == 200
+```
 
 </details>
 

@@ -7,10 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.4.0] — 2026-03-25
+
+First-class testing API, graceful shutdown overhaul, thread-safety fixes, and documentation sync.
+
+### Added
+
+- **Testing API** — `pounce.testing.TestServer` runs a real pounce server in a background thread for tests. Supports context manager (`with TestServer(app) as server:`), async context manager, and a `serve()` async helper. Exposes `.url`, `.host`, `.port`, `.is_running`. Auto-registered `pounce_server` pytest fixture via `pytest11` entry point — install pounce and the fixture is available automatically. (#15)
+- **`Server.bound_addr`** — Public property exposing the server's bound `(host, port)` tuple after startup, used by `TestServer` for ephemeral port discovery. (#15)
+- **Server startup readiness signal** — Internal `threading.Event` set when the server is ready to accept connections, enabling reliable startup synchronization in `TestServer`. (#15)
+
 ### Changed
 
-- **Graceful shutdown** — `shutdown_timeout` is applied per worker (TCP and H3 worker threads/processes join in parallel) instead of a single monotonic deadline shared across all joins. AcceptDistributor and AsyncPool each use up to `shutdown_timeout` independently. Full shutdown calls `start_draining()` on thread-mode workers so new connections receive 503 while draining. Thread workers that outlive the join are logged accurately (cannot SIGTERM a thread); process workers still get SIGTERM/SIGKILL.
-- **Worker executor teardown** — Per-worker `ThreadPoolExecutor.shutdown()` runs via `run_in_executor` on a dedicated one-thread pool (not the loop default executor being torn down), wrapped in `asyncio.wait_for` so the event loop is not blocked indefinitely by stuck sync handlers.
+- **Graceful shutdown** — `shutdown_timeout` is applied per worker (TCP and H3 worker threads/processes join in parallel) instead of a single monotonic deadline shared across all joins. AcceptDistributor and AsyncPool each use up to `shutdown_timeout` independently. Full shutdown calls `start_draining()` on thread-mode workers so new connections receive 503 while draining. Thread workers that outlive the join are logged accurately (cannot SIGTERM a thread); process workers still get SIGTERM/SIGKILL. (#12)
+- **Worker executor teardown** — Per-worker `ThreadPoolExecutor.shutdown()` runs via `run_in_executor` on a dedicated one-thread pool (not the loop default executor being torn down), wrapped in `asyncio.wait_for` so the event loop is not blocked indefinitely by stuck sync handlers. (#12)
+- **Logging TTY detection** — Log formatting respects `sys.stderr.isatty()` instead of unconditionally applying TTY-style output. (#12)
+
+### Fixed
+
+- **Thread-safe connection counter** — `Worker._active_connections` now uses `threading.Lock` for atomic increment/decrement, fixing a race condition under concurrent access on free-threaded Python. (#14)
+- **Single-pass header filter** — ASGI bridge response send path filters hop-by-hop headers in a single pass instead of multiple iterations. (#14)
+
+### Docs
+
+- Synced all docs (README, ARD, FEATURES, PRD, site pages) with actual codebase — removed stale claims, corrected protocol descriptions, updated architecture diagrams. (#13)
 
 ---
 
@@ -604,6 +626,7 @@ Initial release of Pounce — a free-threading-native ASGI server for Python 3.1
 - `py.typed` PEP 561 marker
 - `_Py_mod_gil = 0` free-threading declaration
 
+[0.4.0]: https://github.com/lbliii/pounce/releases/tag/v0.4.0
 [0.3.1]: https://github.com/lbliii/pounce/releases/tag/v0.3.1
 [0.3.0]: https://github.com/lbliii/pounce/releases/tag/v0.3.0
 [0.2.2]: https://github.com/lbliii/pounce/releases/tag/v0.2.2
