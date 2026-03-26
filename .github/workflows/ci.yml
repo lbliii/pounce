@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     name: Lint & Format
@@ -69,7 +73,7 @@ jobs:
         run: uv sync --group dev --extra h2 --extra h3 --extra ws --extra tls
 
       - name: Run tests
-        run: uv run pytest tests/ -ra -q
+        run: uv run pytest tests/ -ra -q --maxfail=5
 
       - name: Verify GIL status (free-threaded only)
         if: matrix.python-version == '3.14t'
