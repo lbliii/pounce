@@ -168,7 +168,7 @@ Security hardening, production features, observability, and developer experience
 
 #### Static File Serving
 
-- **`_static.py`** — Zero-copy sendfile, pre-compressed files (`.gz`, `.br`, `.zst`),
+- **`_static.py`** — Pre-compressed files (`.gz`, `.zst`),
   ETags, and range requests. Configurable via `ServerConfig.static_files`,
   `static_precompressed`, `static_cache_control`
 

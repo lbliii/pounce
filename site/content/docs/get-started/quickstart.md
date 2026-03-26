@@ -34,35 +34,23 @@ async def app(scope, receive, send):
 
 ## Serve It
 
-:::{tab-set}
-:::{tab-item} Command Line
+::::{tab-set}
+::::{tab-item} Command Line
 ```bash
 pounce app:app
 ```
-:::{/tab-item}
+::::{/tab-item}
 
-:::{tab-item} Programmatic
+::::{tab-item} Programmatic
 ```python
 import pounce
 
 pounce.run("app:app")
 ```
-:::{/tab-item}
-:::{/tab-set}
+::::{/tab-item}
+::::{/tab-set}
 
 Open `http://127.0.0.1:8000` in your browser. You should see "Hello from Pounce!".
-
-## Configure Workers
-
-On Python 3.14t (free-threading), workers are threads. On GIL builds, workers are processes. The API is the same:
-
-```bash
-# Auto-detect worker count (based on CPU cores)
-pounce app:app --workers 0
-
-# Explicit 4 workers
-pounce app:app --workers 4
-```
 
 ## Enable Development Reload
 
@@ -72,18 +60,21 @@ pounce app:app --reload
 
 Pounce watches your source files and restarts workers automatically when changes are detected.
 
-## Add Protocol Extras
+## Configure Workers
 
 ```bash
-# HTTP/2 + WebSocket
-pounce app:app  # after: pip install bengal-pounce[h2,ws]
+# Auto-detect worker count (based on CPU cores)
+pounce app:app --workers 0
 
-# TLS termination
-pounce app:app --ssl-certfile cert.pem --ssl-keyfile key.pem
+# Explicit 4 workers
+pounce app:app --workers 4
 ```
 
-## App Factory Pattern
+::::{note}
+`--workers 0` auto-detects based on CPU cores. The default is 1 (single worker). On free-threaded Python 3.14t, workers run as threads sharing one interpreter. With the GIL enabled, workers run as separate processes.
+::::
 
+::::{dropdown} App Factory Pattern
 Pounce supports the app factory pattern with callable syntax:
 
 ```bash
@@ -91,9 +82,11 @@ pounce myapp:create_app()
 ```
 
 This calls `create_app()` in the `myapp` module and uses the returned ASGI application.
+::::
 
 ## Next Steps
 
-- [[docs/configuration/server-config|ServerConfig]] — All configuration options
-- [[docs/protocols|Protocols]] — HTTP/1.1, HTTP/2, and WebSocket details
-- [[docs/deployment|Deployment]] — Production configuration and scaling
+::::{related}
+:limit: 3
+:section_title: Next Steps
+::::

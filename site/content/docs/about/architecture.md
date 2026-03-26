@@ -16,7 +16,7 @@ Pounce follows a three-layer architecture: **Server** orchestrates lifecycle, **
 
 ```mermaid
 flowchart TD
-    Server["Server\nCONFIG → BIND → SERVE"]
+    Server["Server\nCONFIG → DETECT → BIND → LIFESPAN → SERVE → SHUTDOWN"]
     Supervisor["Supervisor\ndetect nogil → threads\ndetect GIL → processes"]
 
     Server --> Supervisor
@@ -109,7 +109,7 @@ Serialize response and write to socket (streaming).
 :::{/step}
 :::{/steps}
 
-Workers are fully independent. No shared mutable state, no locks, no coordination between workers during request handling.
+Workers are fully independent. No shared mutable state or cross-worker coordination during request handling.
 
 ## Request Pipeline
 
@@ -137,7 +137,7 @@ flowchart LR
 
 The bridge is per-request — created and destroyed within a single connection handler. This ensures zero cross-request state leakage.
 
-## Module Map
+::::{dropdown} Module Map
 
 | Module | Layer | Purpose |
 |--------|-------|---------|
@@ -160,6 +160,8 @@ The bridge is per-request — created and destroyed within a single connection h
 | `_request_id.py` | Observability | Request ID generation/extraction |
 | `_health.py` | Observability | Built-in health check endpoint |
 | `metrics.py` | Observability | Prometheus-compatible metrics |
+
+::::
 
 ## See Also
 

@@ -362,8 +362,8 @@ Pounce deliberately does not:
 
 - **~~HTTP/3~~** — Implemented via bengal-zoomies (pure Python QUIC). Separate H3 worker
   with datagram protocol. Requires TLS.
-- **~~Static file serving~~** — Built-in with zero-copy sendfile(), ETags, range requests,
-  and pre-compressed file serving.
+- **~~Static file serving~~** — Built-in with ETags, range requests,
+  and pre-compressed file serving (.gz, .zst).
 - **~~Middleware~~** — Server-level ASGI3 middleware stack with pre/post-request hooks.
 
 ---

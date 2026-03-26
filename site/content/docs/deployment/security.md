@@ -24,10 +24,12 @@ When running behind a reverse proxy (nginx, Caddy, etc.), the proxy adds headers
 
 | `trusted_hosts` | Behavior |
 |---|---|
-| `()` (empty, default) | Strip all `X-Forwarded-*` headers — assume direct connection |
-| `("10.0.0.1",)` | Trust proxy at `10.0.0.1` — apply forwarded headers to ASGI scope |
-| `("10.0.0.1", "10.0.0.2")` | Trust multiple proxies |
-| `("*",)` | Trust all peers (only safe for private networks) |
+| `frozenset()` (empty, default) | Strip all `X-Forwarded-*` headers — assume direct connection |
+| `frozenset({"10.0.0.1"})` | Trust proxy at `10.0.0.1` — apply forwarded headers to ASGI scope |
+| `frozenset({"10.0.0.1", "10.0.0.2"})` | Trust multiple proxies |
+| `frozenset({"*"})` | Trust all peers (only safe for private networks) |
+
+Tuples and lists are also accepted and normalized to `frozenset` internally.
 
 When a trusted proxy sends `X-Forwarded-For`, Pounce updates:
 
@@ -42,7 +44,7 @@ import pounce
 
 pounce.run(
     "myapp:app",
-    trusted_hosts=("10.0.0.1",),  # Only trust your proxy
+    trusted_hosts=frozenset({"10.0.0.1"}),  # Only trust your proxy
 )
 ```
 

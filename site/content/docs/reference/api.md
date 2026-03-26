@@ -15,7 +15,12 @@ category: reference
 The `pounce` package exports the following:
 
 ```python
-from pounce import run, ServerConfig, ASGIApp, Scope, Receive, Send
+from pounce import (
+    run, ServerConfig, ASGIApp, Scope, Receive, Send,
+    CORSMiddleware, SecurityHeadersMiddleware, Response,
+    StaticFiles, create_static_handler,
+    PounceError, LifespanError, ReloadError, SupervisorError, TLSError,
+)
 ```
 
 ## `pounce.run()`
@@ -23,14 +28,14 @@ from pounce import run, ServerConfig, ASGIApp, Scope, Receive, Send
 Start a pounce server.
 
 ```python
-def run(app: str, **kwargs: Unpack[ServerConfigKwargs]) -> None:
+def run(app: str | ASGIApp, **kwargs: Unpack[ServerConfigKwargs]) -> None:
 ```
 
 **Parameters:**
 
 | Name | Type | Description |
 |------|------|-------------|
-| `app` | `str` | ASGI application string (e.g., `"myapp:app"` or `"myapp:create_app()"`) |
+| `app` | `str \| ASGIApp` | ASGI application import string (e.g., `"myapp:app"`) or an ASGI callable |
 | `**kwargs` | `ServerConfigKwargs` | Configuration overrides passed to `ServerConfig` |
 
 **Example:**
@@ -108,6 +113,59 @@ print(__version__)  # e.g., "0.2.0"
 ```
 
 The installed package version, read from `importlib.metadata`.
+
+## Middleware
+
+### `CORSMiddleware`
+
+Built-in CORS middleware for cross-origin request handling.
+
+```python
+from pounce import CORSMiddleware, ServerConfig
+
+cors = CORSMiddleware(
+    allow_origins=["https://example.com"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization"],
+)
+config = ServerConfig(middleware=[cors])
+```
+
+### `SecurityHeadersMiddleware`
+
+Injects security headers (`X-Content-Type-Options`, `X-Frame-Options`, etc.).
+
+```python
+from pounce import SecurityHeadersMiddleware, ServerConfig
+
+config = ServerConfig(middleware=[SecurityHeadersMiddleware()])
+```
+
+### `Response`
+
+Simple response object for middleware use.
+
+## Static Files
+
+### `StaticFiles`
+
+Class for static file serving configuration.
+
+### `create_static_handler()`
+
+Factory function to create a static file handler from config.
+
+## Error Classes
+
+All errors inherit from `PounceError`. See [[docs/reference/errors|Error Reference]] for the full hierarchy.
+
+| Class | Status Code | Description |
+|-------|-------------|-------------|
+| `PounceError` | 500 | Base exception |
+| `LifespanError` | 500 | ASGI lifespan startup/shutdown failure |
+| `SupervisorError` | 500 | Worker spawn/crash failure |
+| `TLSError` | 500 | TLS configuration/handshake failure |
+| `ReloadError` | 500 | File-watcher/reload failure |
 
 ## See Also
 

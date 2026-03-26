@@ -74,13 +74,14 @@ When both `pounce[h2]` and `pounce[ws]` are installed, WebSocket connections can
 
 ## Configuration
 
-WebSocket connections respect the same timeout and limit settings as HTTP connections:
+WebSocket connections share some settings with HTTP connections:
 
-| Setting | Applies To |
-|---------|-----------|
-| `keep_alive_timeout` | Idle WebSocket connections |
-| `max_connections` | Total connections (HTTP + WebSocket) |
-| `shutdown_timeout` | Graceful close during shutdown |
+| Setting | Default | Applies To |
+|---------|---------|-----------|
+| `websocket_compression` | `True` | Enable permessage-deflate compression |
+| `websocket_max_message_size` | `10,485,760` (10 MB) | Maximum WebSocket message size |
+| `max_connections` | `10,000` | Total connections (HTTP + WebSocket) |
+| `shutdown_timeout` | `10.0` | Graceful close during shutdown |
 
 ## See Also
 

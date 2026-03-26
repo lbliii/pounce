@@ -26,7 +26,7 @@ Python 3.14 or later. For thread-based workers (the primary use case), you need 
 
 ### What's the current status?
 
-Pounce is in beta. All four protocols (HTTP/1.1, HTTP/2, HTTP/3, WebSocket) are implemented along with TLS, multi-worker, compression, static files, middleware, rate limiting, OpenTelemetry, Prometheus, and streaming — covered by ~989 tests. It's a young project, so expect rough edges.
+Pounce is in beta. All four protocols (HTTP/1.1, HTTP/2, HTTP/3, WebSocket) are implemented along with TLS, multi-worker, compression, static files, middleware, rate limiting, OpenTelemetry, Prometheus, and streaming — covered by a comprehensive test suite (1000+ tests). It's a young project, so expect rough edges.
 
 ## Compatibility
 

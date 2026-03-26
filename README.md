@@ -107,7 +107,7 @@ pip install bengal-pounce[full]   # All protocol extras
 | **HTTP/2** | Stream multiplexing via h2 | [HTTP/2 →](https://lbliii.github.io/pounce/docs/protocols/http2/) |
 | **HTTP/3** | QUIC/UDP via bengal-zoomies (requires TLS) | [HTTP/3 →](docs/design/http3-roadmap.md) |
 | **WebSocket** | Full RFC 6455 via wsproto (including WS over H2) | [WebSocket →](https://lbliii.github.io/pounce/docs/protocols/websocket/) |
-| **Static Files** | Zero-copy sendfile, pre-compressed, ETags | [Static Files →](docs/features/) |
+| **Static Files** | Pre-compressed files, ETags, range requests | [Static Files →](docs/features/) |
 | **Middleware** | ASGI3 middleware stack support | [Middleware →](docs/features/) |
 | **OpenTelemetry** | Native distributed tracing (OTLP) | [OpenTelemetry →](docs/deployment/opentelemetry.md) |
 | **Lifecycle Logging** | Structured JSON event logging | [Logging →](docs/features/lifecycle-logging.md) |

@@ -52,7 +52,7 @@ All streams are processed concurrently within the worker's asyncio event loop.
 
 ## Priority Signals
 
-Pounce supports HTTP Priority Signals (RFC 9218). Clients can indicate request urgency and whether responses can be delivered incrementally. This information is available in the ASGI scope for framework-level prioritization.
+Pounce parses HTTP Priority Signals (RFC 9218) and uses them internally for stream scheduling. Clients can indicate request urgency and whether responses can be delivered incrementally.
 
 ## ASGI Scope
 

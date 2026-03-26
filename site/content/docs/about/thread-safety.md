@@ -72,7 +72,7 @@ The supervisor adapts automatically. Your code and config stay the same.
 Pounce handles thread safety for its own internals. For your ASGI application:
 
 :::{tip}
-If your app works correctly with Uvicorn's multi-process mode, it will work with Pounce's thread mode — the isolation model is the same (per-request scope, no shared mutable state in the framework bridge).
+If your app avoids global mutable state (as recommended for multi-process deployments), it will also work with Pounce's thread mode. Per-request state (ASGI scope, receive, send) is always isolated.
 :::
 
 :::{warning}

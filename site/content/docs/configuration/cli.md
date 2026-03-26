@@ -27,8 +27,9 @@ The `APP` argument is a Python module path with an attribute, e.g. `myapp:app`. 
 | `--host TEXT` | `127.0.0.1` | Bind address |
 | `--port INT` | `8000` | Bind port |
 | `--uds PATH` | — | Unix domain socket path (mutually exclusive with `--host`/`--port`) |
-| `--workers INT` | `1` | Number of workers (0 = auto-detect) |
-| `--backlog INT` | `2048` | Socket listen backlog |
+| `--workers INT` | `1` | Number of workers (0 = auto-detect from CPU cores) |
+| `--worker-mode TEXT` | `auto` | Worker execution model: `auto` (sync on 3.14t, async on GIL), `sync` (blocking I/O), `async` (event loop) |
+| `--cpu-affinity` | `disabled` | Pin each worker to a CPU core (Linux only, reduces cache thrashing) |
 
 ### Timeouts
 
@@ -36,33 +37,29 @@ The `APP` argument is a Python module path with an attribute, e.g. `myapp:app`. 
 |------|---------|-------------|
 | `--keep-alive-timeout FLOAT` | `5.0` | Keep-alive timeout (seconds) |
 | `--header-timeout FLOAT` | `10.0` | Max seconds to receive complete request headers (slowloris protection) |
-| `--request-timeout FLOAT` | `30.0` | Request timeout (seconds) |
-| `--shutdown-timeout FLOAT` | `10.0` | Shutdown grace period (seconds) |
+| `--shutdown-timeout FLOAT` | `10.0` | Shutdown grace period per worker (seconds, parallel joins) |
 
-### Limits
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--max-request-size INT` | `1048576` | Max request body (bytes) |
-| `--max-connections INT` | `10000` | Max concurrent connections |
+::::{note}
+`request_timeout`, `max_request_size`, `max_connections`, and `backlog` are available only via `ServerConfig` — they are not exposed as CLI flags.
+::::
 
 ### Logging
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--log-level TEXT` | `info` | Log level (debug/info/warning/error/critical) |
-| `--log-format TEXT` | `text` | Log output format (`text` or `json`) |
+| `--log-format TEXT` | `auto` | Log output format: `auto` (pretty on TTY, JSON when piped), `text`, or `json` |
 | `--no-access-log` | — | Disable access logging |
 
-**5xx responses** are logged at `WARNING` level (instead of `INFO`) so they stand out visually and can be filtered separately.
+::::{tip}
+5xx responses are logged at `WARNING` level (instead of `INFO`) so they stand out visually and can be filtered separately.
 
-When `--log-format json` is set, all log output (including access logs) is emitted as structured JSON:
+When `--log-format json` is set, all log output is emitted as structured JSON:
 
 ```json
-{"timestamp": "2026-02-08T12:00:00+00:00", "level": "WARNING", "logger": "pounce.access", "method": "GET", "path": "/", "http_version": "1.1", "status": 500, "bytes_sent": 21, "duration_ms": 98.9, "client": "127.0.0.1:5000", "request_id": "a1b2c3d4e5f6..."}
+{"timestamp": "2026-02-08T12:00:00+00:00", "level": "WARNING", "logger": "pounce.access", "method": "GET", "path": "/", "status": 500, "bytes_sent": 21, "duration_ms": 98.9, "client": "127.0.0.1:5000", "request_id": "a1b2c3d4e5f6..."}
 ```
-
-This is useful for log aggregation systems (ELK, Datadog, CloudWatch, etc.).
+::::
 
 ### Observability
 
@@ -74,8 +71,9 @@ This is useful for log aggregation systems (ELK, Datadog, CloudWatch, etc.).
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--compression / --no-compression` | `enabled` | Toggle content-encoding |
+| `--no-compression` | — | Disable content-encoding (compression is enabled by default) |
 | `--server-timing` | `disabled` | Enable Server-Timing header |
+| `--http3` | `disabled` | Enable HTTP/3 (QUIC/UDP). Requires `--ssl-certfile` and `--ssl-keyfile`. |
 | `--reload` | `disabled` | Watch files and restart on changes |
 | `--reload-include TEXT` | — | Extra file extensions to watch (comma-separated, e.g. `".html,.css,.md"`) |
 | `--reload-dir PATH` | — | Extra directory to watch (repeatable) |
@@ -98,7 +96,6 @@ This is useful for log aggregation systems (ELK, Datadog, CloudWatch, etc.).
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--root-path TEXT` | `""` | ASGI root_path for reverse proxies |
-| `--server-header TEXT` | `pounce` | Server response header value |
 
 ## Examples
 
@@ -129,14 +126,18 @@ pounce myapp:app \
 # TLS
 pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem
 
+# TLS with HTTP/3
+pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem --http3
+
 # Full production configuration
 pounce myapp:app \
     --host 0.0.0.0 \
     --port 443 \
     --workers 4 \
+    --worker-mode auto \
     --ssl-certfile cert.pem \
     --ssl-keyfile key.pem \
-    --compression \
+    --no-compression \
     --server-timing \
     --health-check-path /health \
     --header-timeout 10 \
@@ -146,5 +147,5 @@ pounce myapp:app \
 
 ## See Also
 
-- [[docs/configuration/server-config|ServerConfig]] — Programmatic configuration
+- [[docs/configuration/server-config|ServerConfig]] — Programmatic configuration (all options including those not in CLI)
 - [[docs/get-started/quickstart|Quickstart]] — Getting started guide
