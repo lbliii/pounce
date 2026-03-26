@@ -5,7 +5,7 @@ draft: false
 weight: 20
 lang: en
 type: doc
-tags: [performance, benchmarks, streaming]
+tags: [performance, streaming]
 keywords: [performance, benchmarks, streaming, compression, zstd]
 category: explanation
 ---

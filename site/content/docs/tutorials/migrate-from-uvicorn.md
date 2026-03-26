@@ -41,7 +41,7 @@ pounce myapp:app --host 0.0.0.0 --port 8000 --workers 4 --reload
 | `--http h11` | *(default)* | h11 is the default backend |
 | `--http httptools` | *(not needed)* | Built-in fast parser handles this |
 | `--ws websockets` | `pounce[ws]` | Uses wsproto instead |
-| `--h11-max-incomplete-event-size` | `--h11-max-incomplete-event-size` | Same (h11 backend only) |
+| `--h11-max-incomplete-event-size` | `ServerConfig(h11_max_incomplete_event_size=...)` | Programmatic only (no CLI flag) |
 
 ## Programmatic Comparison
 

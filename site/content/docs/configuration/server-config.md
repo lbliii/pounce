@@ -27,7 +27,7 @@ config = ServerConfig(
 )
 ```
 
-## Fields
+## Core Fields
 
 ### Bind Address
 
@@ -42,7 +42,10 @@ config = ServerConfig(
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `workers` | `int` | `1` | Worker count. 0 = auto-detect from CPU cores. 1 = single-worker (no supervisor). 2+ = multi-worker with supervisor. |
+| `worker_mode` | `str` | `"auto"` | Worker execution model: `auto` (sync on 3.14t, async on GIL), `sync` (blocking I/O fast path), `async` (event loop). |
 | `backlog` | `int` | `2048` | Socket listen backlog |
+| `cpu_affinity` | `bool` | `False` | Pin each worker to a CPU core (Linux only, reduces cache thrashing) |
+| `executor_threads_per_worker` | `int` | `0` | Per-worker thread pool size for `asyncio.to_thread()`. 0 = auto-size. |
 
 ### Timeouts
 
@@ -51,7 +54,8 @@ config = ServerConfig(
 | `keep_alive_timeout` | `float` | `5.0` | Seconds to keep idle connections open |
 | `header_timeout` | `float` | `10.0` | Seconds to receive complete request headers (slowloris protection) |
 | `request_timeout` | `float` | `30.0` | Maximum seconds for a complete request |
-| `shutdown_timeout` | `float` | `10.0` | Seconds to wait for in-flight requests during shutdown |
+| `startup_timeout` | `float` | `30.0` | Maximum seconds to wait for server startup |
+| `shutdown_timeout` | `float` | `10.0` | Seconds per worker join during shutdown (parallel in multi-worker) |
 
 ### Limits
 
@@ -69,6 +73,8 @@ config = ServerConfig(
 |-------|------|---------|-------------|
 | `access_log` | `bool` | `True` | Enable access logging |
 | `log_level` | `str` | `"info"` | Log level: debug, info, warning, error, critical |
+| `log_format` | `str` | `"auto"` | Log output format: `auto` (pretty on TTY, JSON when piped), `text`, or `json` |
+| `access_log_filter` | `Callable[[str, str, int], bool] \| None` | `None` | Optional filter: `(method, path, status) -> bool`. True = log, False = skip. |
 
 ### HTTP
 
@@ -92,14 +98,15 @@ config = ServerConfig(
 | `server_timing` | `bool` | `False` | Inject `Server-Timing` header with parse/app/encode durations |
 | `health_check_path` | `str \| None` | `None` | Path for built-in health endpoint (e.g. `"/health"`). Disabled by default. |
 
-:::{note}
+::::{note}
 Request IDs are always generated (or extracted from trusted proxies). Every response includes an `X-Request-ID` header for tracing, and requests from trusted proxies that send `X-Request-ID` have their IDs honoured.
-:::
+::::
 
 ### Development
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `debug` | `bool` | `False` | Enable rich error pages (never use in production) |
 | `reload` | `bool` | `False` | Watch source files and restart workers on changes |
 | `reload_include` | `tuple[str, ...]` | `()` | Extra file extensions to watch (e.g. `(".html", ".css", ".md")`) |
 | `reload_dirs` | `tuple[str, ...]` | `()` | Extra directories to watch alongside the current working directory |
@@ -114,11 +121,11 @@ Request IDs are always generated (or extracted from trusted proxies). Every resp
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `trusted_hosts` | `tuple[str, ...]` | `()` | Trusted proxy hosts for X-Forwarded-* header validation (empty = strip all proxy headers) |
+| `trusted_hosts` | `frozenset[str]` | `frozenset()` | Trusted proxy hosts for X-Forwarded-* header validation (empty = strip all proxy headers). Accepts any iterable; normalized to frozenset internally. |
 
-:::{note}
-When `trusted_hosts` is empty, Pounce strips `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` from all requests. Set it to your reverse proxy's IP (e.g. `("10.0.0.1",)`) or `("*",)` to trust all peers.
-:::
+::::{note}
+When `trusted_hosts` is empty, Pounce strips `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` from all requests. Set it to your reverse proxy's IP (e.g. `frozenset({"10.0.0.1"})`) or `frozenset({"*"})` to trust all peers. Tuples and lists are also accepted and converted automatically.
+::::
 
 ### TLS
 
@@ -127,9 +134,96 @@ When `trusted_hosts` is empty, Pounce strips `X-Forwarded-For`, `X-Forwarded-Pro
 | `ssl_certfile` | `str \| None` | `None` | Path to TLS certificate file |
 | `ssl_keyfile` | `str \| None` | `None` | Path to TLS private key file |
 
-:::{note}
+::::{note}
 `ssl_certfile` and `ssl_keyfile` must both be set or both be `None`. Setting only one raises `ValueError`.
-:::
+::::
+
+## Extended Fields
+
+These fields control optional features. Most have sensible defaults and don't need to be set for basic usage.
+
+::::{dropdown} Static Files
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `static_files` | `dict[str, str]` | `{}` | URL path to directory mapping (e.g. `{"/static": "./public"}`) |
+| `static_cache_control` | `str` | `"public, max-age=3600"` | Cache-Control header for static files |
+| `static_precompressed` | `bool` | `True` | Serve `.zst`/`.gz` pre-compressed variants when available |
+| `static_follow_symlinks` | `bool` | `False` | Allow following symlinks (keep disabled in production) |
+| `static_index_file` | `str \| None` | `"index.html"` | Index file for directory requests |
+::::
+
+::::{dropdown} Middleware
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `middleware` | `list[Callable[..., Any]]` | `[]` | Middleware hooks. Dispatched by parameter count: 1 param = pre-request, 2 params = exception handler, 3 params = post-response. |
+::::
+
+::::{dropdown} WebSocket
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `websocket_compression` | `bool` | `True` | Enable permessage-deflate compression |
+| `websocket_max_message_size` | `int` | `10,485,760` | Maximum WebSocket message size (10 MB) |
+::::
+
+::::{dropdown} HTTP/3 (QUIC)
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `http3_enabled` | `bool` | `False` | Enable HTTP/3 (requires `ssl_certfile` and `ssl_keyfile`) |
+| `http3_max_connections` | `int` | `10,000` | Max concurrent QUIC connections |
+| `http3_idle_timeout` | `float` | `30.0` | QUIC idle timeout (seconds) |
+::::
+
+::::{dropdown} Reload
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `reload_timeout` | `float` | `30.0` | Time to wait for workers to drain during reload |
+::::
+
+::::{dropdown} OpenTelemetry
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `otel_endpoint` | `str \| None` | `None` | OTLP endpoint (e.g. `"http://localhost:4318"`) |
+| `otel_service_name` | `str` | `"pounce"` | Service name in traces |
+::::
+
+::::{dropdown} Lifecycle Logging
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `lifecycle_logging` | `bool` | `False` | Enable structured lifecycle event logging |
+| `log_slow_requests_threshold` | `float` | `5.0` | Log requests slower than this (seconds) |
+::::
+
+::::{dropdown} Prometheus Metrics
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `metrics_enabled` | `bool` | `False` | Enable Prometheus metrics endpoint |
+| `metrics_path` | `str` | `"/metrics"` | Path for metrics endpoint |
+::::
+
+::::{dropdown} Rate Limiting
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `rate_limit_enabled` | `bool` | `False` | Enable per-IP rate limiting |
+| `rate_limit_requests_per_second` | `float` | `100.0` | Requests per second per IP |
+| `rate_limit_burst` | `int` | `200` | Maximum burst size per IP |
+::::
+
+::::{dropdown} Request Queueing
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `request_queue_enabled` | `bool` | `False` | Enable request queueing and load shedding |
+| `request_queue_max_depth` | `int` | `1000` | Maximum queued requests (0 = unlimited) |
+::::
+
+::::{dropdown} Sentry
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `sentry_dsn` | `str \| None` | `None` | Sentry DSN for error tracking (None = disabled) |
+| `sentry_environment` | `str \| None` | `None` | Environment name (e.g. `"production"`) |
+| `sentry_release` | `str \| None` | `None` | Release version (e.g. `"myapp@1.0.0"`) |
+| `sentry_traces_sample_rate` | `float` | `0.1` | Performance monitoring sample rate (0.0-1.0) |
+| `sentry_profiles_sample_rate` | `float` | `0.1` | Profiling sample rate (0.0-1.0) |
+::::
 
 ## Programmatic Usage
 

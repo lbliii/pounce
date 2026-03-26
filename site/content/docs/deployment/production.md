@@ -19,8 +19,6 @@ pounce myapp:app \
     --workers 0 \
     --log-level warning \
     --log-format json \
-    --compression \
-    --request-timeout 30 \
     --header-timeout 10 \
     --health-check-path /health \
     --shutdown-timeout 15
@@ -116,7 +114,7 @@ import pounce
 
 pounce.run(
     "myapp:app",
-    trusted_hosts=("10.0.0.1",),  # Your proxy's IP
+    trusted_hosts=frozenset({"10.0.0.1"}),  # Your proxy's IP (tuples also accepted)
 )
 ```
 

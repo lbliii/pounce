@@ -11,7 +11,7 @@ Pounce provides a comprehensive feature set for modern web applications, with pa
 ## Core Protocol Support
 
 - **HTTP/1.1** — Pure Python (h11) + fast built-in parser (~3 µs/req)
-- **HTTP/2** — Stream multiplexing, server push, priority signals
+- **HTTP/2** — Stream multiplexing, header compression, priority signals
 - **WebSocket** — Full RFC 6455 support with compression
 - **HTTP/3** — QUIC/UDP via bengal-zoomies (requires TLS)
 
@@ -20,7 +20,7 @@ Pounce provides a comprehensive feature set for modern web applications, with pa
 ## Production Features
 
 ### Static File Serving
-Zero-copy sendfile, pre-compressed files, ETags, and range requests.
+Chunked file serving with ETags, range requests, and pre-compressed file support.
 
 [Read more →](/docs/features/static-files/)
 
@@ -32,32 +32,30 @@ ASGI3 middleware stack for request/response transformation.
 ### WebSocket Compression
 permessage-deflate compression (RFC 7692) with automatic negotiation.
 
-[Read more →](/docs/features/websocket-compression/)
+[Read more →](/docs/protocols/websocket/)
 
 ### Graceful Reload
 Zero-downtime code updates with rolling worker restart.
 
-[Read more →](/docs/features/graceful-reload/)
+[Read more →](/docs/deployment/workers/)
 
 ### Development Error Pages
 Rich HTML error pages with syntax highlighting and security-safe production mode.
 
-[Read more →](/docs/features/error-pages/)
-
 ### OpenTelemetry Integration
 Native distributed tracing with automatic span creation and W3C Trace Context.
 
-[Read more →](/docs/features/opentelemetry/)
+[Read more →](/docs/deployment/observability/)
 
 ### Connection Draining
 Production-grade graceful shutdown with Kubernetes support.
 
-[Read more →](/docs/features/graceful-shutdown/)
+[Read more →](/docs/deployment/production/)
 
 ### Lifecycle Logging
 Structured event logging for production debugging with correlation IDs.
 
-[Read more →](/docs/features/lifecycle-logging/)
+[Read more →](/docs/deployment/observability/)
 
 ## Observability
 
@@ -83,7 +81,7 @@ Structured event logging for production debugging with correlation IDs.
 - **Worker management** — Threads (3.14t) or processes (GIL)
 - **Graceful shutdown** — Kubernetes-ready
 - **TLS/SSL** — TLS 1.3 support
-- **Compression** — zstd, gzip, brotli
-- **Health checks** — Built-in `/health` endpoint
+- **Compression** — zstd, gzip
+- **Health checks** — Configurable health check endpoint (opt-in via `health_check_path`)
 
 [Deployment guides →](/docs/deployment/)

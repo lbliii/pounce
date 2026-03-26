@@ -25,10 +25,7 @@ All compression uses Python standard library modules — zero external dependenc
 Compression is enabled by default:
 
 ```bash
-# Enabled (default)
-pounce myapp:app --compression
-
-# Disabled
+# Disabled (compression is enabled by default)
 pounce myapp:app --no-compression
 ```
 
@@ -58,15 +55,18 @@ Python 3.14 includes `compression.zstd` in the standard library. Zstd provides:
 
 Modern browsers (Chrome, Firefox, Safari) support `zstd` content-encoding.
 
-## Skipped Content Types
+## Skipped Responses
 
-Compression is automatically skipped for already-compressed content:
+Compression is automatically skipped for:
 
-- Images (`image/*`)
-- Video (`video/*`)
-- Audio (`audio/*`)
-- Archives (`application/zip`, `application/gzip`, etc.)
-- WebSocket frames
+- **SSE responses** — `text/event-stream` (streaming requires unbuffered delivery)
+- **HEAD requests** — No response body to compress
+- **Bodyless status codes** — 1xx, 204, 304 responses
+- **Responses below `compression_min_size`** — Default: 500 bytes
+
+::::{note}
+WebSocket compression uses a separate system (permessage-deflate via the `websocket_compression` config option) and is not related to content-encoding compression.
+::::
 
 ## See Also
 

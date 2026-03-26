@@ -1,12 +1,12 @@
 ---
 title: Static File Serving
-description: Zero-copy file serving with pre-compression and ETags
+description: Chunked file serving with pre-compression and ETags
 weight: 1
 ---
 
 # Static File Serving
 
-Pounce provides **high-performance static file serving** with zero-copy `sendfile()`, pre-compressed file support, and automatic content negotiation.
+Pounce provides **high-performance static file serving** with pre-compressed file support, ETags, range requests, and automatic content negotiation.
 
 ## Quick Start
 
@@ -18,7 +18,7 @@ config = ServerConfig(
         "/static": "./public",      # Serve ./public at /static
         "/assets": "./dist/assets", # Multiple mappings supported
     },
-    static_precompressed=True,      # Serve .gz/.br/.zst if available
+    static_precompressed=True,      # Serve .gz/.zst if available
     static_cache_control="public, max-age=3600",
 )
 ```
@@ -29,12 +29,9 @@ Access files at:
 
 ## Features
 
-### Zero-Copy sendfile()
-Uses `os.sendfile()` on Linux for 2-3x faster file serving with zero memory copying.
-
 ### Pre-Compressed Files
-Automatically serves `.gz`, `.br`, or `.zst` files when available and client accepts them:
-- `style.css.br` served for Brotli-supporting clients
+Automatically serves `.zst` or `.gz` files when available and the client accepts them:
+- `style.css.zst` served for zstd-supporting clients
 - `app.js.gz` served for gzip-only clients
 - Falls back to uncompressed file
 
@@ -75,10 +72,9 @@ config = ServerConfig(
 ```
 
 Pounce checks for these variants in order:
-1. `.br` (Brotli) — best compression
-2. `.zst` (zstd) — fast decompression
-3. `.gz` (gzip) — universal compatibility
-4. Original file
+1. `.zst` (zstd) — fast decompression, good compression
+2. `.gz` (gzip) — universal compatibility
+3. Original file
 
 ### static_cache_control
 Set Cache-Control header for static files:
@@ -152,23 +148,16 @@ config = ServerConfig(
 
 ## Performance
 
-### Benchmarks
-
-On Linux with `sendfile()`:
-- **With sendfile**: ~80k req/s, 2GB/s throughput
-- **Without sendfile**: ~30k req/s, 800MB/s throughput
-- **Improvement**: 2-3x faster
-
 ### Pre-Compressed Files
 Pre-compressing files saves CPU and improves TTFB:
-- **Brotli level 11**: 30% better compression than gzip
 - **zstd level 19**: Fast decompression, good compression
+- **gzip level 9**: Universal compatibility
 - **Build step**: Compress once, serve many times
 
 Example build script:
 ```bash
-find ./public -type f \( -name "*.html" -o -name "*.css" -o -name "*.js" \) -exec brotli -k {} \;
 find ./public -type f \( -name "*.html" -o -name "*.css" -o -name "*.js" \) -exec zstd -k {} \;
+find ./public -type f \( -name "*.html" -o -name "*.css" -o -name "*.js" \) -exec gzip -k {} \;
 ```
 
 ## Security

@@ -22,7 +22,8 @@
    and its threading model.
 
 5. **ASGI and nothing more.** Pounce is a server, not a framework. It accepts an ASGI
-   callable and serves it. No routing, no middleware, no opinions about application structure.
+   callable and serves it. No routing, no application-level opinions. Server-level middleware
+   (CORS, security headers) and static file serving are opt-in server features.
 
 6. **Streaming-first.** The response pipeline is designed for chunked streaming as the
    primary path, not buffered-then-send. SSE, htmx streaming, AI token streaming are

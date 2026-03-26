@@ -47,10 +47,10 @@ Complete feature set for pounce — the free-threading-native ASGI server for Py
 ## Server Features
 
 ### 1. Static File Serving
-- ✅ Zero-copy sendfile() on supported platforms
+- ✅ Chunked file serving with configurable buffer size
 - ✅ ETag generation and validation (If-None-Match)
 - ✅ Range requests (byte-range serving for video/large files)
-- ✅ Pre-compressed file serving (`.gz`, `.br`, `.zst`)
+- ✅ Pre-compressed file serving (`.gz`, `.zst`)
 - ✅ Automatic Content-Encoding negotiation
 - ✅ Configurable cache-control headers
 - ✅ Directory index files (index.html)
@@ -66,7 +66,7 @@ ServerConfig(
 )
 ```
 
-**Performance:** Zero-copy sendfile() provides 2-3x faster file serving than buffered reads.
+**Performance:** Files are served in 65 KB chunks with async streaming to avoid blocking the event loop.
 
 ### 2. Middleware Extension System
 - ✅ ASGI3 middleware support
@@ -476,8 +476,8 @@ ServerConfig(
 
 ## Performance Features
 
-### Zero-Copy Operations
-- ✅ sendfile() for static files (2-3x faster)
+### I/O Operations
+- ✅ Chunked file serving (65 KB async reads)
 - ✅ Direct socket writes (no buffering)
 - ✅ Streaming response bodies
 
@@ -535,7 +535,6 @@ ServerConfig(
 
 ### Python Versions
 - ✅ Python 3.14+ (free-threading and GIL builds)
-- ✅ Python 3.13 (GIL only, via fallback)
 
 ### Container Platforms
 - ✅ Docker
