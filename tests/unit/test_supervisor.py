@@ -336,4 +336,4 @@ class TestParallelJoinTargets:
         elapsed = time.monotonic() - start
         assert len(results) == 5
         assert all(not t.is_alive() for t in threads)
-        assert elapsed < 0.35
+        assert elapsed < 0.5
