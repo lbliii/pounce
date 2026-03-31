@@ -84,9 +84,7 @@ class TestCLIServeCommand:
     def test_reload_dir_multiple(self, mocker):
         mock_server = mocker.patch("pounce._cli.Server")
         mocker.patch("pounce._cli.import_app", return_value=lambda: None)
-        cli.call(
-            "serve", app="myapp:app", reload=True, reload_dir=["./templates", "./static"]
-        )
+        cli.call("serve", app="myapp:app", reload=True, reload_dir=["./templates", "./static"])
         config = mock_server.call_args[0][0]
         assert config.reload_dirs == ("./templates", "./static")
 

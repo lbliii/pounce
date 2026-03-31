@@ -82,7 +82,7 @@ def _install_branded_help(parser: argparse.ArgumentParser) -> None:
         except Exception:
             return original()
 
-    parser.format_help = branded_format_help
+    parser.format_help = branded_format_help  # type: ignore[assignment]
 
     if parser._subparsers:
         for action in parser._subparsers._actions:
@@ -322,7 +322,9 @@ def _hint_for_import_error(exc: Exception) -> str | None:
     """Return a hint for common import/app-path errors."""
     msg = str(exc).lower()
     if "no module named" in msg or "could not import" in msg:
-        return "Check that the module is installed and on sys.path (run from the project directory)."
+        return (
+            "Check that the module is installed and on sys.path (run from the project directory)."
+        )
     if "no attribute" in msg:
         return "Verify the attribute name matches what's exported from the module."
     if "not callable" in msg:
@@ -392,7 +394,7 @@ def _diagnostics_for_os_error(exc: OSError) -> list[dict[str, str]] | None:
                 {"label": "PID using port", "value": f"{pid} ({proc_name})"},
                 {"label": "Quick fix", "value": f"kill {pid}"},
             ]
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except FileNotFoundError, subprocess.TimeoutExpired:
         pass
     return None
 

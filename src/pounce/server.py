@@ -343,9 +343,7 @@ class Server:
             if udp_sock is not None:
                 h3_task = asyncio.create_task(self._run_single_h3(udp_sock))
 
-            _output.ready(
-                self._config.host, self._config.port, uds=self._config.uds
-            )
+            _output.ready(self._config.host, self._config.port, uds=self._config.uds)
             self._started_event.set()
 
             try:

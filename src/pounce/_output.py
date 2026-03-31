@@ -79,21 +79,19 @@ def error(
     """
     import os
 
-    use_pretty = (
-        _is_pretty()
-        or sys.stderr.isatty()
-        or os.environ.get("FORCE_COLOR") == "1"
-    )
+    use_pretty = _is_pretty() or sys.stderr.isatty() or os.environ.get("FORCE_COLOR") == "1"
     if use_pretty:
-        _write(_render(
-            "error.kida",
-            error=message,
-            code=code or "",
-            hint=hint or "",
-            template_name="",
-            docs_url=docs_url or "",
-            diagnostics=diagnostics or [],
-        ))
+        _write(
+            _render(
+                "error.kida",
+                error=message,
+                code=code or "",
+                hint=hint or "",
+                template_name="",
+                docs_url=docs_url or "",
+                diagnostics=diagnostics or [],
+            )
+        )
     else:
         parts = [f"Error: {message}"]
         if diagnostics:
@@ -120,8 +118,20 @@ def banner(config, effective_workers: int, mode_label: str, gil_status: str) -> 
         features.append({"name": "TLS", "on": True, "detail": ""})
     if config.http3_enabled:
         features.append({"name": "HTTP/3", "on": True, "detail": "QUIC/UDP"})
-    features.append({"name": "Compression", "on": config.compression, "detail": "" if config.compression else "disabled"})
-    features.append({"name": "Access log", "on": config.access_log, "detail": "" if config.access_log else "disabled"})
+    features.append(
+        {
+            "name": "Compression",
+            "on": config.compression,
+            "detail": "" if config.compression else "disabled",
+        }
+    )
+    features.append(
+        {
+            "name": "Access log",
+            "on": config.access_log,
+            "detail": "" if config.access_log else "disabled",
+        }
+    )
     if config.server_timing:
         features.append({"name": "Server-Timing", "on": True, "detail": ""})
     if config.reload:
@@ -216,22 +226,28 @@ def reload_detected(changed_files: list[str]) -> None:
         display = changed_files[:5]
         if len(changed_files) > 5:
             display.append(f"+{len(changed_files) - 5} more")
-        _write(_render("reload.kida", phase="detected", files=display,
-                        generation=0, error="", workers=0))
+        _write(
+            _render(
+                "reload.kida", phase="detected", files=display, generation=0, error="", workers=0
+            )
+        )
     else:
         if len(changed_files) <= 5:
-            logger.info("Detected %d changed file(s): %s",
-                        len(changed_files), ", ".join(changed_files))
+            logger.info(
+                "Detected %d changed file(s): %s", len(changed_files), ", ".join(changed_files)
+            )
         else:
-            logger.info("Detected %d changed file(s): %s...",
-                        len(changed_files), ", ".join(changed_files[:5]))
+            logger.info(
+                "Detected %d changed file(s): %s...",
+                len(changed_files),
+                ", ".join(changed_files[:5]),
+            )
 
 
 def reload_start() -> None:
     """Render the reload initiation message."""
     if _is_pretty():
-        _write(_render("reload.kida", phase="start", files=[],
-                        generation=0, error="", workers=0))
+        _write(_render("reload.kida", phase="start", files=[], generation=0, error="", workers=0))
     else:
         logger.info("Reloading...")
 
@@ -239,12 +255,23 @@ def reload_start() -> None:
 def reload_complete(workers: int = 0, generation: int | None = None) -> None:
     """Render the reload completion message."""
     if _is_pretty():
-        _write(_render("reload.kida", phase="complete", files=[],
-                        generation=generation or 0, error="", workers=workers))
+        _write(
+            _render(
+                "reload.kida",
+                phase="complete",
+                files=[],
+                generation=generation or 0,
+                error="",
+                workers=workers,
+            )
+        )
     else:
         if generation:
-            logger.info("Graceful reload complete. Running %d worker(s) on generation %d",
-                        workers, generation)
+            logger.info(
+                "Graceful reload complete. Running %d worker(s) on generation %d",
+                workers,
+                generation,
+            )
         else:
             logger.info("All %d worker(s) restarted", workers)
 
@@ -252,8 +279,9 @@ def reload_complete(workers: int = 0, generation: int | None = None) -> None:
 def reload_failed(error: str = "") -> None:
     """Render the reload failure message."""
     if _is_pretty():
-        _write(_render("reload.kida", phase="failed", files=[],
-                        generation=0, error=error, workers=0))
+        _write(
+            _render("reload.kida", phase="failed", files=[], generation=0, error=error, workers=0)
+        )
     else:
         logger.info("Reload failed — serving previous version")
 
@@ -264,8 +292,17 @@ def reload_failed(error: str = "") -> None:
 def supervisor_starting(count: int, mode: str) -> None:
     """Render the supervisor startup message."""
     if _is_pretty():
-        _write(_render("worker_event.kida", event="supervisor_start",
-                        id=0, mode=mode, count=count, restarts=0, generation=0))
+        _write(
+            _render(
+                "worker_event.kida",
+                event="supervisor_start",
+                id=0,
+                mode=mode,
+                count=count,
+                restarts=0,
+                generation=0,
+            )
+        )
     else:
         logger.info("Supervisor starting %d %s worker(s)", count, mode)
 
@@ -273,9 +310,17 @@ def supervisor_starting(count: int, mode: str) -> None:
 def worker_started(worker_id: int, mode: str, generation: int | None = None) -> None:
     """Render the worker started message."""
     if _is_pretty():
-        _write(_render("worker_event.kida", event="started",
-                        id=worker_id, mode=mode, count=0, restarts=0,
-                        generation=generation or 0))
+        _write(
+            _render(
+                "worker_event.kida",
+                event="started",
+                id=worker_id,
+                mode=mode,
+                count=0,
+                restarts=0,
+                generation=generation or 0,
+            )
+        )
     else:
         logger.debug("Started worker %d (%s)", worker_id, mode)
 
@@ -283,8 +328,17 @@ def worker_started(worker_id: int, mode: str, generation: int | None = None) -> 
 def worker_crashed(worker_id: int, restart_count: int) -> None:
     """Render the worker crash message."""
     if _is_pretty():
-        _write(_render("worker_event.kida", event="crashed",
-                        id=worker_id, mode="", count=0, restarts=restart_count, generation=0))
+        _write(
+            _render(
+                "worker_event.kida",
+                event="crashed",
+                id=worker_id,
+                mode="",
+                count=0,
+                restarts=restart_count,
+                generation=0,
+            )
+        )
     else:
         logger.warning("Worker %d crashed, restarting (restart #%d)", worker_id, restart_count)
 
@@ -292,18 +346,37 @@ def worker_crashed(worker_id: int, restart_count: int) -> None:
 def worker_max_restarts(worker_id: int, max_restarts: int) -> None:
     """Render the max restarts exceeded message."""
     if _is_pretty():
-        _write(_render("worker_event.kida", event="max_restarts",
-                        id=worker_id, mode="", count=0, restarts=max_restarts, generation=0))
+        _write(
+            _render(
+                "worker_event.kida",
+                event="max_restarts",
+                id=worker_id,
+                mode="",
+                count=0,
+                restarts=max_restarts,
+                generation=0,
+            )
+        )
     else:
-        logger.error("Worker %d exceeded max restarts (%d) — not restarting",
-                      worker_id, max_restarts)
+        logger.error(
+            "Worker %d exceeded max restarts (%d) — not restarting", worker_id, max_restarts
+        )
 
 
 def supervisor_shutdown(count: int) -> None:
     """Render the supervisor shutdown message."""
     if _is_pretty():
-        _write(_render("worker_event.kida", event="supervisor_shutdown",
-                        id=0, mode="", count=count, restarts=0, generation=0))
+        _write(
+            _render(
+                "worker_event.kida",
+                event="supervisor_shutdown",
+                id=0,
+                mode="",
+                count=count,
+                restarts=0,
+                generation=0,
+            )
+        )
     else:
         logger.info("Shutting down %d worker(s)...", count)
 
@@ -311,8 +384,17 @@ def supervisor_shutdown(count: int) -> None:
 def supervisor_all_stopped() -> None:
     """Render the 'all workers stopped' message."""
     if _is_pretty():
-        _write(_render("worker_event.kida", event="all_stopped",
-                        id=0, mode="", count=0, restarts=0, generation=0))
+        _write(
+            _render(
+                "worker_event.kida",
+                event="all_stopped",
+                id=0,
+                mode="",
+                count=0,
+                restarts=0,
+                generation=0,
+            )
+        )
     else:
         logger.info("All workers stopped")
 
@@ -349,8 +431,17 @@ def access(
     size = _human_bytes(bytes_sent) if bytes_sent > 0 else ""
     duration = _duration_str(duration_ms)
     # Pre-pad strings since kida doesn't have ljust/rjust filters
-    _write(_render("access.kida", ts=ts, method=f"{method:<5s}", path=f"{path:<30s}",
-                    status=status, size=f"{size:>7s}", duration=f"{duration:>6s}"))
+    _write(
+        _render(
+            "access.kida",
+            ts=ts,
+            method=f"{method:<5s}",
+            path=f"{path:<30s}",
+            status=status,
+            size=f"{size:>7s}",
+            duration=f"{duration:>6s}",
+        )
+    )
 
 
 # ── GIL detection ─────────────────────────────────────

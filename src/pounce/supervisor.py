@@ -260,9 +260,7 @@ class Supervisor:
         )
 
         exec_label = f"{self._execution_mode}+" if self._execution_mode == "sync" else ""
-        _output.supervisor_starting(
-            self._effective_workers, f"{exec_label}{self._mode}"
-        )
+        _output.supervisor_starting(self._effective_workers, f"{exec_label}{self._mode}")
 
         self._setup_sync_infrastructure()
 
@@ -535,9 +533,7 @@ class Supervisor:
         # Replace handles with new generation
         self._handles = new_handles
 
-        _output.reload_complete(
-            workers=len(new_handles), generation=self._generation
-        )
+        _output.reload_complete(workers=len(new_handles), generation=self._generation)
 
     # ------------------------------------------------------------------
     # Spawning

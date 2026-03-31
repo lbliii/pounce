@@ -98,9 +98,7 @@ class _PrettyFormatter(logging.Formatter):
         try:
             from pounce._output import _render
 
-            return _render(
-                "log_line.kida", ts=ts, message=msg, level=record.levelname.lower()
-            )
+            return _render("log_line.kida", ts=ts, message=msg, level=record.levelname.lower())
         except Exception:
             # Fallback to plain ANSI if template rendering fails
             if record.levelno >= logging.ERROR:
