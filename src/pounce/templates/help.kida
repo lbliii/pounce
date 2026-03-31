@@ -15,14 +15,14 @@
 {%- if "serve" in state.prog %}
 
 {{ example_block([
-  {"description": "Start a server", "command": state.prog ~ " myapp:app"},
-  {"description": "Custom host and port", "command": state.prog ~ " myapp:app --host 0.0.0.0 --port 9000"},
-  {"description": "Multi-worker with reload", "command": state.prog ~ " myapp:app --workers 4 --reload"},
+  {"description": "Start a server", "command": state.prog ~ " --app myapp:app"},
+  {"description": "Custom host and port", "command": state.prog ~ " --app myapp:app --host 0.0.0.0 --port 9000"},
+  {"description": "Multi-worker with reload", "command": state.prog ~ " --app myapp:app --workers 4 --reload"},
 ]) }}
 {%- elif state.prog == "pounce" %}
 
 {{ example_block([
-  {"description": "Start a server", "command": "pounce serve myapp:app"},
+  {"description": "Start a server", "command": "pounce serve --app myapp:app"},
 ]) }}
 {%- endif %}
 

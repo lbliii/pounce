@@ -3,7 +3,7 @@ Command-line interface for pounce.
 
 Provides the ``pounce`` command with subcommands::
 
-    pounce serve myapp:app --host 0.0.0.0 --port 8000 --workers 4
+    pounce serve --app myapp:app --host 0.0.0.0 --port 8000 --workers 4
 
 Built on milo-cli for type-driven parsing, MCP server, and llms.txt generation.
 

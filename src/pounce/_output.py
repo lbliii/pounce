@@ -21,9 +21,6 @@ _TEMPLATE_DIR = Path(__file__).parent / "templates"
 _env = None
 _env_lock = threading.Lock()
 
-# Thread-safe lock for direct stderr writes (matches logging.py's _stderr_lock)
-_stderr_lock = threading.Lock()
-
 logger = logging.getLogger("pounce")
 
 
@@ -55,7 +52,14 @@ def _render(name: str, **ctx) -> str:
 
 
 def _write(text: str) -> None:
-    """Write a line to stderr (thread-safe)."""
+    """Write a line to stderr (thread-safe).
+
+    Reuses the shared lock from pounce.logging so lifecycle output and
+    direct stderr writes (JSON mode, etc.) never interleave under
+    free-threaded Python.
+    """
+    from pounce.logging import _stderr_lock
+
     with _stderr_lock:
         sys.stderr.write(text + "\n")
 
@@ -105,9 +109,25 @@ def error(
 
 
 def banner(config, effective_workers: int, mode_label: str, gil_status: str) -> None:
-    """Render the startup banner."""
+    """Render the startup banner.
+
+    Pretty mode renders the branded kida template. Text mode prints a
+    plain summary line. JSON mode is handled inline in server.py before
+    this function is called.
+    """
     if not _is_pretty():
-        return  # JSON banner handled inline in server.py
+        scheme = "https" if config.ssl_certfile else "http"
+        url = f"{scheme}://{config.host}:{config.port}"
+        logger.info(
+            "pounce v%s | %s | %d %s worker(s) | %s | Python %s",
+            __version__,
+            url,
+            effective_workers,
+            mode_label,
+            gil_status,
+            sys.version.split()[0],
+        )
+        return
 
     scheme = "https" if config.ssl_certfile else "http"
     url = f"{scheme}://{config.host}:{config.port}"
@@ -166,7 +186,7 @@ def _startup_hints(config, effective_workers: int) -> list[str]:
     if effective_workers == 1 and cpu_count >= 4:
         hints.append(f"{cpu_count} cores detected — try --workers 0 for auto-scaling")
     if not config.compression:
-        hints.append("Enable --compression for smaller responses")
+        hints.append("Compression is disabled; remove --no-compression for smaller responses")
     if config.reload and config.workers > 1:
         hints.append("Reload with multiple workers uses full restart, not rolling")
     return hints
@@ -266,7 +286,7 @@ def reload_complete(workers: int = 0, generation: int | None = None) -> None:
             )
         )
     else:
-        if generation:
+        if generation is not None:
             logger.info(
                 "Graceful reload complete. Running %d worker(s) on generation %d",
                 workers,
