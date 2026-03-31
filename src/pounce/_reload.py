@@ -165,9 +165,9 @@ def watch_for_changes(
 
         changed, snapshot = detect_changes(directories, snapshot, extensions)
         if changed:
-            from pounce._state import dispatch
+            from pounce._state import RELOAD_DETECTED, dispatch
 
-            dispatch("RELOAD_DETECTED", files=sorted(changed))
+            dispatch(RELOAD_DETECTED, files=sorted(changed))
             callback()
 
     logger.info("File watcher stopped")

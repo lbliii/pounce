@@ -1,8 +1,9 @@
-"""Kida-powered output for pounce server lifecycle events.
+"""Kida template infrastructure and one-shot branded output.
 
-Renders branded, styled terminal output for key server lifecycle moments.
-Only activates in "pretty" mode (interactive TTY). JSON and text modes
-fall through to their existing behavior via stdlib logging.
+Provides the shared template environment, thread-safe stderr writer, and
+branded renders for CLI commands (error, info, check, traceback) and access
+logs.  Server lifecycle output (banner, ready, shutdown, reload, worker
+events) is handled by the dispatch-driven view layer in ``_state.py``.
 
 """
 

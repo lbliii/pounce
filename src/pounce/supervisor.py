@@ -34,7 +34,18 @@ from pounce._runtime import (
     detect_worker_mode,
     resolve_worker_execution_mode,
 )
-from pounce._state import dispatch
+from pounce._state import (
+    RELOAD_COMPLETE,
+    RELOAD_FAILED,
+    RELOAD_START,
+    SUPERVISOR_ALL_STOPPED,
+    SUPERVISOR_SHUTDOWN,
+    SUPERVISOR_STARTING,
+    WORKER_CRASHED,
+    WORKER_MAX_RESTARTS,
+    WORKER_STARTED,
+    dispatch,
+)
 from pounce._types import ASGIApp
 from pounce.accept_distributor import AcceptDistributor, is_shared_socket
 from pounce.async_pool import AsyncPool
@@ -261,7 +272,7 @@ class Supervisor:
 
         exec_label = f"{self._execution_mode}+" if self._execution_mode == "sync" else ""
         dispatch(
-            "SUPERVISOR_STARTING",
+            SUPERVISOR_STARTING,
             count=self._effective_workers,
             mode=f"{exec_label}{self._mode}",
         )
@@ -332,7 +343,7 @@ class Supervisor:
 
     def _restart_workers_impl(self) -> None:
         """Internal implementation of restart_workers (no lock)."""
-        dispatch("RELOAD_START")
+        dispatch(RELOAD_START)
 
         # Reimport the app to pick up code changes (thread mode only —
         # process mode forks a new interpreter with a clean module cache).
@@ -343,7 +354,7 @@ class Supervisor:
                 self._app = reimport_app(self._app_path)
             except Exception:
                 logger.exception("Reload failed — restarting with previous version")
-                dispatch("RELOAD_FAILED", error="import error")
+                dispatch(RELOAD_FAILED, error="import error")
 
         # Signal all workers to stop
         self._shutdown_event.set()
@@ -408,7 +419,7 @@ class Supervisor:
             if self._udp_sockets and i < len(self._udp_sockets):
                 self._spawn_h3_worker(i)
 
-        dispatch("RELOAD_COMPLETE", workers=self._effective_workers)
+        dispatch(RELOAD_COMPLETE, workers=self._effective_workers)
 
     def graceful_reload(self) -> None:
         """Perform zero-downtime rolling restart of all workers.
@@ -446,7 +457,7 @@ class Supervisor:
 
     def _graceful_reload_impl(self) -> None:
         """Internal implementation of graceful_reload (no lock)."""
-        dispatch("RELOAD_START")
+        dispatch(RELOAD_START)
 
         # Reimport the app to pick up code changes (thread mode only)
         if self._app_path:
@@ -457,7 +468,7 @@ class Supervisor:
                 logger.info("Successfully reimported app from %s", self._app_path)
             except Exception:
                 logger.exception("Reload failed — continuing with previous version")
-                dispatch("RELOAD_FAILED", error="import error")
+                dispatch(RELOAD_FAILED, error="import error")
 
         # Keep track of old workers
         old_handles = list(self._handles)
@@ -537,7 +548,7 @@ class Supervisor:
         # Replace handles with new generation
         self._handles = new_handles
 
-        dispatch("RELOAD_COMPLETE", workers=len(new_handles), generation=self._generation)
+        dispatch(RELOAD_COMPLETE, workers=len(new_handles), generation=self._generation)
 
     # ------------------------------------------------------------------
     # Spawning
@@ -652,7 +663,7 @@ class Supervisor:
             self._handles.append(handle)
 
         dispatch(
-            "WORKER_STARTED", worker_id=worker_id, mode=self._mode, generation=self._generation
+            WORKER_STARTED, worker_id=worker_id, mode=self._mode, generation=self._generation
         )
 
     def _spawn_h3_worker(self, worker_id: int) -> None:
@@ -710,13 +721,13 @@ class Supervisor:
         handle.restarts = [t for t in handle.restarts if now - t < _RESTART_WINDOW]
 
         if len(handle.restarts) >= _MAX_RESTARTS:
-            dispatch("WORKER_MAX_RESTARTS", worker_id=worker_id, max_restarts=_MAX_RESTARTS)
+            dispatch(WORKER_MAX_RESTARTS, worker_id=worker_id, max_restarts=_MAX_RESTARTS)
             return
 
         handle.restarts.append(now)
         handle.restart_count += 1
 
-        dispatch("WORKER_CRASHED", worker_id=worker_id, restart_count=handle.restart_count)
+        dispatch(WORKER_CRASHED, worker_id=worker_id, restart_count=handle.restart_count)
 
         self._spawn_worker(worker_id)
 
@@ -765,7 +776,7 @@ class Supervisor:
 
         """
         total_workers = self._effective_workers + len(self._h3_handles)
-        dispatch("SUPERVISOR_SHUTDOWN", count=total_workers)
+        dispatch(SUPERVISOR_SHUTDOWN, count=total_workers)
 
         # Signal shutdown (may already be set)
         self._shutdown_event.set()
@@ -803,7 +814,7 @@ class Supervisor:
             else:
                 logger.debug("H3 worker %d stopped cleanly", handle.worker_id)
 
-        dispatch("SUPERVISOR_ALL_STOPPED")
+        dispatch(SUPERVISOR_ALL_STOPPED)
 
     def _force_stop(self, handle: _WorkerHandle, join_timeout: float) -> None:
         """Force-terminate a worker that did not drain in time.

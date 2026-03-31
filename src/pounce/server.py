@@ -25,7 +25,17 @@ from typing import cast
 
 import pounce.logging as pounce_logging
 from pounce._runtime import WorkerMode, detect_worker_mode, is_gil_enabled
-from pounce._state import dispatch
+from pounce._state import (
+    BANNER,
+    READY,
+    RELOAD_FAILED,
+    RELOAD_START,
+    SHUTDOWN_COMPLETE,
+    SHUTDOWN_DRAINED,
+    SHUTDOWN_START,
+    SHUTDOWN_TIMEOUT,
+    dispatch,
+)
 from pounce._types import ASGIApp
 from pounce.asgi.lifespan import run_lifespan
 from pounce.config import ServerConfig
@@ -189,7 +199,7 @@ class Server:
             if udp_sock is not None:
                 udp_sock.close()
             cleanup_unix_socket(self._config)
-            dispatch("SHUTDOWN_COMPLETE")
+            dispatch(SHUTDOWN_COMPLETE)
 
     def _run_single_with_reload(self) -> None:
         """Single-worker mode with auto-reload on source changes.
@@ -235,7 +245,7 @@ class Server:
                 actual_addr = sock.getsockname()
                 udp_sock = self._create_udp_listener_if_h3(actual_addr)
 
-                dispatch("READY", host=actual_addr[0], port=actual_addr[1], uds=self._config.uds)
+                dispatch(READY, host=actual_addr[0], port=actual_addr[1], uds=self._config.uds)
 
                 try:
                     asyncio.run(self._run_single_async(sock, udp_sock))
@@ -247,7 +257,7 @@ class Server:
                         udp_sock.close()
 
                 if reload_requested.is_set():
-                    dispatch("RELOAD_START")
+                    dispatch(RELOAD_START)
                     if self._app_path:
                         try:
                             from pounce._importer import reimport_app
@@ -255,13 +265,13 @@ class Server:
                             self._app = reimport_app(self._app_path)
                         except Exception:
                             logger.exception("Reload failed — serving previous version")
-                            dispatch("RELOAD_FAILED", error="import error")
+                            dispatch(RELOAD_FAILED, error="import error")
                     continue
                 break
         finally:
             stop_watcher.set()
             cleanup_unix_socket(self._config)
-            dispatch("SHUTDOWN_COMPLETE")
+            dispatch(SHUTDOWN_COMPLETE)
 
     async def _run_single_async(
         self,
@@ -343,7 +353,7 @@ class Server:
             if udp_sock is not None:
                 h3_task = asyncio.create_task(self._run_single_h3(udp_sock))
 
-            dispatch("READY", host=self._config.host, port=self._config.port, uds=self._config.uds)
+            dispatch(READY, host=self._config.host, port=self._config.port, uds=self._config.uds)
             self._started_event.set()
 
             try:
@@ -353,7 +363,7 @@ class Server:
                     h3_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await h3_task
-                dispatch("SHUTDOWN_START")
+                dispatch(SHUTDOWN_START)
                 server.close()  # Stop accepting new connections
 
                 # Grace period: wait for in-flight connections to complete
@@ -363,9 +373,9 @@ class Server:
                         server.wait_closed(),
                         timeout=timeout,
                     )
-                    dispatch("SHUTDOWN_DRAINED")
+                    dispatch(SHUTDOWN_DRAINED)
                 except TimeoutError:
-                    dispatch("SHUTDOWN_TIMEOUT", timeout=timeout)
+                    dispatch(SHUTDOWN_TIMEOUT, timeout=timeout)
 
                 # Per-worker shutdown — clean up worker-scoped resources
                 try:
@@ -402,7 +412,7 @@ class Server:
         actual_addr = sockets[0].getsockname()
         udp_sockets = self._create_udp_listeners_if_h3(actual_addr, effective_workers)
 
-        dispatch("READY", host=actual_addr[0], port=actual_addr[1], uds=self._config.uds)
+        dispatch(READY, host=actual_addr[0], port=actual_addr[1], uds=self._config.uds)
 
         self._supervisor = Supervisor(
             self._config,
@@ -460,7 +470,7 @@ class Server:
             self._close_sockets(sockets)
             self._close_sockets(udp_sockets)
             cleanup_unix_socket(self._config)
-            dispatch("SHUTDOWN_COMPLETE")
+            dispatch(SHUTDOWN_COMPLETE)
 
     async def _run_lifespan_then_supervise(
         self,
@@ -796,7 +806,7 @@ class Server:
             return
 
         dispatch(
-            "BANNER",
+            BANNER,
             config=self._config,
             effective_workers=effective_workers,
             mode_label=mode_label,
