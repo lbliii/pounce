@@ -1,0 +1,11 @@
+{#- Shutdown lifecycle phases. Receives: phase (str), connections (int), timeout (float) -#}
+{% from "components/_defs.kida" import status_line -%}
+{%- if phase == "start" -%}
+{{ status_line("warning", "Shutting down", "draining " ~ connections ~ " connection(s)" if connections else "") }}
+{%- elif phase == "drained" -%}
+{{ status_line("success", "All connections drained") }}
+{%- elif phase == "timeout" -%}
+{{ status_line("error", "Drain timeout", "(" ~ timeout ~ "s) — forcing close") }}
+{%- elif phase == "complete" -%}
+{{ "=^..^=" | dim }} {{ "stopped" | dim }}
+{%- endif -%}

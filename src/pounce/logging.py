@@ -88,18 +88,24 @@ class _JSONFormatter(logging.Formatter):
 
 
 class _PrettyFormatter(logging.Formatter):
-    """Compact colored formatter for TTY output of general log messages."""
+    """Compact colored formatter for TTY output — renders through kida templates."""
 
     def format(self, record: logging.LogRecord) -> str:
         ts = datetime.fromtimestamp(record.created, tz=UTC).strftime("%H:%M:%S")
         msg = record.getMessage()
         if record.exc_info and record.exc_info[1]:
             msg += "\n" + self.formatException(record.exc_info)
-        if record.levelno >= logging.ERROR:
-            return f"{_DIM}{ts}{_RESET} {_RED}{msg}{_RESET}"
-        if record.levelno >= logging.WARNING:
-            return f"{_DIM}{ts}{_RESET} {_YELLOW}{msg}{_RESET}"
-        return f"{_DIM}{ts}{_RESET} {msg}"
+        try:
+            from pounce._output import _render
+
+            return _render("log_line.kida", ts=ts, message=msg, level=record.levelname.lower())
+        except Exception:
+            # Fallback to plain ANSI if template rendering fails
+            if record.levelno >= logging.ERROR:
+                return f"{_DIM}{ts}{_RESET} {_RED}{msg}{_RESET}"
+            if record.levelno >= logging.WARNING:
+                return f"{_DIM}{ts}{_RESET} {_YELLOW}{msg}{_RESET}"
+            return f"{_DIM}{ts}{_RESET} {msg}"
 
 
 def configure_logging(config: ServerConfig) -> None:
@@ -216,18 +222,9 @@ def access_log(
             sys.stderr.write(line + "\n")
 
     elif _resolved_format == "pretty":
-        ts = datetime.now(tz=UTC).strftime("%H:%M:%S")
-        color = _status_color(status)
-        size = _human_bytes(bytes_sent) if bytes_sent > 0 else ""
-        dur = _duration_str(duration_ms)
-        line = (
-            f"{_DIM}{ts}{_RESET} "
-            f"{method:<5s} {path:<30s} "
-            f"{color}{status}{_RESET}  "
-            f"{size:>7s}  {dur:>6s}"
-        )
-        with _stderr_lock:
-            sys.stderr.write(line + "\n")
+        from pounce import _output
+
+        _output.access(method, path, status, bytes_sent, duration_ms, client)
 
     else:
         # Text mode — classic combined-log via stdlib logging

@@ -340,7 +340,8 @@ class TestPrettyAccessLog:
             mock_stderr.isatty.return_value = True
             configure_logging(ServerConfig(log_format="auto"))
         buf = io.StringIO()
-        with patch("pounce.logging.sys") as mock_sys:
+        buf.isatty = lambda: True  # kida ANSI filters check TTY
+        with patch("pounce._output.sys") as mock_sys:
             mock_sys.stderr = buf
             access_log(**kwargs)
         return buf.getvalue().strip()

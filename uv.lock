@@ -138,10 +138,11 @@ wheels = [
 
 [[package]]
 name = "bengal-pounce"
-version = "0.3.1"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "h11" },
+    { name = "milo-cli" },
 ]
 
 [package.optional-dependencies]
@@ -170,6 +171,7 @@ dev = [
     { name = "h2" },
     { name = "httpx" },
     { name = "hypothesis" },
+    { name = "milo-cli" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
@@ -178,6 +180,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-benchmark" },
     { name = "pytest-cov" },
+    { name = "pytest-mock" },
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
     { name = "ruff" },
@@ -197,6 +200,7 @@ requires-dist = [
     { name = "h11", specifier = ">=0.14.0" },
     { name = "h2", marker = "extra == 'full'", specifier = ">=4.0" },
     { name = "h2", marker = "extra == 'h2'", specifier = ">=4.0" },
+    { name = "milo-cli", specifier = ">=0.1.0" },
     { name = "truststore", marker = "extra == 'full'", specifier = ">=0.9" },
     { name = "truststore", marker = "extra == 'tls'", specifier = ">=0.9" },
     { name = "wsproto", marker = "extra == 'full'", specifier = ">=1.2" },
@@ -210,6 +214,7 @@ dev = [
     { name = "h2", specifier = ">=4.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "hypothesis", specifier = ">=6.100.0" },
+    { name = "milo-cli", specifier = ">=0.1.0" },
     { name = "opentelemetry-api", specifier = ">=1.0" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.0" },
     { name = "opentelemetry-sdk", specifier = ">=1.0" },
@@ -218,6 +223,7 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=0.23" },
     { name = "pytest-benchmark", specifier = ">=5.0.0" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
+    { name = "pytest-mock", specifier = ">=3.0" },
     { name = "pytest-timeout", specifier = ">=2.3.0" },
     { name = "pytest-xdist", specifier = ">=3.5.0" },
     { name = "ruff", specifier = ">=0.14.0" },
@@ -662,11 +668,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/5e/73/e01e4c5e11ad0494f
 
 [[package]]
 name = "kida-templates"
-version = "0.2.7"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/8a/0c/90e039eba2c35f03f6bdc54033b811faa0ea957154df4409024ca0456da7/kida_templates-0.2.7.tar.gz", hash = "sha256:965f93a141301889c5954dc83141e630d4a91ea74bc1d30672121615a227a53c", size = 363957, upload-time = "2026-03-12T17:59:29.143Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/58/5f/db79a39557baf6f7ae640a196d371f3236e6610907d585c933c836fd1080/kida_templates-0.3.0.tar.gz", hash = "sha256:b55329bbacb897ec3edc24870e53ec357fe85968ddafffb0d449445b1bca1c2a", size = 432714, upload-time = "2026-03-26T18:20:22.239Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7a/61/a8872dc11df6fd6843df8920bf0871260882f56c0c5066e6becdfc1d1358/kida_templates-0.2.7-py3-none-any.whl", hash = "sha256:4214ab65ebcba42a3bd7ded23b26873c155872934ff90967e23f2b8cf32adfef", size = 254472, upload-time = "2026-03-12T17:59:27.602Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/be/f7b5e3ea54e8218635ade989a833a70c15f48be159a17da6e1b4667ee967/kida_templates-0.3.0-py3-none-any.whl", hash = "sha256:189ed69ff181876faa238875801a3704bbe60db49efff47828430d84008f3e6d", size = 325542, upload-time = "2026-03-26T18:20:20.597Z" },
 ]
 
 [[package]]
@@ -756,6 +762,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz", hash = "sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba", size = 8729, upload-time = "2022-08-14T12:40:10.846Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979, upload-time = "2022-08-14T12:40:09.779Z" },
+]
+
+[[package]]
+name = "milo-cli"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "kida-templates" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c9/2b/7c611080a0be29ed38bd18bed3c62722dad8193bd2dc0f5e17082c2c8050/milo_cli-0.1.0.tar.gz", hash = "sha256:6457edcfc32da973714182630cedf6e5ed40af8a31c37a9fb7c5c3498d4b0145", size = 107787, upload-time = "2026-03-30T23:07:24.515Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/97/ae/4522cc13b0ab165d819a1f9106346ca2c30b50c098d79d79a1f400734b0f/milo_cli-0.1.0-py3-none-any.whl", hash = "sha256:2a66ebeb5ec6e361f9d662a9b09377199eadd6669a191653f3e73e7e8d2352b2", size = 73069, upload-time = "2026-03-30T23:07:23.432Z" },
 ]
 
 [[package]]
@@ -1150,6 +1168,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5e/f7/c933acc76f5208b3b00089573cf6a2bc26dc80a8aece8f52bb7d6b1855ca/pytest_cov-7.0.0.tar.gz", hash = "sha256:33c97eda2e049a0c5298e91f519302a1334c26ac65c1a483d6206fd458361af1", size = 54328, upload-time = "2025-09-09T10:57:02.113Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ee/49/1377b49de7d0c1ce41292161ea0f721913fa8722c19fb9c1e3aa0367eecb/pytest_cov-7.0.0-py3-none-any.whl", hash = "sha256:3b8e9558b16cc1479da72058bdecf8073661c7f57f7d3c5f22a1c23507f2d861", size = 22424, upload-time = "2025-09-09T10:57:00.695Z" },
+]
+
+[[package]]
+name = "pytest-mock"
+version = "3.15.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/68/14/eb014d26be205d38ad5ad20d9a80f7d201472e08167f0bb4361e251084a9/pytest_mock-3.15.1.tar.gz", hash = "sha256:1849a238f6f396da19762269de72cb1814ab44416fa73a8686deac10b0d87a0f", size = 34036, upload-time = "2025-09-16T16:37:27.081Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5a/cc/06253936f4a7fa2e0f48dfe6d851d9c56df896a9ab09ac019d70b760619c/pytest_mock-3.15.1-py3-none-any.whl", hash = "sha256:0a25e2eb88fe5168d535041d09a4529a188176ae608a6d249ee65abc0949630d", size = 10095, upload-time = "2025-09-16T16:37:25.734Z" },
 ]
 
 [[package]]

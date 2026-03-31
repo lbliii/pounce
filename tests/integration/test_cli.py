@@ -2,148 +2,155 @@
 
 import pytest
 
-from pounce._cli import _build_parser, main, parse_dirs, parse_extensions
+from pounce._cli import cli, main, parse_dirs, parse_extensions
 
 
-class TestCLIParser:
-    """Argument parser produces correct defaults and overrides."""
+class TestCLIServeCommand:
+    """The 'serve' command parses correct defaults and overrides via cli.call()."""
 
-    def test_default_args(self):
-        parser = _build_parser()
-        parsed = parser.parse_args(["myapp:app"])
-        assert parsed.app == "myapp:app"
-        assert parsed.host == "127.0.0.1"
-        assert parsed.port == 8000
-        assert parsed.workers == 1
-        assert parsed.log_level == "info"
-        assert parsed.root_path == ""
-        assert parsed.no_compression is False
-        assert parsed.server_timing is False
-        assert parsed.no_access_log is False
-        assert parsed.ssl_certfile is None
-        assert parsed.ssl_keyfile is None
-        assert parsed.reload is False
-        assert parsed.keep_alive_timeout == 5.0
-        assert parsed.max_requests_per_connection == 0
+    def test_default_args(self, mocker):
+        """Defaults match ServerConfig defaults."""
+        mock_server = mocker.patch("pounce._cli.Server")
+        mock_import = mocker.patch("pounce._cli.import_app", return_value=lambda: None)
+        cli.call("serve", app="myapp:app")
+        mock_import.assert_called_once_with("myapp:app")
+        config = mock_server.call_args[0][0]
+        assert config.host == "127.0.0.1"
+        assert config.port == 8000
+        assert config.workers == 1
+        assert config.log_level == "info"
+        assert config.root_path == ""
+        assert config.compression is True
+        assert config.server_timing is False
+        assert config.access_log is True
+        assert config.ssl_certfile is None
+        assert config.ssl_keyfile is None
+        assert config.reload is False
+        assert config.keep_alive_timeout == 5.0
+        assert config.max_requests_per_connection == 0
 
-    def test_custom_args(self):
-        parser = _build_parser()
-        parsed = parser.parse_args(
-            [
-                "myapp.web:create_app()",
-                "--host",
-                "0.0.0.0",
-                "--port",
-                "9000",
-                "--workers",
-                "4",
-                "--log-level",
-                "debug",
-                "--root-path",
-                "/api",
-                "--no-compression",
-                "--server-timing",
-                "--no-access-log",
-            ]
+    def test_custom_args(self, mocker):
+        mock_server = mocker.patch("pounce._cli.Server")
+        mocker.patch("pounce._cli.import_app", return_value=lambda: None)
+        cli.call(
+            "serve",
+            app="myapp.web:create_app()",
+            host="0.0.0.0",
+            port=9000,
+            workers=4,
+            log_level="debug",
+            root_path="/api",
+            no_compression=True,
+            server_timing=True,
+            no_access_log=True,
         )
-        assert parsed.app == "myapp.web:create_app()"
-        assert parsed.host == "0.0.0.0"
-        assert parsed.port == 9000
-        assert parsed.workers == 4
-        assert parsed.log_level == "debug"
-        assert parsed.root_path == "/api"
-        assert parsed.no_compression is True
-        assert parsed.server_timing is True
-        assert parsed.no_access_log is True
+        config = mock_server.call_args[0][0]
+        assert config.host == "0.0.0.0"
+        assert config.port == 9000
+        assert config.workers == 4
+        assert config.log_level == "debug"
+        assert config.root_path == "/api"
+        assert config.compression is False
+        assert config.server_timing is True
+        assert config.access_log is False
 
-    def test_missing_app_exits(self):
-        parser = _build_parser()
+    def test_tls_args(self, mocker):
+        mock_server = mocker.patch("pounce._cli.Server")
+        mocker.patch("pounce._cli.import_app", return_value=lambda: None)
+        cli.call(
+            "serve",
+            app="myapp:app",
+            ssl_certfile="/path/to/cert.pem",
+            ssl_keyfile="/path/to/key.pem",
+        )
+        config = mock_server.call_args[0][0]
+        assert config.ssl_certfile == "/path/to/cert.pem"
+        assert config.ssl_keyfile == "/path/to/key.pem"
+
+    def test_reload_flag(self, mocker):
+        mock_server = mocker.patch("pounce._cli.Server")
+        mocker.patch("pounce._cli.import_app", return_value=lambda: None)
+        cli.call("serve", app="myapp:app", reload=True)
+        config = mock_server.call_args[0][0]
+        assert config.reload is True
+
+    def test_reload_include(self, mocker):
+        mock_server = mocker.patch("pounce._cli.Server")
+        mocker.patch("pounce._cli.import_app", return_value=lambda: None)
+        cli.call("serve", app="myapp:app", reload=True, reload_include=".html,.css,.md")
+        config = mock_server.call_args[0][0]
+        assert config.reload_include == (".html", ".css", ".md")
+
+    def test_reload_dir_multiple(self, mocker):
+        mock_server = mocker.patch("pounce._cli.Server")
+        mocker.patch("pounce._cli.import_app", return_value=lambda: None)
+        cli.call("serve", app="myapp:app", reload=True, reload_dir=["./templates", "./static"])
+        config = mock_server.call_args[0][0]
+        assert config.reload_dirs == ("./templates", "./static")
+
+    def test_keepalive_args(self, mocker):
+        mock_server = mocker.patch("pounce._cli.Server")
+        mocker.patch("pounce._cli.import_app", return_value=lambda: None)
+        cli.call(
+            "serve",
+            app="myapp:app",
+            keep_alive_timeout=30.0,
+            max_requests_per_connection=1000,
+        )
+        config = mock_server.call_args[0][0]
+        assert config.keep_alive_timeout == 30.0
+        assert config.max_requests_per_connection == 1000
+
+    def test_factory_pattern_preserved(self, mocker):
+        mocker.patch("pounce._cli.Server")
+        mock_import = mocker.patch("pounce._cli.import_app", return_value=lambda: None)
+        cli.call("serve", app="myapp:create_app()")
+        mock_import.assert_called_once_with("myapp:create_app()")
+
+    def test_dotted_factory_pattern(self, mocker):
+        mocker.patch("pounce._cli.Server")
+        mock_import = mocker.patch("pounce._cli.import_app", return_value=lambda: None)
+        cli.call("serve", app="myapp.web:create_app()")
+        mock_import.assert_called_once_with("myapp.web:create_app()")
+
+
+class TestCLIMainViaArgv:
+    """main() with argv strings routes through the serve subcommand."""
+
+    def test_serve_via_main(self, mocker):
+        mock_server = mocker.patch("pounce._cli.Server")
+        mocker.patch("pounce._cli.import_app", return_value=lambda: None)
+        main(["serve", "--app", "myapp:app", "--port", "9000"])
+        config = mock_server.call_args[0][0]
+        assert config.port == 9000
+
+    def test_invalid_app_exits(self):
+        with pytest.raises(SystemExit) as exc_info:
+            main(["serve", "--app", "nonexistent_module_xyz:app"])
+        assert exc_info.value.code == 1
+
+    def test_no_colon_exits(self):
+        with pytest.raises(SystemExit) as exc_info:
+            main(["serve", "--app", "justmodule"])
+        assert exc_info.value.code == 1
+
+
+class TestCLIBuiltinFlags:
+    """Milo built-in flags work correctly."""
+
+    def test_version_flag(self, capsys):
+        from pounce import __version__
+
         with pytest.raises(SystemExit):
-            parser.parse_args([])
+            main(["--version"])
+        captured = capsys.readouterr()
+        assert __version__ in captured.out
 
-    def test_phase3_tls_args(self):
-        parser = _build_parser()
-        parsed = parser.parse_args(
-            [
-                "myapp:app",
-                "--ssl-certfile",
-                "/path/to/cert.pem",
-                "--ssl-keyfile",
-                "/path/to/key.pem",
-            ]
-        )
-        assert parsed.ssl_certfile == "/path/to/cert.pem"
-        assert parsed.ssl_keyfile == "/path/to/key.pem"
-
-    def test_phase3_reload_flag(self):
-        parser = _build_parser()
-        parsed = parser.parse_args(["myapp:app", "--reload"])
-        assert parsed.reload is True
-
-    def test_reload_include_flag(self):
-        parser = _build_parser()
-        parsed = parser.parse_args(["myapp:app", "--reload", "--reload-include", ".html,.css,.md"])
-        assert parsed.reload_include == ".html,.css,.md"
-
-    def test_reload_dir_flag_single(self):
-        parser = _build_parser()
-        parsed = parser.parse_args(["myapp:app", "--reload", "--reload-dir", "./templates"])
-        assert parsed.reload_dir == ["./templates"]
-
-    def test_reload_dir_flag_multiple(self):
-        parser = _build_parser()
-        parsed = parser.parse_args(
-            [
-                "myapp:app",
-                "--reload",
-                "--reload-dir",
-                "./templates",
-                "--reload-dir",
-                "./static",
-            ]
-        )
-        assert parsed.reload_dir == ["./templates", "./static"]
-
-    def test_reload_include_default_none(self):
-        parser = _build_parser()
-        parsed = parser.parse_args(["myapp:app"])
-        assert parsed.reload_include is None
-
-    def test_reload_dir_default_none(self):
-        parser = _build_parser()
-        parsed = parser.parse_args(["myapp:app"])
-        assert parsed.reload_dir is None
-
-    def test_phase3_keepalive_args(self):
-        parser = _build_parser()
-        parsed = parser.parse_args(
-            [
-                "myapp:app",
-                "--keep-alive-timeout",
-                "30.0",
-                "--max-requests-per-connection",
-                "1000",
-            ]
-        )
-        assert parsed.keep_alive_timeout == 30.0
-        assert parsed.max_requests_per_connection == 1000
-
-    def test_factory_pattern_preserved(self):
-        """Factory pattern 'module:create_app()' is preserved through argparse."""
-        parser = _build_parser()
-        parsed = parser.parse_args(["myapp:create_app()"])
-        assert parsed.app == "myapp:create_app()"
-
-    def test_dotted_factory_pattern(self):
-        """Dotted factory pattern 'myapp.web:create_app()' is preserved."""
-        parser = _build_parser()
-        parsed = parser.parse_args(["myapp.web:create_app()"])
-        assert parsed.app == "myapp.web:create_app()"
-
-    def test_invalid_log_level_exits(self):
-        parser = _build_parser()
-        with pytest.raises(SystemExit):
-            parser.parse_args(["myapp:app", "--log-level", "verbose"])
+    def test_llms_txt_flag(self, capsys):
+        main(["--llms-txt"])
+        captured = capsys.readouterr()
+        assert "serve" in captured.out.lower()
+        assert "pounce" in captured.out.lower()
 
 
 class TestParseExtensions:
@@ -200,21 +207,6 @@ class TestParseDirs:
 
     def test_whitespace_only_filtered(self):
         assert parse_dirs(["./templates", "   ", "./static"]) == ("./templates", "./static")
-
-
-class TestCLIMain:
-    """main() validates the app string before starting."""
-
-    def test_invalid_app_exits(self):
-        """main() exits with code 1 for an invalid app string."""
-        with pytest.raises(SystemExit) as exc_info:
-            main(["nonexistent_module_xyz:app"])
-        assert exc_info.value.code == 1
-
-    def test_no_colon_exits(self):
-        with pytest.raises(SystemExit) as exc_info:
-            main(["justmodule"])
-        assert exc_info.value.code == 1
 
 
 class TestPublicAPI:

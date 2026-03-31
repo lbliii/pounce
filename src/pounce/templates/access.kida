@@ -1,0 +1,2 @@
+{#- Access log line. Receives: ts (str), method (str), path (str), status (int), size (str), duration (str) -#}
+{{ ts | dim }} {{ method | bold }} {{ path }} {% if status < 300 %}{{ status | string | green }}{% elif status < 400 %}{{ status | string | dim }}{% elif status < 500 %}{{ status | string | yellow }}{% else %}{{ status | string | red }}{% endif %}  {{ size }}  {{ duration }}

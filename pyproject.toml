@@ -36,7 +36,8 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "h11>=0.14.0",  # HTTP/1.1 parser (pure Python, well-tested, ~2k LOC)
+    "h11>=0.14.0",      # HTTP/1.1 parser (pure Python, well-tested, ~2k LOC)
+    "milo-cli>=0.1.0",  # CLI framework (type-driven parsing, MCP, llms.txt)
 ]
 
 [project.optional-dependencies]
@@ -71,7 +72,7 @@ Changelog = "https://github.com/lbliii/pounce/blob/main/CHANGELOG.md"
 where = ["src"]
 
 [tool.setuptools.package-data]
-pounce = ["py.typed"]
+pounce = ["py.typed", "templates/*.kida", "templates/components/*.kida"]
 
 # =============================================================================
 # Ruff — Linter & Formatter
@@ -199,7 +200,10 @@ dev = [
     "opentelemetry-sdk>=1.0",
     "opentelemetry-exporter-otlp-proto-http>=1.0",
     "sentry-sdk>=2.0",
+    # CLI framework
+    "milo-cli>=0.1.0",
     # Test utilities
+    "pytest-mock>=3.0",
     "httpx>=0.27.0",
 ]
 

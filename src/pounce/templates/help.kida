@@ -1,0 +1,54 @@
+{#- Pounce branded help output.
+
+    Uses milo component primitives for consistent styling.
+
+    Receives:
+        state.prog         -- program name
+        state.description  -- one-line description
+        state.groups       -- list of argparse action groups
+-#}
+{% from "components/_defs.kida" import header_box, section, command_row, example_block %}
+{%- set desc = state.description if state.description else "A free-threading-native ASGI server for Python 3.14t" -%}
+{{ header_box("=^..^=  " ~ state.prog, "", desc) }}
+
+{#- Show usage example for the serve subcommand -#}
+{%- if "serve" in state.prog %}
+
+{{ example_block([
+  {"description": "Start a server", "command": state.prog ~ " --app myapp:app"},
+  {"description": "Custom host and port", "command": state.prog ~ " --app myapp:app --host 0.0.0.0 --port 9000"},
+  {"description": "Multi-worker with reload", "command": state.prog ~ " --app myapp:app --workers 4 --reload"},
+]) }}
+{%- elif state.prog == "pounce" %}
+
+{{ example_block([
+  {"description": "Start a server", "command": "pounce serve --app myapp:app"},
+]) }}
+{%- endif %}
+
+{#- Render each action group -#}
+{% for group in state.groups -%}
+{%- let actions = [] -%}
+{%- let subcommands = [] -%}
+{%- for action in group.actions -%}
+{%- if action.dest == "_command" and action.choices -%}
+{%- for name in action.choices -%}
+{%- export subcommands = subcommands + [{"name": name, "help": action.choices[name] | default("")}] -%}
+{%- endfor -%}
+{%- elif action.dest != "_command" -%}
+{%- export actions = actions + [action] -%}
+{%- endif -%}
+{%- endfor -%}
+{#- Show subcommands -#}
+{%- if subcommands %}
+{{ section("Commands") }}
+{% for cmd in subcommands %}{{ command_row(cmd.name, cmd.help) }}
+{% endfor %}
+{%- endif -%}
+{#- Show regular options -#}
+{%- if actions %}
+{{ section(group.title) }}
+{% for action in actions %}  {% if action.option_strings %}{{ action.option_strings | join(", ") | green }}{% else %}{{ action.dest | cyan }}{% endif %}{% if action.metavar %} {{ action.metavar | dim }}{% endif %}    {{ action.help }}{% if action.default is not none and action.default != "==SUPPRESS==" and action.default != "" and action.default != false %} {{ ("(" ~ action.default ~ ")") | dim }}{% endif %}
+{% endfor %}
+{%- endif -%}
+{%- endfor %}
