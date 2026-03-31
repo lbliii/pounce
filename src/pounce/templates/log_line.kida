@@ -1,0 +1,8 @@
+{#- Generic log line for PrettyFormatter. Receives: ts (str), message (str), level (str) -#}
+{%- if level == "error" or level == "critical" -%}
+{{ ts | dim }} {{ message | red }}
+{%- elif level == "warning" -%}
+{{ ts | dim }} {{ message | yellow }}
+{%- else -%}
+{{ ts | dim }} {{ message }}
+{%- endif -%}

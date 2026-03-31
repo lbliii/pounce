@@ -1,0 +1,14 @@
+{#- Reload lifecycle phases. Receives: phase (str), files (list), generation (int), error (str), workers (int) -#}
+{% from "components/_defs.kida" import status_line -%}
+{%- if phase == "detected" -%}
+{{ status_line("info", "Changed", files | join(", ")) }}
+{%- elif phase == "start" -%}
+{{ status_line("warning", "Reloading...") }}
+{%- elif phase == "complete" -%}
+{%- let detail_parts = [] -%}
+{%- if workers -%}{%- export detail_parts = detail_parts + [workers | string ~ " worker(s)"] -%}{%- endif -%}
+{%- if generation -%}{%- export detail_parts = detail_parts + ["gen " ~ generation | string] -%}{%- endif -%}
+{{ status_line("success", "Reloaded", detail_parts | join(" · ")) }}
+{%- elif phase == "failed" -%}
+{{ status_line("error", "Reload failed", "serving previous version") }}
+{%- endif -%}

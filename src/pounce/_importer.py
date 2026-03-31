@@ -169,7 +169,7 @@ def _clear_local_modules(base_dirs: list[str] | None = None) -> list[str]:
             continue
         try:
             real_path = os.path.realpath(filepath)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
         if real_path.startswith(prefixes):
             to_remove.append(name)

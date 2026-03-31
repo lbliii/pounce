@@ -16,22 +16,21 @@ class TestHTTP3Config:
         with pytest.raises(ValueError, match="http3_enabled requires"):
             ServerConfig(http3_enabled=True)
 
-    def test_cli_http3_flag(self) -> None:
+    def test_cli_http3_flag(self, mocker) -> None:
         """--http3 maps to http3_enabled."""
-        from pounce._cli import _build_parser
+        from pounce._cli import cli
 
-        parser = _build_parser()
-        parsed = parser.parse_args(
-            [
-                "app:app",
-                "--http3",
-                "--ssl-certfile",
-                "c.pem",
-                "--ssl-keyfile",
-                "k.pem",
-            ],
+        mock_server = mocker.patch("pounce._cli.Server")
+        mocker.patch("pounce._cli.import_app", return_value=lambda: None)
+        cli.call(
+            "serve",
+            app="app:app",
+            http3=True,
+            ssl_certfile="c.pem",
+            ssl_keyfile="k.pem",
         )
-        assert parsed.http3 is True
+        config = mock_server.call_args[0][0]
+        assert config.http3_enabled is True
 
 
 @pytest.mark.skipif(

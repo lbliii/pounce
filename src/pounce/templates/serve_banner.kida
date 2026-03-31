@@ -1,0 +1,52 @@
+{#- Pounce server startup banner.
+
+    Uses milo component primitives for consistent styling.
+
+    Receives:
+        version            -- pounce version string
+        gil                -- "nogil" or "GIL"
+        url                -- full URL (e.g. "http://127.0.0.1:8000")
+        uds                -- unix domain socket path or None
+        workers            -- effective worker count (int)
+        mode               -- worker mode label (e.g. "threads", "single")
+        log_level          -- log level string
+        features           -- list of {name, on, detail} dicts
+        hints              -- list of hint strings
+        health_check_path  -- health check path or ""
+        root_path          -- root path or ""
+-#}
+{% from "components/_defs.kida" import header_box, section, kv_pair, status_line %}
+{{ header_box("=^..^=  pounce", "v" ~ version, "ASGI server for Python 3.14t · " ~ gil) }}
+
+{{ section("Network") }}
+{%- if uds %}
+  {{ kv_pair("Socket", uds) }}
+{%- else %}
+  {{ "  " ~ icons.arrow_r | cyan }} {{ url | bold }}
+{%- endif %}
+  {{ kv_pair("Workers", workers | string ~ " (" ~ mode ~ ")") }}
+{%- if health_check_path %}
+  {{ kv_pair("Health", health_check_path) }}
+{%- endif %}
+{%- if root_path %}
+  {{ kv_pair("Root path", root_path) }}
+{%- endif %}
+
+{{ section("Features") }}
+{%- for f in features %}
+{%- if f.on %}
+  {{ status_line("success", f.name, f.detail) }}
+{%- else %}
+  {{ status_line("info", f.name, f.detail) }}
+{%- endif %}
+{%- endfor %}
+
+{%- if hints %}
+
+{{ section("Hints") }}
+{%- for h in hints %}
+  {{ status_line("info", h) }}
+{%- endfor %}
+{%- endif %}
+
+  {{ ("log level: " ~ log_level) | dim }}

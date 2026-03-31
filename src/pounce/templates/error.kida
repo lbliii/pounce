@@ -1,0 +1,32 @@
+{#- Pounce branded error output.
+
+    Uses milo component primitives for consistent styling.
+
+    Receives:
+        error          -- error message (str)
+        code           -- error code (str, optional)
+        hint           -- suggested fix (str, optional)
+        template_name  -- source template if relevant (str, optional)
+        docs_url       -- documentation link (str, optional)
+        diagnostics    -- list of {label, value} dicts (optional)
+-#}
+{% from "components/_defs.kida" import status_line, kv_pair %}
+
+{{ "=^..^=" | dim }} {{ "error" | red | bold }}{% if code %} {{ code | yellow }}{% endif %}
+
+  {{ error }}
+{% if template_name %}
+  {{ "template:" | dim }} {{ template_name }}
+{%- endif %}
+{%- if diagnostics is defined and diagnostics %}
+{% for d in diagnostics %}
+  {{ kv_pair(d.label, d.value) }}
+{%- endfor %}
+{%- endif %}
+{%- if hint %}
+
+  {{ status_line("info", hint) }}
+{%- endif %}
+{%- if docs_url %}
+  {{ "docs:" | dim }} {{ docs_url | underline }}
+{%- endif %}

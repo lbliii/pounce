@@ -24,6 +24,7 @@ from dataclasses import replace
 from typing import cast
 
 import pounce.logging as pounce_logging
+from pounce import _output
 from pounce._runtime import WorkerMode, detect_worker_mode, is_gil_enabled
 from pounce._types import ASGIApp
 from pounce.asgi.lifespan import run_lifespan
@@ -179,12 +180,6 @@ class Server:
         self._bound_addr = (actual_addr[0], actual_addr[1])
         udp_sock = self._create_udp_listener_if_h3(actual_addr)
 
-        logger.info(
-            "Pounce server starting on %s:%d (single worker)",
-            actual_addr[0],
-            actual_addr[1],
-        )
-
         try:
             asyncio.run(self._run_single_async(sock, udp_sock))
         except KeyboardInterrupt:
@@ -194,7 +189,7 @@ class Server:
             if udp_sock is not None:
                 udp_sock.close()
             cleanup_unix_socket(self._config)
-            logger.info("Pounce server stopped")
+            _output.shutdown_complete()
 
     def _run_single_with_reload(self) -> None:
         """Single-worker mode with auto-reload on source changes.
@@ -240,11 +235,7 @@ class Server:
                 actual_addr = sock.getsockname()
                 udp_sock = self._create_udp_listener_if_h3(actual_addr)
 
-                logger.info(
-                    "Pounce server starting on %s:%d (single worker, reload)",
-                    actual_addr[0],
-                    actual_addr[1],
-                )
+                _output.ready(actual_addr[0], actual_addr[1], uds=self._config.uds)
 
                 try:
                     asyncio.run(self._run_single_async(sock, udp_sock))
@@ -256,7 +247,7 @@ class Server:
                         udp_sock.close()
 
                 if reload_requested.is_set():
-                    logger.info("Reloading...")
+                    _output.reload_start()
                     if self._app_path:
                         try:
                             from pounce._importer import reimport_app
@@ -264,12 +255,13 @@ class Server:
                             self._app = reimport_app(self._app_path)
                         except Exception:
                             logger.exception("Reload failed — serving previous version")
+                            _output.reload_failed("import error")
                     continue
                 break
         finally:
             stop_watcher.set()
             cleanup_unix_socket(self._config)
-            logger.info("Pounce server stopped")
+            _output.shutdown_complete()
 
     async def _run_single_async(
         self,
@@ -351,7 +343,9 @@ class Server:
             if udp_sock is not None:
                 h3_task = asyncio.create_task(self._run_single_h3(udp_sock))
 
-            logger.info("Ready to accept connections")
+            _output.ready(
+                self._config.host, self._config.port, uds=self._config.uds
+            )
             self._started_event.set()
 
             try:
@@ -361,7 +355,7 @@ class Server:
                     h3_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await h3_task
-                logger.info("Shutting down — draining connections...")
+                _output.shutdown_start()
                 server.close()  # Stop accepting new connections
 
                 # Grace period: wait for in-flight connections to complete
@@ -371,12 +365,9 @@ class Server:
                         server.wait_closed(),
                         timeout=timeout,
                     )
-                    logger.info("All connections drained")
+                    _output.shutdown_drained()
                 except TimeoutError:
-                    logger.warning(
-                        "Shutdown timeout (%.1fs) — forcing remaining connections closed",
-                        timeout,
-                    )
+                    _output.shutdown_timeout(timeout)
 
                 # Per-worker shutdown — clean up worker-scoped resources
                 try:
@@ -413,13 +404,7 @@ class Server:
         actual_addr = sockets[0].getsockname()
         udp_sockets = self._create_udp_listeners_if_h3(actual_addr, effective_workers)
 
-        logger.info(
-            "Pounce server starting on %s:%d (%d %s workers)",
-            actual_addr[0],
-            actual_addr[1],
-            effective_workers,
-            mode,
-        )
+        _output.ready(actual_addr[0], actual_addr[1], uds=self._config.uds)
 
         self._supervisor = Supervisor(
             self._config,
@@ -477,7 +462,7 @@ class Server:
             self._close_sockets(sockets)
             self._close_sockets(udp_sockets)
             cleanup_unix_socket(self._config)
-            logger.info("Pounce server stopped")
+            _output.shutdown_complete()
 
     async def _run_lifespan_then_supervise(
         self,
@@ -812,35 +797,7 @@ class Server:
             sys.stderr.write(json_module.dumps(banner, default=str) + "\n")
             return
 
-        lines = [
-            "",
-            f"  pounce v{_get_version()} (Python {sys.version.split()[0]}, {gil_status})",
-            f"  -> {url}",
-            f"  -> pid: {os.getpid()}",
-            f"  -> workers: {effective_workers} ({mode_label})",
-        ]
-        if self._ssl_context is not None:
-            lines.append("  -> tls: enabled")
-        if self._config.http3_enabled:
-            lines.append("  -> http3: enabled (QUIC/UDP)")
-        if self._config.compression:
-            from pounce._compression import _ENCODING_PRIORITY
-
-            enc_list = ", ".join(_ENCODING_PRIORITY)
-            lines.append(f"  -> compression: enabled ({enc_list})")
-        if self._config.server_timing:
-            lines.append("  -> server-timing: enabled")
-        if self._config.root_path:
-            lines.append(f"  -> root_path: {self._config.root_path}")
-        if self._config.reload:
-            lines.append("  -> reload: enabled (watching for changes)")
-        if self._config.keep_alive_timeout != 5.0:
-            lines.append(f"  -> keep-alive: {self._config.keep_alive_timeout}s")
-        if self._config.max_requests_per_connection > 0:
-            lines.append(f"  -> max-requests/conn: {self._config.max_requests_per_connection}")
-        lines.append("")
-
-        sys.stderr.write("\n".join(lines) + "\n")
+        _output.banner(self._config, effective_workers, mode_label, gil_status)
 
     @staticmethod
     def _close_sockets(sockets: list[socket.socket]) -> None:

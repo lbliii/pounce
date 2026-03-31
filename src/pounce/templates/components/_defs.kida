@@ -1,0 +1,83 @@
+{#- Pounce component primitives — inlined from milo's _defs.kida
+    since milo-cli doesn't ship the components/ directory in its wheel.
+
+    When milo ships components, this file can be replaced with a
+    re-export: {% from "milo/components/_defs.kida" import ... %}
+-#}
+
+{#- ── Section heading ──────────────────────────────────────────────── -#}
+{%- def section(title, color="yellow") -%}
+{{ title | fg(color) | bold }}:
+{%- enddef -%}
+
+{#- ── Status line: icon + message + optional detail ────────────────── -#}
+{%- def status_line(level, message, detail="") -%}
+{%- if level == "success" -%}
+{{ icons.check | green }} {{ message | bold }}{% if detail %}  {{ detail | dim }}{% endif %}
+{%- elif level == "error" -%}
+{{ icons.cross | red }} {{ message | bold }}{% if detail %}  {{ detail | dim }}{% endif %}
+{%- elif level == "warning" -%}
+{{ icons.dot | yellow }} {{ message | bold }}{% if detail %}  {{ detail | dim }}{% endif %}
+{%- elif level == "info" -%}
+{{ icons.info | cyan }} {{ message }}{% if detail %}  {{ detail | dim }}{% endif %}
+{%- else -%}
+{{ icons.dot | dim }} {{ message }}{% if detail %}  {{ detail | dim }}{% endif %}
+{%- endif -%}
+{%- enddef -%}
+
+{#- ── Key-value pair with dot-fill alignment ───────────────────────── -#}
+{%- def kv_pair(label, value, width=40) -%}
+{{ label | kv(value | string, width=width) }}
+{%- enddef -%}
+
+{#- ── Key-value list ───────────────────────────────────────────────── -#}
+{%- def kv_list(items, width=40) -%}
+{%- for item in items -%}
+{{ item.label | kv(item.value | string, width=width) }}
+{% endfor -%}
+{%- enddef -%}
+
+{#- ── Example block: description + command ─────────────────────────── -#}
+{%- def example_block(examples) -%}
+{%- for ex in examples -%}
+  {{ ex.description | dim }}
+  {{ "$ " | dim }}{{ ex.command | bold }}
+{% endfor -%}
+{%- enddef -%}
+
+{#- ── Command row: name + aliases + description + tags ─────────────── -#}
+{%- def command_row(name, description="", aliases=[], tags=[]) -%}
+  {{ name | green | bold }}{{ " " * ([1, 20 - name | length] | max) }}{{ description }}
+{%- enddef -%}
+
+{#- ── Header/banner ────────────────────────────────────────────────── -#}
+{%- def header(name, version="", description="") -%}
+{{ name | bold | cyan }}{% if version %} {{ version | dim }}{% endif %}{% if description %}
+{{ description }}{% endif %}
+{%- enddef -%}
+
+{#- ── Key hints bar ──────────────────────────────────────────────── -#}
+{%- def key_hints(hints) -%}
+{%- for hint in hints -%}
+{{ hint.key | dim }} {{ hint.action }}{% if not loop.last %}  {% endif %}
+{%- endfor -%}
+{%- enddef -%}
+
+{#- ── Boxed header with border (round style) ───────────────────────── -#}
+{%- def header_box(name, version="", description="") -%}
+{%- set b = box.round -%}
+{%- set title = name ~ (" " ~ version if version else "") -%}
+{%- set width = title | length + 2 -%}
+{%- if description -%}
+  {%- export width = [width, description | length + 2] | max -%}
+{%- endif -%}
+{%- if width < 40 -%}
+  {%- export width = 40 -%}
+{%- endif -%}
+{{ b.tl }}{{ b.h * width }}{{ b.tr }}
+{{ b.v }} {{ title | bold | cyan | pad(width - 1) }}{{ b.v }}
+{%- if description %}
+{{ b.v }} {{ description | dim | pad(width - 1) }}{{ b.v }}
+{%- endif %}
+{{ b.bl }}{{ b.h * width }}{{ b.br }}
+{%- enddef -%}

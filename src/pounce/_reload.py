@@ -11,7 +11,6 @@ Uses stdlib ``pathlib`` + polling. Ignores ``__pycache__``, ``.git``,
 
 import contextlib
 import logging
-import os
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -166,14 +165,9 @@ def watch_for_changes(
 
         changed, snapshot = detect_changes(directories, snapshot, extensions)
         if changed:
-            # Log the first few changed files
-            file_list = sorted(changed)[:5]
-            logger.info(
-                "Detected %d changed file(s): %s%s",
-                len(changed),
-                ", ".join(os.path.basename(f) for f in file_list),
-                "..." if len(changed) > 5 else "",
-            )
+            from pounce import _output
+
+            _output.reload_detected(sorted(changed))
             callback()
 
     logger.info("File watcher stopped")
