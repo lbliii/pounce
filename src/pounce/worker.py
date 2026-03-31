@@ -656,9 +656,12 @@ class Worker:
                 # clients.  h11 preserves its buffer across cycles, so
                 # the next reader.read() + receive_data() will flush it.
 
-        except Exception:
+        except Exception as _conn_exc:
             close_reason = "error"
             self._logger.exception("Unhandled error on connection from %s", client_str)
+            from pounce import _output
+
+            _output.branded_traceback(_conn_exc, worker_id=self._worker_id)
         finally:
             with self._conn_lock:
                 self._active_connections -= 1
@@ -948,8 +951,11 @@ class Worker:
         async def _run_app() -> None:
             try:
                 await self._app(scope, receive, send)
-            except Exception:
+            except Exception as _app_exc:
                 self._logger.exception("ASGI app error on %s %s", scope["method"], scope["path"])
+                from pounce import _output
+
+                _output.branded_traceback(_app_exc, worker_id=self._worker_id)
                 with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
                     if self._config.debug:
                         # Send rich debug error page in development
@@ -1101,8 +1107,11 @@ class Worker:
         async def _run_app() -> None:
             try:
                 await self._app(scope, receive, send)
-            except Exception:
+            except Exception as _app_exc:
                 self._logger.exception("ASGI app error on %s %s", scope["method"], scope["path"])
+                from pounce import _output
+
+                _output.branded_traceback(_app_exc, worker_id=self._worker_id)
                 with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
                     if self._config.debug:
                         # Send rich debug error page in development

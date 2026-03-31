@@ -10,6 +10,7 @@ import logging
 import sys
 import sysconfig
 import threading
+import traceback as tb_module
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -473,3 +474,228 @@ def detect_gil_status() -> str:
         return "nogil" if sysconfig.get_config_var("Py_GIL_DISABLED") else "GIL"
     except Exception:
         return "unknown"
+
+
+# ── Dependency probing ───────────────────────────────
+
+
+_OPTIONAL_DEPS = [
+    {"module": "h2", "name": "HTTP/2 (h2)", "hint": "pip install pounce[h2]"},
+    {"module": "wsproto", "name": "WebSocket (wsproto)", "hint": "pip install pounce[ws]"},
+    {"module": "truststore", "name": "TLS (truststore)", "hint": "pip install pounce[tls]"},
+    {"module": "zoomies", "name": "HTTP/3 (bengal-zoomies)", "hint": "pip install pounce[h3]"},
+]
+
+_KNOWN_FRAMEWORKS = [
+    ("fastapi", "FastAPI"),
+    ("starlette", "Starlette"),
+    ("litestar", "Litestar"),
+    ("django", "Django"),
+    ("quart", "Quart"),
+    ("blacksheep", "BlackSheep"),
+    ("sanic", "Sanic"),
+]
+
+
+def probe_optional_dep(module: str) -> tuple[bool, str]:
+    """Check if an optional dependency is importable and return its version."""
+    try:
+        mod = __import__(module)
+        version = getattr(mod, "__version__", "installed")
+        return True, str(version)
+    except ImportError:
+        return False, ""
+
+
+def probe_all_optional_deps() -> list[dict]:
+    """Probe all optional dependencies, returning status dicts for rendering."""
+    results = []
+    for dep in _OPTIONAL_DEPS:
+        installed, version = probe_optional_dep(dep["module"])
+        results.append(
+            {
+                "name": dep["name"],
+                "installed": installed,
+                "version": version,
+                "hint": dep["hint"],
+            }
+        )
+    return results
+
+
+def detect_frameworks() -> list[str]:
+    """Detect installed ASGI frameworks by attempting imports."""
+    found = []
+    for module, label in _KNOWN_FRAMEWORKS:
+        try:
+            mod = __import__(module)
+            version = getattr(mod, "__version__", "")
+            found.append(f"{label} {version}".strip())
+        except ImportError:
+            pass
+    return found
+
+
+# ── Info panel ───────────────────────────────────────
+
+
+def info_panel(
+    *,
+    version: str,
+    python_version: str,
+    platform_str: str,
+    cpu_count: int,
+    gil_status: str,
+    install_path: str,
+    deps: list[dict],
+    frameworks: list[str],
+) -> None:
+    """Render the system info diagnostic panel."""
+    import os
+
+    use_pretty = _is_pretty() or sys.stderr.isatty() or os.environ.get("FORCE_COLOR") == "1"
+    if use_pretty:
+        _write(
+            _render(
+                "info.kida",
+                version=version,
+                python_version=python_version,
+                platform=platform_str,
+                cpu_count=cpu_count,
+                gil_status=gil_status,
+                install_path=install_path,
+                deps=deps,
+                frameworks=frameworks,
+            )
+        )
+    else:
+        logger.info(
+            "pounce v%s | Python %s | %s | %d CPUs | %s",
+            version,
+            python_version,
+            platform_str,
+            cpu_count,
+            gil_status,
+        )
+        for dep in deps:
+            status = dep["version"] if dep["installed"] else "not installed"
+            logger.info("  %s: %s", dep["name"], status)
+
+
+# ── Check results ────────────────────────────────────
+
+
+def check_results(
+    *,
+    version: str,
+    checks: list[dict],
+    all_passed: bool,
+) -> None:
+    """Render pre-flight check results."""
+    import os
+
+    use_pretty = _is_pretty() or sys.stderr.isatty() or os.environ.get("FORCE_COLOR") == "1"
+    if use_pretty:
+        _write(
+            _render(
+                "check.kida",
+                version=version,
+                checks=checks,
+                all_passed=all_passed,
+            )
+        )
+    else:
+        for check in checks:
+            icon = (
+                "PASS"
+                if check["status"] == "success"
+                else "FAIL"
+                if check["status"] == "error"
+                else "WARN"
+            )
+            logger.info("[%s] %s: %s", icon, check["name"], check.get("detail", ""))
+
+
+# ── Branded tracebacks ───────────────────────────────
+
+
+def _shorten_path(filepath: str) -> str:
+    """Shorten a file path for display."""
+    path = filepath
+    # Strip site-packages prefix
+    sp = "site-packages/"
+    idx = path.find(sp)
+    if idx != -1:
+        path = path[idx + len(sp) :]
+    else:
+        # Strip home directory
+        home = str(Path.home())
+        if path.startswith(home):
+            path = "~" + path[len(home) :]
+    return path
+
+
+def _hint_for_crash(exc: BaseException) -> str:
+    """Generate a contextual hint for common crash patterns."""
+    msg = str(exc).lower()
+    if isinstance(exc, KeyError) and "state" in msg:
+        return "Missing lifespan state -- ensure your app populates state during startup."
+    if isinstance(exc, ImportError):
+        return "A required module is missing. Check your dependencies."
+    if "connection" in msg and "refused" in msg:
+        return "A backend service is unreachable. Check database/cache connections."
+    if isinstance(exc, MemoryError):
+        return "Out of memory -- consider reducing --workers or increasing available RAM."
+    if "codec" in msg or "encode" in msg or "decode" in msg:
+        return "Text encoding error -- check response content type and encoding."
+    if isinstance(exc, PermissionError):
+        return "Permission denied -- check file or socket permissions."
+    return ""
+
+
+def branded_traceback(
+    exc: BaseException,
+    *,
+    worker_id: int | None = None,
+) -> None:
+    """Render a branded traceback for an unhandled exception."""
+    import os
+
+    exc_type = type(exc).__name__
+    exc_message = str(exc)
+
+    tb = exc.__traceback__
+    raw_frames = tb_module.extract_tb(tb) if tb else []
+
+    # Take last 10 frames for display
+    display_frames = raw_frames[-10:]
+    frames = []
+    for i, frame in enumerate(display_frames):
+        frames.append(
+            {
+                "filename": _shorten_path(frame.filename),
+                "lineno": frame.lineno,
+                "name": frame.name,
+                "line": frame.line or "",
+                "is_last": i == len(display_frames) - 1,
+            }
+        )
+
+    hint = _hint_for_crash(exc)
+
+    use_pretty = _is_pretty() or sys.stderr.isatty() or os.environ.get("FORCE_COLOR") == "1"
+    if use_pretty:
+        _write(
+            _render(
+                "traceback.kida",
+                exc_type=exc_type,
+                exc_message=exc_message,
+                frames=frames,
+                worker_id=worker_id,
+                hint=hint,
+            )
+        )
+    else:
+        logger.error("%s: %s", exc_type, exc_message)
+        for frame in frames:
+            logger.error("  %s:%d in %s", frame["filename"], frame["lineno"], frame["name"])

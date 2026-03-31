@@ -1,0 +1,26 @@
+{#- Pre-flight validation results.
+
+    Receives:
+        version      -- pounce version string
+        checks       -- list of {name, status, detail, hint} dicts
+                        status is "success", "error", or "warning"
+        all_passed   -- bool, True if no errors
+-#}
+{% from "components/_defs.kida" import header_box, section, status_line %}
+{{ header_box("=^..^=  pounce check", "v" ~ version, "Pre-flight validation") }}
+
+{{ section("Results") }}
+{%- for check in checks %}
+  {{ status_line(check.status, check.name, check.detail) }}
+{%- if check.hint %}
+    {{ check.hint | dim }}
+{%- endif %}
+{%- endfor %}
+
+{%- if all_passed %}
+
+  {{ status_line("success", "All checks passed — ready to serve") }}
+{%- else %}
+
+  {{ status_line("warning", "Fix the issues above before starting") }}
+{%- endif %}

@@ -1,0 +1,40 @@
+{#- Branded crash traceback.
+
+    Receives:
+        exc_type     -- exception class name (str)
+        exc_message  -- exception message (str)
+        frames       -- list of {filename, lineno, name, line, is_last} dicts
+        worker_id    -- worker ID (int or None)
+        hint         -- contextual hint (str, may be empty)
+-#}
+{% from "components/_defs.kida" import section, status_line, kv_pair %}
+
+{{ "=^..^=" | dim }} {{ "crash" | red | bold }}  {{ exc_type | yellow }}
+
+  {{ exc_message }}
+
+{{ section("Traceback", "red") }}
+{%- for frame in frames %}
+{%- if frame.is_last %}
+  {{ icons.arrow_r | red }} {{ frame.filename | bold }}:{{ frame.lineno | string | yellow }}
+    {{ "in " | dim }}{{ frame.name | bold }}
+{%- if frame.line %}
+    {{ frame.line | red }}
+{%- endif %}
+{%- else %}
+  {{ icons.dot | dim }} {{ frame.filename | dim }}:{{ frame.lineno | string | dim }}
+    {{ "in " | dim }}{{ frame.name }}
+{%- if frame.line %}
+    {{ frame.line | dim }}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+
+{%- if worker_id is defined and worker_id is not none %}
+
+  {{ kv_pair("Worker", worker_id | string) }}
+{%- endif %}
+{%- if hint %}
+
+  {{ status_line("info", hint) }}
+{%- endif %}
