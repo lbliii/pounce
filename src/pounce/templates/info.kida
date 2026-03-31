@@ -1,0 +1,38 @@
+{#- System info diagnostic panel.
+
+    Receives:
+        version          -- pounce version string
+        python_version   -- Python version string
+        platform         -- platform string (e.g. "macOS-15.3-arm64")
+        cpu_count        -- number of CPUs (int)
+        gil_status       -- "nogil" or "GIL"
+        install_path     -- pounce install location
+        deps             -- list of {name, installed, version, hint} dicts
+        frameworks       -- list of detected framework name strings
+-#}
+{% from "components/_defs.kida" import header_box, section, kv_pair, status_line %}
+{{ header_box("=^..^=  pounce info", "v" ~ version, "System diagnostics") }}
+
+{{ section("Runtime") }}
+  {{ kv_pair("Python", python_version ~ " (" ~ gil_status ~ ")") }}
+  {{ kv_pair("Platform", platform) }}
+  {{ kv_pair("CPUs", cpu_count | string) }}
+  {{ kv_pair("Pounce", "v" ~ version) }}
+  {{ kv_pair("Install", install_path) }}
+
+{{ section("Optional Dependencies") }}
+{%- for dep in deps %}
+{%- if dep.installed %}
+  {{ status_line("success", dep.name, dep.version) }}
+{%- else %}
+  {{ status_line("error", dep.name, dep.hint) }}
+{%- endif %}
+{%- endfor %}
+
+{%- if frameworks %}
+
+{{ section("Detected Frameworks") }}
+{%- for fw in frameworks %}
+  {{ status_line("info", fw) }}
+{%- endfor %}
+{%- endif %}

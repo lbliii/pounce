@@ -11,6 +11,7 @@ Built on milo-cli for type-driven parsing, MCP server, and llms.txt generation.
 
 import argparse
 import sys
+from pathlib import Path
 
 from milo.commands import CLI
 
@@ -122,8 +123,20 @@ _SERVE_HELP = {
 }
 
 
+_CHECK_HELP = {
+    **_SERVE_HELP,
+}
+
+_INFO_HELP = {
+    "app": "ASGI application (optional, for framework detection)",
+}
+
+# Merge all help dicts for subparser enrichment
+_ALL_HELP = {**_SERVE_HELP, **_CHECK_HELP, **_INFO_HELP}
+
+
 def _enrich_subparser_help(parser: argparse.ArgumentParser) -> None:
-    """Add help text to serve subparser arguments that milo left blank."""
+    """Add help text to subparser arguments that milo left blank."""
     if parser._subparsers:
         for action in parser._subparsers._actions:
             choices = getattr(action, "choices", None)
@@ -132,8 +145,8 @@ def _enrich_subparser_help(parser: argparse.ArgumentParser) -> None:
             for sp in choices.values():
                 for ag in sp._action_groups:
                     for a in ag._group_actions:
-                        if not a.help and a.dest in _SERVE_HELP:
-                            a.help = _SERVE_HELP[a.dest]
+                        if not a.help and a.dest in _ALL_HELP:
+                            a.help = _ALL_HELP[a.dest]
 
 
 class _PounceCLI(CLI):
@@ -239,7 +252,10 @@ def serve(
         if isinstance(exc, PounceError):
             _die(str(exc), hint=_hint_for_pounce_error(exc))
         else:
-            raise  # Truly unexpected — let the traceback through
+            from pounce import _output
+
+            _output.branded_traceback(exc)
+            sys.exit(1)
 
 
 def _serve_impl(
@@ -452,6 +468,294 @@ def parse_dirs(raw: list[str] | None) -> tuple[str, ...]:
     if not raw:
         return ()
     return tuple(d.strip() for d in raw if d.strip())
+
+
+@cli.command("info", description="Show system diagnostics and dependency status")
+def info() -> None:
+    """Display system info, dependency status, and environment diagnostics."""
+    import os
+    import platform
+
+    from pounce import _output
+
+    python_version = sys.version.split()[0]
+    gil_status = _output.detect_gil_status()
+    cpu_count = os.cpu_count() or 1
+    platform_str = platform.platform()
+    install_path = str(Path(__file__).parent)
+
+    deps = _output.probe_all_optional_deps()
+    frameworks = _output.detect_frameworks()
+
+    _output.info_panel(
+        version=__version__,
+        python_version=python_version,
+        platform_str=platform_str,
+        cpu_count=cpu_count,
+        gil_status=gil_status,
+        install_path=install_path,
+        deps=deps,
+        frameworks=frameworks,
+    )
+
+
+@cli.command("check", description="Validate configuration before starting")
+def check(
+    app: str,
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    workers: int = 1,
+    worker_mode: str = "auto",
+    cpu_affinity: bool = False,
+    log_level: str = "info",
+    log_format: str = "auto",
+    root_path: str = "",
+    no_compression: bool = False,
+    server_timing: bool = False,
+    no_access_log: bool = False,
+    ssl_certfile: str | None = None,
+    ssl_keyfile: str | None = None,
+    http3: bool = False,
+    reload: bool = False,
+    reload_include: str | None = None,
+    reload_dir: list[str] | None = None,
+    keep_alive_timeout: float = 5.0,
+    header_timeout: float = 10.0,
+    max_requests_per_connection: int = 0,
+    shutdown_timeout: float = 10.0,
+    uds: str | None = None,
+    health_check_path: str | None = None,
+) -> None:
+    """Run pre-flight validation checks.
+
+    Takes the same arguments as ``serve`` and validates them without
+    starting the server.  Exits with code 1 if any check fails.
+    """
+    if "" not in sys.path and "." not in sys.path:
+        sys.path.insert(0, ".")
+
+    from pounce import _output
+
+    checks: list[dict[str, str]] = []
+
+    checks.append(_check_app_importable(app))
+    if not uds:
+        checks.append(_check_port_available(host, port))
+    if ssl_certfile:
+        checks.append(_check_tls_cert(ssl_certfile, ssl_keyfile))
+    checks.extend(_check_deps_for_config(http3=http3, ssl_certfile=ssl_certfile))
+    checks.append(
+        _check_config_valid(
+            host=host,
+            port=port,
+            workers=workers,
+            worker_mode=worker_mode,
+            cpu_affinity=cpu_affinity,
+            log_level=log_level,
+            log_format=log_format,
+            root_path=root_path,
+            no_compression=no_compression,
+            server_timing=server_timing,
+            no_access_log=no_access_log,
+            ssl_certfile=ssl_certfile,
+            ssl_keyfile=ssl_keyfile,
+            http3=http3,
+            reload=reload,
+            reload_include=reload_include,
+            reload_dir=reload_dir,
+            keep_alive_timeout=keep_alive_timeout,
+            header_timeout=header_timeout,
+            max_requests_per_connection=max_requests_per_connection,
+            shutdown_timeout=shutdown_timeout,
+            uds=uds,
+            health_check_path=health_check_path,
+        )
+    )
+
+    all_passed = all(c["status"] != "error" for c in checks)
+    _output.check_results(version=__version__, checks=checks, all_passed=all_passed)
+
+    if not all_passed:
+        sys.exit(1)
+
+
+# ── Pre-flight check helpers ─────────────────────────────
+
+
+def _check_app_importable(app: str) -> dict[str, str]:
+    """Try to import the app and return a check result."""
+    try:
+        import_app(app)
+        return {"name": "App import", "status": "success", "detail": app, "hint": ""}
+    except (ValueError, ImportError, AttributeError, TypeError) as exc:
+        return {
+            "name": "App import",
+            "status": "error",
+            "detail": str(exc),
+            "hint": _hint_for_import_error(exc) or "",
+        }
+
+
+def _check_port_available(host: str, port: int) -> dict[str, str]:
+    """Try to bind the port and return a check result."""
+    import socket
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((host, port))
+        sock.close()
+        return {
+            "name": "Port available",
+            "status": "success",
+            "detail": f"{host}:{port}",
+            "hint": "",
+        }
+    except OSError as exc:
+        diagnostics = _diagnostics_for_os_error(exc)
+        detail = str(exc)
+        if diagnostics:
+            detail += " — " + ", ".join(f"{d['label']}: {d['value']}" for d in diagnostics)
+        return {
+            "name": "Port available",
+            "status": "error",
+            "detail": detail,
+            "hint": _hint_for_os_error(exc) or "",
+        }
+
+
+def _check_tls_cert(certfile: str, keyfile: str | None = None) -> dict[str, str]:
+    """Validate TLS certificate file exists and is loadable."""
+    import ssl
+
+    cert_path = Path(certfile)
+    if not cert_path.exists():
+        return {
+            "name": "TLS certificate",
+            "status": "error",
+            "detail": f"{certfile} not found",
+            "hint": "Check the --ssl-certfile path.",
+        }
+    if not cert_path.is_file():
+        return {
+            "name": "TLS certificate",
+            "status": "error",
+            "detail": f"{certfile} is not a file",
+            "hint": "Provide a path to a PEM certificate file.",
+        }
+
+    try:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(certfile=certfile, keyfile=keyfile)
+        return {
+            "name": "TLS certificate",
+            "status": "success",
+            "detail": certfile,
+            "hint": "",
+        }
+    except ssl.SSLError as exc:
+        return {
+            "name": "TLS certificate",
+            "status": "error",
+            "detail": str(exc),
+            "hint": "Verify the certificate and key are valid PEM files.",
+        }
+    except OSError as exc:
+        return {
+            "name": "TLS certificate",
+            "status": "error",
+            "detail": str(exc),
+            "hint": "Check file permissions on the certificate and key.",
+        }
+
+
+def _check_deps_for_config(
+    *, http3: bool, ssl_certfile: str | None
+) -> list[dict[str, str]]:
+    """Check that optional deps are installed for requested features."""
+    from pounce._output import probe_optional_dep
+
+    checks: list[dict[str, str]] = []
+    if http3:
+        installed, version = probe_optional_dep("zoomies")
+        if installed:
+            checks.append({
+                "name": "HTTP/3 dependency",
+                "status": "success",
+                "detail": f"bengal-zoomies {version}",
+                "hint": "",
+            })
+        else:
+            checks.append({
+                "name": "HTTP/3 dependency",
+                "status": "error",
+                "detail": "bengal-zoomies not installed",
+                "hint": "pip install pounce[h3]",
+            })
+    return checks
+
+
+def _check_config_valid(
+    *,
+    host: str,
+    port: int,
+    workers: int,
+    worker_mode: str,
+    cpu_affinity: bool,
+    log_level: str,
+    log_format: str,
+    root_path: str,
+    no_compression: bool,
+    server_timing: bool,
+    no_access_log: bool,
+    ssl_certfile: str | None,
+    ssl_keyfile: str | None,
+    http3: bool,
+    reload: bool,
+    reload_include: str | None,
+    reload_dir: list[str] | None,
+    keep_alive_timeout: float,
+    header_timeout: float,
+    max_requests_per_connection: int,
+    shutdown_timeout: float,
+    uds: str | None,
+    health_check_path: str | None,
+) -> dict[str, str]:
+    """Try to construct ServerConfig and catch validation errors."""
+    try:
+        ServerConfig(
+            host=host,
+            port=port,
+            workers=workers,
+            worker_mode=worker_mode,
+            cpu_affinity=cpu_affinity,
+            log_level=log_level,
+            log_format=log_format,
+            root_path=root_path,
+            compression=not no_compression,
+            server_timing=server_timing,
+            access_log=not no_access_log,
+            ssl_certfile=ssl_certfile,
+            ssl_keyfile=ssl_keyfile,
+            http3_enabled=http3,
+            reload=reload,
+            reload_include=parse_extensions(reload_include),
+            reload_dirs=parse_dirs(reload_dir),
+            keep_alive_timeout=keep_alive_timeout,
+            header_timeout=header_timeout,
+            max_requests_per_connection=max_requests_per_connection,
+            shutdown_timeout=shutdown_timeout,
+            uds=uds,
+            health_check_path=health_check_path,
+        )
+        return {"name": "Config validation", "status": "success", "detail": "Valid", "hint": ""}
+    except (ValueError, TypeError) as exc:
+        return {
+            "name": "Config validation",
+            "status": "error",
+            "detail": str(exc),
+            "hint": "",
+        }
 
 
 def main(args: list[str] | None = None) -> None:
