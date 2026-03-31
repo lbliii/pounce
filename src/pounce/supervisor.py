@@ -662,9 +662,7 @@ class Supervisor:
         else:
             self._handles.append(handle)
 
-        dispatch(
-            WORKER_STARTED, worker_id=worker_id, mode=self._mode, generation=self._generation
-        )
+        dispatch(WORKER_STARTED, worker_id=worker_id, mode=self._mode, generation=self._generation)
 
     def _spawn_h3_worker(self, worker_id: int) -> None:
         """Create and start a single H3 (HTTP/3) worker."""

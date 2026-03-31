@@ -225,7 +225,13 @@ class TestStoreLifecycle:
 
     def test_full_lifecycle_single_worker(self):
         """Walk through a complete single-worker lifecycle."""
-        dispatch(BANNER, config=_fake_config(), effective_workers=1, mode_label="single", gil_status="nogil")
+        dispatch(
+            BANNER,
+            config=_fake_config(),
+            effective_workers=1,
+            mode_label="single",
+            gil_status="nogil",
+        )
         assert get_state().phase == "startup"
 
         dispatch(READY, host="127.0.0.1", port=8000)
@@ -242,7 +248,13 @@ class TestStoreLifecycle:
 
     def test_full_lifecycle_multi_worker(self):
         """Walk through a multi-worker lifecycle with supervisor."""
-        dispatch(BANNER, config=_fake_config(), effective_workers=4, mode_label="threads", gil_status="nogil")
+        dispatch(
+            BANNER,
+            config=_fake_config(),
+            effective_workers=4,
+            mode_label="threads",
+            gil_status="nogil",
+        )
         dispatch(READY, host="0.0.0.0", port=8000)
 
         dispatch(SUPERVISOR_STARTING, count=4, mode="thread")
@@ -261,7 +273,13 @@ class TestStoreLifecycle:
 
     def test_reload_cycle(self):
         """Dispatch a reload sequence and verify state transitions."""
-        dispatch(BANNER, config=_fake_config(), effective_workers=2, mode_label="threads", gil_status="nogil")
+        dispatch(
+            BANNER,
+            config=_fake_config(),
+            effective_workers=2,
+            mode_label="threads",
+            gil_status="nogil",
+        )
         dispatch(READY, host="127.0.0.1", port=8000)
         dispatch(SUPERVISOR_STARTING, count=2, mode="thread")
         assert get_state().phase == "serving"
@@ -277,7 +295,13 @@ class TestStoreLifecycle:
         assert get_state().generation == 1
 
     def test_reload_failure_restores_serving(self):
-        dispatch(BANNER, config=_fake_config(), effective_workers=1, mode_label="single", gil_status="nogil")
+        dispatch(
+            BANNER,
+            config=_fake_config(),
+            effective_workers=1,
+            mode_label="single",
+            gil_status="nogil",
+        )
         dispatch(READY, host="127.0.0.1", port=8000)
         dispatch(SUPERVISOR_STARTING, count=1, mode="thread")
 
@@ -286,7 +310,13 @@ class TestStoreLifecycle:
         assert get_state().phase == "serving"
 
     def test_worker_crash_does_not_change_phase(self):
-        dispatch(BANNER, config=_fake_config(), effective_workers=2, mode_label="threads", gil_status="nogil")
+        dispatch(
+            BANNER,
+            config=_fake_config(),
+            effective_workers=2,
+            mode_label="threads",
+            gil_status="nogil",
+        )
         dispatch(READY, host="127.0.0.1", port=8000)
         dispatch(SUPERVISOR_STARTING, count=2, mode="thread")
 
@@ -297,7 +327,13 @@ class TestStoreLifecycle:
         assert get_state().phase == "serving"
 
     def test_shutdown_timeout_path(self):
-        dispatch(BANNER, config=_fake_config(), effective_workers=1, mode_label="single", gil_status="nogil")
+        dispatch(
+            BANNER,
+            config=_fake_config(),
+            effective_workers=1,
+            mode_label="single",
+            gil_status="nogil",
+        )
         dispatch(READY, host="127.0.0.1", port=8000)
 
         dispatch(SHUTDOWN_START, connections=10)
