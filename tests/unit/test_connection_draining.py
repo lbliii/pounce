@@ -278,11 +278,12 @@ class TestSupervisorDraining:
         supervisor._effective_workers = 0
 
         # Drain should complete without error
-        with patch("pounce.supervisor._output") as mock_output:
+        with patch("pounce.supervisor.dispatch") as mock_dispatch:
             supervisor._drain()
 
-            # Should call shutdown output
-            assert mock_output.supervisor_shutdown.called
+            # Should dispatch SUPERVISOR_SHUTDOWN and SUPERVISOR_ALL_STOPPED
+            action_types = [call.args[0] for call in mock_dispatch.call_args_list]
+            assert "SUPERVISOR_SHUTDOWN" in action_types
 
     def test_drain_force_stops_unresponsive_workers(self):
         """Test that _drain() force-stops workers that don't exit in time."""
