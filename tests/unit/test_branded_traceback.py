@@ -43,7 +43,10 @@ class TestHintForCrash:
 
     def test_connection_refused(self):
         exc = ConnectionRefusedError("Connection refused")
-        assert "backend" in _hint_for_crash(exc).lower() or "unreachable" in _hint_for_crash(exc).lower()
+        assert (
+            "backend" in _hint_for_crash(exc).lower()
+            or "unreachable" in _hint_for_crash(exc).lower()
+        )
 
     def test_encoding_error(self):
         exc = UnicodeDecodeError("utf-8", b"", 0, 1, "invalid start byte")
@@ -124,7 +127,13 @@ class TestTracebackTemplate:
             exc_type="ValueError",
             exc_message="invalid literal for int()",
             frames=[
-                {"filename": "myapp/views.py", "lineno": 42, "name": "handler", "line": "int('abc')", "is_last": True},
+                {
+                    "filename": "myapp/views.py",
+                    "lineno": 42,
+                    "name": "handler",
+                    "line": "int('abc')",
+                    "is_last": True,
+                },
             ],
             worker_id=1,
             hint="Check input validation.",
@@ -158,8 +167,20 @@ class TestTracebackTemplate:
             exc_type="KeyError",
             exc_message="'db'",
             frames=[
-                {"filename": "lib/db.py", "lineno": 5, "name": "connect", "line": "pool[key]", "is_last": False},
-                {"filename": "app.py", "lineno": 20, "name": "startup", "line": "db.connect()", "is_last": True},
+                {
+                    "filename": "lib/db.py",
+                    "lineno": 5,
+                    "name": "connect",
+                    "line": "pool[key]",
+                    "is_last": False,
+                },
+                {
+                    "filename": "app.py",
+                    "lineno": 20,
+                    "name": "startup",
+                    "line": "db.connect()",
+                    "is_last": True,
+                },
             ],
             worker_id=None,
             hint="",

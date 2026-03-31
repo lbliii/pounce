@@ -512,12 +512,14 @@ def probe_all_optional_deps() -> list[dict]:
     results = []
     for dep in _OPTIONAL_DEPS:
         installed, version = probe_optional_dep(dep["module"])
-        results.append({
-            "name": dep["name"],
-            "installed": installed,
-            "version": version,
-            "hint": dep["hint"],
-        })
+        results.append(
+            {
+                "name": dep["name"],
+                "installed": installed,
+                "version": version,
+                "hint": dep["hint"],
+            }
+        )
     return results
 
 
@@ -669,13 +671,15 @@ def branded_traceback(
     display_frames = raw_frames[-10:]
     frames = []
     for i, frame in enumerate(display_frames):
-        frames.append({
-            "filename": _shorten_path(frame.filename),
-            "lineno": frame.lineno,
-            "name": frame.name,
-            "line": frame.line or "",
-            "is_last": i == len(display_frames) - 1,
-        })
+        frames.append(
+            {
+                "filename": _shorten_path(frame.filename),
+                "lineno": frame.lineno,
+                "name": frame.name,
+                "line": frame.line or "",
+                "is_last": i == len(display_frames) - 1,
+            }
+        )
 
     hint = _hint_for_crash(exc)
 

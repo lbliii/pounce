@@ -53,7 +53,9 @@ class TestDetectFrameworks:
     def test_detects_installed_framework(self, mocker):
         fake = mocker.MagicMock()
         fake.__version__ = "0.100.0"
-        original_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+        original_import = (
+            __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+        )
 
         def side_effect(name, *args, **kwargs):
             if name == "starlette":
@@ -104,7 +106,12 @@ class TestInfoTemplate:
             install_path="/usr/lib/pounce",
             deps=[
                 {"name": "HTTP/2 (h2)", "installed": True, "version": "4.1.0", "hint": ""},
-                {"name": "WebSocket (wsproto)", "installed": False, "version": "", "hint": "pip install pounce[ws]"},
+                {
+                    "name": "WebSocket (wsproto)",
+                    "installed": False,
+                    "version": "",
+                    "hint": "pip install pounce[ws]",
+                },
             ],
             frameworks=["FastAPI 0.100.0"],
         )

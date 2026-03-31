@@ -669,9 +669,7 @@ def _check_tls_cert(certfile: str, keyfile: str | None = None) -> dict[str, str]
         }
 
 
-def _check_deps_for_config(
-    *, http3: bool, ssl_certfile: str | None
-) -> list[dict[str, str]]:
+def _check_deps_for_config(*, http3: bool, ssl_certfile: str | None) -> list[dict[str, str]]:
     """Check that optional deps are installed for requested features."""
     from pounce._output import probe_optional_dep
 
@@ -679,19 +677,23 @@ def _check_deps_for_config(
     if http3:
         installed, version = probe_optional_dep("zoomies")
         if installed:
-            checks.append({
-                "name": "HTTP/3 dependency",
-                "status": "success",
-                "detail": f"bengal-zoomies {version}",
-                "hint": "",
-            })
+            checks.append(
+                {
+                    "name": "HTTP/3 dependency",
+                    "status": "success",
+                    "detail": f"bengal-zoomies {version}",
+                    "hint": "",
+                }
+            )
         else:
-            checks.append({
-                "name": "HTTP/3 dependency",
-                "status": "error",
-                "detail": "bengal-zoomies not installed",
-                "hint": "pip install pounce[h3]",
-            })
+            checks.append(
+                {
+                    "name": "HTTP/3 dependency",
+                    "status": "error",
+                    "detail": "bengal-zoomies not installed",
+                    "hint": "pip install pounce[h3]",
+                }
+            )
     return checks
 
 

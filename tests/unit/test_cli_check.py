@@ -28,7 +28,9 @@ class TestCheckAppImportable:
         assert "No module named" in result["detail"]
 
     def test_invalid_app_value_error(self, mocker):
-        mocker.patch("pounce._cli.import_app", side_effect=ValueError("Expected format 'module:attr'"))
+        mocker.patch(
+            "pounce._cli.import_app", side_effect=ValueError("Expected format 'module:attr'")
+        )
         result = _check_app_importable("badformat")
         assert result["status"] == "error"
 
@@ -97,27 +99,57 @@ class TestCheckConfigValid:
 
     def test_valid_config(self):
         result = _check_config_valid(
-            host="127.0.0.1", port=8000, workers=1, worker_mode="auto",
-            cpu_affinity=False, log_level="info", log_format="auto",
-            root_path="", no_compression=False, server_timing=False,
-            no_access_log=False, ssl_certfile=None, ssl_keyfile=None,
-            http3=False, reload=False, reload_include=None, reload_dir=None,
-            keep_alive_timeout=5.0, header_timeout=10.0,
-            max_requests_per_connection=0, shutdown_timeout=10.0,
-            uds=None, health_check_path=None,
+            host="127.0.0.1",
+            port=8000,
+            workers=1,
+            worker_mode="auto",
+            cpu_affinity=False,
+            log_level="info",
+            log_format="auto",
+            root_path="",
+            no_compression=False,
+            server_timing=False,
+            no_access_log=False,
+            ssl_certfile=None,
+            ssl_keyfile=None,
+            http3=False,
+            reload=False,
+            reload_include=None,
+            reload_dir=None,
+            keep_alive_timeout=5.0,
+            header_timeout=10.0,
+            max_requests_per_connection=0,
+            shutdown_timeout=10.0,
+            uds=None,
+            health_check_path=None,
         )
         assert result["status"] == "success"
 
     def test_invalid_config(self):
         result = _check_config_valid(
-            host="127.0.0.1", port=-1, workers=1, worker_mode="auto",
-            cpu_affinity=False, log_level="info", log_format="auto",
-            root_path="", no_compression=False, server_timing=False,
-            no_access_log=False, ssl_certfile=None, ssl_keyfile=None,
-            http3=False, reload=False, reload_include=None, reload_dir=None,
-            keep_alive_timeout=5.0, header_timeout=10.0,
-            max_requests_per_connection=0, shutdown_timeout=10.0,
-            uds=None, health_check_path=None,
+            host="127.0.0.1",
+            port=-1,
+            workers=1,
+            worker_mode="auto",
+            cpu_affinity=False,
+            log_level="info",
+            log_format="auto",
+            root_path="",
+            no_compression=False,
+            server_timing=False,
+            no_access_log=False,
+            ssl_certfile=None,
+            ssl_keyfile=None,
+            http3=False,
+            reload=False,
+            reload_include=None,
+            reload_dir=None,
+            keep_alive_timeout=5.0,
+            header_timeout=10.0,
+            max_requests_per_connection=0,
+            shutdown_timeout=10.0,
+            uds=None,
+            health_check_path=None,
         )
         assert result["status"] == "error"
 
@@ -159,7 +191,12 @@ class TestCheckTemplate:
             version="0.4.0",
             checks=[
                 {"name": "App import", "status": "success", "detail": "myapp:app", "hint": ""},
-                {"name": "Port available", "status": "success", "detail": "127.0.0.1:8000", "hint": ""},
+                {
+                    "name": "Port available",
+                    "status": "success",
+                    "detail": "127.0.0.1:8000",
+                    "hint": "",
+                },
             ],
             all_passed=True,
         )
@@ -173,7 +210,12 @@ class TestCheckTemplate:
             "check.kida",
             version="0.4.0",
             checks=[
-                {"name": "App import", "status": "error", "detail": "module not found", "hint": "Check path"},
+                {
+                    "name": "App import",
+                    "status": "error",
+                    "detail": "module not found",
+                    "hint": "Check path",
+                },
             ],
             all_passed=False,
         )
