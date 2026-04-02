@@ -18,6 +18,7 @@ Example:
 
 import mimetypes
 import os
+import stat as stat_mod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -265,25 +266,35 @@ class StaticFiles:
                 if part.startswith("."):
                     return None
 
-            # Check symlinks
-            if resolved.is_symlink() and not mount.follow_symlinks:
+            # Single stat + lstat to derive type flags (avoid multiple syscalls)
+            try:
+                lst = resolved.lstat()
+            except OSError:
+                return None
+
+            # Check symlinks via lstat (no extra syscall)
+            if stat_mod.S_ISLNK(lst.st_mode) and not mount.follow_symlinks:
+                return None
+
+            # After lstat, stat() to follow symlinks for the real mode
+            try:
+                file_stat = resolved.stat()
+            except OSError:
                 return None
 
             # Handle directory index
-            if resolved.is_dir():
+            if stat_mod.S_ISDIR(file_stat.st_mode):
                 if mount.index_file:
                     resolved = resolved / mount.index_file
+                    try:
+                        file_stat = resolved.stat()
+                    except OSError:
+                        return None
                 else:
                     return None
 
             # Must be a regular file
-            if not resolved.is_file():
-                return None
-
-            # Get file stats
-            try:
-                file_stat = resolved.stat()
-            except OSError:
+            if not stat_mod.S_ISREG(file_stat.st_mode):
                 return None
 
             # Check for precompressed variants
@@ -291,11 +302,14 @@ class StaticFiles:
                 resolved, mount, accept_encoding, file_stat
             )
 
-            # Get final stats (might be different if precompressed)
-            try:
-                final_stat = final_path.stat()
-            except OSError:
-                return None
+            # Reuse stat if no precompressed variant was found
+            if final_path == resolved:
+                final_stat = file_stat
+            else:
+                try:
+                    final_stat = final_path.stat()
+                except OSError:
+                    return None
 
             # Determine MIME type from original path (not .gz/.zst)
             mime_type = self._get_mime_type(resolved)

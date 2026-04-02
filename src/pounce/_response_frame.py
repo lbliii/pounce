@@ -79,6 +79,7 @@ _STATUS_REASONS: dict[int, bytes] = {
     403: b"Forbidden",
     404: b"Not Found",
     405: b"Method Not Allowed",
+    413: b"Content Too Large",
     422: b"Unprocessable Entity",
     500: b"Internal Server Error",
     501: b"Not Implemented",

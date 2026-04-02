@@ -18,16 +18,19 @@ import socket
 import ssl
 import threading
 import time
-from typing import Any, Final, cast
+from typing import Any, cast
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._cpu_affinity import maybe_pin_worker
 from pounce._fast_h1 import ParseError
 from pounce._fast_h1 import parse_request as _fast_parse
-from pounce._headers import get_header as _get_header
 from pounce._health import build_health_response
-from pounce._request_pipeline import log_request, negotiate_compressor, prepare_request
-from pounce._response_frame import get_date_header_bytes, serialize_raw_response_parts
+from pounce._request_pipeline import log_request, prepare_request
+from pounce._response_frame import (
+    _STATUS_REASONS,
+    get_date_header_bytes,
+    serialize_raw_response_parts,
+)
 from pounce._timing import elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
 from pounce.asgi.sync_bridge import NeedsAsyncError, call_asgi_sync
@@ -47,44 +50,56 @@ from pounce.lifecycle import monotonic_ns as lifecycle_ns
 from pounce.protocols._base import RequestReceived
 from pounce.sync_protocol import RawRequest, SyncApp
 
-_STATUS_PHRASES: Final[dict[int, bytes]] = {
-    200: b"200 OK",
-    201: b"201 Created",
-    204: b"204 No Content",
-    301: b"301 Moved Permanently",
-    302: b"302 Found",
-    304: b"304 Not Modified",
-    400: b"400 Bad Request",
-    403: b"403 Forbidden",
-    404: b"404 Not Found",
-    405: b"405 Method Not Allowed",
-    413: b"413 Content Too Large",
-    500: b"500 Internal Server Error",
-    501: b"501 Not Implemented",
-    502: b"502 Bad Gateway",
-    503: b"503 Service Unavailable",
-}
+
+class _RequestMeta:
+    """Pre-extracted header values from a single pass over request headers.
+
+    All fields populated by ``_classify_request()`` — avoids redundant
+    linear scans per request.  Header names from ``_fast_h1`` are already
+    lowered, so no ``.lower()`` is needed on names.
+    """
+
+    __slots__ = ("accept_encoding", "is_websocket", "wants_close")
+
+    def __init__(self) -> None:
+        self.wants_close: bool = False
+        self.is_websocket: bool = False
+        self.accept_encoding: bytes | None = None
 
 
-def _is_websocket_upgrade(request: RequestReceived) -> bool:
-    """Check if the request is a WebSocket upgrade."""
-    has_upgrade = False
-    has_websocket = False
+def _classify_request(request: RequestReceived) -> _RequestMeta:
+    """Single-pass header extraction for the sync-worker hot path.
+
+    Replaces separate calls to ``_wants_close``, ``_is_websocket_upgrade``,
+    and ``get_header(accept-encoding)``.
+    Header names are already lowered by ``_fast_h1.parse_request``.
+    """
+    meta = _RequestMeta()
+    has_upgrade_conn = False
+    has_ws_upgrade = False
+    has_connection_header = False
+
     for name, value in request.headers:
-        if name.lower() == b"connection" and b"upgrade" in value.lower():
-            has_upgrade = True
-        elif name.lower() == b"upgrade" and value.lower() == b"websocket":
-            has_websocket = True
-    return has_upgrade and has_websocket
+        # Names pre-lowered by _fast_h1.parse_request — compare directly
+        if name == b"connection":
+            has_connection_header = True
+            val_lower = value.lower()
+            if b"close" in val_lower:
+                meta.wants_close = True
+            if b"upgrade" in val_lower:
+                has_upgrade_conn = True
+        elif name == b"upgrade" and value.lower() == b"websocket":
+            has_ws_upgrade = True
+        elif name == b"accept-encoding":
+            meta.accept_encoding = value
 
+    meta.is_websocket = has_upgrade_conn and has_ws_upgrade
 
-def _wants_close(request: RequestReceived) -> bool:
-    """True if the client sent ``Connection: close``."""
-    for name, value in request.headers:
-        if name.lower() == b"connection":
-            return b"close" in value.lower()
-    # HTTP/1.0 defaults to close unless keep-alive is explicit
-    return request.http_version == "1.0"
+    # HTTP/1.0 defaults to close when no Connection header is present
+    if not has_connection_header and request.http_version == "1.0":
+        meta.wants_close = True
+
+    return meta
 
 
 class SyncWorker:
@@ -285,7 +300,8 @@ class SyncWorker:
                 if request is None:
                     break
 
-                close_after = _wants_close(request)
+                meta = _classify_request(request)
+                close_after = meta.wants_close
                 request_count += 1
                 request_start = monotonic_ns()
                 self._lifecycle.record(
@@ -299,7 +315,7 @@ class SyncWorker:
                     )
                 )
 
-                if _is_websocket_upgrade(request):
+                if meta.is_websocket:
                     if self._async_pool:
                         self._async_pool.accept_handoff(
                             WebSocketHandoff(
@@ -323,8 +339,9 @@ class SyncWorker:
                 # close the connection — h11 state can't be recycled.
                 if self._sync_app is not None:
                     target = request.target
-                    path_bytes = target.split(b"?", 1)[0] if b"?" in target else target
-                    query_bytes = target.split(b"?", 1)[1] if b"?" in target else b""
+                    parts = target.split(b"?", 1)
+                    path_bytes = parts[0]
+                    query_bytes = parts[1] if len(parts) > 1 else b""
                     raw_req = RawRequest(
                         method=request.method,
                         path=path_bytes,
@@ -338,39 +355,39 @@ class SyncWorker:
                     raw_resp = self._sync_app.handle_sync(raw_req)
                     if raw_resp is not None:
                         # Fast path: direct response, no asyncio, bypass h11
-                        headers_list = list(raw_resp.headers)
                         compressor: Compressor | None = None
-                        if self._config.compression:
-                            accept_enc = _get_header(request.headers, b"accept-encoding")
-                            if accept_enc:
-                                enc = negotiate_encoding(accept_enc)
-                                if enc:
-                                    compressor = create_compressor(enc)
+                        if self._config.compression and meta.accept_encoding:
+                            enc = negotiate_encoding(meta.accept_encoding)
+                            if enc:
+                                compressor = create_compressor(enc)
+
+                        # Single pass: strip CL only when compressing, track presence
+                        has_cl = False
+                        headers_list: list[tuple[bytes, bytes]] = []
+                        for n, v in raw_resp.headers:
+                            if n.lower() == b"content-length":
+                                has_cl = True
+                                if not compressor:
+                                    headers_list.append((n, v))
+                            else:
+                                headers_list.append((n, v))
+
                         if compressor and len(raw_resp.body) >= self._config.compression_min_size:
                             body_out = compressor.compress(raw_resp.body) + compressor.flush()
                             headers_list.append(
                                 (b"content-encoding", compressor.encoding.encode("ascii"))
                             )
-                            headers_list = [
-                                (n, v) for n, v in headers_list if n.lower() != b"content-length"
-                            ]
-                            # CL was removed; always inject new CL for compressed body
                             headers_list.append(
                                 (b"content-length", str(len(body_out)).encode("ascii"))
                             )
                         else:
                             body_out = raw_resp.body
-                            if not any(n.lower() == b"content-length" for n, _ in headers_list):
+                            if not has_cl:
                                 headers_list.append(
                                     (b"content-length", str(len(body_out)).encode("ascii"))
                                 )
                         headers_list.append((b"connection", b"close"))
-                        # Date header: cache per-second (RFC 7231 allows 1s resolution)
-                        now_sec = int(time.time())
-                        if now_sec != self._date_cache_sec:
-                            self._date_cache_sec = now_sec
-                            self._date_header_bytes = get_date_header_bytes()
-                        date_hdr = self._date_header_bytes if self._config.date_header else None
+                        date_hdr = self._cached_date_header()
                         head, body_bytes = serialize_raw_response_parts(
                             raw_resp.status,
                             tuple(headers_list),
@@ -424,11 +441,7 @@ class SyncWorker:
                         active_connections=1,
                     )
                     health_headers = [*list(health_headers), (b"connection", conn_header)]
-                    now_sec = int(time.time())
-                    if now_sec != self._date_cache_sec:
-                        self._date_cache_sec = now_sec
-                        self._date_header_bytes = get_date_header_bytes()
-                    date_hdr = self._date_header_bytes if self._config.date_header else None
+                    date_hdr = self._cached_date_header()
                     head, body_out_bytes = serialize_raw_response_parts(
                         status,
                         tuple(health_headers),
@@ -506,29 +519,37 @@ class SyncWorker:
                     )
                     break
 
-                compressor: Compressor | None = negotiate_compressor(self._config, request.headers)
+                # Negotiate compression using pre-extracted accept-encoding
+                asgi_compressor: Compressor | None = None
+                if self._config.compression and meta.accept_encoding:
+                    enc = negotiate_encoding(meta.accept_encoding)
+                    if enc:
+                        asgi_compressor = create_compressor(enc)
 
-                headers = list(response.headers)
-                if compressor:
-                    body_out = compressor.compress(response.body) + compressor.flush()
-                    headers.append((b"content-encoding", compressor.encoding.encode("ascii")))
-                    headers = [(n, v) for n, v in headers if n.lower() != b"content-length"]
-                    # CL was removed; always inject new CL for compressed body
+                # Single pass: strip CL only when compressing, track presence
+                has_cl = False
+                headers: list[tuple[bytes, bytes]] = []
+                for n, v in response.headers:
+                    if n.lower() == b"content-length":
+                        has_cl = True
+                        if not asgi_compressor:
+                            headers.append((n, v))
+                    else:
+                        headers.append((n, v))
+
+                if asgi_compressor:
+                    body_out = asgi_compressor.compress(response.body) + asgi_compressor.flush()
+                    headers.append((b"content-encoding", asgi_compressor.encoding.encode("ascii")))
                     headers.append((b"content-length", str(len(body_out)).encode("ascii")))
                 else:
                     body_out = response.body
-                    if not any(n.lower() == b"content-length" for n, _ in headers):
+                    if not has_cl:
                         headers.append((b"content-length", str(len(body_out)).encode("ascii")))
                 if request_id:
                     headers.append((b"x-request-id", request_id.encode("latin-1")))
                 headers.append((b"connection", conn_header))
 
-                # Date header: cache per-second (RFC 7231 allows 1s resolution)
-                now_sec = int(time.time())
-                if now_sec != self._date_cache_sec:
-                    self._date_cache_sec = now_sec
-                    self._date_header_bytes = get_date_header_bytes()
-                date_hdr = self._date_header_bytes if self._config.date_header else None
+                date_hdr = self._cached_date_header()
 
                 # Bypass h11 for response serialization — raw bytes are faster
                 head, body_bytes_out = serialize_raw_response_parts(
@@ -643,13 +664,24 @@ class SyncWorker:
                 self._send_error(conn, 413, "Request Too Large")
                 return (None, b"")
 
+    def _cached_date_header(self) -> bytes | None:
+        """Return cached Date header bytes, refreshing at most once per second."""
+        if not self._config.date_header:
+            return None
+        now_sec = int(time.time())
+        if now_sec != self._date_cache_sec:
+            self._date_cache_sec = now_sec
+            self._date_header_bytes = get_date_header_bytes()
+        return self._date_header_bytes
+
     def _send_error(self, conn: socket.socket, status: int, message: str) -> None:
         """Send a plain-text error response (raw bytes, no h11)."""
         body = message.encode("utf-8")
-        phrase = _STATUS_PHRASES.get(status, str(status).encode("ascii") + b" Error")
+        reason = _STATUS_REASONS.get(status, b"Error")
+        status_line = str(status).encode("ascii") + b" " + reason
         with contextlib.suppress(OSError, ConnectionError):
             conn.sendall(
-                b"HTTP/1.1 " + phrase + b"\r\n"
+                b"HTTP/1.1 " + status_line + b"\r\n"
                 b"content-type: text/plain; charset=utf-8\r\n"
                 b"content-length: " + str(len(body)).encode("ascii") + b"\r\n"
                 b"connection: close\r\n"

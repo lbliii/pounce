@@ -8,6 +8,28 @@ scattered across worker, sync_worker, async_pool, and handler modules.
 
 from collections.abc import Sequence
 
+from pounce.protocols._base import RequestReceived
+
+
+def is_websocket_upgrade(request: RequestReceived) -> bool:
+    """Check if the request is a WebSocket upgrade.
+
+    Detects ``Connection: Upgrade`` + ``Upgrade: websocket`` headers.
+    Works with both pre-lowered (fast parser) and raw-cased (h11) header names.
+
+    """
+    has_upgrade_connection = False
+    has_websocket_upgrade = False
+
+    for name, value in request.headers:
+        name_lower = name.lower()
+        if name_lower == b"connection":
+            has_upgrade_connection = b"upgrade" in value.lower()
+        elif name_lower == b"upgrade":
+            has_websocket_upgrade = value.lower() == b"websocket"
+
+    return has_upgrade_connection and has_websocket_upgrade
+
 
 def get_header(
     headers: Sequence[tuple[bytes, bytes]],
