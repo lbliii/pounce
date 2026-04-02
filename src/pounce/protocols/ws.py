@@ -58,7 +58,7 @@ def build_ws_accept_key(ws_key: bytes) -> bytes:
         Base64-encoded accept key for the 101 response.
 
     """
-    digest = hashlib.sha1(ws_key.strip() + _WS_MAGIC).digest()
+    digest = hashlib.sha1(ws_key.strip() + _WS_MAGIC).digest()  # noqa: S324 — SHA1 required by RFC 6455
     return base64.b64encode(digest)
 
 

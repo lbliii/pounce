@@ -21,7 +21,8 @@ import os
 import sys
 import threading
 from dataclasses import dataclass, replace
-from typing import Any
+from enum import StrEnum
+from typing import Any, Final
 
 from milo._types import Action
 from milo.state import Store
@@ -31,32 +32,47 @@ logger = logging.getLogger("pounce")
 
 # ── Action type constants ────────────────────────────────
 
-BANNER = "BANNER"
-READY = "READY"
-SHUTDOWN_START = "SHUTDOWN_START"
-SHUTDOWN_DRAINED = "SHUTDOWN_DRAINED"
-SHUTDOWN_TIMEOUT = "SHUTDOWN_TIMEOUT"
-SHUTDOWN_COMPLETE = "SHUTDOWN_COMPLETE"
-RELOAD_DETECTED = "RELOAD_DETECTED"
-RELOAD_START = "RELOAD_START"
-RELOAD_COMPLETE = "RELOAD_COMPLETE"
-RELOAD_FAILED = "RELOAD_FAILED"
-SUPERVISOR_STARTING = "SUPERVISOR_STARTING"
-WORKER_STARTED = "WORKER_STARTED"
-WORKER_CRASHED = "WORKER_CRASHED"
-WORKER_MAX_RESTARTS = "WORKER_MAX_RESTARTS"
-SUPERVISOR_SHUTDOWN = "SUPERVISOR_SHUTDOWN"
-SUPERVISOR_ALL_STOPPED = "SUPERVISOR_ALL_STOPPED"
+BANNER: Final = "BANNER"
+READY: Final = "READY"
+SHUTDOWN_START: Final = "SHUTDOWN_START"
+SHUTDOWN_DRAINED: Final = "SHUTDOWN_DRAINED"
+SHUTDOWN_TIMEOUT: Final = "SHUTDOWN_TIMEOUT"
+SHUTDOWN_COMPLETE: Final = "SHUTDOWN_COMPLETE"
+RELOAD_DETECTED: Final = "RELOAD_DETECTED"
+RELOAD_START: Final = "RELOAD_START"
+RELOAD_COMPLETE: Final = "RELOAD_COMPLETE"
+RELOAD_FAILED: Final = "RELOAD_FAILED"
+SUPERVISOR_STARTING: Final = "SUPERVISOR_STARTING"
+WORKER_STARTED: Final = "WORKER_STARTED"
+WORKER_CRASHED: Final = "WORKER_CRASHED"
+WORKER_MAX_RESTARTS: Final = "WORKER_MAX_RESTARTS"
+SUPERVISOR_SHUTDOWN: Final = "SUPERVISOR_SHUTDOWN"
+SUPERVISOR_ALL_STOPPED: Final = "SUPERVISOR_ALL_STOPPED"
+
+
+# ── Phase enum ──────────────────────────────────────────
+
+
+class Phase(StrEnum):
+    """Server lifecycle phases."""
+
+    INIT = "init"
+    STARTUP = "startup"
+    READY = "ready"
+    SERVING = "serving"
+    RELOADING = "reloading"
+    SHUTTING_DOWN = "shutting_down"
+    STOPPED = "stopped"
 
 
 # ── Model ────────────────────────────────────────────────
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ServerModel:
     """Immutable server lifecycle state."""
 
-    phase: str = "init"
+    phase: Phase = Phase.INIT
     effective_workers: int = 0
     mode_label: str = ""
     gil_status: str = ""
@@ -81,20 +97,20 @@ def server_reducer(state: ServerModel | None, action: Action) -> ServerModel:
             p = action.payload
             return replace(
                 state,
-                phase="startup",
+                phase=Phase.STARTUP,
                 effective_workers=p["effective_workers"],
                 mode_label=p["mode_label"],
                 gil_status=p["gil_status"],
             )
 
         case "READY":
-            return replace(state, phase="ready")
+            return replace(state, phase=Phase.READY)
 
         case "SUPERVISOR_STARTING":
             p = action.payload
             return replace(
                 state,
-                phase="serving",
+                phase=Phase.SERVING,
                 effective_workers=p["count"],
                 supervisor_mode=p["mode"],
             )
@@ -103,25 +119,25 @@ def server_reducer(state: ServerModel | None, action: Action) -> ServerModel:
             return state
 
         case "RELOAD_DETECTED" | "RELOAD_START":
-            return replace(state, phase="reloading")
+            return replace(state, phase=Phase.RELOADING)
 
         case "RELOAD_COMPLETE":
             p = action.payload or {}
             return replace(
                 state,
-                phase="serving",
+                phase=Phase.SERVING,
                 effective_workers=p.get("workers", state.effective_workers),
                 generation=p.get("generation", state.generation),
             )
 
         case "RELOAD_FAILED":
-            return replace(state, phase="serving")
+            return replace(state, phase=Phase.SERVING)
 
         case "SHUTDOWN_START":
             p = action.payload or {}
             return replace(
                 state,
-                phase="shutting_down",
+                phase=Phase.SHUTTING_DOWN,
                 connections=p.get("connections", 0),
             )
 
@@ -132,10 +148,10 @@ def server_reducer(state: ServerModel | None, action: Action) -> ServerModel:
             return state
 
         case "SHUTDOWN_COMPLETE":
-            return replace(state, phase="stopped")
+            return replace(state, phase=Phase.STOPPED)
 
         case "SUPERVISOR_SHUTDOWN":
-            return replace(state, phase="shutting_down")
+            return replace(state, phase=Phase.SHUTTING_DOWN)
 
         case "SUPERVISOR_ALL_STOPPED":
             return state

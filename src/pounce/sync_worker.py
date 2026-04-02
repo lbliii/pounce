@@ -18,7 +18,7 @@ import socket
 import ssl
 import threading
 import time
-from typing import Any, cast
+from typing import Any, Final, cast
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._cpu_affinity import maybe_pin_worker
@@ -47,7 +47,7 @@ from pounce.lifecycle import monotonic_ns as lifecycle_ns
 from pounce.protocols._base import RequestReceived
 from pounce.sync_protocol import RawRequest, SyncApp
 
-_STATUS_PHRASES: dict[int, bytes] = {
+_STATUS_PHRASES: Final[dict[int, bytes]] = {
     200: b"200 OK",
     201: b"201 Created",
     204: b"204 No Content",
@@ -186,7 +186,7 @@ class SyncWorker:
                 conn, addr = self._conn_queue.get(timeout=poll_interval)
             except queue.Empty:
                 continue
-            self._handle_connection(conn, cast(tuple[str, int], addr), runner)
+            self._handle_connection(conn, cast("tuple[str, int]", addr), runner)
 
     def _run_accept_loop(self, poll_interval: float, runner: asyncio.Runner) -> None:
         """Accept directly from socket (SO_REUSEPORT or single worker)."""
@@ -466,7 +466,7 @@ class SyncWorker:
 
                 try:
                     response = call_asgi_sync(
-                        cast(ASGIApp, self._app),
+                        cast("ASGIApp", self._app),
                         scope,
                         body,
                         runner=runner,

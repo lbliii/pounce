@@ -9,10 +9,21 @@ thread-based (nogil) and process-based (GIL) worker spawning.
 
 import os
 import sys
-from typing import Literal
+from enum import StrEnum
 
-WorkerMode = Literal["thread", "process"]
-WorkerExecutionMode = Literal["sync", "async"]
+
+class WorkerMode(StrEnum):
+    """Worker spawning strategy."""
+
+    THREAD = "thread"
+    PROCESS = "process"
+
+
+class WorkerExecutionMode(StrEnum):
+    """Worker execution model."""
+
+    SYNC = "sync"
+    ASYNC = "async"
 
 
 def is_gil_enabled() -> bool:
@@ -34,7 +45,7 @@ def detect_worker_mode() -> WorkerMode:
         interpreter.  ``"process"`` on GIL builds — workers are forked.
 
     """
-    return "process" if is_gil_enabled() else "thread"
+    return WorkerMode.PROCESS if is_gil_enabled() else WorkerMode.THREAD
 
 
 def default_worker_count() -> int:
@@ -60,9 +71,9 @@ def resolve_worker_execution_mode(worker_mode: str) -> WorkerExecutionMode:
     """
     worker_mode = worker_mode.lower()
     if worker_mode == "sync":
-        return "sync"
+        return WorkerExecutionMode.SYNC
     if worker_mode == "async":
-        return "async"
+        return WorkerExecutionMode.ASYNC
     if worker_mode == "auto":
-        return "sync" if not is_gil_enabled() else "async"
-    return "async"  # Unknown value — fall back to safe default
+        return WorkerExecutionMode.SYNC if not is_gil_enabled() else WorkerExecutionMode.ASYNC
+    return WorkerExecutionMode.ASYNC  # Unknown value — fall back to safe default

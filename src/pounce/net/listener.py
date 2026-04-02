@@ -225,7 +225,7 @@ def _bind_unix_socket(config: ServerConfig) -> socket.socket:
         sock.setblocking(False)
 
         # Make the socket file accessible to the web server (e.g. nginx)
-        os.chmod(path, 0o666)
+        os.chmod(path, 0o666)  # noqa: S103 — UDS needs broad access for reverse proxy
 
         logger.info("Listening on unix:%s (backlog=%d)", path, config.backlog)
         return sock

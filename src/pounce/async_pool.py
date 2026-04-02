@@ -22,6 +22,7 @@ from pounce._headers import get_header as _get_header
 from pounce._types import ASGIApp
 from pounce.asgi.bridge import SendState, create_send
 from pounce.config import ServerConfig
+from pounce.lifecycle import LifecycleCollector
 from pounce.protocols._base import RequestReceived
 from pounce.protocols.h1 import H1Protocol
 
@@ -86,7 +87,7 @@ class AsyncPool:
         *,
         shutdown_event: threading.Event | None = None,
         ssl_context: ssl.SSLContext | None = None,
-        lifecycle_collector: Any = None,
+        lifecycle_collector: LifecycleCollector | None = None,
     ) -> None:
         self._config = config
         self._app = app

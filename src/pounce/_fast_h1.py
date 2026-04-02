@@ -19,18 +19,20 @@ Not a full HTTP parser — does not handle:
 - Trailer headers
 """
 
+from typing import Final
+
 from pounce.protocols._base import RequestReceived
 
 # Pre-intern constants
-_CRLF = b"\r\n"
-_CRLFCRLF = b"\r\n\r\n"
-_COLON_SPACE = b": "
-_COLON = b":"
-_SPACE = b" "
-_HTTP_1_1 = "1.1"
-_HTTP_1_0 = "1.0"
+_CRLF: Final = b"\r\n"
+_CRLFCRLF: Final = b"\r\n\r\n"
+_COLON_SPACE: Final = b": "
+_COLON: Final = b":"
+_SPACE: Final = b" "
+_HTTP_1_1: Final = "1.1"
+_HTTP_1_0: Final = "1.0"
 
-_VALID_METHODS = frozenset(
+_VALID_METHODS: Final = frozenset(
     {
         b"GET",
         b"HEAD",
@@ -45,7 +47,7 @@ _VALID_METHODS = frozenset(
 )
 
 # Max header block size (16 KiB) — matches nginx default
-_MAX_HEADER_SIZE = 16384
+_MAX_HEADER_SIZE: Final = 16384
 
 
 class ParseError(Exception):

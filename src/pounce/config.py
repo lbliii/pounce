@@ -8,10 +8,11 @@ Frozen after creation — the server reads config but never mutates it.
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+
+from pounce._middleware import Middleware
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ServerConfig:
     """Immutable server configuration.
 
@@ -118,7 +119,7 @@ class ServerConfig:
     static_index_file: str | None = "index.html"
 
     # Middleware (phase 5b)
-    middleware: list[Callable[..., Any]] = field(default_factory=list)
+    middleware: list[Middleware] = field(default_factory=list)
 
     # WebSocket (phase 5b)
     websocket_compression: bool = True  # Enable permessage-deflate compression
