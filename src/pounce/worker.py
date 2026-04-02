@@ -35,6 +35,7 @@ from pounce._compression import Compressor
 from pounce._cpu_affinity import maybe_pin_worker
 from pounce._errors import ParseError
 from pounce._h2_handler import handle_h2_connection
+from pounce._headers import is_websocket_upgrade as _is_websocket_upgrade
 from pounce._health import build_health_response
 from pounce._profile import ProfileCollector, RequestProfile
 from pounce._request_pipeline import (
@@ -925,6 +926,41 @@ class Worker:
             worker_id=self._worker_id,
         )
 
+    async def _run_app_with_error_handling(
+        self,
+        scope: dict,
+        receive: Receive,
+        send: Send,
+        send_state: SendState,
+        writer: asyncio.StreamWriter,
+        proto: H1Protocol,
+    ) -> None:
+        """Run the ASGI app with branded traceback and error response handling."""
+        try:
+            await self._app(scope, receive, send)
+        except Exception as _app_exc:
+            self._logger.exception("ASGI app error on %s %s", scope["method"], scope["path"])
+            from pounce import _output
+
+            _output.branded_traceback(_app_exc, worker_id=self._worker_id)
+            with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
+                if self._config.debug:
+                    exc_info = sys.exc_info()
+                    await self._send_debug_error(
+                        writer,
+                        proto,
+                        (exc_info[0], exc_info[1], exc_info[2])
+                        if exc_info[0] is not None and exc_info[1] is not None
+                        else (Exception, Exception("Unknown error"), exc_info[2]),
+                        request_method=scope.get("method", "GET"),
+                        request_path=scope.get("path", "/"),
+                        request_headers=scope.get("headers"),
+                    )
+                else:
+                    await self._send_error(writer, proto, 500, "Internal Server Error")
+            if send_state.status == 0:
+                send_state.status = 500
+
     async def _run_with_disconnect_monitor(
         self,
         scope: dict,
@@ -947,36 +983,16 @@ class Worker:
         Mirrors the WebSocket handler's concurrent-task pattern.
 
         """
-
-        async def _run_app() -> None:
-            try:
-                await self._app(scope, receive, send)
-            except Exception as _app_exc:
-                self._logger.exception("ASGI app error on %s %s", scope["method"], scope["path"])
-                from pounce import _output
-
-                _output.branded_traceback(_app_exc, worker_id=self._worker_id)
-                with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
-                    if self._config.debug:
-                        # Send rich debug error page in development
-                        exc_info = sys.exc_info()
-                        await self._send_debug_error(
-                            writer,
-                            proto,
-                            (exc_info[0], exc_info[1], exc_info[2])
-                            if exc_info[0] is not None and exc_info[1] is not None
-                            else (Exception, Exception("Unknown error"), exc_info[2]),
-                            request_method=scope.get("method", "GET"),
-                            request_path=scope.get("path", "/"),
-                            request_headers=scope.get("headers"),
-                        )
-                    else:
-                        # Simple error in production
-                        await self._send_error(writer, proto, 500, "Internal Server Error")
-                if send_state.status == 0:
-                    send_state.status = 500
-
-        app_task = asyncio.create_task(_run_app())
+        app_task = asyncio.create_task(
+            self._run_app_with_error_handling(
+                scope,
+                receive,
+                send,
+                send_state,
+                writer,
+                proto,
+            )
+        )
         monitor_task = asyncio.create_task(self._monitor_disconnect(reader, disconnect))
 
         try:
@@ -1104,35 +1120,16 @@ class Worker:
                 if disconnect is not None:
                     disconnect.set()
 
-        async def _run_app() -> None:
-            try:
-                await self._app(scope, receive, send)
-            except Exception as _app_exc:
-                self._logger.exception("ASGI app error on %s %s", scope["method"], scope["path"])
-                from pounce import _output
-
-                _output.branded_traceback(_app_exc, worker_id=self._worker_id)
-                with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
-                    if self._config.debug:
-                        # Send rich debug error page in development
-                        exc_info = sys.exc_info()
-                        await self._send_debug_error(
-                            writer,
-                            proto,
-                            (exc_info[0], exc_info[1], exc_info[2])
-                            if exc_info[0] is not None and exc_info[1] is not None
-                            else (Exception, Exception("Unknown error"), exc_info[2]),
-                            request_method=scope.get("method", "GET"),
-                            request_path=scope.get("path", "/"),
-                            request_headers=scope.get("headers"),
-                        )
-                    else:
-                        # Simple error in production
-                        await self._send_error(writer, proto, 500, "Internal Server Error")
-                if send_state.status == 0:
-                    send_state.status = 500
-
-        app_task = asyncio.create_task(_run_app())
+        app_task = asyncio.create_task(
+            self._run_app_with_error_handling(
+                scope,
+                receive,
+                send,
+                send_state,
+                writer,
+                proto,
+            )
+        )
         reader_task = asyncio.create_task(_read_body())
 
         try:
@@ -1290,20 +1287,4 @@ async def _worker_lifecycle_send(message: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _is_websocket_upgrade(request: RequestReceived) -> bool:
-    """Check if the request is a WebSocket upgrade.
-
-    Detects ``Connection: Upgrade`` + ``Upgrade: websocket`` headers.
-
-    """
-    has_upgrade_connection = False
-    has_websocket_upgrade = False
-
-    for name, value in request.headers:
-        name_lower = name.lower()
-        if name_lower == b"connection":
-            has_upgrade_connection = b"upgrade" in value.lower()
-        elif name_lower == b"upgrade":
-            has_websocket_upgrade = value.lower() == b"websocket"
-
-    return has_upgrade_connection and has_websocket_upgrade
+# _is_websocket_upgrade imported from pounce._headers

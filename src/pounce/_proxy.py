@@ -56,7 +56,8 @@ def apply_proxy_headers(
     forwarded_host: bytes | None = None
 
     for pair in headers:
-        name = pair[0].lower()
+        # scope headers are pre-lowered by build_base_scope
+        name = pair[0]
         if name == b"x-forwarded-for":
             forwarded_for = pair[1]
         elif name == b"x-forwarded-proto":
@@ -95,6 +96,5 @@ def _strip_forwarded_headers(scope: dict[str, Any]) -> None:
     headers: list[list[bytes]] = scope.get("headers", [])
     _forwarded_prefixes = (b"x-forwarded-",)
 
-    scope["headers"] = [
-        pair for pair in headers if not pair[0].lower().startswith(_forwarded_prefixes)
-    ]
+    # scope headers are pre-lowered by build_base_scope
+    scope["headers"] = [pair for pair in headers if not pair[0].startswith(_forwarded_prefixes)]

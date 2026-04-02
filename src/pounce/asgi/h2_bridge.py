@@ -138,18 +138,21 @@ def create_h2_send(
             if compressor is not None and request_method == b"HEAD":
                 compressor = None
 
-            # SSE must not be compressed — EventSource API doesn't support it
+            # Single pass: detect SSE and strip content-length when compressing
             if compressor is not None:
+                filtered: list[tuple[bytes, bytes]] = []
                 for name, value in headers:
-                    if name == b"content-type" and b"text/event-stream" in value:
+                    nl = name.lower()
+                    if nl == b"content-type" and b"text/event-stream" in value.lower():
                         compressor = None
-                        break
-
-            # Inject Content-Encoding if compressing
-            if compressor is not None:
-                headers.append((b"content-encoding", compressor.encoding.encode("ascii")))
-                # Remove content-length since compressed size differs
-                headers = [pair for pair in headers if pair[0].lower() != b"content-length"]
+                        filtered.append((name, value))
+                    elif nl == b"content-length":
+                        continue  # drop; compressed size differs
+                    else:
+                        filtered.append((name, value))
+                if compressor is not None:
+                    filtered.append((b"content-encoding", compressor.encoding.encode("ascii")))
+                headers = filtered
 
             # Inject Server-Timing header
             if timing is not None:
