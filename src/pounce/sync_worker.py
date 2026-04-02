@@ -54,34 +54,35 @@ from pounce.sync_protocol import RawRequest, SyncApp
 class _RequestMeta:
     """Pre-extracted header values from a single pass over request headers.
 
-    All fields populated by ``_classify_request()`` — avoids 4-5 redundant
+    All fields populated by ``_classify_request()`` — avoids redundant
     linear scans per request.  Header names from ``_fast_h1`` are already
     lowered, so no ``.lower()`` is needed on names.
     """
 
-    __slots__ = ("accept_encoding", "is_websocket", "request_id_header", "wants_close")
+    __slots__ = ("accept_encoding", "is_websocket", "wants_close")
 
     def __init__(self) -> None:
         self.wants_close: bool = False
         self.is_websocket: bool = False
         self.accept_encoding: bytes | None = None
-        self.request_id_header: bytes | None = None
 
 
 def _classify_request(request: RequestReceived) -> _RequestMeta:
     """Single-pass header extraction for the sync-worker hot path.
 
     Replaces separate calls to ``_wants_close``, ``_is_websocket_upgrade``,
-    ``get_header(accept-encoding)``, and ``extract_or_generate`` header scan.
+    and ``get_header(accept-encoding)``.
     Header names are already lowered by ``_fast_h1.parse_request``.
     """
     meta = _RequestMeta()
     has_upgrade_conn = False
     has_ws_upgrade = False
+    has_connection_header = False
 
     for name, value in request.headers:
         # Names pre-lowered by _fast_h1.parse_request — compare directly
         if name == b"connection":
+            has_connection_header = True
             val_lower = value.lower()
             if b"close" in val_lower:
                 meta.wants_close = True
@@ -91,13 +92,11 @@ def _classify_request(request: RequestReceived) -> _RequestMeta:
             has_ws_upgrade = True
         elif name == b"accept-encoding":
             meta.accept_encoding = value
-        elif name == b"x-request-id":
-            meta.request_id_header = value
 
     meta.is_websocket = has_upgrade_conn and has_ws_upgrade
 
-    # HTTP/1.0 defaults to close unless keep-alive is explicit
-    if not meta.wants_close and request.http_version == "1.0":
+    # HTTP/1.0 defaults to close when no Connection header is present
+    if not has_connection_header and request.http_version == "1.0":
         meta.wants_close = True
 
     return meta
@@ -356,20 +355,23 @@ class SyncWorker:
                     raw_resp = self._sync_app.handle_sync(raw_req)
                     if raw_resp is not None:
                         # Fast path: direct response, no asyncio, bypass h11
-                        # Single pass: filter content-length and track its presence
-                        has_cl = False
-                        headers_list: list[tuple[bytes, bytes]] = []
-                        for n, v in raw_resp.headers:
-                            if n.lower() == b"content-length":
-                                has_cl = True
-                            else:
-                                headers_list.append((n, v))
-
                         compressor: Compressor | None = None
                         if self._config.compression and meta.accept_encoding:
                             enc = negotiate_encoding(meta.accept_encoding)
                             if enc:
                                 compressor = create_compressor(enc)
+
+                        # Single pass: strip CL only when compressing, track presence
+                        has_cl = False
+                        headers_list: list[tuple[bytes, bytes]] = []
+                        for n, v in raw_resp.headers:
+                            if n.lower() == b"content-length":
+                                has_cl = True
+                                if not compressor:
+                                    headers_list.append((n, v))
+                            else:
+                                headers_list.append((n, v))
+
                         if compressor and len(raw_resp.body) >= self._config.compression_min_size:
                             body_out = compressor.compress(raw_resp.body) + compressor.flush()
                             headers_list.append(
@@ -524,12 +526,14 @@ class SyncWorker:
                     if enc:
                         asgi_compressor = create_compressor(enc)
 
-                # Single pass: filter content-length and track its presence
+                # Single pass: strip CL only when compressing, track presence
                 has_cl = False
                 headers: list[tuple[bytes, bytes]] = []
                 for n, v in response.headers:
                     if n.lower() == b"content-length":
                         has_cl = True
+                        if not asgi_compressor:
+                            headers.append((n, v))
                     else:
                         headers.append((n, v))
 
