@@ -30,7 +30,7 @@ from typing import Protocol
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ConnectionOpened:
     """A new TCP connection was accepted."""
 
@@ -44,7 +44,7 @@ class ConnectionOpened:
     timestamp_ns: int
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class RequestStarted:
     """An HTTP request head was fully parsed."""
 
@@ -56,7 +56,7 @@ class RequestStarted:
     timestamp_ns: int
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ResponseCompleted:
     """An HTTP response was fully sent."""
 
@@ -68,7 +68,7 @@ class ResponseCompleted:
     timestamp_ns: int
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ClientDisconnected:
     """The client closed the connection unexpectedly."""
 
@@ -78,7 +78,7 @@ class ClientDisconnected:
     timestamp_ns: int
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ConnectionCompleted:
     """The TCP connection was closed (by either side)."""
 

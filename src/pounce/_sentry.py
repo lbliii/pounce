@@ -7,8 +7,9 @@ performance monitoring, and request context capture.
 """
 
 import logging
-from collections.abc import Callable
 from typing import Any, Literal, cast
+
+from pounce._types import ASGIApp
 
 LogLevelStr = Literal["fatal", "critical", "error", "warning", "info", "debug"]
 
@@ -91,7 +92,7 @@ def init_sentry(
     logger.info("Sentry initialized: environment=%s release=%s", environment, release)
 
 
-def create_sentry_wrapper(app: Callable[..., Any]) -> Callable[..., Any]:
+def create_sentry_wrapper(app: ASGIApp) -> ASGIApp:
     """Wrap an ASGI app with Sentry error tracking.
 
     Automatically captures exceptions, request context, and performance data.
@@ -113,7 +114,7 @@ def create_sentry_wrapper(app: Callable[..., Any]) -> Callable[..., Any]:
     from sentry_sdk.integrations.asgi import SentryAsgiMiddleware
 
     # Use Sentry's built-in ASGI middleware (callable as ASGI app)
-    return cast(Callable[..., Any], SentryAsgiMiddleware(app))
+    return cast("ASGIApp", SentryAsgiMiddleware(app))
 
 
 def capture_exception(

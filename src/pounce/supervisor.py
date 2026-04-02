@@ -26,7 +26,7 @@ import socket
 import ssl
 import threading
 import time
-from typing import Any
+from typing import Any, Final, Protocol
 
 from pounce._errors import SupervisorError
 from pounce._runtime import (
@@ -86,9 +86,23 @@ def _parallel_join_targets(
 
 
 # Maximum worker restarts within `_RESTART_WINDOW` seconds before giving up
-_MAX_RESTARTS = 5
-_RESTART_WINDOW = 60.0  # seconds
-_HEALTH_CHECK_INTERVAL = 1.0  # seconds
+_MAX_RESTARTS: Final = 5
+_RESTART_WINDOW: Final = 60.0  # seconds
+_HEALTH_CHECK_INTERVAL: Final = 1.0  # seconds
+
+
+class TCPWorker(Protocol):
+    """Structural contract for TCP workers (Worker and SyncWorker).
+
+    Both async and sync workers implement this interface. The supervisor
+    uses it for lifecycle management: spawning, draining, and idle checks.
+
+    """
+
+    def run(self) -> None: ...
+    def set_lifespan_state(self, state: dict[str, Any]) -> None: ...
+    def start_draining(self) -> None: ...
+    def is_idle(self) -> bool: ...
 
 
 class _WorkerHandle:
@@ -108,7 +122,7 @@ class _WorkerHandle:
         self,
         worker_id: int,
         target: threading.Thread | multiprocessing.Process,
-        worker: Worker | SyncWorker | None,
+        worker: TCPWorker | None,
         generation: int = 0,
     ) -> None:
         self.worker_id = worker_id

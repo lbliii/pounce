@@ -17,7 +17,7 @@ import logging
 import sys
 import threading
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Final
 
 from pounce.config import ServerConfig
 
@@ -25,8 +25,8 @@ from pounce.config import ServerConfig
 access_logger = logging.getLogger("pounce.access")
 logger = logging.getLogger("pounce")
 
-_LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s - %(message)s"
-_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+_LOG_FORMAT: Final = "%(asctime)s %(levelname)-8s %(name)s - %(message)s"
+_DATE_FORMAT: Final = "%Y-%m-%d %H:%M:%S"
 
 # Module-level state set by configure_logging()
 _json_logging: bool = False
@@ -37,12 +37,12 @@ _resolved_format: str = "text"  # "text", "json", or "pretty"
 _stderr_lock = threading.Lock()
 
 # ANSI color constants for pretty mode
-_RESET = "\033[0m"
-_GREEN = "\033[32m"
-_YELLOW = "\033[33m"
-_RED = "\033[31m"
-_DIM = "\033[2m"
-_BOLD = "\033[1m"
+_RESET: Final = "\033[0m"
+_GREEN: Final = "\033[32m"
+_YELLOW: Final = "\033[33m"
+_RED: Final = "\033[31m"
+_DIM: Final = "\033[2m"
+_BOLD: Final = "\033[1m"
 
 
 def _human_bytes(n: int) -> str:

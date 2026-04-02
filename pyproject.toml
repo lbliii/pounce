@@ -100,14 +100,27 @@ select = [
     "C4",   # unnecessary comprehensions/list()/dict() calls
     "RUF",  # Ruff-specific (unused noqa, mutable class defaults, etc.)
     "PT",   # flake8-pytest-style — pytest best practices
+    "S",    # flake8-bandit — security checks (hardcoded secrets, subprocess shells)
+    "A",    # flake8-builtins — prevent shadowing builtins
+    "T20",  # flake8-print — catch stray print() calls (server should log)
+    "DTZ",  # flake8-datetimez — enforce timezone-aware datetimes
+    "FBT",  # flake8-boolean-trap — boolean positional args
 ]
 ignore = [
-    "E501", # line too long — handled by formatter
+    "E501",   # line too long — handled by formatter
+    "S101",   # assert — handled per-file below
+    "FBT001", # boolean positional arg in function definition — too noisy for config
+    "FBT002", # boolean default value in function definition — too noisy for config
+    "FBT003", # boolean positional value in function call — too noisy
+    "S110",   # try-except-pass — intentional silent error suppression in cleanup paths
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]   # Allow unused imports in __init__ files (re-exports)
-"tests/**/*.py" = ["S101"] # Allow assert in tests
+"__init__.py" = ["F401"]                           # Allow unused imports in __init__ files (re-exports)
+"tests/**/*.py" = ["S101", "S104", "S105", "S106", "S108", "S603", "S607"]  # Allow assert, 0.0.0.0, passwords, tmpfiles, subprocess
+"examples/**/*.py" = ["T20", "S104"]                               # Allow print() and binding to 0.0.0.0 in examples
+"benchmarks/**/*.py" = ["T20", "S101", "S603", "S607"]            # Allow print(), assert, subprocess in benchmarks
+"src/pounce/_cli.py" = ["S603", "S607"]            # Subprocess calls for port diagnostics
 
 # =============================================================================
 # ty — Type Checker (Rust-based, Astral)
@@ -126,6 +139,9 @@ allowed-unresolved-imports = ["rosettes", "zoomies", "zoomies.**", "bengal-zoomi
 
 [tool.ty.rules]
 unused-ignore-comment = "warn"
+invalid-return-type = "error"
+missing-argument = "error"
+invalid-argument-type = "error"
 
 # =============================================================================
 # Pytest

@@ -467,7 +467,7 @@ class Worker:
                 )
                 try:
                     await handle_h2_connection(
-                        cast(ASGIApp, self._app),
+                        cast("ASGIApp", self._app),
                         self._config,
                         self._logger,
                         reader,
@@ -557,7 +557,7 @@ class Worker:
                         # Check for WebSocket upgrade
                         if _is_websocket_upgrade(event):
                             await handle_websocket(
-                                cast(ASGIApp, self._app),
+                                cast("ASGIApp", self._app),
                                 self._config,
                                 self._logger,
                                 event,

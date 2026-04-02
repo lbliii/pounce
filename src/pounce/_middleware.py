@@ -168,13 +168,13 @@ class MiddlewareStack:
 
             if param_count == 1:
                 # Single param = pre-request
-                self._pre_request.append(cast(PreRequestMiddleware, mw))
+                self._pre_request.append(cast("PreRequestMiddleware", mw))
             elif param_count == 2:
                 # Two params = exception middleware (scope, exc)
-                self._exception_handlers.append(cast(ExceptionMiddleware, mw))
+                self._exception_handlers.append(cast("ExceptionMiddleware", mw))
             elif param_count == 3:
                 # Three params = post-response (scope, status, headers)
-                self._post_response.append(cast(PostResponseMiddleware, mw))
+                self._post_response.append(cast("PostResponseMiddleware", mw))
 
     async def __call__(self, scope: dict[str, Any], receive: Receive, send: Send) -> None:
         """Execute middleware stack around app call.

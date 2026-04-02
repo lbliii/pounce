@@ -14,11 +14,12 @@ import logging
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from typing import Final
 
 logger = logging.getLogger("pounce.reload")
 
 # Directories to always exclude from watching
-_EXCLUDE_DIRS: frozenset[str] = frozenset(
+_EXCLUDE_DIRS: Final[frozenset[str]] = frozenset(
     {
         "__pycache__",
         ".git",
@@ -41,7 +42,7 @@ _EXCLUDE_DIRS: frozenset[str] = frozenset(
 )
 
 # File extensions to watch
-_WATCH_EXTENSIONS: frozenset[str] = frozenset(
+_WATCH_EXTENSIONS: Final[frozenset[str]] = frozenset(
     {
         ".py",
         ".pyi",

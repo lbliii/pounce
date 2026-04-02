@@ -353,7 +353,7 @@ def _render_frame(frame_info: dict[str, Any]) -> str:
         # Syntax highlight if Rosettes available
         if _HAS_ROSETTES and line_text.strip():
             try:
-                highlighted = cast(Callable[..., str], highlight_python)(line_text, inline=True)
+                highlighted = cast("Callable[..., str]", highlight_python)(line_text, inline=True)
             except Exception:
                 highlighted = html.escape(line_text)
         else:

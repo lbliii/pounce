@@ -20,7 +20,7 @@ uncompressed responses.
 """
 
 import zlib
-from typing import Protocol
+from typing import Final, Protocol
 
 # compression.zstd is new in Python 3.14 — import with fallback
 try:
@@ -41,7 +41,7 @@ def _build_encoding_priority() -> tuple[str, ...]:
     return tuple(encodings)
 
 
-_ENCODING_PRIORITY: tuple[str, ...] = _build_encoding_priority()
+_ENCODING_PRIORITY: Final[tuple[str, ...]] = _build_encoding_priority()
 
 
 class Compressor(Protocol):
