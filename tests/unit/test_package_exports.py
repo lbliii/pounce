@@ -9,6 +9,11 @@ class TestTopLevelExports:
 
         assert ServerConfig is not None
 
+    def test_display_config(self):
+        from pounce import DisplayConfig
+
+        assert DisplayConfig is not None
+
     def test_run(self):
         from pounce import run
 
