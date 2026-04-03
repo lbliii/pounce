@@ -50,9 +50,7 @@ class TestWorkloadResult:
 class TestFormatResults:
     def test_single_suite(self) -> None:
         suite = BenchSuite("pounce", workers=1, connections=10, duration=5)
-        suite.workloads.append(
-            WorkloadResult("hello", 5000, 0, 5.0, [1.0, 2.0, 3.0], 40.0)
-        )
+        suite.workloads.append(WorkloadResult("hello", 5000, 0, 5.0, [1.0, 2.0, 3.0], 40.0))
         output = _format_results([suite])
         assert "pounce" in output
         assert "hello" in output
@@ -150,8 +148,12 @@ class TestRunBenchCommandConstruction:
         mock_popen.return_value = _make_mock_proc()
 
         _run_bench(
-            ["pounce", "serve"], "pounce", duration=1, connections=1,
-            host="127.0.0.1", port=9999,
+            ["pounce", "serve"],
+            "pounce",
+            duration=1,
+            connections=1,
+            host="127.0.0.1",
+            port=9999,
         )
 
         env = mock_popen.call_args[1]["env"]
@@ -171,8 +173,12 @@ class TestRunBenchCommandConstruction:
         mock_popen.return_value = proc
 
         suite = _run_bench(
-            ["pounce", "serve"], "pounce", duration=1, connections=1,
-            host="127.0.0.1", port=9999,
+            ["pounce", "serve"],
+            "pounce",
+            duration=1,
+            connections=1,
+            host="127.0.0.1",
+            port=9999,
         )
 
         assert len(suite.workloads) == 0
