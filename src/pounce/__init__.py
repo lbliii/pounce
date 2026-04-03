@@ -54,6 +54,7 @@ from pounce._middleware import (  # noqa: E402
 from pounce._static import StaticFiles, create_static_handler  # noqa: E402
 from pounce._types import ASGIApp, Receive, Scope, Send  # noqa: E402
 from pounce.config import ServerConfig  # noqa: E402
+from pounce.display import DisplayConfig  # noqa: E402
 
 
 class ServerConfigKwargs(TypedDict, total=False):
@@ -74,6 +75,8 @@ class ServerConfigKwargs(TypedDict, total=False):
     max_requests_per_connection: int
     access_log: bool
     log_level: str
+    log_format: str
+    display: DisplayConfig | None
     server_header: str
     date_header: bool
     root_path: str
@@ -119,6 +122,7 @@ def run(app: str | ASGIApp, **kwargs: Unpack[ServerConfigKwargs]) -> None:
 __all__ = [
     "ASGIApp",
     "CORSMiddleware",
+    "DisplayConfig",
     "LifespanError",
     "PounceError",
     "Receive",

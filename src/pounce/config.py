@@ -10,6 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from pounce._middleware import Middleware
+from pounce.display import DisplayConfig
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -72,6 +73,8 @@ class ServerConfig:
     access_log: bool = True
     log_level: str = "info"
     log_format: str = "auto"  # "auto", "text", or "json"
+    # Optional application branding for startup banner / JSON startup line
+    display: DisplayConfig | None = None
     # Optional filter: (method, path, status) -> bool.  True = log, False = skip.
     access_log_filter: Callable[[str, str, int], bool] | None = None
 

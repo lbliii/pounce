@@ -352,6 +352,7 @@ class TestStoreLifecycle:
 class _FakeConfig:
     """Minimal config stub for banner rendering."""
 
+    display = None
     ssl_certfile = None
     ssl_keyfile = None
     http3_enabled = False

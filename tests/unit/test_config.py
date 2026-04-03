@@ -45,6 +45,10 @@ class TestServerConfigDefaults:
         assert config.access_log is True
         assert config.log_level == "info"
 
+    def test_default_display(self):
+        config = ServerConfig()
+        assert config.display is None
+
     def test_default_http(self):
         config = ServerConfig()
         assert config.server_header == "pounce"
