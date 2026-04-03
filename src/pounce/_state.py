@@ -27,6 +27,9 @@ from typing import Any, Final
 from milo._types import Action
 from milo.state import Store
 
+from pounce.config import ServerConfig
+from pounce.display import DisplayConfig
+
 logger = logging.getLogger("pounce")
 
 
@@ -174,6 +177,38 @@ def _render_middleware(dispatch_fn, get_state):
     return wrapper
 
 
+def _log_startup_banner_text(
+    *,
+    config: ServerConfig,
+    display: DisplayConfig,
+    effective_workers: int,
+    mode_label: str,
+    gil_status: str,
+) -> None:
+    """Emit startup identity lines when pretty banners are off or stderr is not a TTY."""
+    from pounce import __version__
+
+    scheme = "https" if config.ssl_certfile else "http"
+    url = f"{scheme}://{config.host}:{config.port}"
+    if display.name:
+        title = display.name
+        if display.version:
+            title = f"{title} v{display.version}"
+        suffix = f" — {display.tagline}" if display.tagline else ""
+        logger.info("%s%s", title, suffix)
+    for line in display.lines:
+        logger.info("%s", line)
+    logger.info(
+        "pounce v%s | %s | %d %s worker(s) | %s | Python %s",
+        __version__,
+        url,
+        effective_workers,
+        mode_label,
+        gil_status,
+        sys.version.split()[0],
+    )
+
+
 def _startup_hints(config, effective_workers: int) -> list[str]:
     """Generate smart startup hints based on config vs environment."""
     hints: list[str] = []
@@ -204,17 +239,16 @@ def _render_action(action: Action) -> None:
 
             from pounce import __version__
 
-            if not pretty:
-                scheme = "https" if config.ssl_certfile else "http"
-                url = f"{scheme}://{config.host}:{config.port}"
-                logger.info(
-                    "pounce v%s | %s | %d %s worker(s) | %s | Python %s",
-                    __version__,
-                    url,
-                    effective_workers,
-                    mode_label,
-                    gil_status,
-                    sys.version.split()[0],
+            display = config.display if config.display is not None else DisplayConfig()
+
+            signage = display.signage or "full"
+            if signage == "off" or not pretty:
+                _log_startup_banner_text(
+                    config=config,
+                    display=display,
+                    effective_workers=effective_workers,
+                    mode_label=mode_label,
+                    gil_status=gil_status,
                 )
                 return
 
@@ -247,6 +281,13 @@ def _render_action(action: Action) -> None:
 
             hints = _startup_hints(config, effective_workers)
 
+            app_version_str = f"v{display.version}" if display.version else ""
+            worker_label = "worker" if effective_workers == 1 else "workers"
+            minimal_server_line = (
+                f"pounce v{__version__} · {url} · {effective_workers} "
+                f"{worker_label} ({mode_label}) · {gil_status}"
+            )
+
             _write(
                 _render(
                     "serve_banner.kida",
@@ -261,6 +302,12 @@ def _render_action(action: Action) -> None:
                     hints=hints,
                     health_check_path=config.health_check_path or "",
                     root_path=config.root_path or "",
+                    signage=signage,
+                    app_name=display.name or "",
+                    app_tagline=display.tagline or "",
+                    app_version_str=app_version_str,
+                    app_lines=list(display.lines),
+                    minimal_server_line=minimal_server_line,
                 )
             )
 

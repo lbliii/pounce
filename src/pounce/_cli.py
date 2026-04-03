@@ -18,6 +18,7 @@ from milo.commands import CLI
 from pounce import __version__
 from pounce._importer import import_app
 from pounce.config import ServerConfig
+from pounce.display import CliDisplayOverrides
 from pounce.server import Server
 
 
@@ -120,6 +121,10 @@ _SERVE_HELP = {
     "shutdown_timeout": "Max seconds per worker during shutdown",
     "uds": "Unix domain socket path",
     "health_check_path": "Built-in health check endpoint path",
+    "app_name": "Application name shown in the startup banner",
+    "app_tagline": "Short description shown under the application name",
+    "app_version": "Application version string for the startup banner",
+    "signage": "Banner layout: full, minimal, or off (pretty mode only)",
 }
 
 
@@ -192,6 +197,10 @@ def serve(
     shutdown_timeout: float = 10.0,
     uds: str | None = None,
     health_check_path: str | None = None,
+    app_name: str | None = None,
+    app_tagline: str | None = None,
+    app_version: str | None = None,
+    signage: str | None = None,
 ) -> None:
     """Start the ASGI server.
 
@@ -229,6 +238,10 @@ def serve(
             health_check_path=health_check_path,
             worker_mode=worker_mode,
             cpu_affinity=cpu_affinity,
+            app_name=app_name,
+            app_tagline=app_tagline,
+            app_version=app_version,
+            signage=signage,
         )
     except KeyboardInterrupt:
         pass
@@ -284,6 +297,10 @@ def _serve_impl(
     health_check_path: str | None,
     worker_mode: str,
     cpu_affinity: bool,
+    app_name: str | None,
+    app_tagline: str | None,
+    app_version: str | None,
+    signage: str | None,
 ) -> None:
     """Inner serve implementation — raises on error, no catching."""
     asgi_app = import_app(app)
@@ -314,7 +331,18 @@ def _serve_impl(
         cpu_affinity=cpu_affinity,
     )
 
-    server = Server(config, asgi_app, app_path=app)
+    cli_display = (
+        CliDisplayOverrides(
+            name=app_name,
+            tagline=app_tagline,
+            version=app_version,
+            signage=signage,
+        )
+        if any((app_name, app_tagline, app_version, signage))
+        else None
+    )
+
+    server = Server(config, asgi_app, app_path=app, cli_display=cli_display)
     server.run()
 
 

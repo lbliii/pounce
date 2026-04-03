@@ -14,8 +14,31 @@
         hints              -- list of hint strings
         health_check_path  -- health check path or ""
         root_path          -- root path or ""
+        signage            -- "full" or "minimal" (off is handled before render)
+        app_name           -- optional application name or ""
+        app_tagline        -- optional tagline or ""
+        app_version_str    -- e.g. "v1.0.0" or ""
+        app_lines          -- extra lines under the app block (list of str)
+        minimal_server_line -- one-line summary for minimal mode
 -#}
 {% from "components/_defs.kida" import header_box, section, kv_pair, status_line %}
+{%- if signage == "minimal" -%}
+{%- if app_name -%}
+{{ header_box(app_name, app_version_str, app_tagline) }}
+{%- for line in app_lines %}
+  {{ line | dim }}
+{%- endfor %}
+
+{%- endif -%}
+{{ minimal_server_line | dim }}
+{%- else -%}
+{%- if app_name -%}
+{{ header_box(app_name, app_version_str, app_tagline) }}
+{%- for line in app_lines %}
+  {{ line | dim }}
+{%- endfor %}
+
+{%- endif -%}
 {{ header_box("=^..^=  pounce", "v" ~ version, "ASGI server for Python 3.14t · " ~ gil) }}
 
 {{ section("Network") }}
@@ -50,3 +73,4 @@
 {%- endif %}
 
   {{ ("log level: " ~ log_level) | dim }}
+{%- endif -%}

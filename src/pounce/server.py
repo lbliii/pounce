@@ -39,6 +39,7 @@ from pounce._state import (
 from pounce._types import ASGIApp
 from pounce.asgi.lifespan import run_lifespan
 from pounce.config import ServerConfig
+from pounce.display import CliDisplayOverrides, resolve_display_config
 from pounce.lifecycle import LifecycleCollector
 from pounce.logging import configure_logging
 from pounce.net.listener import (
@@ -96,8 +97,18 @@ class Server:
         app_path: str | None = None,
         lifecycle_collector: LifecycleCollector | None = None,
         sync_app: SyncApp | None = None,
+        cli_display: CliDisplayOverrides | None = None,
     ) -> None:
-        self._config = config
+        resolved_display = resolve_display_config(
+            cli_name=cli_display.name if cli_display else None,
+            cli_tagline=cli_display.tagline if cli_display else None,
+            cli_version=cli_display.version if cli_display else None,
+            cli_signage=cli_display.signage if cli_display else None,
+            config_display=config.display,
+            app=app,
+            pyproject_path=os.environ.get("POUNCE_APP_PYPROJECT"),
+        )
+        self._config = replace(config, display=resolved_display)
         self._app = app
         self._app_path = app_path
         self._lifecycle_collector = lifecycle_collector
@@ -804,6 +815,14 @@ class Server:
                 banner["compression"] = True
             if self._config.root_path:
                 banner["root_path"] = self._config.root_path
+            disp = self._config.display
+            if disp is not None and disp.name:
+                app_payload: dict[str, str] = {"name": disp.name}
+                if disp.tagline:
+                    app_payload["tagline"] = disp.tagline
+                if disp.version:
+                    app_payload["version"] = disp.version
+                banner["app"] = app_payload
             sys.stderr.write(json_module.dumps(banner, default=str) + "\n")
             return
 
