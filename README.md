@@ -50,14 +50,14 @@ builds, Pounce falls back to multi-process workers automatically.
 
 ## Performance
 
-Pounce matches uvicorn on multi-worker throughput — pure Python, no C extensions.
+Pounce matches uvicorn on throughput — pure Python, no C extensions.
 
 | Scenario | Pounce | Uvicorn | Notes |
 |----------|--------|---------|-------|
-| 1 worker | ~12k req/s | ~12k req/s | Async event loop, h11 parser |
-| 4 workers (threads) | ~42k req/s | ~30k req/s | Linear scaling on Python 3.14t, fast parser |
+| 1 worker | ~7.2k req/s | ~6.5k req/s | Async event loop, h11 parser |
+| 4 workers | ~16k req/s | ~17k req/s | Threads (pounce) vs processes (uvicorn) |
 
-*Measured with `wrk -t4 -c100 -d10s` on macOS, plain-text "hello world" ASGI app.*
+*Measured with `wrk -t4 -c100 -d10s` on macOS Apple Silicon, plain-text "hello world" ASGI app, Python 3.14t.*
 
 Run `pounce bench --workers 4 --compare` to reproduce on your machine.
 
