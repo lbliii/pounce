@@ -325,22 +325,34 @@ def _run_bench(
     # Add tmpdir to PYTHONPATH so the server subprocess can import _bench_app
     env = {**os.environ, "PYTHONPATH": tmpdir + os.pathsep + os.environ.get("PYTHONPATH", "")}
 
-    # Build the full command with module:attr reference
-    full_cmd = [*server_cmd, "--app", "_bench_app:app"]
+    # Build the full command with the app reference using the target server's CLI style.
+    is_uvicorn = (bool(server_cmd) and os.path.basename(server_cmd[0]) == "uvicorn") or (
+        len(server_cmd) >= 3 and server_cmd[1] == "-m" and server_cmd[2] == "uvicorn"
+    )
+    if is_uvicorn:
+        full_cmd = [*server_cmd, "_bench_app:app"]
+    else:
+        full_cmd = [*server_cmd, "--app", "_bench_app:app"]
 
     suite = BenchSuite(label=label, workers=0, connections=connections, duration=duration)
 
-    # Start server
+    # Start server — capture stderr so we can show it on failure
     proc = subprocess.Popen(
         full_cmd,
         env=env,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
     )
 
     try:
         if not _wait_for_server(host, port, timeout=15.0):
             _emit(f"  [{label}] Server failed to start, skipping.")
+            stderr_output = ""
+            if proc.stderr:
+                stderr_output = proc.stderr.read().decode("utf-8", errors="replace").strip()
+            if stderr_output:
+                for line in stderr_output.splitlines()[-10:]:
+                    _emit(f"  [{label}]   {line}")
             proc.terminate()
             proc.wait(timeout=5)
             return suite
@@ -404,10 +416,11 @@ def _run_bench(
             proc.kill()
             proc.wait(timeout=5)
 
-        # Clean up temp files
+        # Clean up temp files (shutil handles __pycache__ etc.)
+        import shutil
+
         with contextlib.suppress(OSError):
-            os.unlink(app_path)
-            os.rmdir(tmpdir)
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     return suite
 

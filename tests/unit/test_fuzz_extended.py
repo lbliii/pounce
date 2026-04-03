@@ -348,16 +348,23 @@ class TestHeaderUtilitiesFuzz:
             assert any(n.lower() == lookup.lower() for n, _ in headers)
 
     @given(
-        name=_HEADER_NAME,
+        name=_HEADER_NAME.filter(lambda n: n.lower() not in {b"x-other", b"x-another"}),
         value=_HEADER_VALUE,
     )
-    def test_get_header_finds_inserted_header(self, name: bytes, value: bytes) -> None:
-        """A header we explicitly insert is always found by get_header."""
+    def test_get_header_finds_inserted_unique_header(self, name: bytes, value: bytes) -> None:
+        """A uniquely inserted header is found by get_header."""
         headers = [(b"x-other", b"foo"), (name, value), (b"x-another", b"bar")]
         result = get_header(headers, name)
-        assert result is not None
-        # Should find the first match
-        assert result == value or name.lower() == b"x-other" or name.lower() == b"x-another"
+        assert result == value
+
+    def test_get_header_returns_first_matching_value_on_collision(self) -> None:
+        """When names collide, get_header returns the first matching header value."""
+        headers = [
+            (b"x-other", b"foo"),
+            (b"X-Other", b"baz"),
+            (b"x-another", b"bar"),
+        ]
+        assert get_header(headers, b"x-other") == b"foo"
 
     @given(
         lookup=_HEADER_NAME,
