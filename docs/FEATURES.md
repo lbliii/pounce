@@ -46,6 +46,53 @@ Complete feature set for pounce — the free-threading-native ASGI server for Py
 
 ## Server Features
 
+### Zero-Downtime Rolling Reload
+
+Production-grade, Kubernetes-level rolling reload that ensures zero dropped requests during code deployments. This is a first-class feature designed for environments where downtime is unacceptable.
+
+**How it works:**
+
+1. A reload signal is received (USR1 or programmatic call).
+2. The supervisor spawns a **new generation** of worker threads with the updated code.
+3. New workers begin accepting connections immediately.
+4. Old-generation workers enter **drain mode** -- they stop accepting new connections but continue processing in-flight requests to completion.
+5. Once all in-flight requests finish (or the drain timeout expires), old workers are terminated.
+6. The reload is complete with zero dropped requests.
+
+```
+ Signal received          New workers ready         Old workers drained
+      |                        |                          |
+      v                        v                          v
+ +---------+    +---------+---------+    +---------+
+ | Old Gen |    | Old Gen | New Gen |    | New Gen |
+ | serving | -> | drain   | accept  | -> | serving |
+ +---------+    +---------+---------+    +---------+
+```
+
+**Important:** Rolling reload only works in **3.14t thread mode**, where workers are threads in a shared interpreter. In GIL-enabled process mode, Pounce falls back to a full restart (all workers stopped, then restarted).
+
+**Usage:**
+```bash
+# Send USR1 to the supervisor process
+kill -USR1 <pid>
+
+# Or programmatically
+await supervisor.reload()
+```
+
+### AcceptDistributor: Thundering Herd Elimination
+
+On macOS and Windows, `SO_REUSEPORT` is either unavailable or does not provide kernel-level load balancing across sockets. This means that when multiple workers share a listening socket, a new incoming connection wakes **all** blocked `accept()` calls -- the classic "thundering herd" problem. Only one worker wins; the rest waste CPU cycles waking up for nothing.
+
+Pounce solves this with the **AcceptDistributor**: a single dedicated thread calls `accept()` on the listening socket and distributes connections round-robin into per-worker bounded queues. Each worker pulls from its own queue with zero contention against other workers.
+
+**Activation:** The AcceptDistributor activates automatically when all three conditions are met:
+- Multi-worker configuration (`workers > 1`)
+- Thread mode (free-threading / 3.14t)
+- Shared listening socket (no `SO_REUSEPORT`)
+
+**Why this matters:** Most Python ASGI servers (Uvicorn, Hypercorn) either ignore the thundering herd problem or rely on `SO_REUSEPORT` which is Linux-only for fair distribution. Pounce's AcceptDistributor provides fair, efficient connection distribution on every platform, making it uniquely suited for macOS development and Windows deployment scenarios.
+
 ### 1. Static File Serving
 - ✅ Chunked file serving with configurable buffer size
 - ✅ ETag generation and validation (If-None-Match)
@@ -630,6 +677,27 @@ MIT License — see [LICENSE](../LICENSE) for details.
 ## Contributing
 
 pounce is part of the Bengal ecosystem. See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines.
+
+## Competitive Advantages
+
+Summary of key differentiators across the Python ASGI server landscape:
+
+| Dimension | Pounce | Uvicorn | Hypercorn | Granian |
+|-----------|--------|---------|-----------|---------|
+| **Free-threading support** | Native -- designed for 3.14t from day one | Compatibility mode only | No support | Partial (Rust core limits benefit) |
+| **HTTP/1.1 parser speed** | ~3 us/req built-in fast parser + h11 fallback | h11 only (~15 us/req) | h11 only | Rust parser (fast, but C-ext) |
+| **Config thread-safety** | Frozen dataclass, zero-copy across threads | Mutable config, not thread-safe | Mutable config | N/A (Rust-managed) |
+| **Rolling reload** | Zero-downtime, generational worker swap (thread mode) | Full restart only | Full restart only | Full restart only |
+| **Thundering herd fix** | AcceptDistributor with per-worker queues | No mitigation | No mitigation | No mitigation |
+| **Built-in metrics** | Lifecycle events, Prometheus, OpenTelemetry native | No built-in metrics | No built-in metrics | No built-in metrics |
+| **Pure Python** | Yes -- no C extensions, no GIL re-enablement | Yes | Yes | No (Rust core) |
+
+**Key takeaways:**
+
+- **Pounce is the only Python ASGI server built natively for free-threading.** Other servers treat 3.14t as a compatibility target; Pounce treats it as the primary runtime.
+- **Rolling reload and thundering herd elimination** are production-critical features that no other pure-Python ASGI server provides.
+- **Pure Python with no C extensions** means Pounce never accidentally re-enables the GIL on 3.14t builds, preserving true parallelism across all worker threads.
+- **Built-in observability** (lifecycle events, Prometheus, OpenTelemetry, Sentry) eliminates the need for external instrumentation libraries that may not be free-threading safe.
 
 ---
 

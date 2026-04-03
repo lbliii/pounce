@@ -121,6 +121,7 @@ ignore = [
 "examples/**/*.py" = ["T20", "S104"]                               # Allow print() and binding to 0.0.0.0 in examples
 "benchmarks/**/*.py" = ["T20", "S101", "S603", "S607"]            # Allow print(), assert, subprocess in benchmarks
 "src/pounce/_cli.py" = ["S603", "S607"]            # Subprocess calls for port diagnostics
+"src/pounce/_bench.py" = ["T20", "S603", "S607"]  # Print output and subprocess for benchmarks
 
 # =============================================================================
 # ty — Type Checker (Rust-based, Astral)

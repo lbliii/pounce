@@ -54,6 +54,18 @@ from pounce._middleware import (  # noqa: E402
 from pounce._static import StaticFiles, create_static_handler  # noqa: E402
 from pounce._types import ASGIApp, Receive, Scope, Send  # noqa: E402
 from pounce.config import ServerConfig  # noqa: E402
+from pounce.lifecycle import (  # noqa: E402
+    BufferedCollector,
+    ClientDisconnected,
+    ConnectionCompleted,
+    ConnectionOpened,
+    LifecycleCollector,
+    LifecycleEvent,
+    LoggingCollector,
+    NoopCollector,
+    RequestStarted,
+    ResponseCompleted,
+)
 
 
 class ServerConfigKwargs(TypedDict, total=False):
@@ -118,12 +130,22 @@ def run(app: str | ASGIApp, **kwargs: Unpack[ServerConfigKwargs]) -> None:
 
 __all__ = [
     "ASGIApp",
+    "BufferedCollector",
     "CORSMiddleware",
+    "ClientDisconnected",
+    "ConnectionCompleted",
+    "ConnectionOpened",
+    "LifecycleCollector",
+    "LifecycleEvent",
     "LifespanError",
+    "LoggingCollector",
+    "NoopCollector",
     "PounceError",
     "Receive",
     "ReloadError",
+    "RequestStarted",
     "Response",
+    "ResponseCompleted",
     "Scope",
     "SecurityHeadersMiddleware",
     "Send",

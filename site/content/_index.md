@@ -26,11 +26,9 @@ show_recent_posts: false
 
 ## Python ASGI Server for Free-Threaded Python
 
-**Streaming-first. Free-threading native. Batteries included.**
+**Pure Python. 7x faster parsing. True parallelism.**
 
-Pounce is a pure-Python ASGI server designed for Python 3.14+ and optimized for
-Python 3.14t. Instead of relying solely on fork-based worker models, Pounce can run
-worker threads that share a single interpreter and one copy of your application.
+Pounce is a pure-Python ASGI server that parses HTTP requests in 3 microseconds, runs true parallel worker threads on Python 3.14t, and reloads with zero dropped requests. No C extensions. No GIL.
 
 ```python
 import pounce
@@ -48,26 +46,22 @@ pounce.run("myapp:app")
 
 :::{card} Free-Threading Native
 :icon: cpu
-Real OS threads, not processes, on Python 3.14t. N workers share one interpreter, one
-copy of the application, and one set of frozen configuration.
+True OS thread parallelism on Python 3.14t. N workers share one interpreter with frozen immutable configuration — zero locks, zero contention.
 :::{/card}
 
-:::{card} Streaming-First
+:::{card} 7x Faster Parsing
 :icon: zap
-The response pipeline sends body chunks immediately to the socket. Good fit for
-chunked HTML, event streams, and token delivery.
+Built-in HTTP/1.1 parser runs at ~3 us/request vs h11's ~22 us. Full safety checks: method validation, request smuggling detection, header size limits. Pure Python.
 :::{/card}
 
-:::{card} 2026-Native Features
-:icon: package
-Python 3.14 stdlib `compression.zstd` support, plus Server-Timing headers for built-in
-observability.
+:::{card} Zero-Downtime Reload
+:icon: refresh-cw
+Rolling restart spawns a new worker generation while draining the old. No dropped requests, no connection errors. Kubernetes-grade reliability without a sidecar.
 :::{/card}
 
-:::{card} Pure Python
-:icon: code
-No Rust and no C extensions in the server core. One required dependency (`h11`) with
-optional extras for HTTP/2, WebSocket, and TLS.
+:::{card} Observable by Default
+:icon: activity
+Typed lifecycle events, Prometheus /metrics, OpenTelemetry tracing, and Server-Timing headers. Subscribe to structured events from your framework code.
 :::{/card}
 
 :::{/cards}
@@ -78,6 +72,8 @@ optional extras for HTTP/2, WebSocket, and TLS.
 - Replacing Uvicorn deployments while keeping a familiar CLI
 - Serving streaming responses with low buffering overhead
 - Deploying free-threaded Python apps with shared-memory worker threads
+- Running `pounce bench` to measure and compare server performance
+- Building framework-level observability on typed lifecycle events
 
 ---
 

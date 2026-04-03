@@ -67,6 +67,16 @@ Pounce detects the runtime mode at startup via `sys._is_gil_enabled()`:
 
 The supervisor adapts automatically. Your code and config stay the same.
 
+## The Brotli Principle
+
+A single C extension that re-acquires the GIL defeats free-threading for the entire request. Pounce enforces this principle throughout:
+
+- **Brotli excluded** — The `brotli` C extension re-enables the GIL on 3.14t. Pounce uses stdlib `compression.zstd` (PEP 784) instead.
+- **h11 preferred** — Pure Python HTTP/1.1 parsing. No httptools (C extension).
+- **stdlib compression** — `zlib` (gzip) and `compression.zstd` are both nogil-safe.
+
+When evaluating dependencies for your ASGI app, audit C extensions for GIL behavior on 3.14t. A fast C library that serializes all your threads is slower than a pure Python alternative that runs in parallel.
+
 ## Guidelines for ASGI Apps
 
 Pounce handles thread safety for its own internals. For your ASGI application:
@@ -86,9 +96,12 @@ If your app uses global mutable state (module-level dicts, caches without locks)
 | PEP 703 declaration | [src/pounce/__init__.py](https://github.com/lbliii/pounce/blob/main/src/pounce/__init__.py) |
 | GIL detection (worker mode) | [src/pounce/_runtime.py](https://github.com/lbliii/pounce/blob/main/src/pounce/_runtime.py) |
 | ServerConfig (frozen) | [src/pounce/config.py](https://github.com/lbliii/pounce/blob/main/src/pounce/config.py) |
+| Brotli exclusion (compression) | [src/pounce/_compression.py](https://github.com/lbliii/pounce/blob/main/src/pounce/_compression.py) |
+| NoGIL architecture patterns | [docs/nogil-patterns.md](https://github.com/lbliii/pounce/blob/main/docs/nogil-patterns.md) |
 
 ## See Also
 
 - [[docs/about/architecture|Architecture]] — Server layer design
 - [[docs/about/comparison|When to Use Pounce]] — Architecture and deployment
 - [[docs/deployment/workers|Workers]] — Configuring worker count and mode
+- [NoGIL Architecture Patterns](https://github.com/lbliii/pounce/blob/main/docs/nogil-patterns.md) — 10 reusable patterns for building free-threading-safe Python infrastructure
