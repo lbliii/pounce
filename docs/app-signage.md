@@ -11,7 +11,7 @@ Set `ServerConfig(display=DisplayConfig(...))` or use environment variables / CL
 | `name`    | Application title; if unset, no app block is shown   |
 | `tagline` | One line under the name                              |
 | `version` | Shown next to the name                               |
-| `lines`   | Extra static lines under the app block (full layout) |
+| `lines`   | Extra static lines under the app header in both `full` and `minimal` layouts |
 | `signage` | `full`, `minimal`, or `off` (unset merges from sources; resolved default is `full`) |
 
 ## Precedence (highest first)
@@ -22,7 +22,7 @@ Set `ServerConfig(display=DisplayConfig(...))` or use environment variables / CL
 4. `[tool.pounce.display]` in the discovered `pyproject.toml`
 5. `app.__pounce_display__` — a `dict` or a zero-argument callable returning a dict (sync only; read once at startup before lifespan)
 
-Unknown keys in dicts are ignored. Invalid `signage` strings are ignored where noted.
+Unknown keys in dicts are ignored. Invalid `signage` values from environment, `pyproject.toml`, or hooks are ignored; an invalid explicit `--signage` raises before startup.
 
 ## `signage` modes (TTY pretty output only)
 

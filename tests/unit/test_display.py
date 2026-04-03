@@ -73,6 +73,14 @@ class TestResolveDisplayConfig:
             )
         assert r.name == "CLI"
 
+    def test_cli_invalid_signage_raises(self) -> None:
+        with pytest.raises(ValueError, match="signage must be one of"):
+            resolve_display_config(cli_signage="typo")
+
+    def test_cli_signage_case_insensitive_ok(self) -> None:
+        r = resolve_display_config(cli_signage="MINIMAL")
+        assert r.signage == "minimal"
+
     def test_config_signage_full_beats_app_minimal(self) -> None:
         class App:
             __pounce_display__: ClassVar[dict[str, str]] = {"signage": "minimal"}
@@ -106,6 +114,18 @@ class TestResolveDisplayConfig:
         r = resolve_display_config(app=App())
         assert r.name == "Called"
         assert r.signage == "minimal"
+
+    def test_app_hook_callable_exception_ignored(self) -> None:
+        class App:
+            @staticmethod
+            def __pounce_display__():
+                raise RuntimeError("boom")
+
+        r = resolve_display_config(
+            cli_name="Safe",
+            app=App(),
+        )
+        assert r.name == "Safe"
 
     def test_app_hook_invalid_ignored(self) -> None:
         class App:

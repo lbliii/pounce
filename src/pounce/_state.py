@@ -282,9 +282,10 @@ def _render_action(action: Action) -> None:
             hints = _startup_hints(config, effective_workers)
 
             app_version_str = f"v{display.version}" if display.version else ""
+            worker_label = "worker" if effective_workers == 1 else "workers"
             minimal_server_line = (
                 f"pounce v{__version__} · {url} · {effective_workers} "
-                f"worker ({mode_label}) · {gil_status}"
+                f"{worker_label} ({mode_label}) · {gil_status}"
             )
 
             _write(

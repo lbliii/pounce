@@ -172,7 +172,10 @@ def _app_hook_display(app: object | None) -> DisplayConfig | None:
     if raw is None:
         return None
     if callable(raw):
-        raw = raw()
+        try:
+            raw = raw()
+        except Exception:
+            return None
     if not isinstance(raw, dict):
         return None
     fields = _dict_to_display_fields(raw)
@@ -180,6 +183,18 @@ def _app_hook_display(app: object | None) -> DisplayConfig | None:
         return _fields_to_display_config(fields)
     except ValueError:
         return None
+
+
+def _validate_cli_signage(cli_signage: str | None) -> None:
+    """Reject invalid explicit CLI values (other sources still ignore bad strings)."""
+    if cli_signage is None:
+        return
+    s = _strip_str(cli_signage)
+    if s is None:
+        return
+    if _parse_signage(s) is None:
+        msg = f"signage must be one of {sorted(_VALID_SIGNAGE)} (got {cli_signage!r})"
+        raise ValueError(msg)
 
 
 def resolve_display_config(
@@ -197,6 +212,8 @@ def resolve_display_config(
     Priority order (highest first): CLI, environment, ``ServerConfig.display``,
     ``[tool.pounce.display]`` in discovered ``pyproject.toml``, ``app.__pounce_display__``.
     """
+    _validate_cli_signage(cli_signage)
+
     env_name = os.environ.get("POUNCE_APP_NAME")
     env_tagline = os.environ.get("POUNCE_APP_TAGLINE")
     env_version = os.environ.get("POUNCE_APP_VERSION")
