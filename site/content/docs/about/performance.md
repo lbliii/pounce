@@ -10,6 +10,20 @@ keywords: [performance, benchmarks, streaming, compression, zstd]
 category: explanation
 ---
 
+## The Fast Path
+
+Pounce's sync workers use a built-in HTTP/1.1 parser that runs at **~3 us per request** — 7x faster than h11's ~22 us. This isn't a C extension; it's pure Python using direct `bytes.find()` and `bytes.split()` operations on a `memoryview` buffer.
+
+The fast parser enforces the same safety checks as h11:
+- Method validation (9 HTTP methods only)
+- Header size limit (16 KB, matching nginx default)
+- Null byte and control character injection detection
+- Duplicate Content-Length rejection (request smuggling vector)
+- Content-Length + Transfer-Encoding conflict detection (RFC 7230 section 3.3.3)
+- Negative or non-numeric Content-Length rejection
+
+On free-threaded Python, sync workers handle simple request/response at full thread parallelism. When a response requires streaming or WebSocket, the worker hands off to a dedicated async pool — asyncio overhead is only paid when needed.
+
 ## Streaming-First Design
 
 The dominant response patterns of modern web applications — chunked HTML, server-sent events, AI token delivery — are all streaming. Pounce's response pipeline is designed around this reality:
@@ -75,7 +89,16 @@ When Chirp runs behind Pounce with no middleware, sync handlers that return `dic
 
 ## HTTP Parsing
 
-Pounce uses **h11** (pure Python) for HTTP/1.1 parsing. h11 is free-threading safe and avoids C extensions that re-enable the GIL on Python 3.14t.
+Pounce uses two HTTP/1.1 parsers:
+
+| Parser | Speed | Used By | Safety |
+|--------|-------|---------|--------|
+| `_fast_h1` (built-in) | ~3 us/req | Sync workers | Full RFC 7230 checks |
+| h11 (pure Python) | ~22 us/req | Async workers | Full h11 validation |
+
+Both parsers are pure Python and free-threading safe — no C extensions that re-enable the GIL on Python 3.14t.
+
+The fast parser is not a full HTTP implementation — it handles request/response cycles on the hot path. Chunked body decoding, obs-fold continuation lines, and trailer headers are handled by h11 or deferred to the async pool.
 
 ## CPU Affinity (Linux)
 
@@ -86,6 +109,28 @@ pounce myapp:app --workers 8 --cpu-affinity
 ```
 
 No-op on non-Linux platforms or when `sched_setaffinity` fails (e.g. restricted cpusets in containers).
+
+## AcceptDistributor
+
+On macOS and Windows, where `SO_REUSEPORT` is unavailable, multi-worker servers suffer from thundering herd: all workers wake on every new connection, only one wins.
+
+Pounce solves this with the AcceptDistributor — a single thread that calls `accept()` and distributes connections via per-worker queues. Fair distribution, zero contention.
+
+This activates automatically when running multi-worker thread mode with a shared socket. On Linux with `SO_REUSEPORT`, the kernel handles distribution natively.
+
+## Benchmarking
+
+Pounce includes a built-in benchmark command:
+
+```bash
+# Run standard benchmarks (hello, json, body echo)
+pounce bench --workers 4 --duration 10
+
+# Compare against uvicorn
+pounce bench --workers 4 --compare
+```
+
+Reports throughput (req/s), latency percentiles (p50, p95, p99), error rates, and RSS memory usage.
 
 ## See Also
 

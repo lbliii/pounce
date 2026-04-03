@@ -16,6 +16,7 @@ from pathlib import Path
 from milo.commands import CLI
 
 from pounce import __version__
+from pounce._bench import _BENCH_HELP, register_bench_command
 from pounce._importer import import_app
 from pounce.config import ServerConfig
 from pounce.display import CliDisplayOverrides
@@ -137,7 +138,7 @@ _INFO_HELP = {
 }
 
 # Merge all help dicts for subparser enrichment
-_ALL_HELP = {**_SERVE_HELP, **_CHECK_HELP, **_INFO_HELP}
+_ALL_HELP = {**_SERVE_HELP, **_CHECK_HELP, **_INFO_HELP, **_BENCH_HELP}
 
 
 def _enrich_subparser_help(parser: argparse.ArgumentParser) -> None:
@@ -169,6 +170,8 @@ cli = _PounceCLI(
     description="A free-threading-native ASGI server for Python 3.14t",
     version=__version__,
 )
+
+register_bench_command(cli)
 
 
 @cli.command("serve", description="Start the ASGI server")

@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Status: Beta](https://img.shields.io/badge/status-beta-yellow.svg)](https://pypi.org/project/bengal-pounce/)
 
-**A Python ASGI server for production apps, streaming responses, and free-threaded Python.**
+**Pure Python ASGI server. 7x faster HTTP parsing. True thread parallelism on Python 3.14t.**
 
 ```python
 import pounce
@@ -23,15 +23,19 @@ free-threaded Python 3.14t. It runs standard ASGI applications, supports streami
 responses, and gives you a clear upgrade path from process-based servers such as
 Uvicorn.
 
+Pounce's built-in HTTP/1.1 parser runs at ~3 us per request (7x faster than h11), its frozen configuration eliminates all locking overhead, and its rolling reload spawns new workers while draining old ones — zero dropped requests.
+
 On Python 3.14t, worker threads share one interpreter and one copy of your app. On GIL
 builds, Pounce falls back to multi-process workers automatically.
 
 **Why people pick it:**
 
 - **ASGI-first** — Runs standard ASGI apps with CLI and programmatic entry points
-- **Free-threading ready** — Threads, not processes, on Python 3.14t
-- **Streaming-first** — Chunked HTML, event streams, and token streaming without buffering
+- **Free-threading native** — True thread parallelism with frozen immutable config (zero locks)
+- **7x faster parsing** — Built-in HTTP/1.1 parser (~3 us/req) with full request smuggling protection
 - **Four protocols** — HTTP/1.1, HTTP/2, HTTP/3 (QUIC), and WebSocket (including WS over H2)
+- **Zero-downtime reload** — Rolling restart with generational worker swap, no dropped requests
+- **Observable** — Typed lifecycle events, Prometheus metrics, OpenTelemetry, Server-Timing headers
 - **Batteries included** — TLS, compression, static files, middleware, rate limiting, observability
 - **Migration path** — Familiar CLI for teams moving from Uvicorn-style deployments
 
@@ -46,14 +50,16 @@ builds, Pounce falls back to multi-process workers automatically.
 
 ## Performance
 
-Pounce matches uvicorn on multi-worker throughput — pure Python, no C extensions.
+Pounce matches uvicorn on throughput — pure Python, no C extensions.
 
 | Scenario | Pounce | Uvicorn | Notes |
 |----------|--------|---------|-------|
-| 1 worker | ~12k req/s | ~12k req/s | Async event loop, h11 parser |
-| 4 workers (threads) | ~30k req/s | ~30k req/s | Linear scaling on Python 3.14t |
+| 1 worker | ~7.2k req/s | ~6.5k req/s | Async event loop, h11 parser |
+| 4 workers | ~16k req/s | ~17k req/s | Threads (pounce) vs processes (uvicorn) |
 
-*Measured with `wrk -t4 -c100 -d10s` on macOS, plain-text "hello world" ASGI app.*
+*Measured with `wrk -t4 -c100 -d10s` on macOS Apple Silicon, plain-text "hello world" ASGI app, Python 3.14t.*
+
+Run `pounce bench --workers 4 --compare` to reproduce on your machine.
 
 Key optimizations in the sync worker path:
 - **Fast HTTP/1.1 parser** — Direct bytes parsing (~3 µs/req) replaces h11 (~22 µs/req) with full safety checks (method validation, header size limits, request smuggling detection)
@@ -122,6 +128,8 @@ pip install bengal-pounce[full]   # All protocol extras
 | **Prometheus** | Built-in `/metrics` endpoint | [Metrics →](docs/deployment/prometheus-metrics.md) |
 | **Sentry** | Error tracking and performance monitoring | [Sentry →](docs/deployment/sentry.md) |
 | **Testing** | `TestServer` + pytest fixture for integration tests | [Testing →](https://lbliii.github.io/pounce/docs/testing/) |
+| **Benchmarking** | Built-in `pounce bench` command with comparative analysis | [Bench →](docs/FEATURES.md) |
+| **Lifecycle Events** | Public API for typed connection/request events | [API →](https://lbliii.github.io/pounce/docs/reference/api/) |
 
 📚 **Full documentation**: [lbliii.github.io/pounce](https://lbliii.github.io/pounce/) | **[Complete Feature List →](docs/FEATURES.md)**
 
@@ -209,8 +217,7 @@ def test_api(pounce_server, my_app):
   readable.
 - **Typed end-to-end.** Frozen config, typed ASGI definitions, zero `type: ignore` comments.
 - **One dependency.** `h11` for HTTP/1.1 parsing. Everything else is optional.
-- **Observable.** Structured lifecycle events — frozen dataclasses with nanosecond timestamps.
-  Zero overhead when no collector is attached.
+- **Observable by design.** Lifecycle events are public API — `from pounce import BufferedCollector, ResponseCompleted`. Frameworks build dashboards on typed events, not log parsing.
 - **Chirp companion.** Built to serve Chirp apps natively, but works with any ASGI framework.
 - **Batteries included.** Static files, middleware, rate limiting, request queueing,
   Prometheus metrics, Sentry, and OpenTelemetry — all built in, all optional.

@@ -20,6 +20,11 @@ from pounce import (
     CORSMiddleware, SecurityHeadersMiddleware, Response,
     StaticFiles, create_static_handler,
     PounceError, LifespanError, ReloadError, SupervisorError, TLSError,
+    # Lifecycle events (new in 0.5)
+    BufferedCollector, LoggingCollector, NoopCollector,
+    ConnectionOpened, RequestStarted, ResponseCompleted,
+    ClientDisconnected, ConnectionCompleted,
+    LifecycleCollector, LifecycleEvent,
 )
 ```
 
@@ -166,6 +171,68 @@ All errors inherit from `PounceError`. See [[docs/reference/errors|Error Referen
 | `SupervisorError` | 500 | Worker spawn/crash failure |
 | `TLSError` | 500 | TLS configuration/handshake failure |
 | `ReloadError` | 500 | File-watcher/reload failure |
+
+## Lifecycle Events
+
+Pounce exports typed, frozen lifecycle events for framework-level observability. Events cross thread boundaries safely with zero copying or locking.
+
+```python
+from pounce import (
+    BufferedCollector,
+    ConnectionOpened,
+    RequestStarted,
+    ResponseCompleted,
+    ClientDisconnected,
+    ConnectionCompleted,
+    LifecycleCollector,
+    LoggingCollector,
+    NoopCollector,
+)
+```
+
+### Event Types
+
+| Event | Fields | When |
+|-------|--------|------|
+| `ConnectionOpened` | connection_id, worker_id, client_addr, client_port, server_addr, server_port, protocol, timestamp_ns | TCP connection accepted |
+| `RequestStarted` | connection_id, worker_id, method, path, http_version, timestamp_ns | Request head parsed |
+| `ResponseCompleted` | connection_id, worker_id, status, bytes_sent, duration_ms, timestamp_ns | Response fully sent |
+| `ClientDisconnected` | connection_id, worker_id, during_streaming, timestamp_ns | Client closed unexpectedly |
+| `ConnectionCompleted` | connection_id, worker_id, requests_served, total_bytes_sent, duration_ms, reason, timestamp_ns | TCP connection closed |
+
+### Collectors
+
+| Collector | Purpose |
+|-----------|---------|
+| `NoopCollector` | Default. Discards all events (zero overhead) |
+| `BufferedCollector` | Thread-safe buffer with auto-flush and batch callbacks |
+| `LoggingCollector` | Structured JSON logging with slow-request detection |
+
+### Example: Custom Collector
+
+```python
+from pounce import BufferedCollector, ResponseCompleted
+
+def on_batch(events):
+    for event in events:
+        if isinstance(event, ResponseCompleted) and event.duration_ms > 1000:
+            print(f"Slow request: {event.duration_ms:.0f}ms")
+
+collector = BufferedCollector(max_buffer_size=100, on_flush=on_batch)
+```
+
+### `LifecycleCollector` Protocol
+
+Implement this protocol to create custom collectors:
+
+```python
+from pounce import LifecycleCollector, LifecycleEvent
+
+class MyCollector:
+    def record(self, event: LifecycleEvent) -> None:
+        # Must be thread-safe
+        ...
+```
 
 ## See Also
 

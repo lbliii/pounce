@@ -21,6 +21,8 @@ automatic process fallback on GIL builds.
 - **Thread-based parallelism** — N worker threads share one interpreter, one copy of your app
 - **Shared memory** — Lower memory footprint than process-based workers
 - **Streaming-first** — Body chunks sent immediately to socket
+- **7x faster parsing** — Built-in HTTP/1.1 parser (~3 us/req) on sync worker hot path
+- **Zero-downtime reload** — Rolling restart with generational worker swap (3.14t only)
 - **Pure Python** — One dependency (h11). Debuggable, hackable, readable
 - **Optional extras** — HTTP/2, WebSocket, TLS, HTTP/3 via `pounce[h2]`, `pounce[ws]`, `pounce[tls]`, `pounce[h3]`
 
@@ -39,6 +41,23 @@ automatic process fallback on GIL builds.
 - **Granian** — Rust-based I/O via Hyper/Tokio with higher raw throughput on simple endpoints (~3x Uvicorn on empty responses). Also supports free-threaded Python since v2.0. Better if you need maximum requests-per-second and don't need HTTP/3, built-in compression, or middleware.
 - **Hypercorn** — Supports HTTP/2 without TLS (h2c) and trio/asyncio backends. Better if you need non-asyncio event loops or cleartext HTTP/2.
 - **Existing deployments** — If your current setup works and you're not on 3.14t, there's no urgent reason to switch.
+
+## Competitive Comparison
+
+| Capability | Pounce | Uvicorn | Hypercorn | Granian |
+|-----------|--------|---------|-----------|---------|
+| Free-threading | Native threads on 3.14t | Processes only | Processes only | Rust + processes |
+| HTTP/1.1 parser | ~3 us (built-in) + h11 | h11 or httptools (C) | h11 | Rust (hyper) |
+| Config thread-safety | Frozen dataclass | Mutable | Mutable | N/A (Rust) |
+| Zero-downtime reload | Rolling restart (3.14t) | Full restart | Full restart | N/A |
+| Thundering herd fix | AcceptDistributor | N/A | N/A | N/A |
+| Built-in metrics | Prometheus /metrics | No | No | No |
+| Lifecycle events API | Typed, public | Logging only | Logging only | N/A |
+| Rate limiting | Built-in (per-IP) | No | No | No |
+| Request queueing | Built-in (load shedding) | No | No | No |
+| Pure Python | Yes | Partial (uvloop/httptools) | Yes | No (Rust core) |
+
+Pounce's competitive moat: it treats free-threaded Python as a first-class runtime, not an afterthought. The frozen config model, rolling reload, and AcceptDistributor are capabilities no other Python ASGI server offers.
 
 ## See Also
 
