@@ -9,6 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0] — 2026-04-03
+
+Elm Architecture lifecycle, milo-cli adoption, bench command, and modern Python 3.14t patterns.
+
+### Added
+
+- **`pounce bench` CLI command** — Standardized benchmarking with wrk integration and formatted result tables. (#26)
+- **Lifecycle events API** — Public API for lifecycle events (`ConnectionOpened`, `ResponseCompleted`, etc.) enabling external observability and metrics hooks. (#26)
+- **Hypothesis fuzzing** — 27 property-based tests across all protocol parsers for deeper correctness coverage. (#26)
+- **`DisplayConfig`** — Configurable signage modes and startup display resolution for branded server output. (#25)
+- **`pounce info` command** — System diagnostic panel showing Python version, GIL state, installed dependencies, and detected frameworks. (#21)
+- **`pounce check` command** — Pre-flight validator for app import, port availability, TLS config, and server configuration. (#21)
+- **Branded tracebacks** — Crash reports rendered through kida templates instead of raw Python stack traces. (#21)
+- **milo-cli integration** — Replace argparse with milo's CLI class for subcommands, MCP server, `llms.txt`, and type-driven parsing. Branded kida templates for all server lifecycle output — startup banner, ready/shutdown/reload phases, worker events, access logs, and error display. (#20)
+
+### Changed
+
+- **Elm Architecture lifecycle** — Replace 16 procedural lifecycle output functions with a centralized Store + Reducer + Render Middleware pattern. Server, supervisor, and reload dispatch typed actions instead of calling render functions directly. (#22)
+- **Modern Python 3.14t patterns** — `Final` annotations on module-level constants, `StrEnum` for `Phase`/`WorkerMode`/`WorkerExecutionMode`, `kw_only=True` on `ServerConfig` and lifecycle dataclasses, `TCPWorker` Protocol for the supervisor contract. (#23)
+- **Stricter linting** — Expanded ruff rules (`S`, `A`, `T20`, `DTZ`, `FBT`) and stricter ty type checker configuration. (#23)
+- **Single-pass `_classify_request()`** — Replaces 4–5 separate header scans per sync-worker request, fuses content-length tracking, removes redundant `.lower()` on pre-lowered headers. (#24)
+- **Reduced static file syscalls** — Static file stat calls reduced from ~7 to ~3 per request. (#24)
+- **CI improvements** — Added `cancel-in-progress` and `--maxfail` to CI pipeline for faster feedback. (#18)
+
+### Fixed
+
+- **Content-Length preservation** — Only strip Content-Length from response headers when compressing; preserve app-provided value otherwise. (#24)
+- **HTTP/1.0 keep-alive** — Track `Connection` header presence so HTTP/1.0 keep-alive is honoured correctly. (#24)
+- **Deployment docs** — Replace broken symlinks with proper site pages containing YAML frontmatter. (#19)
+
+### Docs
+
+- Deep audit of all site docs, internal docs, and roadmap — removed false claims (brotli, sendfile, phantom CLI flags), fixed types and defaults, corrected thread-safety advice, rewrote roadmap with competitive positioning. (#17)
+- Narrative docs leading with the performance story: 3 µs parser, rolling reload, AcceptDistributor, competitive comparison tables. (#26)
+- nogil-patterns.md with 10 reusable free-threading patterns for Python 3.14t. (#26)
+
+---
+
 ## [0.4.0] — 2026-03-25
 
 First-class testing API, graceful shutdown overhaul, thread-safety fixes, and documentation sync.
@@ -626,6 +664,7 @@ Initial release of Pounce — a free-threading-native ASGI server for Python 3.1
 - `py.typed` PEP 561 marker
 - `_Py_mod_gil = 0` free-threading declaration
 
+[0.5.0]: https://github.com/lbliii/pounce/releases/tag/v0.5.0
 [0.4.0]: https://github.com/lbliii/pounce/releases/tag/v0.4.0
 [0.3.1]: https://github.com/lbliii/pounce/releases/tag/v0.3.1
 [0.3.0]: https://github.com/lbliii/pounce/releases/tag/v0.3.0
