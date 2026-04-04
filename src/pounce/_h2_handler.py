@@ -17,6 +17,7 @@ Connection flow:
 import asyncio
 import contextlib
 import logging
+from typing import Any
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._headers import get_header as _get_header_from_tuple
@@ -321,7 +322,7 @@ async def handle_h2_websocket_stream(
     app: ASGIApp,
     config: ServerConfig,
     logger: logging.Logger,
-    h2_conn: object,  # H2Connection
+    h2_conn: Any,  # H2Connection
     stream_id: int,
     request: RequestReceived,
     data_queue: asyncio.Queue[dict],

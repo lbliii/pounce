@@ -136,7 +136,7 @@ exclude = ["dist/", "build/", "tests/"]
 
 [tool.ty.analysis]
 # Optional deps that may not be installed in all environments
-allowed-unresolved-imports = ["rosettes", "zoomies", "zoomies.**", "bengal-zoomies", "uvicorn"]
+allowed-unresolved-imports = ["rosettes", "zoomies", "zoomies.**", "bengal-zoomies", "uvicorn", "truststore"]
 
 [tool.ty.rules]
 unused-ignore-comment = "warn"

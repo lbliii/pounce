@@ -406,7 +406,9 @@ class Supervisor:
         # Thread mode: cannot force-kill threads. If any old worker still alive,
         # do not spawn replacements — would cause split-brain (old + new serving).
         if self._mode == "thread":
-            still_alive = [h for h in self._handles if h.target.is_alive()]
+            still_alive: list[_WorkerHandle | _H3WorkerHandle] = [
+                h for h in self._handles if h.target.is_alive()
+            ]
             still_alive += [h for h in self._h3_handles if h.target.is_alive()]
             if still_alive:
                 logger.warning(

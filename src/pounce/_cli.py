@@ -85,7 +85,7 @@ def _install_branded_help(parser: argparse.ArgumentParser) -> None:
         except Exception:
             return original()
 
-    parser.format_help = branded_format_help  # type: ignore[assignment]
+    parser.format_help = branded_format_help  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     if parser._subparsers:
         for action in parser._subparsers._actions:
