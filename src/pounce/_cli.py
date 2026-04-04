@@ -802,6 +802,11 @@ def main(args: list[str] | None = None) -> None:
 
     info = check_version("bengal-pounce", __version__)
     if info and info.update_available:
-        sys.stderr.write(f"pounce {info.latest} available (current: {info.current})\n")
+        from pounce._output import _is_pretty, _render, _write
+
+        if _is_pretty():
+            _write(_render("version_notice.kida", current=info.current, latest=info.latest))
+        else:
+            sys.stderr.write(f"pounce {info.latest} available (current: {info.current})\n")
 
     cli.run(args)
