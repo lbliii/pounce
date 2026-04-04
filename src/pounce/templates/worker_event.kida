@@ -1,16 +1,7 @@
-{#- Worker lifecycle events. Receives: event (str), id (int), mode (str), count (int), restarts (int), generation (int) -#}
+{#- Worker lifecycle events (exceptional only). Receives: event (str), id (int), mode (str), count (int), restarts (int), generation (int) -#}
 {% from "components/_defs.kida" import status_line -%}
-{%- if event == "supervisor_start" -%}
-{{ status_line("info", "Starting " ~ count | string ~ " " ~ mode ~ " worker(s)") }}
-{%- elif event == "started" -%}
-{%- set detail = mode ~ (" · gen " ~ generation | string if generation else "") -%}
-{{ status_line("success", "Worker " ~ id | string, detail) }}
-{%- elif event == "crashed" -%}
+{%- if event == "crashed" -%}
 {{ status_line("error", "Worker " ~ id | string ~ " crashed", "restart #" ~ restarts | string if restarts else "") }}
 {%- elif event == "max_restarts" -%}
 {{ status_line("error", "Worker " ~ id | string, "max restarts exceeded — not restarting") }}
-{%- elif event == "supervisor_shutdown" -%}
-{{ status_line("warning", "Stopping " ~ count | string ~ " worker(s)...") }}
-{%- elif event == "all_stopped" -%}
-{{ status_line("success", "All workers stopped") }}
 {%- endif -%}

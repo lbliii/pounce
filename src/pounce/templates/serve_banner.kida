@@ -21,7 +21,7 @@
         app_lines          -- extra lines under the app block (list of str)
         minimal_server_line -- one-line summary for minimal mode
 -#}
-{% from "components/_defs.kida" import header_box, section, kv_pair, status_line %}
+{% from "components/_defs.kida" import header_box, kv_pair, status_line %}
 {%- if signage == "minimal" -%}
 {%- if app_name -%}
 {{ header_box(app_name, app_version_str, app_tagline) }}
@@ -41,13 +41,22 @@
 {%- endif -%}
 {{ header_box("=^..^=  pounce", "v" ~ version, "ASGI server for Python 3.14t · " ~ gil) }}
 
-{{ section("Network") }}
 {%- if uds %}
   {{ kv_pair("Socket", uds) }}
 {%- else %}
   {{ "  " ~ icons.arrow_r | cyan }} {{ url | bold }}
 {%- endif %}
-  {{ kv_pair("Workers", workers | string ~ " (" ~ mode ~ ")") }}
+  {{ kv_pair("Workers", workers | string ~ " " ~ mode) }}
+  {{ kv_pair("Log level", log_level) }}
+{%- for f in features %}
+{%- if f.on and f.detail %}
+  {{ kv_pair(f.name, f.detail) }}
+{%- elif f.on %}
+  {{ kv_pair(f.name, "on") }}
+{%- else %}
+  {{ kv_pair(f.name, "off") }}
+{%- endif %}
+{%- endfor %}
 {%- if health_check_path %}
   {{ kv_pair("Health", health_check_path) }}
 {%- endif %}
@@ -55,22 +64,10 @@
   {{ kv_pair("Root path", root_path) }}
 {%- endif %}
 
-{{ section("Features") }}
-{%- for f in features %}
-{%- if f.on %}
-  {{ status_line("success", f.name, f.detail) }}
-{%- else %}
-  {{ status_line("info", f.name, f.detail) }}
-{%- endif %}
-{%- endfor %}
-
 {%- if hints %}
 
-{{ section("Hints") }}
 {%- for h in hints %}
   {{ status_line("info", h) }}
 {%- endfor %}
 {%- endif %}
-
-  {{ ("log level: " ~ log_level) | dim }}
 {%- endif -%}

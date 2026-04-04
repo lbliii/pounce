@@ -1,3 +1,3 @@
-{#- Server ready notification. Receives: address (str) -#}
+{#- Server ready notification. -#}
 {% from "components/_defs.kida" import status_line -%}
-{{ status_line("success", "Ready", "on " ~ address) }}
+{{ status_line("success", "Ready") }}

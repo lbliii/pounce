@@ -36,25 +36,25 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "h11>=0.14.0",      # HTTP/1.1 parser (pure Python, well-tested, ~2k LOC)
-    "milo-cli>=0.1.0",  # CLI framework (type-driven parsing, MCP, llms.txt)
+    "h11>=0.16.0",      # HTTP/1.1 parser (pure Python, well-tested, ~2k LOC)
+    "milo-cli>=0.1.1",  # CLI framework (type-driven parsing, MCP, llms.txt)
 ]
 
 [project.optional-dependencies]
 # HTTP/2 support
-h2 = ["h2>=4.0"]
+h2 = ["h2>=4.3.0"]
 
 # WebSocket support
-ws = ["wsproto>=1.2"]
+ws = ["wsproto>=1.3.2"]
 
 # TLS termination
-tls = ["truststore>=0.9"]
+tls = ["truststore>=0.10.4"]
 
 # HTTP/3 support (QUIC)
-h3 = ["bengal-zoomies>=0.1.1"]
+h3 = ["bengal-zoomies>=0.2.0"]
 
 # Full protocol support
-full = ["h2>=4.0", "wsproto>=1.2", "truststore>=0.9", "bengal-zoomies>=0.1.1"]
+full = ["h2>=4.3.0", "wsproto>=1.3.2", "truststore>=0.10.4", "bengal-zoomies>=0.2.0"]
 
 [project.scripts]
 pounce = "pounce._cli:main"
@@ -190,38 +190,38 @@ exclude_lines = [
 
 [dependency-groups]
 docs = [
-    "bengal>=0.2.0", # Static site generator for documentation
-    "lunr>=0.7.0",   # Pre-built search index
+    "bengal>=0.2.6", # Static site generator for documentation
+    "lunr>=0.8.0",   # Pre-built search index
 ]
 dev = [
     # Testing
     "pytest>=9.0.2",
-    "pytest-asyncio>=0.23",
-    "pytest-cov>=6.0.0",
-    "pytest-timeout>=2.3.0",
-    "pytest-xdist>=3.5.0",
-    "pytest-benchmark>=5.0.0",
-    "hypothesis>=6.100.0",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.1.0",
+    "pytest-timeout>=2.4.0",
+    "pytest-xdist>=3.8.0",
+    "pytest-benchmark>=5.2.3",
+    "hypothesis>=6.151.10",
     # Type Checking
-    "ty>=0.0.11",
+    "ty>=0.0.28",
     # Linting & Formatting
-    "ruff>=0.14.0",
+    "ruff>=0.15.9",
     # Pre-commit
-    "pre-commit>=4.0.0",
+    "pre-commit>=4.5.1",
     # Protocol deps for full test suite
-    "h2>=4.0",
-    "wsproto>=1.2",
+    "h2>=4.3.0",
+    "wsproto>=1.3.2",
     # Optional deps for ty resolution (unresolved-import)
-    "bengal-zoomies>=0.1.1",
-    "opentelemetry-api>=1.0",
-    "opentelemetry-sdk>=1.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.0",
-    "sentry-sdk>=2.0",
+    "bengal-zoomies>=0.2.0",
+    "opentelemetry-api>=1.40.0",
+    "opentelemetry-sdk>=1.40.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.40.0",
+    "sentry-sdk>=2.57.0",
     # CLI framework
-    "milo-cli>=0.1.0",
+    "milo-cli>=0.1.1",
     # Test utilities
-    "pytest-mock>=3.0",
-    "httpx>=0.27.0",
+    "pytest-mock>=3.15.1",
+    "httpx>=0.28.1",
 ]
 
 # =============================================================================

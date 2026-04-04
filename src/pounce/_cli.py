@@ -798,4 +798,10 @@ def main(args: list[str] | None = None) -> None:
         args: Command-line arguments (defaults to sys.argv[1:]).
 
     """
+    from milo.version_check import check_version
+
+    info = check_version("bengal-pounce", __version__)
+    if info and info.update_available:
+        sys.stderr.write(f"pounce {info.latest} available (current: {info.current})\n")
+
     cli.run(args)
