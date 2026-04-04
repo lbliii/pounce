@@ -1,4 +1,4 @@
-{#- Worker lifecycle events (exceptional only). Receives: event (str), id (int), mode (str), count (int), restarts (int), generation (int) -#}
+{#- Worker lifecycle events (exceptional only). Receives: event (str), id (int), restarts (int) -#}
 {% from "components/_defs.kida" import status_line -%}
 {%- if event == "crashed" -%}
 {{ status_line("error", "Worker " ~ id | string ~ " crashed", "restart #" ~ restarts | string if restarts else "") }}

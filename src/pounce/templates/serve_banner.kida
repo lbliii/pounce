@@ -49,7 +49,7 @@
   {{ kv_pair("Workers", workers | string ~ " " ~ mode) }}
   {{ kv_pair("Log level", log_level) }}
 {%- for f in features %}
-{%- if f.on and f.detail %}
+{%- if f.detail %}
   {{ kv_pair(f.name, f.detail) }}
 {%- elif f.on %}
   {{ kv_pair(f.name, "on") }}
