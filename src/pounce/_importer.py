@@ -90,7 +90,7 @@ def import_app(app_path: str) -> ASGIApp:
             raise TypeError(
                 f"Factory {module_path}:{attr_path} is not callable (got {type(obj).__name__})."
             )
-        obj = obj()
+        obj = obj()  # ty: ignore[call-top-callable]
 
     # Validate the result is callable
     if not callable(obj):
@@ -100,7 +100,7 @@ def import_app(app_path: str) -> ASGIApp:
             "Expected an ASGI application (async callable)."
         )
 
-    return obj  # type: ignore[return-value]
+    return obj  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
 
 def reimport_app(app_path: str, base_dirs: list[str] | None = None) -> ASGIApp:

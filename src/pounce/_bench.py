@@ -21,6 +21,7 @@ from dataclasses import (
     dataclass,
     field,
 )
+from typing import Any
 
 # ── Inline ASGI benchmark apps ──────────────────────────────────────
 
@@ -493,7 +494,7 @@ _BENCH_HELP = {
 }
 
 
-def register_bench_command(cli: object) -> None:
+def register_bench_command(cli: Any) -> None:
     """Register the ``bench`` subcommand on the CLI."""
 
     @cli.command("bench", description="Run standardized performance benchmarks")  # type: ignore[attr-defined]

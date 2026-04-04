@@ -1,0 +1,3 @@
+{#- Version update notification. Receives: current (str), latest (str) -#}
+{% from "components/_defs.kida" import status_line -%}
+{{ status_line("info", "pounce " ~ latest ~ " available", "current: " ~ current) }}

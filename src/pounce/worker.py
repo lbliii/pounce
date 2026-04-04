@@ -326,7 +326,7 @@ class Worker:
                 executor.shutdown(wait=False, cancel_futures=True)
             finally:
                 shutdown_helper.shutdown(wait=False)
-            self._logger.info("Worker %d stopped", self._worker_id)
+            self._logger.debug("Worker %d stopped", self._worker_id)
 
     async def _bridge_shutdown(self, ext_event: threading.Event) -> None:
         """Poll an external ``threading.Event`` and set the async shutdown.

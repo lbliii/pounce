@@ -312,12 +312,8 @@ def _render_action(action: Action) -> None:
             )
 
         case "READY":
-            host = p.get("host", "")
-            port = p.get("port", 0)
-            uds = p.get("uds")
             if pretty:
-                address = uds if uds else f"{host}:{port}"
-                _write(_render("ready.kida", address=address))
+                _write(_render("ready.kida"))
             else:
                 logger.info("Ready to accept connections")
 
@@ -336,10 +332,7 @@ def _render_action(action: Action) -> None:
                 logger.info("Shutting down — draining connections...")
 
         case "SHUTDOWN_DRAINED":
-            if pretty:
-                _write(_render("shutdown.kida", phase="drained", connections=0, timeout=0))
-            else:
-                logger.info("All connections drained")
+            logger.info("All connections drained")
 
         case "SHUTDOWN_TIMEOUT":
             timeout = p["timeout"]
@@ -445,39 +438,12 @@ def _render_action(action: Action) -> None:
         case "SUPERVISOR_STARTING":
             count = p["count"]
             mode = p["mode"]
-            if pretty:
-                _write(
-                    _render(
-                        "worker_event.kida",
-                        event="supervisor_start",
-                        id=0,
-                        mode=mode,
-                        count=count,
-                        restarts=0,
-                        generation=0,
-                    )
-                )
-            else:
-                logger.info("Supervisor starting %d %s worker(s)", count, mode)
+            logger.info("Supervisor starting %d %s worker(s)", count, mode)
 
         case "WORKER_STARTED":
             worker_id = p["worker_id"]
             mode = p["mode"]
-            generation = p.get("generation", 0)
-            if pretty:
-                _write(
-                    _render(
-                        "worker_event.kida",
-                        event="started",
-                        id=worker_id,
-                        mode=mode,
-                        count=0,
-                        restarts=0,
-                        generation=generation or 0,
-                    )
-                )
-            else:
-                logger.debug("Started worker %d (%s)", worker_id, mode)
+            logger.debug("Started worker %d (%s)", worker_id, mode)
 
         case "WORKER_CRASHED":
             worker_id = p["worker_id"]
@@ -488,10 +454,7 @@ def _render_action(action: Action) -> None:
                         "worker_event.kida",
                         event="crashed",
                         id=worker_id,
-                        mode="",
-                        count=0,
                         restarts=restart_count,
-                        generation=0,
                     )
                 )
             else:
@@ -510,10 +473,7 @@ def _render_action(action: Action) -> None:
                         "worker_event.kida",
                         event="max_restarts",
                         id=worker_id,
-                        mode="",
-                        count=0,
                         restarts=max_restarts,
-                        generation=0,
                     )
                 )
             else:
@@ -525,36 +485,10 @@ def _render_action(action: Action) -> None:
 
         case "SUPERVISOR_SHUTDOWN":
             count = p["count"]
-            if pretty:
-                _write(
-                    _render(
-                        "worker_event.kida",
-                        event="supervisor_shutdown",
-                        id=0,
-                        mode="",
-                        count=count,
-                        restarts=0,
-                        generation=0,
-                    )
-                )
-            else:
-                logger.info("Shutting down %d worker(s)...", count)
+            logger.info("Shutting down %d worker(s)...", count)
 
         case "SUPERVISOR_ALL_STOPPED":
-            if pretty:
-                _write(
-                    _render(
-                        "worker_event.kida",
-                        event="all_stopped",
-                        id=0,
-                        mode="",
-                        count=0,
-                        restarts=0,
-                        generation=0,
-                    )
-                )
-            else:
-                logger.info("All workers stopped")
+            logger.info("All workers stopped")
 
 
 # ── Store singleton ──────────────────────────────────────

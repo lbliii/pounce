@@ -63,12 +63,12 @@ def create_tls_context(config: ServerConfig) -> ssl.SSLContext:
         # HTTP/2 requires ALPN negotiation via TLS
         alpn_protocols = _build_alpn_protocols()
         ctx.set_alpn_protocols(alpn_protocols)
-        logger.info("ALPN protocols: %s", ", ".join(alpn_protocols))
+        logger.debug("ALPN protocols: %s", ", ".join(alpn_protocols))
 
         # Use system trust store if truststore is installed
         if _HAS_TRUSTSTORE:
             truststore.inject_into_ssl()
-            logger.info("Using system trust store via truststore")
+            logger.debug("Using system trust store via truststore")
 
     except ssl.SSLError as exc:
         raise TLSError(f"Failed to configure TLS: {exc}") from exc

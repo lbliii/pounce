@@ -85,7 +85,7 @@ def _install_branded_help(parser: argparse.ArgumentParser) -> None:
         except Exception:
             return original()
 
-    parser.format_help = branded_format_help  # type: ignore[assignment]
+    parser.format_help = branded_format_help  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     if parser._subparsers:
         for action in parser._subparsers._actions:
@@ -798,4 +798,16 @@ def main(args: list[str] | None = None) -> None:
         args: Command-line arguments (defaults to sys.argv[1:]).
 
     """
+    if sys.stderr.isatty():
+        try:
+            from milo.version_check import check_version
+
+            info = check_version("bengal-pounce", __version__)
+            if info and info.update_available:
+                from pounce._output import _render, _write
+
+                _write(_render("version_notice.kida", current=info.current, latest=info.latest))
+        except Exception:
+            pass
+
     cli.run(args)

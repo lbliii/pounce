@@ -146,7 +146,6 @@ class Server:
         # Create TLS context if certificate is configured
         if is_tls_configured(self._config):
             self._ssl_context = create_tls_context(self._config)
-            logger.info("TLS enabled")
 
         self._print_banner(effective_workers, mode)
 
@@ -737,7 +736,7 @@ class Server:
         if is_h3_available():
             udp_config = replace(self._config, port=actual_addr[1])
             udp_sock = create_udp_listener(udp_config)
-            logger.info("HTTP/3 enabled on %s:%d (UDP)", actual_addr[0], actual_addr[1])
+            logger.debug("HTTP/3 UDP listener on %s:%d", actual_addr[0], actual_addr[1])
             return udp_sock
 
         logger.warning(
@@ -764,8 +763,8 @@ class Server:
         if is_h3_available():
             udp_config = replace(self._config, port=actual_addr[1])
             udp_sockets = create_udp_listeners(udp_config, count)
-            logger.info(
-                "HTTP/3 enabled on %s:%d (%d UDP workers)",
+            logger.debug(
+                "HTTP/3 UDP listeners on %s:%d (%d workers)",
                 actual_addr[0],
                 actual_addr[1],
                 count,
