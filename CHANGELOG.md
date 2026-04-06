@@ -21,7 +21,7 @@ Patch release: fork-context fix for process workers and dependency updates.
 
 ### Fixed
 
-- **Fork context for process workers** — Explicitly use the `"fork"` multiprocessing context so ASGI apps containing closures (from middleware wrappers or framework decorators) are inherited via the forked address space instead of being pickled. Fixes startup crashes on macOS and Windows when the default `"spawn"` method cannot serialize the app callable. (#29)
+- **Fork context for process workers** — Explicitly use the `"fork"` multiprocessing context so ASGI apps containing closures (from middleware wrappers or framework decorators) are inherited via the forked address space instead of being pickled. Fixes startup crashes on platforms where `"fork"` is available (including macOS) when the default `"spawn"` method cannot serialize the app callable. On Windows, where `"fork"` is unavailable, use thread workers instead. (#29)
 
 ---
 
@@ -680,6 +680,7 @@ Initial release of Pounce — a free-threading-native ASGI server for Python 3.1
 - `py.typed` PEP 561 marker
 - `_Py_mod_gil = 0` free-threading declaration
 
+[0.5.1]: https://github.com/lbliii/pounce/releases/tag/v0.5.1
 [0.5.0]: https://github.com/lbliii/pounce/releases/tag/v0.5.0
 [0.4.0]: https://github.com/lbliii/pounce/releases/tag/v0.4.0
 [0.3.1]: https://github.com/lbliii/pounce/releases/tag/v0.3.1
