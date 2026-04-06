@@ -59,6 +59,31 @@ from pounce.worker import Worker
 logger = logging.getLogger("pounce.supervisor")
 
 
+def _get_fork_context() -> multiprocessing.context.BaseContext:
+    """Return a ``"fork"`` multiprocessing context.
+
+    Process workers must use ``fork`` so the ASGI app (which may contain
+    closures from middleware wrappers or framework decorators) is inherited
+    via the forked address space rather than pickled.  The default start
+    method on macOS and Windows is ``spawn``, which pickles the target —
+    any non-picklable object (closures, local functions, lambdas) in the
+    app will crash the server at startup.
+
+    Raises:
+        SupervisorError: If ``"fork"`` is not available on the platform
+            (e.g. Windows).
+
+    """
+    try:
+        return multiprocessing.get_context("fork")
+    except ValueError:
+        raise SupervisorError(
+            "Process workers require the 'fork' multiprocessing start method, "
+            "which is not available on this platform.  Use thread workers "
+            "(free-threaded Python 3.14t) or set worker_mode='thread'."
+        ) from None
+
+
 def _parallel_join_targets(
     targets: list[threading.Thread | multiprocessing.Process],
     timeout_per: float,
@@ -173,6 +198,7 @@ class Supervisor:
         "_conn_queue",
         "_effective_workers",
         "_execution_mode",
+        "_fork_ctx",
         "_generation",
         "_h3_handles",
         "_handles",
@@ -205,6 +231,7 @@ class Supervisor:
         self._app_path = app_path
         self._sync_app = sync_app
         self._mode: WorkerMode = mode or detect_worker_mode()
+        self._fork_ctx: multiprocessing.context.BaseContext = _get_fork_context()
         self._execution_mode = resolve_worker_execution_mode(config.worker_mode)
         # Sync workers only supported in thread mode (3.14t). On GIL/process, fall back to async.
         if self._execution_mode == "sync" and self._mode == "process":
@@ -340,8 +367,8 @@ class Supervisor:
 
         When an ``app_path`` was provided and workers run as threads,
         the app module is reimported so that code changes on disk take
-        effect.  Process-based workers get fresh imports automatically
-        on fork and don't need explicit reimport.
+        effect.  Process-based workers inherit the parent via fork and
+        are fully replaced on restart, so reimport is not needed.
 
         """
         with self._lifecycle_lock:
@@ -360,7 +387,7 @@ class Supervisor:
         dispatch(RELOAD_START)
 
         # Reimport the app to pick up code changes (thread mode only —
-        # process mode forks a new interpreter with a clean module cache).
+        # process workers inherit via fork and are fully replaced on restart).
         if self._app_path and self._mode == "thread":
             try:
                 from pounce._importer import reimport_app
@@ -659,7 +686,7 @@ class Supervisor:
                 daemon=True,
             )
         else:
-            target = multiprocessing.Process(
+            target = self._fork_ctx.Process(
                 target=worker.run,
                 name=f"pounce-worker-{worker_id}",
                 daemon=True,
