@@ -1,6 +1,6 @@
 # Pounce Roadmap
 
-**Current version:** 0.5.0 (April 2026)
+**Current version:** 0.5.1 (April 2026)
 **Horizon:** April – September 2026
 
 ---
