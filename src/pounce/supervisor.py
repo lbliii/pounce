@@ -686,7 +686,7 @@ class Supervisor:
                 daemon=True,
             )
         else:
-            target = self._fork_ctx.Process(
+            target = self._fork_ctx.Process(  # ty: ignore[unresolved-attribute]
                 target=worker.run,
                 name=f"pounce-worker-{worker_id}",
                 daemon=True,
