@@ -142,7 +142,7 @@ def access(
             "access.kida",
             ts=ts,
             method=f"{method:<5s}",
-            path=f"{path:<30s}",
+            path=path,
             status=status,
             size=f"{size:>7s}",
             duration=f"{duration:>6s}",
