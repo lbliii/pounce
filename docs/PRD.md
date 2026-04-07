@@ -1,6 +1,6 @@
 # Product Requirements Document: Pounce
 
-**Version**: 0.5.0
+**Version**: 0.5.1
 **Date**: 2026-03-23
 **Status**: All four protocols (H1/H2/H3/WS), free-threading workers, built-in observability and deployment features
 
