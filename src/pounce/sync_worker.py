@@ -640,7 +640,9 @@ class SyncWorker:
 
             total += n
             try:
-                request, body, consumed, chunked = _fast_parse(mv, total)
+                request, body, consumed, chunked = _fast_parse(
+                    mv, total, max_headers=self._config.max_headers,
+                )
             except ParseError:
                 self._recv_buf_len = 0
                 self._send_error(conn, 400, "Bad Request")

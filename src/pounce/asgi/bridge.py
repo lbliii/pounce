@@ -321,14 +321,14 @@ def create_send(
                 for name, value in message.get("headers", [])
             ]
 
+            # Inject X-Request-ID response header for request tracing
+            if request_id is not None:
+                headers.append((b"x-request-id", request_id.encode("latin-1")))
+
             # Defense-in-depth: strip CR/LF from header values to prevent
             # header injection attacks from ASGI apps.  h11 also validates,
             # but we guard at the bridge level to catch it before serialization.
             headers = _sanitize_headers(headers)
-
-            # Inject X-Request-ID response header for request tracing
-            if request_id is not None:
-                headers.append((b"x-request-id", request_id.encode("latin-1")))
 
             # Alt-Svc for HTTP/3 upgrade (RFC 7838)
             # Use actual bound port from server tuple; config.port may be 0 (ephemeral)

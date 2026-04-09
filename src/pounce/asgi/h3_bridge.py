@@ -156,10 +156,10 @@ def create_h3_send(
             response_started = True
             state.response_started = True
             state.status = status
-            headers = _sanitize_headers(headers)
-
             if request_id is not None:
                 headers.append((b"x-request-id", request_id.encode("latin-1")))
+
+            headers = _sanitize_headers(headers)
 
             if compressor is not None and (100 <= status <= 199 or status in {204, 304}):
                 compressor = None

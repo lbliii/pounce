@@ -284,6 +284,12 @@ class MiddlewareStack:
 class CORSMiddleware:
     """CORS middleware that adds Access-Control headers.
 
+    .. warning::
+
+        The default ``allow_origin="*"`` is suitable for development but
+        should be restricted to specific origins in production to prevent
+        cross-origin data leakage.
+
     Args:
         allow_origin: Value for Access-Control-Allow-Origin header
         allow_methods: Comma-separated methods for Allow-Methods header
@@ -324,14 +330,48 @@ class CORSMiddleware:
 class SecurityHeadersMiddleware:
     """Security headers middleware.
 
-    Adds common security headers to all responses:
-    - X-Frame-Options: DENY
-    - X-Content-Type-Options: nosniff
-    - X-XSS-Protection: 1; mode=block
+    Adds common security headers to all responses.  Each header can be
+    customised or suppressed (pass ``""`` to omit a header).
+
+    Default headers:
+
+    - ``X-Frame-Options: DENY``
+    - ``X-Content-Type-Options: nosniff``
+    - ``X-XSS-Protection: 1; mode=block``
+    - ``Strict-Transport-Security: max-age=63072000; includeSubDomains``
+    - ``Content-Security-Policy: default-src 'self'``
+    - ``Referrer-Policy: strict-origin-when-cross-origin``
+    - ``Permissions-Policy: camera=(), microphone=(), geolocation=()``
 
     """
 
-    __slots__ = ()
+    __slots__ = ("_headers",)
+
+    def __init__(
+        self,
+        *,
+        x_frame_options: str = "DENY",
+        x_content_type_options: str = "nosniff",
+        x_xss_protection: str = "1; mode=block",
+        hsts: str = "max-age=63072000; includeSubDomains",
+        csp: str = "default-src 'self'",
+        referrer_policy: str = "strict-origin-when-cross-origin",
+        permissions_policy: str = "camera=(), microphone=(), geolocation=()",
+    ) -> None:
+        pairs: list[tuple[bytes, bytes]] = []
+        _header_map = {
+            b"x-frame-options": x_frame_options,
+            b"x-content-type-options": x_content_type_options,
+            b"x-xss-protection": x_xss_protection,
+            b"strict-transport-security": hsts,
+            b"content-security-policy": csp,
+            b"referrer-policy": referrer_policy,
+            b"permissions-policy": permissions_policy,
+        }
+        for name, value in _header_map.items():
+            if value:
+                pairs.append((name, value.encode("latin1")))
+        self._headers = tuple(pairs)
 
     async def __call__(
         self,
@@ -341,7 +381,5 @@ class SecurityHeadersMiddleware:
     ) -> tuple[int, list[tuple[bytes, bytes]]]:
         """Add security headers to response."""
         headers = list(headers)
-        headers.append((b"x-frame-options", b"DENY"))
-        headers.append((b"x-content-type-options", b"nosniff"))
-        headers.append((b"x-xss-protection", b"1; mode=block"))
+        headers.extend(self._headers)
         return (status, headers)

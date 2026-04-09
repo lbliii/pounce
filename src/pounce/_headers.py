@@ -31,6 +31,18 @@ def is_websocket_upgrade(request: RequestReceived) -> bool:
     return has_upgrade_connection and has_websocket_upgrade
 
 
+def strip_crlf(value: str) -> str:
+    """Remove CR and LF characters from a header value.
+
+    Prevents CRLF injection when incorporating external input (e.g. proxy
+    headers, request IDs) into HTTP headers or ASGI scope fields.
+
+    """
+    if "\r" in value or "\n" in value:
+        return value.replace("\r", "").replace("\n", "")
+    return value
+
+
 def get_header(
     headers: Sequence[tuple[bytes, bytes]],
     name: bytes,

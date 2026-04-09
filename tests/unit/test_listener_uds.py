@@ -50,7 +50,7 @@ class TestBindUnixSocket:
         mock_sock.bind.assert_called_once_with("/run/pounce.sock")
         mock_sock.listen.assert_called_once_with(config.backlog)
         mock_sock.setblocking.assert_called_once_with(False)
-        mock_chmod.assert_called_once_with("/run/pounce.sock", 0o666)
+        mock_chmod.assert_called_once_with("/run/pounce.sock", 0o660)
         assert result is mock_sock
 
     @patch("pounce.net.listener.os.chmod")

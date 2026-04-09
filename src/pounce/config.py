@@ -109,6 +109,7 @@ class ServerConfig:
 
     # Unix domain socket (mutually exclusive with host/port)
     uds: str | None = None
+    uds_permissions: int = 0o660  # File mode for UDS socket (default: owner+group rw)
 
     # TLS (optional — phase 3)
     ssl_certfile: str | None = None

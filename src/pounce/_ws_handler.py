@@ -120,7 +120,7 @@ async def handle_websocket(
                     )
                 except TimeoutError:
                     break
-                except ConnectionError, OSError:
+                except (ConnectionError, OSError):
                     break
 
                 if not data:
@@ -132,6 +132,13 @@ async def handle_websocket(
                     await writer.drain()
                 for event in events:
                     if isinstance(event, WebSocketDataReceived):
+                        msg_size = len(event.data)
+                        if msg_size > config.websocket_max_message_size:
+                            # RFC 6455 §7.4.1: 1009 = Message Too Big
+                            close_data = ws_proto.close(1009, "Message too large")
+                            writer.write(close_data)
+                            await writer.drain()
+                            return
                         if isinstance(event.data, str):
                             await receive_queue.put(
                                 {

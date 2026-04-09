@@ -13,6 +13,8 @@ and virtually every reverse proxy in production.
 
 from typing import Any
 
+from pounce._headers import strip_crlf
+
 
 def apply_proxy_headers(
     scope: dict[str, Any],
@@ -67,7 +69,7 @@ def apply_proxy_headers(
 
     # X-Forwarded-For: client, proxy1, proxy2 → leftmost is the real client
     if forwarded_for is not None:
-        real_ip = forwarded_for.split(b",")[0].strip().decode("latin-1")
+        real_ip = strip_crlf(forwarded_for.split(b",")[0].strip().decode("latin-1"))
         if real_ip:
             original_port = scope.get("client", ("", 0))[1]
             scope["client"] = (real_ip, original_port)
@@ -78,7 +80,7 @@ def apply_proxy_headers(
             scope["scheme"] = proto
 
     if forwarded_host is not None:
-        host = forwarded_host.strip().decode("latin-1")
+        host = strip_crlf(forwarded_host.strip().decode("latin-1"))
         if host:
             original_port = scope.get("server", ("", 0))[1]
             scope["server"] = (host, original_port)
