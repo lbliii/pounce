@@ -54,7 +54,9 @@ class ParseError(Exception):
     """Raised when the request is malformed and the connection should close."""
 
 
-def parse_request(buf: memoryview, length: int) -> tuple[RequestReceived | None, bytes, int, bool]:
+def parse_request(
+    buf: memoryview, length: int, *, max_headers: int = 100,
+) -> tuple[RequestReceived | None, bytes, int, bool]:
     """Parse an HTTP request from a buffer.
 
     Returns:
@@ -148,6 +150,9 @@ def parse_request(buf: memoryview, length: int) -> tuple[RequestReceived | None,
 
         name_lower = name.lower()
         headers.append((name_lower, value))
+
+        if len(headers) > max_headers:
+            raise ParseError("Too many headers")
 
         if name_lower == b"content-length":
             if content_length != -1:

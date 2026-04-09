@@ -123,12 +123,12 @@ def create_h2_send(
             state.response_started = True
             state.status = status
 
-            # Defense-in-depth: strip CR/LF from header values
-            headers = _sanitize_headers(headers)
-
             # Inject X-Request-ID response header
             if request_id is not None:
                 headers.append((b"x-request-id", request_id.encode("latin-1")))
+
+            # Defense-in-depth: strip CR/LF from header values
+            headers = _sanitize_headers(headers)
 
             # Bodyless responses (1xx, 204, 304) — disable compression
             if compressor is not None and (100 <= status <= 199 or status in {204, 304}):

@@ -1,0 +1,1 @@
+Fix 12 security issues: broken exception syntax in 3 files, CRLF injection in proxy headers and request IDs, unenforced `max_headers` and `websocket_max_message_size` limits, weak TLS cipher suite, world-writable UDS socket, and incomplete security middleware headers.

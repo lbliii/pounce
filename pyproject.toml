@@ -206,6 +206,8 @@ dev = [
     "ty>=0.0.28",
     # Linting & Formatting
     "ruff>=0.15.9",
+    # Changelog
+    "towncrier>=24.0",
     # Pre-commit
     "pre-commit>=4.5.1",
     # Protocol deps for full test suite
@@ -259,6 +261,11 @@ check = { sequence = [
     "ty",
 ], help = "Quick check (no tests)" }
 
+# Changelog
+changelog = { cmd = "towncrier build --yes", help = "Compile changelog.d fragments into CHANGELOG.md" }
+changelog-draft = { cmd = "towncrier build --draft", help = "Preview changelog from fragments (stdout)" }
+changelog-check = { cmd = "towncrier check --compare-with origin/main", help = "Verify branch adds a fragment (vs main)" }
+
 # Build & Release
 dist = { shell = "rm -rf dist/ && uv build && ls -la dist/", help = "Build distribution" }
 
@@ -268,3 +275,49 @@ rm -rf dist build .pytest_cache .coverage htmlcov .ruff_cache .ty_cache
 find . -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
 """
 clean.help = "Remove build artifacts and caches"
+
+# =============================================================================
+# Towncrier — Changelog Fragments
+# =============================================================================
+# Fragment convention: changelog.d/<+slug>.<type>.md
+# Compile with: poe changelog (or towncrier build --yes)
+# Preview with: poe changelog-draft
+
+[tool.towncrier]
+directory = "changelog.d"
+filename = "CHANGELOG.md"
+package = "bengal-pounce"
+package_dir = "src"
+title_format = "## [{version}] — {project_date}"
+issue_format = "[#{issue}](https://github.com/lbliii/pounce/issues/{issue})"
+underlines = ["", "", ""]
+
+[[tool.towncrier.type]]
+directory = "added"
+name = "Added"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "changed"
+name = "Changed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "deprecated"
+name = "Deprecated"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "removed"
+name = "Removed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "fixed"
+name = "Fixed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "security"
+name = "Security"
+showcontent = true

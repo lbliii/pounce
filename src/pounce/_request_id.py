@@ -14,6 +14,8 @@ Uses UUID4 for uniqueness without coordination between workers.
 
 import uuid
 
+from pounce._headers import strip_crlf
+
 
 def generate_request_id() -> str:
     """Generate a unique request ID (UUID4 hex, no dashes)."""
@@ -41,7 +43,7 @@ def extract_or_generate(
     if trusted:
         for name, value in headers:
             if name.lower() == b"x-request-id":
-                incoming = value.decode("latin-1").strip()
+                incoming = strip_crlf(value.decode("latin-1").strip())
                 if incoming:
                     return incoming
     return generate_request_id()

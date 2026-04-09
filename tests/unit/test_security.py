@@ -1,4 +1,4 @@
-"""Tests for HTTP request smuggling prevention.
+"""Tests for HTTP security — smuggling prevention, CRLF injection, limits.
 
 Verifies that h11 (via pounce's H1Protocol) correctly rejects ambiguous
 framing that could enable request smuggling attacks.
@@ -12,6 +12,11 @@ reject such messages as malformed to prevent smuggling.
 import pytest
 
 from pounce._errors import ParseError
+from pounce._fast_h1 import ParseError as FastParseError
+from pounce._fast_h1 import parse_request
+from pounce._headers import strip_crlf
+from pounce._proxy import apply_proxy_headers
+from pounce._request_id import extract_or_generate
 from pounce.protocols._base import RequestReceived
 from pounce.protocols.h1 import H1Protocol
 
@@ -129,3 +134,75 @@ class TestContentLengthTransferEncodingConflict:
         raw = b"GET / HTTP/1.1\r\nHost: localhost\r\nX-Bad: value\rinjection\r\n\r\n"
         with pytest.raises(ParseError):
             proto.receive_data(raw)
+
+
+class TestCRLFInjection:
+    """CRLF injection prevention in proxy headers and request IDs."""
+
+    def test_strip_crlf_removes_cr_lf(self):
+        assert strip_crlf("good\r\nX-Injected: evil") == "goodX-Injected: evil"
+
+    def test_strip_crlf_passthrough_clean(self):
+        assert strip_crlf("clean-value") == "clean-value"
+
+    def test_request_id_strips_crlf_from_trusted_header(self):
+        """Trusted X-Request-ID with CRLF must be sanitized."""
+        headers = ((b"x-request-id", b"evil\r\nX-Injected: yes"),)
+        result = extract_or_generate(headers, trusted=True)
+        assert "\r" not in result
+        assert "\n" not in result
+        assert result == "evilX-Injected: yes"
+
+    def test_forwarded_for_strips_crlf(self):
+        """X-Forwarded-For with CRLF must be sanitized."""
+        scope = {
+            "client": ("127.0.0.1", 12345),
+            "headers": [
+                [b"x-forwarded-for", b"1.2.3.4\r\nX-Injected: yes"],
+            ],
+        }
+        result = apply_proxy_headers(scope, trusted_hosts=frozenset({"127.0.0.1"}))
+        client_ip = result["client"][0]
+        assert "\r" not in client_ip
+        assert "\n" not in client_ip
+
+    def test_forwarded_host_strips_crlf(self):
+        """X-Forwarded-Host with CRLF must be sanitized."""
+        scope = {
+            "client": ("127.0.0.1", 12345),
+            "server": ("localhost", 8000),
+            "headers": [
+                [b"x-forwarded-host", b"evil.com\r\nX-Injected: yes"],
+            ],
+        }
+        result = apply_proxy_headers(scope, trusted_hosts=frozenset({"127.0.0.1"}))
+        host = result["server"][0]
+        assert "\r" not in host
+        assert "\n" not in host
+
+
+class TestMaxHeadersEnforcement:
+    """Fast H1 parser must reject requests exceeding max_headers."""
+
+    def _make_request(self, num_headers: int) -> bytes:
+        headers = "".join(f"X-H-{i}: value{i}\r\n" for i in range(num_headers))
+        return f"GET / HTTP/1.1\r\nHost: localhost\r\n{headers}\r\n".encode()
+
+    def test_within_limit_accepted(self):
+        raw = self._make_request(10)
+        buf = memoryview(raw)
+        result, _, _, _ = parse_request(buf, len(raw), max_headers=100)
+        assert result is not None
+
+    def test_exceeding_limit_rejected(self):
+        raw = self._make_request(101)
+        buf = memoryview(raw)
+        with pytest.raises(FastParseError, match="Too many headers"):
+            parse_request(buf, len(raw), max_headers=100)
+
+    def test_exact_limit_accepted(self):
+        """Exactly max_headers headers should be accepted (including Host)."""
+        raw = self._make_request(99)  # 99 + Host = 100
+        buf = memoryview(raw)
+        result, _, _, _ = parse_request(buf, len(raw), max_headers=100)
+        assert result is not None
