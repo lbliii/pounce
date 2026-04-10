@@ -195,8 +195,8 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bengal-zoomies", marker = "extra == 'full'", specifier = ">=0.2.0" },
-    { name = "bengal-zoomies", marker = "extra == 'h3'", specifier = ">=0.2.0" },
+    { name = "bengal-zoomies", marker = "extra == 'full'", specifier = ">=0.3.1" },
+    { name = "bengal-zoomies", marker = "extra == 'h3'", specifier = ">=0.3.1" },
     { name = "h11", specifier = ">=0.16.0" },
     { name = "h2", marker = "extra == 'full'", specifier = ">=4.3.0" },
     { name = "h2", marker = "extra == 'h2'", specifier = ">=4.3.0" },
@@ -210,7 +210,7 @@ provides-extras = ["h2", "ws", "tls", "h3", "full"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "bengal-zoomies", specifier = ">=0.2.0" },
+    { name = "bengal-zoomies", specifier = ">=0.3.1" },
     { name = "h2", specifier = ">=4.3.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "hypothesis", specifier = ">=6.151.10" },
@@ -239,14 +239,14 @@ docs = [
 
 [[package]]
 name = "bengal-zoomies"
-version = "0.2.0"
+version = "0.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cd/1d/c855f9d5284e0ec6786b5fec1cfe856acf51289d43a2bcfa7dda36a213ed/bengal_zoomies-0.2.0.tar.gz", hash = "sha256:f12e9b85dd0c79888c8b4a2782d0c2e899cab18fee31606b798ff33837a3a766", size = 69451, upload-time = "2026-03-26T15:37:09.211Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/82/a5/b5bfffe65ba5c2305a1538ed07a1a295f9f13e5041eaf90b0821ccee5313/bengal_zoomies-0.3.1.tar.gz", hash = "sha256:a5de5249e08082bf427608f03913d4c3aff01ec02a4f4ec94ed085d4416c8323", size = 106121, upload-time = "2026-04-10T16:46:05.7Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fa/d9/d9a01f11f8d79978d50484b81711ab893d36f273c4f954f737fe767f9aec/bengal_zoomies-0.2.0-py3-none-any.whl", hash = "sha256:49186baf7c05025d6964583f6a159b2da663c4f4c4edaf74cb9a7daf85a7e8ae", size = 50302, upload-time = "2026-03-26T15:37:07.486Z" },
+    { url = "https://files.pythonhosted.org/packages/f6/6c/c71ffe7af51793d4faeca608d2d61dc953734aea1ff0de984b7ac0caa7d1/bengal_zoomies-0.3.1-py3-none-any.whl", hash = "sha256:0b66646c87897be37a4158631331c94cf63c31572f8ac122f58ca5b12ce273b0", size = 67861, upload-time = "2026-04-10T16:46:04.318Z" },
 ]
 
 [[package]]

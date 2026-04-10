@@ -248,6 +248,59 @@ class TestServerConfigValidation:
         with pytest.raises(ValueError, match="ssl_certfile and ssl_keyfile must both"):
             ServerConfig(ssl_keyfile="/path/to/key.pem")
 
+    def test_http3_max_connections_zero_raises(self):
+        with pytest.raises(ValueError, match="http3_max_connections must be > 0"):
+            ServerConfig(http3_max_connections=0)
+
+    def test_http3_max_connections_negative_raises(self):
+        with pytest.raises(ValueError, match="http3_max_connections must be > 0"):
+            ServerConfig(http3_max_connections=-1)
+
+    def test_http3_idle_timeout_zero_raises(self):
+        with pytest.raises(ValueError, match="http3_idle_timeout must be > 0"):
+            ServerConfig(http3_idle_timeout=0.0)
+
+    def test_http3_idle_timeout_negative_raises(self):
+        with pytest.raises(ValueError, match="http3_idle_timeout must be > 0"):
+            ServerConfig(http3_idle_timeout=-5.0)
+
+    def test_http3_enabled_without_tls_raises(self):
+        with pytest.raises(ValueError, match="http3_enabled requires"):
+            ServerConfig(http3_enabled=True)
+
+    def test_http3_enabled_with_uds_raises(self):
+        with pytest.raises(ValueError, match="not supported with Unix domain sockets"):
+            ServerConfig(
+                http3_enabled=True,
+                ssl_certfile="/tmp/cert.pem",
+                ssl_keyfile="/tmp/key.pem",
+                uds="/tmp/test.sock",
+            )
+
+    def test_http3_qpack_max_table_capacity_default(self):
+        config = ServerConfig()
+        assert config.http3_qpack_max_table_capacity == 0
+
+    def test_http3_qpack_max_table_capacity_valid(self):
+        config = ServerConfig(http3_qpack_max_table_capacity=4096)
+        assert config.http3_qpack_max_table_capacity == 4096
+
+    def test_http3_qpack_max_table_capacity_zero_valid(self):
+        config = ServerConfig(http3_qpack_max_table_capacity=0)
+        assert config.http3_qpack_max_table_capacity == 0
+
+    def test_http3_qpack_max_table_capacity_negative_raises(self):
+        with pytest.raises(ValueError, match="http3_qpack_max_table_capacity must be >= 0"):
+            ServerConfig(http3_qpack_max_table_capacity=-1)
+
+    def test_http3_zero_rtt_enabled_default(self):
+        config = ServerConfig()
+        assert config.http3_zero_rtt_enabled is False
+
+    def test_http3_zero_rtt_enabled_true(self):
+        config = ServerConfig(http3_zero_rtt_enabled=True)
+        assert config.http3_zero_rtt_enabled is True
+
 
 class TestServerConfigResolveWorkers:
     """resolve_workers() handles auto-detect and explicit values."""

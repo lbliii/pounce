@@ -556,7 +556,10 @@ class Server:
 
         from zoomies.core import QuicConfiguration
 
-        from pounce._h3_handler import create_zoomies_datagram_protocol_factory
+        from pounce._h3_handler import (
+            _make_zero_rtt_policy,
+            create_zoomies_datagram_protocol_factory,
+        )
 
         loop = asyncio.get_running_loop()
         logger_h3 = logging.getLogger("pounce.h3_worker.0")
@@ -568,10 +571,12 @@ class Server:
         with open(key_path, "rb") as f:
             key_bytes = f.read()
 
+        zero_rtt_policy = _make_zero_rtt_policy() if self._config.http3_zero_rtt_enabled else None
         quic_config = QuicConfiguration(
             certificate=cert_bytes,
             private_key=key_bytes,
             idle_timeout=self._config.http3_idle_timeout,
+            zero_rtt_policy=zero_rtt_policy,
         )
 
         server_addr = udp_sock.getsockname()
