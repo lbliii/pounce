@@ -987,6 +987,12 @@ class Supervisor:
         self._shutdown_event.set()
         self._signal_workers_start_draining()
 
+        # Subinterpreter workers need an explicit shutdown command after drain
+        if self._mode == "subinterpreter":
+            for ctrl_queue, _status_queue in self._iic_queues:
+                with contextlib.suppress(Exception):
+                    ctrl_queue.put(("shutdown",))
+
         # ``shutdown_timeout`` is per auxiliary thread and per worker (parallel joins).
         per = self._config.shutdown_timeout
         if self._accept_distributor_handle is not None:
