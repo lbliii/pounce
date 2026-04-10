@@ -440,7 +440,7 @@ class SyncWorker:
                         worker_id=self._worker_id,
                         active_connections=1,
                     )
-                    health_headers = [*list(health_headers), (b"connection", conn_header)]
+                    health_headers = [*health_headers, (b"connection", conn_header)]
                     date_hdr = self._cached_date_header()
                     head, body_out_bytes = serialize_raw_response_parts(
                         status,
@@ -641,7 +641,9 @@ class SyncWorker:
             total += n
             try:
                 request, body, consumed, chunked = _fast_parse(
-                    mv, total, max_headers=self._config.max_headers,
+                    mv,
+                    total,
+                    max_headers=self._config.max_headers,
                 )
             except ParseError:
                 self._recv_buf_len = 0

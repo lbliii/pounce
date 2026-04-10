@@ -609,117 +609,136 @@ class Server:
         5. App (innermost)
 
         """
-        # Configure OpenTelemetry if endpoint is set
-        if self._config.otel_endpoint:
-            try:
-                from pounce._otel import configure_otel, is_otel_available
+        self._apply_otel()
+        self._apply_lifecycle_logging()
+        self._apply_metrics()
+        self._apply_middleware()
+        self._apply_rate_limiter()
+        self._apply_request_queue()
+        self._apply_sentry()
 
-                if is_otel_available():
-                    configure_otel(
-                        endpoint=self._config.otel_endpoint,
-                        service_name=self._config.otel_service_name,
-                    )
-                else:
-                    logger.warning(
-                        "OpenTelemetry endpoint configured but opentelemetry package not installed. "
-                        "Install with: pip install opentelemetry-api opentelemetry-sdk "
-                        "opentelemetry-exporter-otlp-proto-http"
-                    )
-            except Exception:
-                logger.exception("Failed to configure OpenTelemetry")
+    def _apply_otel(self) -> None:
+        """Configure OpenTelemetry tracing if endpoint is set."""
+        if not self._config.otel_endpoint:
+            return
+        try:
+            from pounce._otel import configure_otel, is_otel_available
 
-        # Configure lifecycle logging if enabled
-        if self._config.lifecycle_logging and self._lifecycle_collector is None:
-            from pounce.lifecycle import LoggingCollector
-
-            self._lifecycle_collector = LoggingCollector(
-                slow_request_threshold_ms=self._config.log_slow_requests_threshold * 1000,
-                log_format=self._config.log_format,
-                health_check_path=self._config.health_check_path,
-            )
-            logger.debug("Lifecycle event logging enabled")
-
-        # Configure Prometheus metrics if enabled
-        if self._config.metrics_enabled and self._lifecycle_collector is None:
-            from pounce._metrics_handler import wrap_app_with_metrics
-            from pounce.metrics import PrometheusCollector
-
-            self._lifecycle_collector = PrometheusCollector()
-            self._app = cast(
-                "ASGIApp",
-                wrap_app_with_metrics(
-                    self._app,
-                    self._lifecycle_collector,
-                    self._config.metrics_path,
-                ),
-            )
-            logger.info("Prometheus metrics enabled at %s", self._config.metrics_path)
-
-        # Wrap app with middleware if configured (before rate limiter/queue
-        # so middleware runs inside those wrappers)
-        if self._config.middleware:
-            from pounce._middleware import MiddlewareStack
-
-            self._app = cast("ASGIApp", MiddlewareStack(self._config.middleware, self._app))
-
-        # Configure rate limiting if enabled
-        if self._config.rate_limit_enabled:
-            from pounce._rate_limiter import RateLimiter, create_rate_limit_wrapper
-
-            rate_limiter = RateLimiter(
-                rate=self._config.rate_limit_requests_per_second,
-                burst=self._config.rate_limit_burst,
-            )
-            self._app = cast("ASGIApp", create_rate_limit_wrapper(self._app, rate_limiter))
-            logger.info(
-                "Rate limiting enabled: %.1f req/s per IP (burst: %d)",
-                self._config.rate_limit_requests_per_second,
-                self._config.rate_limit_burst,
-            )
-
-        # Configure request queueing if enabled
-        if self._config.request_queue_enabled:
-            from pounce._request_queue import QueueMetrics, RequestQueue, create_queue_wrapper
-
-            request_queue = RequestQueue(max_depth=self._config.request_queue_max_depth)
-            queue_metrics = QueueMetrics()
-            self._app = cast(
-                "ASGIApp", create_queue_wrapper(self._app, request_queue, queue_metrics)
-            )
-            logger.info(
-                "Request queueing enabled: max depth %d",
-                self._config.request_queue_max_depth
-                if self._config.request_queue_max_depth > 0
-                else -1,
-            )
-
-        # Configure Sentry error tracking if enabled
-        if self._config.sentry_dsn:
-            from pounce._sentry import create_sentry_wrapper, init_sentry, is_sentry_available
-
-            if is_sentry_available():
-                try:
-                    init_sentry(
-                        dsn=self._config.sentry_dsn,
-                        environment=self._config.sentry_environment,
-                        release=self._config.sentry_release,
-                        traces_sample_rate=self._config.sentry_traces_sample_rate,
-                        profiles_sample_rate=self._config.sentry_profiles_sample_rate,
-                        debug=self._config.debug,
-                    )
-                    self._app = create_sentry_wrapper(self._app)
-                    logger.info(
-                        "Sentry error tracking enabled: environment=%s release=%s",
-                        self._config.sentry_environment or "none",
-                        self._config.sentry_release or "none",
-                    )
-                except Exception:
-                    logger.exception("Failed to initialize Sentry")
+            if is_otel_available():
+                configure_otel(
+                    endpoint=self._config.otel_endpoint,
+                    service_name=self._config.otel_service_name,
+                )
             else:
                 logger.warning(
-                    "Sentry DSN configured but sentry-sdk not installed. "
-                    "Install with: pip install sentry-sdk"
+                    "OpenTelemetry endpoint configured but opentelemetry package not installed. "
+                    "Install with: pip install opentelemetry-api opentelemetry-sdk "
+                    "opentelemetry-exporter-otlp-proto-http"
                 )
+        except Exception:
+            logger.exception("Failed to configure OpenTelemetry")
+
+    def _apply_lifecycle_logging(self) -> None:
+        """Configure lifecycle event logging if enabled."""
+        if not (self._config.lifecycle_logging and self._lifecycle_collector is None):
+            return
+        from pounce.lifecycle import LoggingCollector
+
+        self._lifecycle_collector = LoggingCollector(
+            slow_request_threshold_ms=self._config.log_slow_requests_threshold * 1000,
+            log_format=self._config.log_format,
+            health_check_path=self._config.health_check_path,
+        )
+        logger.debug("Lifecycle event logging enabled")
+
+    def _apply_metrics(self) -> None:
+        """Configure Prometheus metrics endpoint if enabled."""
+        if not (self._config.metrics_enabled and self._lifecycle_collector is None):
+            return
+        from pounce._metrics_handler import wrap_app_with_metrics
+        from pounce.metrics import PrometheusCollector
+
+        self._lifecycle_collector = PrometheusCollector()
+        self._app = cast(
+            "ASGIApp",
+            wrap_app_with_metrics(
+                self._app,
+                self._lifecycle_collector,
+                self._config.metrics_path,
+            ),
+        )
+        logger.info("Prometheus metrics enabled at %s", self._config.metrics_path)
+
+    def _apply_middleware(self) -> None:
+        """Wrap app with middleware stack if configured."""
+        if not self._config.middleware:
+            return
+        from pounce._middleware import MiddlewareStack
+
+        self._app = cast("ASGIApp", MiddlewareStack(self._config.middleware, self._app))
+
+    def _apply_rate_limiter(self) -> None:
+        """Configure per-IP rate limiting if enabled."""
+        if not self._config.rate_limit_enabled:
+            return
+        from pounce._rate_limiter import RateLimiter, create_rate_limit_wrapper
+
+        rate_limiter = RateLimiter(
+            rate=self._config.rate_limit_requests_per_second,
+            burst=self._config.rate_limit_burst,
+        )
+        self._app = cast("ASGIApp", create_rate_limit_wrapper(self._app, rate_limiter))
+        logger.info(
+            "Rate limiting enabled: %.1f req/s per IP (burst: %d)",
+            self._config.rate_limit_requests_per_second,
+            self._config.rate_limit_burst,
+        )
+
+    def _apply_request_queue(self) -> None:
+        """Configure request queueing (load shedding) if enabled."""
+        if not self._config.request_queue_enabled:
+            return
+        from pounce._request_queue import QueueMetrics, RequestQueue, create_queue_wrapper
+
+        request_queue = RequestQueue(max_depth=self._config.request_queue_max_depth)
+        queue_metrics = QueueMetrics()
+        self._app = cast("ASGIApp", create_queue_wrapper(self._app, request_queue, queue_metrics))
+        logger.info(
+            "Request queueing enabled: max depth %d",
+            self._config.request_queue_max_depth
+            if self._config.request_queue_max_depth > 0
+            else -1,
+        )
+
+    def _apply_sentry(self) -> None:
+        """Configure Sentry error tracking if DSN is set."""
+        if not self._config.sentry_dsn:
+            return
+        from pounce._sentry import create_sentry_wrapper, init_sentry, is_sentry_available
+
+        if is_sentry_available():
+            try:
+                init_sentry(
+                    dsn=self._config.sentry_dsn,
+                    environment=self._config.sentry_environment,
+                    release=self._config.sentry_release,
+                    traces_sample_rate=self._config.sentry_traces_sample_rate,
+                    profiles_sample_rate=self._config.sentry_profiles_sample_rate,
+                    debug=self._config.debug,
+                )
+                self._app = create_sentry_wrapper(self._app)
+                logger.info(
+                    "Sentry error tracking enabled: environment=%s release=%s",
+                    self._config.sentry_environment or "none",
+                    self._config.sentry_release or "none",
+                )
+            except Exception:
+                logger.exception("Failed to initialize Sentry")
+        else:
+            logger.warning(
+                "Sentry DSN configured but sentry-sdk not installed. "
+                "Install with: pip install sentry-sdk"
+            )
 
     def _create_udp_listener_if_h3(self, actual_addr: tuple[str, int]) -> socket.socket | None:
         """Create a single UDP listener for HTTP/3 if configured and available."""

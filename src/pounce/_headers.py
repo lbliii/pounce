@@ -27,6 +27,9 @@ def is_websocket_upgrade(request: RequestReceived) -> bool:
             has_upgrade_connection = b"upgrade" in value.lower()
         elif name_lower == b"upgrade":
             has_websocket_upgrade = value.lower() == b"websocket"
+        # Early exit when both headers found
+        if has_upgrade_connection and has_websocket_upgrade:
+            return True
 
     return has_upgrade_connection and has_websocket_upgrade
 

@@ -63,8 +63,11 @@ class ProfileCollector:
         parse_avg = sum(s.parse_ms for s in self._samples) / n
         app_avg = sum(s.app_ms for s in self._samples) / n
         drain_avg = sum(s.drain_ms for s in self._samples) / n
-        read_p99 = sorted(s.read_ms for s in self._samples)[min(int(n * 0.99), n - 1)] if n else 0
-        drain_p99 = sorted(s.drain_ms for s in self._samples)[min(int(n * 0.99), n - 1)] if n else 0
+        p99_idx = min(int(n * 0.99), n - 1)
+        sorted_read = sorted(s.read_ms for s in self._samples)
+        sorted_drain = sorted(s.drain_ms for s in self._samples)
+        read_p99 = sorted_read[p99_idx]
+        drain_p99 = sorted_drain[p99_idx]
         msg = (
             f"POUNCE_PROFILE worker={self._worker_id} n={n} "
             f"read_avg={read_avg:.2f}ms read_p99={read_p99:.2f}ms "
