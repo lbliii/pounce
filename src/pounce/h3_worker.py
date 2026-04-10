@@ -82,7 +82,10 @@ class H3Worker:
 
         from zoomies.core import QuicConfiguration
 
-        from pounce._h3_handler import create_zoomies_datagram_protocol_factory
+        from pounce._h3_handler import (
+            _make_zero_rtt_policy,
+            create_zoomies_datagram_protocol_factory,
+        )
 
         self._loop = asyncio.get_running_loop()
         self._async_shutdown = asyncio.Event()
@@ -100,10 +103,12 @@ class H3Worker:
         with open(key_path, "rb") as f:
             key_bytes = f.read()
 
+        zero_rtt_policy = _make_zero_rtt_policy() if self._config.http3_zero_rtt_enabled else None
         quic_config = QuicConfiguration(
             certificate=cert_bytes,
             private_key=key_bytes,
             idle_timeout=self._config.http3_idle_timeout,
+            zero_rtt_policy=zero_rtt_policy,
         )
 
         server_addr = self._sock.getsockname()
@@ -134,6 +139,10 @@ class H3Worker:
         finally:
             if bridge_task is not None:
                 bridge_task.cancel()
+            # Gracefully close all QUIC connections before closing transport
+            _close = getattr(_protocol, "close_all_connections", None)
+            if _close is not None:
+                _close()
             transport.close()
             self._logger.info("H3 worker %d stopped", self._worker_id)
 

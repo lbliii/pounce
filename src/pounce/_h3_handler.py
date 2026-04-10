@@ -29,6 +29,22 @@ from pounce.logging import access_log
 from pounce.protocols.h3 import is_h3_available
 
 
+class _PounceZeroRttPolicy:
+    """0-RTT policy that accepts early data at the TLS level.
+
+    Application-layer safety (425 Too Early for unsafe methods) is enforced
+    separately in the H3 event handler.
+    """
+
+    def allow_0rtt(self, ticket_data: bytes, obfuscated_age: int) -> bool:
+        return True
+
+
+def _make_zero_rtt_policy() -> _PounceZeroRttPolicy:
+    """Create a 0-RTT policy for use with QuicConfiguration."""
+    return _PounceZeroRttPolicy()
+
+
 @dataclass
 class _ZoomiesConnection:
     """Per-client QUIC + H3 connection state."""
@@ -58,7 +74,11 @@ def _create_zoomies_datagram_protocol(
         ConnectionClosed,
         ConnectionIdIssued,
         ConnectionIdRetired,
+        StopSendingReceived,
         StreamDataReceived,
+        StreamReset,
+        ZeroRttAccepted,
+        ZeroRttRejected,
     )
     from zoomies.h3 import H3Connection
     from zoomies.packet import pull_destination_cid_for_routing
@@ -125,10 +145,23 @@ def _create_zoomies_datagram_protocol(
 
             conn = self._route_connection(data, addr)
             if conn is None:
+                # Enforce connection limit — silently drop to avoid amplification
+                if len(self._connections) >= self._config.http3_max_connections:
+                    self._logger.warning(
+                        "H3 connection limit reached (%d), dropping packet from %s:%d",
+                        self._config.http3_max_connections,
+                        addr[0],
+                        addr[1],
+                    )
+                    return
+
                 quic = QuicConnection(self._quic_config)
                 conn = _ZoomiesConnection(
                     quic=quic,
-                    h3=H3Connection(sender=quic),
+                    h3=H3Connection(
+                        sender=quic,
+                        qpack_max_table_capacity=config.http3_qpack_max_table_capacity,
+                    ),
                     last_addr=addr,
                 )
                 self._connections[addr] = conn
@@ -142,12 +175,19 @@ def _create_zoomies_datagram_protocol(
 
             for event in events:
                 if isinstance(event, ConnectionClosed):
+                    self._cancel_all_streams(conn)
                     self._remove_connection(conn)
                     return
                 if isinstance(event, ConnectionIdIssued):
                     self._cid_to_conn[event.connection_id] = conn
                 elif isinstance(event, ConnectionIdRetired):
                     self._cid_to_conn.pop(event.connection_id, None)
+                elif isinstance(event, (StreamReset, StopSendingReceived)):
+                    self._cancel_stream(conn, event.stream_id)
+                elif isinstance(event, ZeroRttAccepted):
+                    self._logger.debug("0-RTT accepted for %s:%d", addr[0], addr[1])
+                elif isinstance(event, ZeroRttRejected):
+                    self._logger.debug("0-RTT rejected for %s:%d", addr[0], addr[1])
                 elif isinstance(event, StreamDataReceived):
                     for h3_event in conn.h3.handle_event(event):
                         self._handle_h3_event(conn, h3_event, conn.last_addr)
@@ -264,6 +304,38 @@ def _create_zoomies_datagram_protocol(
             for dg in conn.quic.send_datagrams():
                 self._transport.sendto(dg, addr)
 
+        def _cancel_stream(self, conn: _ZoomiesConnection, stream_id: int) -> None:
+            """Cancel a stream task and clean up its state."""
+            pair = conn.stream_tasks.pop(stream_id, None)
+            if pair is not None:
+                task, _ = pair
+                task.cancel()
+            conn.stream_body_bytes.pop(stream_id, None)
+            conn.stream_body_ended.discard(stream_id)
+
+        def _cancel_all_streams(self, conn: _ZoomiesConnection) -> None:
+            """Cancel all stream tasks for a connection."""
+            for stream_id in list(conn.stream_tasks):
+                self._cancel_stream(conn, stream_id)
+
+        def close_all_connections(self) -> None:
+            """Gracefully close all active QUIC connections.
+
+            Sends CONNECTION_CLOSE to each peer before the transport shuts down.
+            Called by H3Worker during server shutdown.
+            """
+            for conn in list(self._connections.values()):
+                self._cancel_all_streams(conn)
+                try:
+                    conn.quic.close(error_code=0, reason="Server shutting down")
+                    if self._transport is not None:
+                        for dg in conn.quic.send_datagrams():
+                            self._transport.sendto(dg, conn.last_addr)
+                except OSError, ConnectionError:
+                    pass
+            self._connections.clear()
+            self._cid_to_conn.clear()
+
         def _make_transmit(
             self, conn: _ZoomiesConnection, addr: tuple[str, int]
         ) -> Callable[[], None]:
@@ -274,15 +346,11 @@ def _create_zoomies_datagram_protocol(
 
             return transmit
 
-        async def _run_stream(
+        def _prepare_stream(
             self,
-            conn: _ZoomiesConnection,
-            stream_id: int,
             scope: dict[str, Any],
-            body_queue: asyncio.Queue[dict[str, Any]],
-            addr: tuple[str, int],
-        ) -> None:
-            request_start = monotonic_ns()
+        ) -> tuple[str, tuple[tuple[bytes, bytes], ...], ServerTiming | None, Compressor | None]:
+            """Extract request ID, negotiate timing/compression for a stream."""
             headers_tuples = tuple((n, v) for n, v in scope["headers"])
             is_trusted = bool(
                 self._config.trusted_hosts
@@ -291,36 +359,12 @@ def _create_zoomies_datagram_protocol(
                     or scope["client"][0] in self._config.trusted_hosts
                 )
             )
-            request_id = extract_or_generate(
-                headers_tuples,
-                trusted=is_trusted,
-            )
+            request_id = extract_or_generate(headers_tuples, trusted=is_trusted)
             scope.setdefault("extensions", {})["request_id"] = request_id
-
-            health_path = self._config.health_check_path
-            if (
-                health_path is not None
-                and scope["path"] == health_path
-                and scope["method"] == "GET"
-            ):
-                h_status, h_headers, h_body = build_health_response(
-                    worker_id=0,
-                    active_connections=0,
-                )
-                conn.h3.send_headers(
-                    stream_id=stream_id,
-                    headers=[(b":status", str(h_status).encode()), *h_headers],
-                )
-                conn.h3.send_data(stream_id=stream_id, data=h_body, end_stream=True)
-                self._flush(conn, addr)
-                conn.stream_tasks.pop(stream_id, None)
-                conn.stream_body_bytes.pop(stream_id, None)
-                return
 
             timing: ServerTiming | None = None
             if self._config.server_timing:
                 timing = ServerTiming()
-                timing.add("parse", elapsed_ms(request_start))
 
             compressor: Compressor | None = None
             if self._config.compression:
@@ -330,14 +374,113 @@ def _create_zoomies_datagram_protocol(
                     if enc:
                         compressor = create_compressor(enc)
 
+            return request_id, headers_tuples, timing, compressor
+
+        def _send_error_response(
+            self,
+            conn: _ZoomiesConnection,
+            stream_id: int,
+            addr: tuple[str, int],
+            send_state: SendState,
+        ) -> None:
+            """Send a 500 error response on the stream after an app exception."""
+            try:
+                conn.h3.send_headers(
+                    stream_id=stream_id,
+                    headers=[
+                        (b":status", b"500"),
+                        (b"content-type", b"text/plain"),
+                    ],
+                )
+                conn.h3.send_data(
+                    stream_id=stream_id,
+                    data=b"Internal Server Error",
+                    end_stream=True,
+                )
+                self._flush(conn, addr)
+            except OSError, ConnectionError:
+                pass
+            if send_state.status == 0:
+                send_state.status = 500
+
+        def _log_access(
+            self,
+            scope: dict[str, Any],
+            send_state: SendState,
+            request_start: int,
+            request_id: str,
+        ) -> None:
+            """Log an access log entry for the completed stream."""
+            if not self._config.access_log:
+                return
+            duration = elapsed_ms(request_start)
+            target = scope.get("path", "/")
+            log_filter = self._config.access_log_filter
+            if log_filter is not None and not log_filter(
+                scope["method"], target, send_state.status
+            ):
+                return
+            client_str = f"{scope['client'][0]}:{scope['client'][1]}"
+            access_log(
+                scope["method"],
+                target,
+                send_state.status,
+                send_state.bytes_sent,
+                duration,
+                client_str,
+                http_version="3",
+                request_id=request_id,
+            )
+
+        def _maybe_handle_health_check(
+            self,
+            conn: _ZoomiesConnection,
+            stream_id: int,
+            scope: dict[str, Any],
+            addr: tuple[str, int],
+        ) -> bool:
+            """Handle health check request if applicable. Returns True if handled."""
+            health_path = self._config.health_check_path
+            if health_path is None or scope["path"] != health_path or scope["method"] != "GET":
+                return False
+            h_status, h_headers, h_body = build_health_response(
+                worker_id=0,
+                active_connections=0,
+            )
+            conn.h3.send_headers(
+                stream_id=stream_id,
+                headers=[(b":status", str(h_status).encode()), *h_headers],
+            )
+            conn.h3.send_data(stream_id=stream_id, data=h_body, end_stream=True)
+            self._flush(conn, addr)
+            conn.stream_tasks.pop(stream_id, None)
+            conn.stream_body_bytes.pop(stream_id, None)
+            return True
+
+        async def _run_stream(
+            self,
+            conn: _ZoomiesConnection,
+            stream_id: int,
+            scope: dict[str, Any],
+            body_queue: asyncio.Queue[dict[str, Any]],
+            addr: tuple[str, int],
+        ) -> None:
+            request_start = monotonic_ns()
+            request_id, _, timing, compressor = self._prepare_stream(scope)
+
+            if self._maybe_handle_health_check(conn, stream_id, scope, addr):
+                return
+
+            if timing:
+                timing.add("parse", elapsed_ms(request_start))
+
             receive = create_h3_receive(body_queue)
             app_start = monotonic_ns()
             send_state = SendState()
-            transmit = self._make_transmit(conn, addr)
             send = create_h3_send(
                 conn.h3,
                 stream_id,
-                transmit,
+                self._make_transmit(conn, addr),
                 send_state,
                 timing=timing,
                 compressor=compressor,
@@ -354,24 +497,7 @@ def _create_zoomies_datagram_protocol(
                     scope["method"],
                     scope["path"],
                 )
-                try:
-                    conn.h3.send_headers(
-                        stream_id=stream_id,
-                        headers=[
-                            (b":status", b"500"),
-                            (b"content-type", b"text/plain"),
-                        ],
-                    )
-                    conn.h3.send_data(
-                        stream_id=stream_id,
-                        data=b"Internal Server Error",
-                        end_stream=True,
-                    )
-                    self._flush(conn, addr)
-                except OSError, ConnectionError:
-                    pass
-                if send_state.status == 0:
-                    send_state.status = 500
+                self._send_error_response(conn, stream_id, addr, send_state)
             finally:
                 conn.stream_tasks.pop(stream_id, None)
                 conn.stream_body_bytes.pop(stream_id, None)
@@ -379,26 +505,7 @@ def _create_zoomies_datagram_protocol(
             if timing:
                 timing.add("app", elapsed_ms(app_start))
 
-            if self._config.access_log:
-                duration = elapsed_ms(request_start)
-                target = scope.get("path", "/")
-                log_filter = self._config.access_log_filter
-                if log_filter is None or log_filter(
-                    scope["method"],
-                    target,
-                    send_state.status,
-                ):
-                    client_str = f"{scope['client'][0]}:{scope['client'][1]}"
-                    access_log(
-                        scope["method"],
-                        target,
-                        send_state.status,
-                        send_state.bytes_sent,
-                        duration,
-                        client_str,
-                        http_version="3",
-                        request_id=request_id,
-                    )
+            self._log_access(scope, send_state, request_start, request_id)
 
     return ZoomiesDatagramProtocol
 

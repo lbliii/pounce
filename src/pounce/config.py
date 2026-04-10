@@ -170,6 +170,8 @@ class ServerConfig:
     http3_enabled: bool = False  # Enable HTTP/3 (requires ssl_certfile, ssl_keyfile)
     http3_max_connections: int = 10_000  # Max concurrent QUIC connections
     http3_idle_timeout: float = 30.0  # QUIC idle timeout (seconds)
+    http3_qpack_max_table_capacity: int = 0  # QPACK dynamic table size (0 = static-only)
+    http3_zero_rtt_enabled: bool = False  # Accept 0-RTT early data (safe methods only)
 
     # Sentry error tracking (phase 6.4)
     sentry_dsn: str | None = None  # Sentry DSN for error tracking (None = disabled)
@@ -281,6 +283,9 @@ class ServerConfig:
             raise ValueError(msg)
         if self.http3_idle_timeout <= 0:
             msg = f"http3_idle_timeout must be > 0 (got {self.http3_idle_timeout})"
+            raise ValueError(msg)
+        if self.http3_qpack_max_table_capacity < 0:
+            msg = f"http3_qpack_max_table_capacity must be >= 0 (got {self.http3_qpack_max_table_capacity})"
             raise ValueError(msg)
         if self.uds is not None and not self.uds:
             msg = "uds must be a non-empty path or None"
