@@ -1,0 +1,1 @@
+Added subinterpreter worker mode (`--worker-mode subinterpreter`) using Python 3.14's `concurrent.interpreters` (PEP 734). Each worker runs in a dedicated subinterpreter — thread-like performance with process-like isolation, all in one process.

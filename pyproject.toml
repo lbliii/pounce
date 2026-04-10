@@ -84,6 +84,7 @@ pounce = ["py.typed", "templates/*.kida", "templates/components/*.kida"]
 [tool.ruff]
 line-length = 100
 target-version = "py314"
+extend-exclude = ["spikes"]
 
 [tool.ruff.lint]
 select = [

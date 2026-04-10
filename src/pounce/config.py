@@ -8,6 +8,7 @@ Frozen after creation — the server reads config but never mutates it.
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from pounce._middleware import Middleware
 from pounce.display import DisplayConfig
@@ -353,7 +354,7 @@ class ServerConfig:
         return json.dumps(self.to_iic_dict())
 
     @classmethod
-    def from_iic_dict(cls, d: dict[str, object]) -> ServerConfig:
+    def from_iic_dict(cls, d: dict[str, Any]) -> ServerConfig:
         """Reconstruct from a dict produced by :meth:`to_iic_dict`.
 
         Converts list back to frozenset for ``trusted_hosts``, and
