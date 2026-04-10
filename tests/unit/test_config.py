@@ -2,6 +2,8 @@
 
 from dataclasses import FrozenInstanceError
 
+import hypothesis
+import hypothesis.strategies as st
 import pytest
 
 from pounce.config import ServerConfig
@@ -350,3 +352,111 @@ class TestNewConfigFields:
     def test_custom_trusted_hosts(self):
         config = ServerConfig(trusted_hosts=("10.0.0.1", "10.0.0.2"))
         assert config.trusted_hosts == frozenset({"10.0.0.1", "10.0.0.2"})
+
+
+class TestServerConfigIICSerialization:
+    """Round-trip serialization for subinterpreter IIC transfer."""
+
+    def test_default_config_round_trip(self):
+        config = ServerConfig()
+        restored = ServerConfig.from_iic_dict(config.to_iic_dict())
+        assert restored.host == config.host
+        assert restored.port == config.port
+        assert restored.workers == config.workers
+        assert restored.keep_alive_timeout == config.keep_alive_timeout
+        assert restored.trusted_hosts == config.trusted_hosts
+
+    def test_json_round_trip(self):
+        config = ServerConfig(
+            host="0.0.0.0",
+            port=9000,
+            workers=4,
+            trusted_hosts=("10.0.0.1", "10.0.0.2"),
+            reload_include=(".html", ".css"),
+            reload_dirs=("/app", "/static"),
+        )
+        restored = ServerConfig.from_json(config.to_json())
+        assert restored.host == config.host
+        assert restored.port == config.port
+        assert restored.workers == config.workers
+        assert restored.trusted_hosts == config.trusted_hosts
+        assert restored.reload_include == config.reload_include
+        assert restored.reload_dirs == config.reload_dirs
+
+    def test_non_serializable_fields_excluded(self):
+        config = ServerConfig()
+        d = config.to_iic_dict()
+        assert "access_log_filter" not in d
+        assert "middleware" not in d
+        assert "display" not in d
+
+    def test_internal_constants_excluded(self):
+        config = ServerConfig()
+        d = config.to_iic_dict()
+        for key in d:
+            assert not key.startswith("_"), f"Internal field {key!r} leaked into IIC dict"
+
+    def test_frozenset_serialized_as_list(self):
+        config = ServerConfig(trusted_hosts=("a", "b"))
+        d = config.to_iic_dict()
+        assert isinstance(d["trusted_hosts"], list)
+        assert sorted(d["trusted_hosts"]) == ["a", "b"]
+
+    def test_extra_keys_in_dict_ignored(self):
+        d = ServerConfig().to_iic_dict()
+        d["nonexistent_key"] = "should be ignored"
+        restored = ServerConfig.from_iic_dict(d)
+        assert restored.host == "127.0.0.1"
+
+
+class TestServerConfigHypothesisRoundTrip:
+    """Property-based round-trip tests using Hypothesis."""
+
+    @hypothesis.given(
+        port=st.integers(min_value=0, max_value=65535),
+        workers=st.integers(min_value=0, max_value=32),
+        backlog=st.integers(min_value=1, max_value=65535),
+        keep_alive_timeout=st.floats(min_value=0.1, max_value=300.0),
+        request_timeout=st.floats(min_value=0.1, max_value=300.0),
+        max_request_size=st.integers(min_value=1, max_value=100_000_000),
+        max_connections=st.integers(min_value=0, max_value=100_000),
+        access_log=st.booleans(),
+        compression=st.booleans(),
+        debug=st.booleans(),
+    )
+    def test_round_trip_preserves_values(
+        self,
+        port,
+        workers,
+        backlog,
+        keep_alive_timeout,
+        request_timeout,
+        max_request_size,
+        max_connections,
+        access_log,
+        compression,
+        debug,
+    ):
+        config = ServerConfig(
+            port=port,
+            workers=workers,
+            backlog=backlog,
+            keep_alive_timeout=keep_alive_timeout,
+            request_timeout=request_timeout,
+            max_request_size=max_request_size,
+            max_connections=max_connections,
+            access_log=access_log,
+            compression=compression,
+            debug=debug,
+        )
+        restored = ServerConfig.from_json(config.to_json())
+        assert restored.port == config.port
+        assert restored.workers == config.workers
+        assert restored.backlog == config.backlog
+        assert restored.keep_alive_timeout == config.keep_alive_timeout
+        assert restored.request_timeout == config.request_timeout
+        assert restored.max_request_size == config.max_request_size
+        assert restored.max_connections == config.max_connections
+        assert restored.access_log == config.access_log
+        assert restored.compression == config.compression
+        assert restored.debug == config.debug

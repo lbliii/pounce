@@ -12,6 +12,16 @@ from dataclasses import dataclass, field
 from pounce._middleware import Middleware
 from pounce.display import DisplayConfig
 
+# Fields excluded from IIC serialization (non-JSON-safe or internal constants)
+_IIC_SKIP_FIELDS: frozenset[str] = frozenset({
+    "access_log_filter",
+    "middleware",
+    "display",
+    "_VALID_LOG_LEVELS",
+    "_VALID_LOG_FORMATS",
+    "_VALID_WORKER_MODES",
+})
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ServerConfig:
@@ -167,7 +177,7 @@ class ServerConfig:
 
     _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error", "critical"})
     _VALID_LOG_FORMATS: frozenset[str] = frozenset({"auto", "text", "json"})
-    _VALID_WORKER_MODES: frozenset[str] = frozenset({"auto", "sync", "async"})
+    _VALID_WORKER_MODES: frozenset[str] = frozenset({"auto", "sync", "async", "subinterpreter"})
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
@@ -240,6 +250,15 @@ class ServerConfig:
             )
             raise ValueError(msg)
         object.__setattr__(self, "worker_mode", normalized)
+        if normalized == "subinterpreter":
+            from pounce._runtime import has_subinterpreters
+
+            if not has_subinterpreters():
+                msg = (
+                    "worker_mode='subinterpreter' requires Python 3.14+ with "
+                    "concurrent.interpreters (PEP 734)"
+                )
+                raise ValueError(msg)
         # Normalize trusted_hosts to frozenset if passed as tuple/list
         if not isinstance(self.trusted_hosts, frozenset):
             object.__setattr__(self, "trusted_hosts", frozenset(self.trusted_hosts))
@@ -307,3 +326,59 @@ class ServerConfig:
 
             return default_worker_count()
         return self.workers
+
+    def to_iic_dict(self) -> dict[str, object]:
+        """Serialize to a JSON-compatible dict for IIC transfer.
+
+        Drops non-serializable fields (callables, middleware, display).
+        Converts frozenset to sorted list for JSON round-tripping.
+
+        """
+        import dataclasses
+
+        d: dict[str, object] = {}
+        for f in dataclasses.fields(self):
+            if f.name in _IIC_SKIP_FIELDS:
+                continue
+            val = getattr(self, f.name)
+            if isinstance(val, frozenset):
+                val = sorted(val)
+            d[f.name] = val
+        return d
+
+    def to_json(self) -> str:
+        """Serialize to a JSON string for IIC transfer."""
+        import json
+
+        return json.dumps(self.to_iic_dict())
+
+    @classmethod
+    def from_iic_dict(cls, d: dict[str, object]) -> ServerConfig:
+        """Reconstruct from a dict produced by :meth:`to_iic_dict`.
+
+        Converts list back to frozenset for ``trusted_hosts``, and
+        drops any keys that are not valid constructor parameters.
+
+        """
+        import dataclasses
+
+        valid_names = {f.name for f in dataclasses.fields(cls)} - _IIC_SKIP_FIELDS
+        filtered = {k: v for k, v in d.items() if k in valid_names}
+
+        # Convert list back to frozenset for trusted_hosts
+        if "trusted_hosts" in filtered and isinstance(filtered["trusted_hosts"], list):
+            filtered["trusted_hosts"] = frozenset(filtered["trusted_hosts"])
+
+        # Convert list back to tuple for tuple fields
+        for name in ("reload_include", "reload_dirs"):
+            if name in filtered and isinstance(filtered[name], list):
+                filtered[name] = tuple(filtered[name])
+
+        return cls(**filtered)
+
+    @classmethod
+    def from_json(cls, s: str) -> ServerConfig:
+        """Reconstruct from a JSON string produced by :meth:`to_json`."""
+        import json
+
+        return cls.from_iic_dict(json.loads(s))

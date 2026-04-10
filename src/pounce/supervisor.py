@@ -202,6 +202,7 @@ class Supervisor:
         "_generation",
         "_h3_handles",
         "_handles",
+        "_iic_queues",
         "_lifecycle_collector",
         "_lifecycle_lock",
         "_lifespan_state",
@@ -231,7 +232,9 @@ class Supervisor:
         self._app_path = app_path
         self._sync_app = sync_app
         self._mode: WorkerMode = mode or detect_worker_mode()
-        self._fork_ctx: multiprocessing.context.BaseContext = _get_fork_context()
+        self._fork_ctx: multiprocessing.context.BaseContext | None = (
+            None if self._mode == "subinterpreter" else _get_fork_context()
+        )
         self._execution_mode = resolve_worker_execution_mode(config.worker_mode)
         # Sync workers only supported in thread mode (3.14t). On GIL/process, fall back to async.
         if self._execution_mode == "sync" and self._mode == "process":
@@ -240,6 +243,8 @@ class Supervisor:
                 "Falling back to async workers."
             )
             self._execution_mode = "async"
+        # Subinterpreter IIC queues: one pair per worker (ctrl_queue, status_queue)
+        self._iic_queues: list[tuple[Any, Any]] = []
         self._shutdown_event = threading.Event()
         self._async_pool: AsyncPool | None = None
         self._async_pool_handle: threading.Thread | None = None
@@ -260,7 +265,7 @@ class Supervisor:
 
     @property
     def mode(self) -> WorkerMode:
-        """The active worker mode (``"thread"`` or ``"process"``)."""
+        """The active worker mode (``"thread"``, ``"process"``, or ``"subinterpreter"``)."""
         return self._mode
 
     @property
@@ -350,11 +355,17 @@ class Supervisor:
         """Mark async workers as draining (503 new connections) during shutdown.
 
         Thread-mode workers expose a ``Worker`` / ``SyncWorker`` instance; process
-        workers do not (``handle.worker`` is None).
+        workers do not (``handle.worker`` is None).  Subinterpreter workers receive
+        drain commands via IIC queue.
         """
-        for handle in self._handles:
-            if handle.worker is not None:
-                handle.worker.start_draining()
+        if self._mode == "subinterpreter":
+            for ctrl_queue, _status_queue in self._iic_queues:
+                with contextlib.suppress(Exception):
+                    ctrl_queue.put(("shutdown",))
+        else:
+            for handle in self._handles:
+                if handle.worker is not None:
+                    handle.worker.start_draining()
 
     def restart_workers(self) -> None:
         """Gracefully restart all workers (for dev reload).
@@ -430,27 +441,29 @@ class Supervisor:
                     per,
                 )
 
-        # Thread mode: cannot force-kill threads. If any old worker still alive,
-        # do not spawn replacements — would cause split-brain (old + new serving).
-        if self._mode == "thread":
+        # Thread/subinterpreter mode: cannot force-kill threads. If any old worker
+        # still alive, do not spawn replacements — would cause split-brain.
+        if self._mode in ("thread", "subinterpreter"):
             still_alive: list[_WorkerHandle | _H3WorkerHandle] = [
                 h for h in self._handles if h.target.is_alive()
             ]
             still_alive += [h for h in self._h3_handles if h.target.is_alive()]
             if still_alive:
                 logger.warning(
-                    "%d thread worker(s) still alive after shutdown — not respawning "
+                    "%d %s worker(s) still alive after shutdown — not respawning "
                     "(would cause split-brain). Wait for them to drain or restart process.",
                     len(still_alive),
+                    self._mode,
                 )
                 return
 
         # Clear shutdown event for new workers
         self._shutdown_event.clear()
 
-        # Reset restart counts for fresh workers
+        # Reset restart counts and IIC queues for fresh workers
         self._handles.clear()
         self._h3_handles.clear()
+        self._iic_queues.clear()
 
         self._setup_sync_infrastructure()
 
@@ -480,9 +493,10 @@ class Supervisor:
         restart_workers() which has brief downtime.
 
         """
-        if self._mode != "thread":
+        if self._mode not in ("thread", "subinterpreter"):
             logger.warning(
-                "Graceful reload only supported in thread mode. Falling back to restart_workers()."
+                "Graceful reload only supported in thread/subinterpreter mode. "
+                "Falling back to restart_workers()."
             )
             self.restart_workers()
             return
@@ -502,8 +516,9 @@ class Supervisor:
         """Internal implementation of graceful_reload (no lock)."""
         dispatch(RELOAD_START)
 
-        # Reimport the app to pick up code changes (thread mode only)
-        if self._app_path:
+        # Reimport the app to pick up code changes (thread mode only —
+        # subinterpreters reimport fresh on spawn, so skip the main-interpreter reload)
+        if self._app_path and self._mode != "subinterpreter":
             try:
                 from pounce._importer import reimport_app
 
@@ -515,6 +530,7 @@ class Supervisor:
 
         # Keep track of old workers
         old_handles = list(self._handles)
+        old_iic_queues = list(self._iic_queues)
         old_generation = self._generation
 
         # Increment generation for new workers
@@ -527,60 +543,108 @@ class Supervisor:
             self._generation,
         )
         new_handles: list[_WorkerHandle] = []
-        for i in range(self._effective_workers):
-            worker = self._create_worker(
-                worker_id=i + self._effective_workers,
-                socket_index=i,
-            )
+        new_iic_queues: list[tuple[Any, Any]] = []
 
-            target = threading.Thread(
-                target=worker.run,
-                name=f"pounce-worker-gen{self._generation}-{i}",
-                daemon=True,
-            )
-            target.start()
+        if self._mode == "subinterpreter":
+            # Clear current lists so _spawn_subinterpreter_worker appends new ones
+            self._handles = []
+            self._iic_queues = []
+            for i in range(self._effective_workers):
+                self._spawn_subinterpreter_worker(i + self._effective_workers)
+            new_handles = list(self._handles)
+            new_iic_queues = list(self._iic_queues)
+        else:
+            for i in range(self._effective_workers):
+                worker = self._create_worker(
+                    worker_id=i + self._effective_workers,
+                    socket_index=i,
+                )
 
-            handle = _WorkerHandle(
-                worker_id=i + self._effective_workers,
-                target=target,
-                worker=worker,
-                generation=self._generation,
-            )
-            new_handles.append(handle)
+                target = threading.Thread(
+                    target=worker.run,
+                    name=f"pounce-worker-gen{self._generation}-{i}",
+                    daemon=True,
+                )
+                target.start()
+
+                handle = _WorkerHandle(
+                    worker_id=i + self._effective_workers,
+                    target=target,
+                    worker=worker,
+                    generation=self._generation,
+                )
+                new_handles.append(handle)
 
         logger.info("New workers spawned. Draining old workers (generation %d)...", old_generation)
 
         # Mark old workers for draining
-        for handle in old_handles:
-            if handle.worker is not None:
-                handle.worker.start_draining()
+        if self._mode == "subinterpreter":
+            # Send drain command via IIC
+            for ctrl_queue, _status_queue in old_iic_queues:
+                with contextlib.suppress(Exception):
+                    ctrl_queue.put(("drain",))
+        else:
+            for handle in old_handles:
+                if handle.worker is not None:
+                    handle.worker.start_draining()
 
         # Wait for old workers to finish existing connections
         reload_timeout = self._config.reload_timeout
         deadline = time.monotonic() + reload_timeout
 
-        for handle in old_handles:
-            if handle.worker is None:
-                continue
-
-            # Poll until worker is idle or timeout
-            while time.monotonic() < deadline:
-                if handle.worker.is_idle():
-                    logger.info(
-                        "Worker %d (generation %d) is idle", handle.worker_id, handle.generation
+        if self._mode == "subinterpreter":
+            # Poll status queues for idle signals
+            for idx, (_ctrl_queue, status_queue) in enumerate(old_iic_queues):
+                old_wid = old_handles[idx].worker_id if idx < len(old_handles) else idx
+                became_idle = False
+                while time.monotonic() < deadline:
+                    msg = _try_iic_get(status_queue)
+                    if msg is not None and msg[0] == "idle":
+                        logger.info(
+                            "Worker %d (generation %d) is idle",
+                            old_wid,
+                            old_generation,
+                        )
+                        became_idle = True
+                        break
+                    time.sleep(0.1)
+                if not became_idle:
+                    logger.warning(
+                        "Worker %d (generation %d) did not become idle after %.1fs "
+                        "— forcing shutdown",
+                        old_wid,
+                        old_generation,
+                        reload_timeout,
                     )
-                    break
-                time.sleep(0.1)  # Poll every 100ms
-            else:
-                # Timeout reached
-                logger.warning(
-                    "Worker %d (generation %d) did not become idle after %.1fs — forcing shutdown",
-                    handle.worker_id,
-                    handle.generation,
-                    reload_timeout,
-                )
+        else:
+            for handle in old_handles:
+                if handle.worker is None:
+                    continue
+                while time.monotonic() < deadline:
+                    if handle.worker.is_idle():
+                        logger.info(
+                            "Worker %d (generation %d) is idle",
+                            handle.worker_id,
+                            handle.generation,
+                        )
+                        break
+                    time.sleep(0.1)
+                else:
+                    logger.warning(
+                        "Worker %d (generation %d) did not become idle after %.1fs "
+                        "— forcing shutdown",
+                        handle.worker_id,
+                        handle.generation,
+                        reload_timeout,
+                    )
 
         # Join old workers — ``shutdown_timeout`` per worker (parallel joins).
+        # For subinterpreter workers that were drained, send shutdown to finish them.
+        if self._mode == "subinterpreter":
+            for ctrl_queue, _status_queue in old_iic_queues:
+                with contextlib.suppress(Exception):
+                    ctrl_queue.put(("shutdown",))
+
         join_per = self._config.shutdown_timeout
         if old_handles:
             _parallel_join_targets([h.target for h in old_handles], join_per)
@@ -590,6 +654,7 @@ class Supervisor:
 
         # Replace handles with new generation
         self._handles = new_handles
+        self._iic_queues = new_iic_queues
 
         dispatch(RELOAD_COMPLETE, workers=len(new_handles), generation=self._generation)
 
@@ -677,6 +742,10 @@ class Supervisor:
 
     def _spawn_worker(self, worker_id: int) -> None:
         """Create and start a single worker."""
+        if self._mode == "subinterpreter":
+            self._spawn_subinterpreter_worker(worker_id)
+            return
+
         worker = self._create_worker(worker_id, socket_index=worker_id)
 
         if self._mode == "thread":
@@ -700,6 +769,101 @@ class Supervisor:
 
         handle = _WorkerHandle(worker_id, target, worker_ref, generation=self._generation)
         # Replace existing handle if this is a restart
+        if worker_id < len(self._handles):
+            self._handles[worker_id] = handle
+        else:
+            self._handles.append(handle)
+
+        dispatch(WORKER_STARTED, worker_id=worker_id, mode=self._mode, generation=self._generation)
+
+    def _spawn_subinterpreter_worker(self, worker_id: int) -> None:
+        """Create and start a worker inside a subinterpreter (PEP 734).
+
+        Each worker runs in a dedicated thread that hosts a subinterpreter.
+        Communication uses IIC queues (tagged tuples) instead of direct
+        method calls or threading.Events.
+
+        The supervisor passes config as JSON, the app as an import path,
+        and the socket as a dup'd file descriptor — all IIC-safe types.
+        """
+        import concurrent.interpreters as ci
+        import os
+
+        if not self._app_path:
+            raise SupervisorError(
+                "Subinterpreter workers require an app import path "
+                "(e.g., 'myapp:app'). Pass app_path to Server or use the CLI."
+            )
+
+        # Create IIC queues for this worker
+        ctrl_queue = ci.create_queue()
+        status_queue = ci.create_queue()
+
+        # Serialize config to JSON (IIC-safe string)
+        config_json = self._config.to_json()
+
+        # Serialize IIC-safe lifespan state keys (skip non-serializable values)
+        lifespan_state_json = _serialize_lifespan_state(self._lifespan_state)
+
+        # Resolve sys.path for the subinterpreter
+        import sys
+
+        parent_sys_path = tuple(
+            os.path.abspath(p) if p == "" else p
+            for p in sys.path
+            if not p.startswith("__editable__")
+        )
+
+        # Dup the socket FD so the subinterpreter gets its own copy
+        sock_fd = os.dup(self._sockets[worker_id % len(self._sockets)].fileno())
+
+        # Create subinterpreter and inject IIC-safe values
+        interp = ci.create()
+        interp.prepare_main(
+            ctrl_queue=ctrl_queue,
+            status_queue=status_queue,
+            config_json=config_json,
+            lifespan_state_json=lifespan_state_json,
+            app_import_path=self._app_path,
+            sock_fd=sock_fd,
+            worker_id=worker_id,
+            parent_sys_path=parent_sys_path,
+        )
+
+        # Bootstrap code: set sys.path first (subinterpreter starts with minimal path),
+        # then import and call the bootstrap function.
+        bootstrap_code = (
+            "import sys\n"
+            "sys.path[:] = list(parent_sys_path)\n"
+            "from pounce._subinterpreter_bootstrap import bootstrap\n"
+            "bootstrap(ctrl_queue, status_queue, config_json, lifespan_state_json,\n"
+            "          app_import_path, sock_fd, worker_id, parent_sys_path)\n"
+        )
+
+        def _run_subinterpreter() -> None:
+            try:
+                interp.exec(bootstrap_code)
+            except Exception:
+                logger.exception("Subinterpreter worker %d failed", worker_id)
+            finally:
+                with contextlib.suppress(Exception):
+                    interp.close()
+
+        target = threading.Thread(
+            target=_run_subinterpreter,
+            name=f"pounce-subinterp-{worker_id}",
+            daemon=True,
+        )
+        target.start()
+
+        # Store IIC queues for later control (drain, shutdown)
+        if worker_id < len(self._iic_queues):
+            self._iic_queues[worker_id] = (ctrl_queue, status_queue)
+        else:
+            self._iic_queues.append((ctrl_queue, status_queue))
+
+        # No direct worker ref — drain control goes through IIC
+        handle = _WorkerHandle(worker_id, target, None, generation=self._generation)
         if worker_id < len(self._handles):
             self._handles[worker_id] = handle
         else:
@@ -904,6 +1068,41 @@ class Supervisor:
         for sig in (signal.SIGINT, signal.SIGTERM):
             with contextlib.suppress(OSError, ValueError):
                 signal.signal(sig, _handle_signal)
+
+
+def _serialize_lifespan_state(state: dict[str, Any]) -> str:
+    """Serialize IIC-safe lifespan state keys to JSON.
+
+    Non-serializable values (DB pools, HTTP clients, etc.) are skipped
+    with a debug log.  The resulting JSON string is passed to each
+    subinterpreter worker via ``prepare_main()``.
+    """
+    import json
+
+    safe: dict[str, Any] = {}
+    for key, val in state.items():
+        try:
+            json.dumps(val)
+            safe[key] = val
+        except (TypeError, ValueError):
+            logger.debug(
+                "Lifespan state key %r is not JSON-serializable — "
+                "skipping for subinterpreter workers (use pounce.worker.startup hook instead)",
+                key,
+            )
+    return json.dumps(safe)
+
+
+def _try_iic_get(queue: object) -> tuple[Any, ...] | None:
+    """Non-blocking get from an IIC queue. Returns None if empty or unbound."""
+    try:
+        msg = queue.get_nowait()  # type: ignore[union-attr]
+        # Guard against UnboundQueueItem (interpreter destroyed before read)
+        if not isinstance(msg, tuple):
+            return None
+        return msg
+    except BaseException:
+        return None
 
 
 def _target_id(target: threading.Thread | multiprocessing.Process) -> str:
