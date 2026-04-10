@@ -166,14 +166,19 @@ def create_h3_send(
             if compressor is not None and request_method == "HEAD":
                 compressor = None
             if compressor is not None:
+                filtered: list[tuple[bytes, bytes]] = []
                 for name, value in headers:
-                    if name == b"content-type" and b"text/event-stream" in value:
+                    nl = name.lower()
+                    if nl == b"content-type" and b"text/event-stream" in value:
                         compressor = None
                         break
-
-            if compressor is not None:
-                headers.append((b"content-encoding", compressor.encoding.encode("ascii")))
-                headers = [(n, v) for n, v in headers if n.lower() != b"content-length"]
+                    if nl == b"content-length":
+                        continue
+                    filtered.append((name, value))
+                else:
+                    # No SSE — use filtered headers with compression
+                    filtered.append((b"content-encoding", compressor.encoding.encode("ascii")))
+                    headers = filtered
 
             if timing is not None:
                 rendered = timing.render_bytes()

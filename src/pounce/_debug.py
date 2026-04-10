@@ -32,6 +32,7 @@ except ImportError:
     _HAS_ROSETTES = False
 
 _SENSITIVE_HEADERS = frozenset({b"authorization", b"cookie", b"token"})
+_SENSITIVE_VAR_NAMES = frozenset({"password", "secret", "token", "api_key", "private_key"})
 
 
 def is_rosettes_available() -> bool:
@@ -69,7 +70,7 @@ def format_exception_html(
     html_parts = [_render_header(exc_type, exc_value, request_method, request_path)]
 
     # Render each frame
-    html_parts.extend([_render_frame(f) for f in frames])
+    html_parts.extend(_render_frame(f) for f in frames)
 
     # Render request details
     if request_headers:
@@ -156,7 +157,6 @@ def _sanitize_locals(local_vars: dict[str, Any]) -> dict[str, str]:
 
     """
     sanitized = {}
-    sensitive_names = {"password", "secret", "token", "api_key", "private_key"}
 
     for name, value in local_vars.items():
         # Skip dunders
@@ -164,7 +164,7 @@ def _sanitize_locals(local_vars: dict[str, Any]) -> dict[str, str]:
             continue
 
         # Redact sensitive variables
-        if any(sensitive in name.lower() for sensitive in sensitive_names):
+        if any(sensitive in name.lower() for sensitive in _SENSITIVE_VAR_NAMES):
             sanitized[name] = "<redacted>"
             continue
 
