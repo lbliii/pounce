@@ -300,9 +300,7 @@ class TestMultipartRangeResponse:
 
     @pytest.fixture
     def range_handler(self, range_dir):
-        return StaticFiles(
-            mounts=[StaticMount(url_path="/files", directory=range_dir)]
-        )
+        return StaticFiles(mounts=[StaticMount(url_path="/files", directory=range_dir)])
 
     def _scope(self, path="/files/alpha.txt", range_header=None):
         scope = {
@@ -373,9 +371,7 @@ class TestMultipartRangeResponse:
         async def mock_send(msg):
             sent.append(msg)
 
-        await range_handler(
-            self._scope(range_header="bytes=0-2,10-12,23-25"), None, mock_send
-        )
+        await range_handler(self._scope(range_header="bytes=0-2,10-12,23-25"), None, mock_send)
 
         assert sent[0]["status"] == 206
         body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")

@@ -41,9 +41,7 @@ class TestFindConfigFile:
 
 class TestLoadPounceToml:
     def test_basic_values(self, tmp_path):
-        (tmp_path / "pounce.toml").write_text(
-            'host = "0.0.0.0"\nport = 9000\nworkers = 4\n'
-        )
+        (tmp_path / "pounce.toml").write_text('host = "0.0.0.0"\nport = 9000\nworkers = 4\n')
         result = load_config_file(tmp_path / "pounce.toml")
         assert result["host"] == "0.0.0.0"
         assert result["port"] == 9000
@@ -59,9 +57,7 @@ class TestLoadPounceToml:
         assert result["access_log"] is False
 
     def test_float_values(self, tmp_path):
-        (tmp_path / "pounce.toml").write_text(
-            "keep_alive_timeout = 30.0\nrequest_timeout = 60.0\n"
-        )
+        (tmp_path / "pounce.toml").write_text("keep_alive_timeout = 30.0\nrequest_timeout = 60.0\n")
         result = load_config_file(tmp_path / "pounce.toml")
         assert result["keep_alive_timeout"] == 30.0
         assert result["request_timeout"] == 60.0
@@ -74,23 +70,17 @@ class TestLoadPounceToml:
         assert result["static_files"] == {"/static": "./public", "/assets": "./dist"}
 
     def test_trusted_hosts_list(self, tmp_path):
-        (tmp_path / "pounce.toml").write_text(
-            'trusted_hosts = ["127.0.0.1", "10.0.0.1"]\n'
-        )
+        (tmp_path / "pounce.toml").write_text('trusted_hosts = ["127.0.0.1", "10.0.0.1"]\n')
         result = load_config_file(tmp_path / "pounce.toml")
         assert result["trusted_hosts"] == frozenset({"127.0.0.1", "10.0.0.1"})
 
     def test_reload_include_list(self, tmp_path):
-        (tmp_path / "pounce.toml").write_text(
-            'reload_include = [".html", ".css"]\n'
-        )
+        (tmp_path / "pounce.toml").write_text('reload_include = [".html", ".css"]\n')
         result = load_config_file(tmp_path / "pounce.toml")
         assert result["reload_include"] == (".html", ".css")
 
     def test_reload_dirs_list(self, tmp_path):
-        (tmp_path / "pounce.toml").write_text(
-            'reload_dirs = ["src", "templates"]\n'
-        )
+        (tmp_path / "pounce.toml").write_text('reload_dirs = ["src", "templates"]\n')
         result = load_config_file(tmp_path / "pounce.toml")
         assert result["reload_dirs"] == ("src", "templates")
 
@@ -112,24 +102,20 @@ class TestLoadPounceToml:
 
 class TestLoadPyprojectToml:
     def test_reads_tool_pounce_section(self, tmp_path):
-        (tmp_path / "pyproject.toml").write_text(
-            '[tool.pounce]\nhost = "0.0.0.0"\nport = 9000\n'
-        )
+        (tmp_path / "pyproject.toml").write_text('[tool.pounce]\nhost = "0.0.0.0"\nport = 9000\n')
         result = load_config_file(tmp_path / "pyproject.toml")
         assert result["host"] == "0.0.0.0"
         assert result["port"] == 9000
 
     def test_ignores_other_tool_sections(self, tmp_path):
         (tmp_path / "pyproject.toml").write_text(
-            '[tool.ruff]\nline-length = 100\n\n[tool.pounce]\nport = 3000\n'
+            "[tool.ruff]\nline-length = 100\n\n[tool.pounce]\nport = 3000\n"
         )
         result = load_config_file(tmp_path / "pyproject.toml")
         assert result == {"port": 3000}
 
     def test_missing_tool_pounce_section(self, tmp_path):
-        (tmp_path / "pyproject.toml").write_text(
-            '[tool.ruff]\nline-length = 100\n'
-        )
+        (tmp_path / "pyproject.toml").write_text("[tool.ruff]\nline-length = 100\n")
         result = load_config_file(tmp_path / "pyproject.toml")
         assert result == {}
 
@@ -139,9 +125,7 @@ class TestLoadPyprojectToml:
         assert result == {}
 
     def test_unknown_key_in_pyproject_raises(self, tmp_path):
-        (tmp_path / "pyproject.toml").write_text(
-            '[tool.pounce]\nnope = true\n'
-        )
+        (tmp_path / "pyproject.toml").write_text("[tool.pounce]\nnope = true\n")
         with pytest.raises(ValueError, match=r"Unknown keys.*nope"):
             load_config_file(tmp_path / "pyproject.toml")
 

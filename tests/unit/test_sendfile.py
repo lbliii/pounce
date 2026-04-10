@@ -227,9 +227,7 @@ class TestStaticFilesSendfile:
 
     @pytest.fixture
     def handler(self, static_dir):
-        return StaticFiles(
-            mounts=[StaticMount(url_path="/static", directory=static_dir)]
-        )
+        return StaticFiles(mounts=[StaticMount(url_path="/static", directory=static_dir)])
 
     def _scope(self, path="/static/hello.txt", method="GET", *, sendfile_fn=None):
         scope = {

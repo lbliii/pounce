@@ -48,9 +48,7 @@ async def _scope_inspector_app(scope: Scope, receive: Receive, send: Send) -> No
             serializable[key] = [[h[0].decode("latin-1"), h[1].decode("latin-1")] for h in value]
         elif key == "extensions":
             # Extensions may contain callables (e.g. pounce.sendfile) — skip them
-            serializable[key] = {
-                k: v for k, v in value.items() if not callable(v)
-            }
+            serializable[key] = {k: v for k, v in value.items() if not callable(v)}
         elif isinstance(value, bytes):
             serializable[key] = value.decode("latin-1")
         elif isinstance(value, tuple):

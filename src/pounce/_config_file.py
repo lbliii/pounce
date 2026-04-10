@@ -40,15 +40,17 @@ from pounce.config import ServerConfig
 logger = logging.getLogger("pounce.config")
 
 # Fields that cannot be set via TOML (callables, complex objects, internal).
-_EXCLUDED_FIELDS = frozenset({
-    "access_log_filter",
-    "display",
-    "middleware",
-    "trusted_hosts_wildcard",  # derived from trusted_hosts
-    "_VALID_LOG_LEVELS",
-    "_VALID_LOG_FORMATS",
-    "_VALID_WORKER_MODES",
-})
+_EXCLUDED_FIELDS = frozenset(
+    {
+        "access_log_filter",
+        "display",
+        "middleware",
+        "trusted_hosts_wildcard",  # derived from trusted_hosts
+        "_VALID_LOG_LEVELS",
+        "_VALID_LOG_FORMATS",
+        "_VALID_WORKER_MODES",
+    }
+)
 
 # All valid TOML keys (ServerConfig field names minus excluded).
 _VALID_KEYS = frozenset(
