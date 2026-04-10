@@ -316,17 +316,14 @@ class TestSubinterpreterWorker:
                 try:
                     status, _ = _http_get("127.0.0.1", port)
                     return status
-                except (ConnectionError, TimeoutError, OSError):
+                except ConnectionError, TimeoutError, OSError:
                     return -1
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
                 futures = [pool.submit(send_request, i) for i in range(5)]
                 time.sleep(0.1)
                 supervisor.shutdown()
-                results = [
-                    f.result()
-                    for f in concurrent.futures.as_completed(futures, timeout=5)
-                ]
+                results = [f.result() for f in concurrent.futures.as_completed(futures, timeout=5)]
 
             successes = [r for r in results if r == 200]
             assert len(successes) >= 1, f"Expected at least 1 success, got {results}"

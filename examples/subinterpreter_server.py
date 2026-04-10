@@ -57,10 +57,12 @@ async def app(scope: Scope, receive: Receive, send: Send) -> None:
     # maintains its own _request_count)
     import json
 
-    body = json.dumps({
-        "message": "Hello from subinterpreter worker!",
-        "requests_in_this_worker": count,
-    }).encode()
+    body = json.dumps(
+        {
+            "message": "Hello from subinterpreter worker!",
+            "requests_in_this_worker": count,
+        }
+    ).encode()
 
     await send(
         {

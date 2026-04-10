@@ -14,14 +14,16 @@ from pounce._middleware import Middleware
 from pounce.display import DisplayConfig
 
 # Fields excluded from IIC serialization (non-JSON-safe or internal constants)
-_IIC_SKIP_FIELDS: frozenset[str] = frozenset({
-    "access_log_filter",
-    "middleware",
-    "display",
-    "_VALID_LOG_LEVELS",
-    "_VALID_LOG_FORMATS",
-    "_VALID_WORKER_MODES",
-})
+_IIC_SKIP_FIELDS: frozenset[str] = frozenset(
+    {
+        "access_log_filter",
+        "middleware",
+        "display",
+        "_VALID_LOG_LEVELS",
+        "_VALID_LOG_FORMATS",
+        "_VALID_WORKER_MODES",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -40,9 +40,7 @@ from pounce.worker import Worker
 APP_PATH = "examples.hello:app"
 
 
-async def _hello_app(
-    scope: dict[str, Any], receive: Any, send: Any
-) -> None:
+async def _hello_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
     """Minimal ASGI app for benchmarking."""
     if scope["type"] == "lifespan":
         while True:
@@ -110,9 +108,7 @@ def _get_rss_mb() -> float:
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
 
 
-def bench_thread_mode(
-    *, workers: int, requests: int, concurrency: int
-) -> dict[str, Any]:
+def bench_thread_mode(*, workers: int, requests: int, concurrency: int) -> dict[str, Any]:
     """Benchmark thread worker mode."""
     port = _find_free_port()
     config = ServerConfig(
@@ -129,8 +125,11 @@ def bench_thread_mode(
     worker_threads: list[threading.Thread] = []
     for i in range(workers):
         w = Worker(
-            config, _hello_app, sock,
-            worker_id=i, shutdown_event=shutdown_event,
+            config,
+            _hello_app,
+            sock,
+            worker_id=i,
+            shutdown_event=shutdown_event,
         )
         w.set_lifespan_state({})
         t = threading.Thread(target=w.run, daemon=True)
@@ -168,9 +167,7 @@ def bench_thread_mode(
     return _summarize("thread", latencies, errors, elapsed, rss_before, rss_after, workers)
 
 
-def bench_subinterpreter_mode(
-    *, workers: int, requests: int, concurrency: int
-) -> dict[str, Any]:
+def bench_subinterpreter_mode(*, workers: int, requests: int, concurrency: int) -> dict[str, Any]:
     """Benchmark subinterpreter worker mode."""
     if not has_subinterpreters():
         return {"mode": "subinterpreter", "error": "not available"}
@@ -187,7 +184,8 @@ def bench_subinterpreter_mode(
     sockets = create_listeners(config, count=workers, shared=True)
 
     supervisor = Supervisor(
-        config, app=None,
+        config,
+        app=None,
         mode=WorkerMode.SUBINTERPRETER,
         app_path=APP_PATH,
     )
@@ -265,8 +263,15 @@ def _print_results(results: list[dict[str, Any]]) -> None:
     print("=" * 72)
 
     headers = [
-        "Mode", "Workers", "Reqs", "Errors", "RPS",
-        "Avg(ms)", "P50(ms)", "P99(ms)", "RSS Δ(MB)",
+        "Mode",
+        "Workers",
+        "Reqs",
+        "Errors",
+        "RPS",
+        "Avg(ms)",
+        "P50(ms)",
+        "P99(ms)",
+        "RSS Δ(MB)",
     ]
     print(f"{'  '.join(f'{h:>9}' for h in headers)}")
     print("-" * 72)
@@ -288,25 +293,37 @@ def _print_results(results: list[dict[str, Any]]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark pounce worker modes")
     parser.add_argument("--requests", type=int, default=500, help="Total requests (default: 500)")
-    parser.add_argument("--concurrency", type=int, default=10, help="Concurrent connections (default: 10)")
+    parser.add_argument(
+        "--concurrency", type=int, default=10, help="Concurrent connections (default: 10)"
+    )
     parser.add_argument("--workers", type=int, default=2, help="Worker count (default: 2)")
     args = parser.parse_args()
 
-    print(f"Benchmarking: {args.requests} requests, {args.concurrency} concurrent, {args.workers} workers")
+    print(
+        f"Benchmarking: {args.requests} requests, {args.concurrency} concurrent, {args.workers} workers"
+    )
     print(f"Python: {os.sys.version}")
     print(f"Subinterpreters available: {has_subinterpreters()}")
 
     results = []
 
     print("\n→ Thread mode...")
-    results.append(bench_thread_mode(
-        workers=args.workers, requests=args.requests, concurrency=args.concurrency,
-    ))
+    results.append(
+        bench_thread_mode(
+            workers=args.workers,
+            requests=args.requests,
+            concurrency=args.concurrency,
+        )
+    )
 
     print("→ Subinterpreter mode...")
-    results.append(bench_subinterpreter_mode(
-        workers=args.workers, requests=args.requests, concurrency=args.concurrency,
-    ))
+    results.append(
+        bench_subinterpreter_mode(
+            workers=args.workers,
+            requests=args.requests,
+            concurrency=args.concurrency,
+        )
+    )
 
     _print_results(results)
 

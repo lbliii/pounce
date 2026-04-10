@@ -95,9 +95,7 @@ def bootstrap(
         from pounce.worker import Worker
 
         per_worker_max = (
-            config.max_connections // config.resolve_workers()
-            if config.max_connections > 0
-            else 0
+            config.max_connections // config.resolve_workers() if config.max_connections > 0 else 0
         )
 
         worker = Worker(
@@ -170,9 +168,7 @@ async def _run_worker_with_iic(
     status_queue.put((STATUS_SERVING,))
 
     # IIC bridge task — polls ctrl_queue and signals worker shutdown
-    bridge_task = asyncio.create_task(
-        _iic_bridge(worker, ctrl_queue, status_queue)
-    )
+    bridge_task = asyncio.create_task(_iic_bridge(worker, ctrl_queue, status_queue))
 
     try:
         await worker._async_shutdown.wait()
@@ -192,7 +188,7 @@ async def _run_worker_with_iic(
         try:
             server.close()
             await server.wait_closed()
-        except (ValueError, OSError):
+        except ValueError, OSError:
             pass  # FD already closed
 
         # Per-worker shutdown hook

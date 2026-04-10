@@ -1084,7 +1084,7 @@ def _serialize_lifespan_state(state: dict[str, Any]) -> str:
         try:
             json.dumps(val)
             safe[key] = val
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             logger.debug(
                 "Lifespan state key %r is not JSON-serializable — "
                 "skipping for subinterpreter workers (use pounce.worker.startup hook instead)",
@@ -1093,7 +1093,7 @@ def _serialize_lifespan_state(state: dict[str, Any]) -> str:
     return json.dumps(safe)
 
 
-def _try_iic_get(queue: object) -> tuple[Any, ...] | None:
+def _try_iic_get(queue: Any) -> tuple[Any, ...] | None:
     """Non-blocking get from an IIC queue. Returns None if empty or unbound."""
     try:
         msg = queue.get_nowait()  # type: ignore[union-attr]
