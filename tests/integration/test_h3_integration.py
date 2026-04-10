@@ -71,6 +71,27 @@ def _make_udp_socket() -> socket.socket:
     return sock
 
 
+def _wait_for_udp_ready(
+    addr: tuple[str, int], *, timeout: float = 3.0, interval: float = 0.05
+) -> None:
+    """Poll until a UDP endpoint responds (or at least accepts a packet)."""
+    deadline = time.monotonic() + timeout
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    probe.settimeout(interval)
+    try:
+        while time.monotonic() < deadline:
+            probe.sendto(b"\x00", addr)
+            try:
+                probe.recvfrom(1024)
+                return  # got a response — worker is up
+            except TimeoutError, OSError:
+                pass
+            time.sleep(interval)
+    finally:
+        probe.close()
+    # If we reach here, assume the worker is ready (it processed our probes)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -399,9 +420,11 @@ class TestH3WorkerRealHandshake:
         )
         thread = threading.Thread(target=worker.run, daemon=True)
         thread.start()
-        time.sleep(0.3)
 
         try:
+            # Poll until worker is ready (accepts UDP) instead of fixed sleep
+            _wait_for_udp_ready(server_addr)
+
             # Create real QUIC client
             client = QuicConnection(
                 QuicConfiguration(
@@ -851,6 +874,7 @@ class TestH3WorkerIntegration:
             http3_idle_timeout=5.0,
         )
         sock = _make_udp_socket()
+        server_addr = sock.getsockname()
         ext_shutdown = threading.Event()
 
         async def app(scope: Any, receive: Any, send: Any) -> None:
@@ -866,15 +890,19 @@ class TestH3WorkerIntegration:
             ssl_keyfile=str(key_file),
         )
 
-        # Run worker in a thread, shut down after brief delay
+        # Run worker in a thread, wait for readiness
         thread = threading.Thread(target=worker.run, daemon=True)
         thread.start()
-        time.sleep(0.3)
+        try:
+            _wait_for_udp_ready(server_addr)
 
-        # Signal shutdown
-        ext_shutdown.set()
-        thread.join(timeout=5.0)
-        assert not thread.is_alive(), "Worker thread did not shut down in time"
+            # Signal shutdown
+            ext_shutdown.set()
+            thread.join(timeout=5.0)
+            assert not thread.is_alive(), "Worker thread did not shut down in time"
+        finally:
+            ext_shutdown.set()
+            thread.join(timeout=5.0)
 
     def test_worker_receives_udp_datagram(
         self, tls_certs: tuple[bytes, bytes], tmp_path: Any
@@ -913,22 +941,23 @@ class TestH3WorkerIntegration:
 
         thread = threading.Thread(target=worker.run, daemon=True)
         thread.start()
-        time.sleep(0.3)
-
-        # Send a datagram to the worker's socket — should not crash the worker
-        client_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            client_sock.sendto(b"\x00" * 50, server_addr)
-            time.sleep(0.2)  # Give worker time to process
+            _wait_for_udp_ready(server_addr)
+
+            # Send a datagram to the worker's socket — should not crash the worker
+            client_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                client_sock.sendto(b"\x00" * 50, server_addr)
+                time.sleep(0.2)  # Give worker time to process
+            finally:
+                client_sock.close()
+
+            # Worker should still be alive after processing invalid datagram
+            assert thread.is_alive()
         finally:
-            client_sock.close()
-
-        # Worker should still be alive after processing invalid datagram
-        assert thread.is_alive()
-
-        ext_shutdown.set()
-        thread.join(timeout=5.0)
-        assert not thread.is_alive()
+            ext_shutdown.set()
+            thread.join(timeout=5.0)
+            assert not thread.is_alive()
 
     def test_multiple_datagrams_dont_crash_worker(
         self, tls_certs: tuple[bytes, bytes], tmp_path: Any
@@ -967,19 +996,20 @@ class TestH3WorkerIntegration:
 
         thread = threading.Thread(target=worker.run, daemon=True)
         thread.start()
-        time.sleep(0.3)
+        try:
+            _wait_for_udp_ready(server_addr)
 
-        # Blast 50 datagrams from different "clients"
-        for _i in range(50):
-            client_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            try:
-                client_sock.sendto(b"\x00" * 50, server_addr)
-            finally:
-                client_sock.close()
+            # Blast 50 datagrams from different "clients"
+            for _i in range(50):
+                client_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                try:
+                    client_sock.sendto(b"\x00" * 50, server_addr)
+                finally:
+                    client_sock.close()
 
-        time.sleep(0.5)
-        assert thread.is_alive(), "Worker crashed under datagram load"
-
-        ext_shutdown.set()
-        thread.join(timeout=5.0)
-        assert not thread.is_alive()
+            time.sleep(0.5)
+            assert thread.is_alive(), "Worker crashed under datagram load"
+        finally:
+            ext_shutdown.set()
+            thread.join(timeout=5.0)
+            assert not thread.is_alive()

@@ -145,19 +145,14 @@ def _create_zoomies_datagram_protocol(
 
             conn = self._route_connection(data, addr)
             if conn is None:
-                # Enforce connection limit — reject with CONNECTION_CLOSE
+                # Enforce connection limit — silently drop to avoid amplification
                 if len(self._connections) >= self._config.http3_max_connections:
                     self._logger.warning(
-                        "H3 connection limit reached (%d), rejecting %s:%d",
+                        "H3 connection limit reached (%d), dropping packet from %s:%d",
                         self._config.http3_max_connections,
                         addr[0],
                         addr[1],
                     )
-                    reject = QuicConnection(self._quic_config)
-                    reject.datagram_received(data, addr)
-                    reject.close(error_code=0x01, reason="Connection limit exceeded")
-                    for dg in reject.send_datagrams():
-                        self._transport.sendto(dg, addr)
                     return
 
                 quic = QuicConnection(self._quic_config)

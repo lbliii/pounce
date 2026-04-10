@@ -71,6 +71,7 @@ class _FakeQuicConnection:
 
     def __init__(self, cids: tuple[bytes, ...] = (b"\x01",)) -> None:
         self._cids = cids
+        self._events: list[Any] = []
         self.close_called = False
         self.close_args: tuple[int, str] | None = None
 
@@ -79,7 +80,9 @@ class _FakeQuicConnection:
         return self._cids
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> list[Any]:
-        return []
+        events = list(self._events)
+        self._events.clear()
+        return events
 
     def send_datagrams(self) -> list[bytes]:
         return []
@@ -990,7 +993,7 @@ class TestRefactoredMethods:
 class TestZeroRttEventHandling:
     """ZeroRttAccepted/ZeroRttRejected events dispatched without error."""
 
-    def test_zero_rtt_accepted_event_logged(self) -> None:
+    def test_zero_rtt_accepted_event_logged(self, caplog: Any) -> None:
         from zoomies.events import ZeroRttAccepted
 
         protocol, _ = _build_protocol()
@@ -999,12 +1002,13 @@ class TestZeroRttEventHandling:
         for cid in conn.quic.our_cids:
             protocol._cid_to_conn[cid] = conn
 
-        # Inject ZeroRttAccepted into the event dispatch
+        # Inject ZeroRttAccepted — fake now returns it from datagram_received
         conn.quic._events = [ZeroRttAccepted()]
-        protocol.datagram_received(b"\x00" * 50, _ADDR_A)
-        # No crash — event was handled (logged at DEBUG)
+        with caplog.at_level(logging.DEBUG):
+            protocol.datagram_received(b"\x00" * 50, _ADDR_A)
+        assert "0-RTT accepted" in caplog.text
 
-    def test_zero_rtt_rejected_event_logged(self) -> None:
+    def test_zero_rtt_rejected_event_logged(self, caplog: Any) -> None:
         from zoomies.events import ZeroRttRejected
 
         protocol, _ = _build_protocol()
@@ -1014,8 +1018,9 @@ class TestZeroRttEventHandling:
             protocol._cid_to_conn[cid] = conn
 
         conn.quic._events = [ZeroRttRejected()]
-        protocol.datagram_received(b"\x00" * 50, _ADDR_A)
-        # No crash — event was handled
+        with caplog.at_level(logging.DEBUG):
+            protocol.datagram_received(b"\x00" * 50, _ADDR_A)
+        assert "0-RTT rejected" in caplog.text
 
 
 class TestZeroRttPolicyWiring:
