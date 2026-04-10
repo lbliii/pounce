@@ -729,6 +729,15 @@ class StaticFiles:
                 }
             )
             await sendfile_fn(path, offset, count)
+            # Signal response completion to the protocol layer so that
+            # h11 transitions to EndOfMessage and keep-alive works.
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"",
+                    "more_body": False,
+                }
+            )
             return
 
         # Fallback: chunked read through ASGI send

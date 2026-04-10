@@ -262,14 +262,18 @@ class TestStaticFilesSendfile:
         assert calls[0][1] == 0
         assert calls[0][2] == 13  # len("Hello, World!")
 
-        # Headers + empty flush frame sent via ASGI, then sendfile wrote body to socket
-        assert len(sent.messages) == 2
+        # Headers, flush frame, then completion frame sent via ASGI
+        assert len(sent.messages) == 3
         assert sent.messages[0]["type"] == "http.response.start"
         assert sent.messages[0]["status"] == 200
         # Empty body frame flushes pending headers in the bridge
         assert sent.messages[1]["type"] == "http.response.body"
         assert sent.messages[1]["body"] == b""
         assert sent.messages[1]["more_body"] is True
+        # Final frame signals response completion for keep-alive
+        assert sent.messages[2]["type"] == "http.response.body"
+        assert sent.messages[2]["body"] == b""
+        assert sent.messages[2]["more_body"] is False
 
     @pytest.mark.asyncio
     async def test_fallback_without_sendfile(self, handler, static_dir):
