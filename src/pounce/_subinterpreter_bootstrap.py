@@ -250,7 +250,11 @@ def _import_app(app_path: str) -> Any:
     if attr.endswith("()"):
         factory_name = attr[:-2]
         factory = getattr(mod, factory_name)
-        return factory()
+        try:
+            return factory()
+        except Exception as exc:
+            msg = f"App factory {module_path}:{factory_name}() raised: {exc}"
+            raise RuntimeError(msg) from exc
 
     return getattr(mod, attr)
 

@@ -275,3 +275,228 @@ class TestIICProtocolConstants:
         assert STATUS_IDLE == "idle"
         assert STATUS_STOPPED == "stopped"
         assert STATUS_ERROR == "error"
+
+
+# ---------------------------------------------------------------------------
+# _try_iic_get (supervisor-side) — UnboundQueueItem guard
+# ---------------------------------------------------------------------------
+
+
+class TestTryIICGet:
+    """Supervisor-side _try_iic_get discards non-tuple messages."""
+
+    def setup_method(self):
+        from pounce.supervisor import _try_iic_get
+
+        self._try_iic_get = _try_iic_get
+
+    def test_returns_valid_tuple(self):
+        q = queue.Queue()
+        q.put(("serving",))
+        assert self._try_iic_get(q) == ("serving",)
+
+    def test_returns_none_on_empty(self):
+        q = queue.Queue()
+        assert self._try_iic_get(q) is None
+
+    def test_discards_non_tuple_unbound_queue_item(self):
+        """When a subinterpreter is destroyed, queued items become
+        UnboundQueueItem objects (not tuples).  _try_iic_get must discard them.
+        """
+
+        class FakeUnboundQueueItem:
+            """Simulates concurrent.interpreters UnboundQueueItem."""
+
+        class MockQueue:
+            def get_nowait(self):
+                return FakeUnboundQueueItem()
+
+        result = self._try_iic_get(MockQueue())
+        assert result is None
+
+    def test_discards_string_message(self):
+        """Non-tuple types (e.g. bare strings) should also be discarded."""
+        q = queue.Queue()
+        q.put("not a tuple")
+        assert self._try_iic_get(q) is None
+
+    def test_returns_none_on_exception(self):
+        class ExplodingQueue:
+            def get_nowait(self):
+                raise RuntimeError("kaboom")
+
+        assert self._try_iic_get(ExplodingQueue()) is None
+
+
+# ---------------------------------------------------------------------------
+# IIC queue backpressure
+# ---------------------------------------------------------------------------
+
+
+class TestIICQueueBackpressure:
+    """Verify IIC queues handle many messages without deadlock or loss."""
+
+    def test_many_status_messages_no_loss(self):
+        """Supervisor reads all messages even if worker sends many before reads."""
+        from pounce.supervisor import _try_iic_get
+
+        q = queue.Queue()
+        messages = [
+            ("started",),
+            ("serving",),
+            ("draining",),
+            ("idle",),
+            ("stopped",),
+        ]
+        for msg in messages:
+            q.put(msg)
+
+        received = []
+        while True:
+            msg = _try_iic_get(q)
+            if msg is None:
+                break
+            received.append(msg)
+
+        assert received == messages
+
+    def test_burst_of_status_messages(self):
+        """Simulate a worker sending 100 status updates before supervisor reads."""
+        from pounce.supervisor import _try_iic_get
+
+        q = queue.Queue()
+        for i in range(100):
+            q.put(("serving", i))
+
+        received = []
+        while True:
+            msg = _try_iic_get(q)
+            if msg is None:
+                break
+            received.append(msg)
+
+        assert len(received) == 100
+        assert received[0] == ("serving", 0)
+        assert received[99] == ("serving", 99)
+
+
+# ---------------------------------------------------------------------------
+# Lifespan state serialization warnings (Sprint 2)
+# ---------------------------------------------------------------------------
+
+
+class TestLifespanStateWarnings:
+    """_serialize_lifespan_state should warn on dropped keys."""
+
+    def setup_method(self):
+        from pounce.supervisor import _serialize_lifespan_state
+
+        self._serialize = _serialize_lifespan_state
+
+    def test_warns_on_non_serializable_key(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="pounce"):
+            self._serialize({"db_pool": object(), "name": "test"})
+
+        assert any("db_pool" in record.message for record in caplog.records)
+        assert any(record.levelno == logging.WARNING for record in caplog.records)
+
+    def test_no_warning_for_all_serializable(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="pounce"):
+            self._serialize({"name": "test", "count": 42})
+
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warning_records) == 0
+
+
+# ---------------------------------------------------------------------------
+# Factory app import error propagation (Sprint 2)
+# ---------------------------------------------------------------------------
+
+
+class TestFactoryImportErrorPropagation:
+    """_import_app wraps factory() exceptions with the factory name."""
+
+    def test_factory_error_includes_name(self):
+        """When factory() raises, the error should include the factory path."""
+        import types
+
+        # Create a fake module with a failing factory
+        mod = types.ModuleType("_test_factory_mod")
+        mod.create_app = lambda: (_ for _ in ()).throw(ValueError("config missing"))
+        import sys
+
+        sys.modules["_test_factory_mod"] = mod
+        try:
+            with pytest.raises(RuntimeError, match=r"create_app.*raised.*config missing"):
+                _import_app("_test_factory_mod:create_app()")
+        finally:
+            del sys.modules["_test_factory_mod"]
+
+    def test_factory_error_preserves_cause(self):
+        """The original exception should be chained as __cause__."""
+        import types
+
+        mod = types.ModuleType("_test_factory_cause")
+        mod.make = lambda: (_ for _ in ()).throw(TypeError("bad type"))
+        import sys
+
+        sys.modules["_test_factory_cause"] = mod
+        try:
+            with pytest.raises(RuntimeError) as exc_info:
+                _import_app("_test_factory_cause:make()")
+            assert isinstance(exc_info.value.__cause__, TypeError)
+        finally:
+            del sys.modules["_test_factory_cause"]
+
+
+# ---------------------------------------------------------------------------
+# Config round-trip fuzz (Sprint 2)
+# ---------------------------------------------------------------------------
+
+
+class TestConfigRoundTripFuzz:
+    """Hypothesis-based fuzzing of config JSON serialization round-trip."""
+
+    @pytest.mark.skipif(
+        not has_subinterpreters(),
+        reason="concurrent.interpreters not available",
+    )
+    def test_config_roundtrip_basic_variations(self):
+        """Various config values survive JSON round-trip."""
+        configs = [
+            ServerConfig(),
+            ServerConfig(debug=True, workers=4, host="0.0.0.0", port=9000),
+            ServerConfig(
+                compression=False,
+                access_log=False,
+                keep_alive_timeout=30.0,
+                request_timeout=120.0,
+                max_request_size=1024 * 1024 * 10,
+            ),
+            ServerConfig(
+                static_files={"/a": "/tmp/a", "/b": "/tmp/b"},
+                trusted_hosts=frozenset(["example.com", "localhost"]),
+            ),
+            ServerConfig(
+                ssl_certfile="/tmp/cert.pem",
+                ssl_keyfile="/tmp/key.pem",
+                worker_mode="subinterpreter",
+            ),
+            ServerConfig(
+                reload=True,
+                reload_include=("*.py", "*.html"),
+                reload_dirs=("src/", "templates/"),
+            ),
+        ]
+
+        for original in configs:
+            json_str = original.to_json()
+            restored = ServerConfig.from_json(json_str)
+            # Compare all IIC-safe fields
+            for key, val in original.to_iic_dict().items():
+                restored_val = restored.to_iic_dict()[key]
+                assert val == restored_val, f"Field {key!r} mismatch: {val!r} != {restored_val!r}"
