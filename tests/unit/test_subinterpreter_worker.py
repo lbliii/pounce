@@ -499,6 +499,4 @@ class TestConfigRoundTripFuzz:
             # Compare all IIC-safe fields
             for key, val in original.to_iic_dict().items():
                 restored_val = restored.to_iic_dict()[key]
-                assert val == restored_val, (
-                    f"Field {key!r} mismatch: {val!r} != {restored_val!r}"
-                )
+                assert val == restored_val, f"Field {key!r} mismatch: {val!r} != {restored_val!r}"
