@@ -817,18 +817,22 @@ class Supervisor:
         # Dup the socket FD so the subinterpreter gets its own copy
         sock_fd = os.dup(self._sockets[worker_id % len(self._sockets)].fileno())
 
-        # Create subinterpreter and inject IIC-safe values
-        interp = ci.create()
-        interp.prepare_main(
-            ctrl_queue=ctrl_queue,
-            status_queue=status_queue,
-            config_json=config_json,
-            lifespan_state_json=lifespan_state_json,
-            app_import_path=self._app_path,
-            sock_fd=sock_fd,
-            worker_id=worker_id,
-            parent_sys_path=parent_sys_path,
-        )
+        try:
+            # Create subinterpreter and inject IIC-safe values
+            interp = ci.create()
+            interp.prepare_main(
+                ctrl_queue=ctrl_queue,
+                status_queue=status_queue,
+                config_json=config_json,
+                lifespan_state_json=lifespan_state_json,
+                app_import_path=self._app_path,
+                sock_fd=sock_fd,
+                worker_id=worker_id,
+                parent_sys_path=parent_sys_path,
+            )
+        except Exception:
+            os.close(sock_fd)
+            raise
 
         # Bootstrap code: set sys.path first (subinterpreter starts with minimal path),
         # then import and call the bootstrap function.
@@ -1091,7 +1095,7 @@ def _serialize_lifespan_state(state: dict[str, Any]) -> str:
             json.dumps(val)
             safe[key] = val
         except TypeError, ValueError:
-            logger.debug(
+            logger.warning(
                 "Lifespan state key %r is not JSON-serializable — "
                 "skipping for subinterpreter workers (use pounce.worker.startup hook instead)",
                 key,

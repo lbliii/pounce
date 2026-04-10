@@ -452,6 +452,65 @@ class TestSubinterpreterWorker:
             sup_thread.join(timeout=5.0)
             _close_sockets(sockets)
 
+    def test_memory_isolation(self) -> None:
+        """Module-level globals in one subinterpreter must be invisible to others.
+
+        Uses the subinterpreter_server example which has a per-worker
+        _request_count counter.  With 2 workers, each counter should
+        increment independently — proving memory isolation.
+        """
+        import json
+
+        port = _find_free_port()
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=port,
+            workers=2,
+            worker_mode="subinterpreter",
+            access_log=False,
+        )
+
+        sockets = create_listeners(config, count=2, shared=True)
+
+        supervisor = Supervisor(
+            config,
+            app=None,
+            mode=WorkerMode.SUBINTERPRETER,
+            app_path="examples.subinterpreter_server:app",
+        )
+        supervisor.set_lifespan_state({})
+
+        sup_thread = threading.Thread(
+            target=supervisor.run,
+            args=(sockets,),
+            daemon=True,
+        )
+        sup_thread.start()
+
+        try:
+            time.sleep(1.5)
+
+            # Send enough requests to hit both workers
+            counts: list[int] = []
+            for _ in range(20):
+                status, body = _http_get("127.0.0.1", port)
+                assert status == 200
+                data = json.loads(body)
+                counts.append(data["requests_in_this_worker"])
+
+            # If isolation works, no single counter should equal the total
+            # request count.  Each worker counts independently, so the max
+            # count seen across all responses should be < total requests.
+            assert max(counts) < len(counts), (
+                f"Max per-worker count {max(counts)} equals total {len(counts)} "
+                "— workers may be sharing state"
+            )
+
+        finally:
+            supervisor.shutdown()
+            sup_thread.join(timeout=5.0)
+            _close_sockets(sockets)
+
     def test_reload_timeout_forces_shutdown(self) -> None:
         """Workers that don't drain within reload_timeout get force-closed."""
         port = _find_free_port()
@@ -507,6 +566,179 @@ class TestSubinterpreterWorker:
             # New workers should serve requests
             status, _body = _http_get("127.0.0.1", port)
             assert status == 200
+
+        finally:
+            supervisor.shutdown()
+            sup_thread.join(timeout=5.0)
+            _close_sockets(sockets)
+
+    def test_shutdown_during_reload(self) -> None:
+        """Shutdown arriving mid-reload should complete cleanly without zombies."""
+        port = _find_free_port()
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=port,
+            workers=1,
+            worker_mode="subinterpreter",
+            access_log=False,
+            reload_timeout=10.0,
+        )
+
+        sockets = create_listeners(config, count=1, shared=True)
+
+        supervisor = Supervisor(
+            config,
+            app=None,
+            mode=WorkerMode.SUBINTERPRETER,
+            app_path=APP_PATH,
+        )
+        supervisor.set_lifespan_state({})
+
+        sup_thread = threading.Thread(
+            target=supervisor.run,
+            args=(sockets,),
+            daemon=True,
+        )
+        sup_thread.start()
+
+        try:
+            time.sleep(1.0)
+
+            # Verify serving
+            status, _ = _http_get("127.0.0.1", port)
+            assert status == 200
+
+            # Start reload in background
+            reload_thread = threading.Thread(
+                target=supervisor.graceful_reload,
+                daemon=True,
+            )
+            reload_thread.start()
+
+            # Trigger shutdown while reload is in progress
+            time.sleep(0.3)
+            supervisor.shutdown()
+
+            # Both threads should exit cleanly
+            reload_thread.join(timeout=15.0)
+            sup_thread.join(timeout=10.0)
+
+            assert not sup_thread.is_alive(), "Supervisor did not exit after shutdown during reload"
+
+        finally:
+            if sup_thread.is_alive():
+                supervisor.shutdown()
+                sup_thread.join(timeout=5.0)
+            _close_sockets(sockets)
+
+    def test_rapid_successive_reloads(self) -> None:
+        """Three rapid reloads should leave only the latest generation alive."""
+        port = _find_free_port()
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=port,
+            workers=1,
+            worker_mode="subinterpreter",
+            access_log=False,
+            reload_timeout=5.0,
+        )
+
+        sockets = create_listeners(config, count=1, shared=True)
+
+        supervisor = Supervisor(
+            config,
+            app=None,
+            mode=WorkerMode.SUBINTERPRETER,
+            app_path=APP_PATH,
+        )
+        supervisor.set_lifespan_state({})
+
+        sup_thread = threading.Thread(
+            target=supervisor.run,
+            args=(sockets,),
+            daemon=True,
+        )
+        sup_thread.start()
+
+        try:
+            time.sleep(1.0)
+            status, _ = _http_get("127.0.0.1", port)
+            assert status == 200
+
+            initial_gen = supervisor._generation
+
+            # Fire 3 reloads sequentially (each blocks until complete)
+            for _ in range(3):
+                reload_thread = threading.Thread(
+                    target=supervisor.graceful_reload,
+                    daemon=True,
+                )
+                reload_thread.start()
+                reload_thread.join(timeout=20.0)
+                assert not reload_thread.is_alive(), "Reload did not complete"
+
+            # Generation should have incremented by 3
+            assert supervisor._generation == initial_gen + 3
+
+            # Allow final generation to start serving
+            time.sleep(1.0)
+
+            # New workers should serve
+            status, _body = _http_get("127.0.0.1", port)
+            assert status == 200
+
+        finally:
+            supervisor.shutdown()
+            sup_thread.join(timeout=5.0)
+            _close_sockets(sockets)
+
+    def test_worker_crash_during_drain(self) -> None:
+        """A worker that crashes during drain should be detected by supervisor."""
+        port = _find_free_port()
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=port,
+            workers=1,
+            worker_mode="subinterpreter",
+            access_log=False,
+        )
+
+        sockets = create_listeners(config, count=1, shared=True)
+
+        supervisor = Supervisor(
+            config,
+            app=None,
+            mode=WorkerMode.SUBINTERPRETER,
+            app_path=APP_PATH,
+        )
+        supervisor.set_lifespan_state({})
+
+        sup_thread = threading.Thread(
+            target=supervisor.run,
+            args=(sockets,),
+            daemon=True,
+        )
+        sup_thread.start()
+
+        try:
+            time.sleep(1.0)
+            status, _ = _http_get("127.0.0.1", port)
+            assert status == 200
+
+            # Send drain first, then immediately kill via shutdown
+            assert len(supervisor._iic_queues) >= 1
+            ctrl_queue, _ = supervisor._iic_queues[0]
+            ctrl_queue.put(("drain",))
+            time.sleep(0.1)
+            ctrl_queue.put(("shutdown",))
+
+            # Wait for health monitor to detect and respawn
+            time.sleep(3.0)
+
+            # New worker should be serving
+            status, body = _http_get("127.0.0.1", port)
+            assert status == 200
+            assert b"Hello, World!" in body
 
         finally:
             supervisor.shutdown()
