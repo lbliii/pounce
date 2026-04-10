@@ -361,7 +361,7 @@ class Supervisor:
         if self._mode == "subinterpreter":
             for ctrl_queue, _status_queue in self._iic_queues:
                 with contextlib.suppress(Exception):
-                    ctrl_queue.put(("shutdown",))
+                    ctrl_queue.put(("drain",))
         else:
             for handle in self._handles:
                 if handle.worker is not None:
@@ -550,13 +550,13 @@ class Supervisor:
             self._handles = []
             self._iic_queues = []
             for i in range(self._effective_workers):
-                self._spawn_subinterpreter_worker(i + self._effective_workers)
+                self._spawn_subinterpreter_worker(i)
             new_handles = list(self._handles)
             new_iic_queues = list(self._iic_queues)
         else:
             for i in range(self._effective_workers):
                 worker = self._create_worker(
-                    worker_id=i + self._effective_workers,
+                    worker_id=i,
                     socket_index=i,
                 )
 
@@ -568,7 +568,7 @@ class Supervisor:
                 target.start()
 
                 handle = _WorkerHandle(
-                    worker_id=i + self._effective_workers,
+                    worker_id=i,
                     target=target,
                     worker=worker,
                     generation=self._generation,
@@ -1101,7 +1101,7 @@ def _try_iic_get(queue: Any) -> tuple[Any, ...] | None:
         if not isinstance(msg, tuple):
             return None
         return msg
-    except BaseException:
+    except Exception:
         return None
 
 

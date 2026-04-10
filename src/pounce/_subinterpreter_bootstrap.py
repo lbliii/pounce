@@ -259,7 +259,7 @@ def _try_get(queue: Any) -> tuple[Any, ...] | None:
     """Non-blocking get from an IIC queue. Returns None if empty."""
     try:
         return queue.get_nowait()
-    except BaseException:  # QueueEmpty from _interpqueues
+    except Exception:  # QueueEmpty from _interpqueues
         return None
 
 
