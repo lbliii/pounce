@@ -702,9 +702,7 @@ class Server:
 
         request_queue = RequestQueue(max_depth=self._config.request_queue_max_depth)
         queue_metrics = QueueMetrics()
-        self._app = cast(
-            "ASGIApp", create_queue_wrapper(self._app, request_queue, queue_metrics)
-        )
+        self._app = cast("ASGIApp", create_queue_wrapper(self._app, request_queue, queue_metrics))
         logger.info(
             "Request queueing enabled: max depth %d",
             self._config.request_queue_max_depth

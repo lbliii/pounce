@@ -55,7 +55,10 @@ class ParseError(Exception):
 
 
 def parse_request(
-    buf: memoryview, length: int, *, max_headers: int = 100,
+    buf: memoryview,
+    length: int,
+    *,
+    max_headers: int = 100,
 ) -> tuple[RequestReceived | None, bytes, int, bool]:
     """Parse an HTTP request from a buffer.
 

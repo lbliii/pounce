@@ -52,8 +52,7 @@ def create_tls_context(config: ServerConfig) -> ssl.SSLContext:
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         ctx.options |= ssl.OP_NO_COMPRESSION
         ctx.set_ciphers(
-            "ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20"
-            ":!aNULL:!eNULL:!MD5:!DSS"
+            "ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20:!aNULL:!eNULL:!MD5:!DSS"
         )
 
         # Load certificate chain
