@@ -104,9 +104,7 @@ class _FakeH3Connection:
     ) -> None:
         self.sent_headers.append((stream_id, headers))
 
-    def send_data(
-        self, *, stream_id: int, data: bytes, end_stream: bool = False
-    ) -> None:
+    def send_data(self, *, stream_id: int, data: bytes, end_stream: bool = False) -> None:
         self.sent_data.append((stream_id, data, end_stream))
 
 
@@ -179,16 +177,16 @@ class TestRouteConnection:
 
     def test_route_by_addr(self) -> None:
         protocol, _ = _build_protocol()
-        conn = _make_connection(cids=(b"\xAA",), addr=_ADDR_A)
+        conn = _make_connection(cids=(b"\xaa",), addr=_ADDR_A)
         protocol._connections[_ADDR_A] = conn
         result = protocol._route_connection(b"\x00" * 20, _ADDR_A)
         assert result is conn
 
     def test_route_by_cid(self) -> None:
         protocol, _ = _build_protocol()
-        conn = _make_connection(cids=(b"\xBB",), addr=_ADDR_A)
+        conn = _make_connection(cids=(b"\xbb",), addr=_ADDR_A)
         protocol._connections[_ADDR_A] = conn
-        protocol._cid_to_conn[b"\xBB"] = conn
+        protocol._cid_to_conn[b"\xbb"] = conn
         # Route via CID even from a different address (connection migration)
         result = protocol._route_connection(b"\x00" * 20, _ADDR_B)
         # Falls through CID lookup (pull_destination_cid_for_routing depends
@@ -590,9 +588,7 @@ class TestConnectionLimitEnforcement:
 
     def test_after_prune_accepts_again(self) -> None:
         """After idle connections are pruned, new ones can be accepted."""
-        protocol, _ = _build_protocol_with_config(
-            http3_max_connections=1, http3_idle_timeout=1.0
-        )
+        protocol, _ = _build_protocol_with_config(http3_max_connections=1, http3_idle_timeout=1.0)
 
         # Add an expired connection
         old_conn = _make_connection(cids=(b"\x01",), addr=_ADDR_A)
@@ -616,9 +612,7 @@ class TestConnectionLimitEnforcement:
 class TestZeroRttRejection:
     """Tests for 0-RTT early data rejection of non-idempotent methods."""
 
-    def _handle_headers_with_0rtt(
-        self, protocol: Any, conn: Any, method: str
-    ) -> None:
+    def _handle_headers_with_0rtt(self, protocol: Any, conn: Any, method: str) -> None:
         """Simulate H3HeadersReceived with is_0rtt=True."""
 
         @dataclass(frozen=True)
@@ -718,9 +712,7 @@ class TestZeroRttRejection:
         # GET should create a stream task, not reject
         assert 0 in conn.stream_tasks
         # No 425 sent
-        assert not any(
-            (b":status", b"425") in hdrs for _, hdrs in conn.h3.sent_headers
-        )
+        assert not any((b":status", b"425") in hdrs for _, hdrs in conn.h3.sent_headers)
         # Let the spawned task complete
         task, _ = conn.stream_tasks[0]
         import contextlib

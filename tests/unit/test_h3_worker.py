@@ -148,9 +148,7 @@ class TestH3WorkerShutdown:
             loop = asyncio.get_running_loop()
             loop.call_later(0.05, ext.set)
 
-            await asyncio.wait_for(
-                worker._bridge_shutdown(ext), timeout=2.0
-            )
+            await asyncio.wait_for(worker._bridge_shutdown(ext), timeout=2.0)
             # Give call_soon a chance to execute
             await asyncio.sleep(0.05)
             assert worker._async_shutdown.is_set()

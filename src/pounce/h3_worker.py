@@ -140,8 +140,9 @@ class H3Worker:
             if bridge_task is not None:
                 bridge_task.cancel()
             # Gracefully close all QUIC connections before closing transport
-            if hasattr(_protocol, "close_all_connections"):
-                _protocol.close_all_connections()
+            _close = getattr(_protocol, "close_all_connections", None)
+            if _close is not None:
+                _close()
             transport.close()
             self._logger.info("H3 worker %d stopped", self._worker_id)
 

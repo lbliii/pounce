@@ -336,7 +336,7 @@ def _create_zoomies_datagram_protocol(
                     if self._transport is not None:
                         for dg in conn.quic.send_datagrams():
                             self._transport.sendto(dg, conn.last_addr)
-                except (OSError, ConnectionError):
+                except OSError, ConnectionError:
                     pass
             self._connections.clear()
             self._cid_to_conn.clear()
@@ -403,7 +403,7 @@ def _create_zoomies_datagram_protocol(
                     end_stream=True,
                 )
                 self._flush(conn, addr)
-            except (OSError, ConnectionError):
+            except OSError, ConnectionError:
                 pass
             if send_state.status == 0:
                 send_state.status = 500
@@ -449,7 +449,8 @@ def _create_zoomies_datagram_protocol(
             if health_path is None or scope["path"] != health_path or scope["method"] != "GET":
                 return False
             h_status, h_headers, h_body = build_health_response(
-                worker_id=0, active_connections=0,
+                worker_id=0,
+                active_connections=0,
             )
             conn.h3.send_headers(
                 stream_id=stream_id,
@@ -497,7 +498,9 @@ def _create_zoomies_datagram_protocol(
             except Exception:
                 self._logger.exception(
                     "ASGI app error on H3 stream %d %s %s",
-                    stream_id, scope["method"], scope["path"],
+                    stream_id,
+                    scope["method"],
+                    scope["path"],
                 )
                 self._send_error_response(conn, stream_id, addr, send_state)
             finally:

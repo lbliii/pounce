@@ -114,10 +114,16 @@ def _build_protocol(
         http3_qpack_max_table_capacity=http3_qpack_max_table_capacity,
     )
     quic_config = QuicConfiguration(
-        certificate=cert_pem, private_key=key_pem, idle_timeout=30.0,
+        certificate=cert_pem,
+        private_key=key_pem,
+        idle_timeout=30.0,
     )
     cls = _create_zoomies_datagram_protocol(
-        app, config, logging.getLogger("test"), ("127.0.0.1", 4433), quic_config,
+        app,
+        config,
+        logging.getLogger("test"),
+        ("127.0.0.1", 4433),
+        quic_config,
     )
     protocol = cls()
     transport = MagicMock(spec=asyncio.DatagramTransport)
@@ -210,7 +216,8 @@ class TestQuicHandshakeIntegration:
 
     @pytest.mark.asyncio
     async def test_loopback_handshake_completes(
-        self, tls_certs: tuple[bytes, bytes],
+        self,
+        tls_certs: tuple[bytes, bytes],
     ) -> None:
         """Full TLS 1.3 handshake via sans-I/O datagram shuttle."""
 
@@ -226,21 +233,26 @@ class TestQuicHandshakeIntegration:
 
     @pytest.mark.asyncio
     async def test_http3_request_response_through_asgi_app(
-        self, tls_certs: tuple[bytes, bytes],
+        self,
+        tls_certs: tuple[bytes, bytes],
     ) -> None:
         """GET /hello through Pounce ASGI app returns 200 with body."""
 
         async def app(scope: Any, receive: Any, send: Any) -> None:
             if scope["type"] == "http":
-                await send({
-                    "type": "http.response.start",
-                    "status": 200,
-                    "headers": [(b"content-type", b"text/plain")],
-                })
-                await send({
-                    "type": "http.response.body",
-                    "body": b"hello-from-pounce",
-                })
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 200,
+                        "headers": [(b"content-type", b"text/plain")],
+                    }
+                )
+                await send(
+                    {
+                        "type": "http.response.body",
+                        "body": b"hello-from-pounce",
+                    }
+                )
 
         from zoomies.events import H3DataReceived, H3HeadersReceived, StreamDataReceived
 
@@ -256,12 +268,16 @@ class TestQuicHandshakeIntegration:
 
         # Send HTTP/3 GET request
         stream_id = 0
-        client_h3.send_headers(stream_id, [
-            (b":method", b"GET"),
-            (b":path", b"/hello"),
-            (b":scheme", b"https"),
-            (b":authority", b"localhost"),
-        ], end_stream=True)
+        client_h3.send_headers(
+            stream_id,
+            [
+                (b":method", b"GET"),
+                (b":path", b"/hello"),
+                (b":scheme", b"https"),
+                (b":authority", b"localhost"),
+            ],
+            end_stream=True,
+        )
 
         _shuttle_to_server(client_quic, protocol, client_addr, now=now)
         await asyncio.sleep(0.2)  # let ASGI app process
@@ -286,7 +302,8 @@ class TestQuicHandshakeIntegration:
 
     @pytest.mark.asyncio
     async def test_connection_limit_with_real_handshakes(
-        self, tls_certs: tuple[bytes, bytes],
+        self,
+        tls_certs: tuple[bytes, bytes],
     ) -> None:
         """First N clients complete handshake; client N+1 is rejected."""
 
@@ -319,7 +336,8 @@ class TestQuicHandshakeIntegration:
 
     @pytest.mark.asyncio
     async def test_graceful_shutdown_after_real_handshake(
-        self, tls_certs: tuple[bytes, bytes],
+        self,
+        tls_certs: tuple[bytes, bytes],
     ) -> None:
         """close_all_connections works after real handshake established."""
 
@@ -341,7 +359,9 @@ class TestH3WorkerRealHandshake:
     """H3Worker with real QUIC client over real UDP sockets."""
 
     def test_worker_completes_real_handshake(
-        self, tls_certs: tuple[bytes, bytes], tmp_path: Any,
+        self,
+        tls_certs: tuple[bytes, bytes],
+        tmp_path: Any,
     ) -> None:
         """QUIC client completes handshake with H3Worker over real UDP."""
         from zoomies.core import QuicConfiguration, QuicConnection
@@ -369,7 +389,10 @@ class TestH3WorkerRealHandshake:
             pass
 
         worker = H3Worker(
-            config, app, sock, worker_id=0,
+            config,
+            app,
+            sock,
+            worker_id=0,
             shutdown_event=ext_shutdown,
             ssl_certfile=str(cert_file),
             ssl_keyfile=str(key_file),
@@ -382,7 +405,9 @@ class TestH3WorkerRealHandshake:
             # Create real QUIC client
             client = QuicConnection(
                 QuicConfiguration(
-                    is_client=True, verify_mode=False, server_name="localhost",
+                    is_client=True,
+                    verify_mode=False,
+                    server_name="localhost",
                 ),
             )
             client.connect()
@@ -413,9 +438,9 @@ class TestH3WorkerRealHandshake:
                     if any(isinstance(e, HandshakeComplete) for e in events):
                         break
 
-                assert any(
-                    isinstance(e, HandshakeComplete) for e in all_events
-                ), f"Handshake did not complete. Events: {[type(e).__name__ for e in all_events]}"
+                assert any(isinstance(e, HandshakeComplete) for e in all_events), (
+                    f"Handshake did not complete. Events: {[type(e).__name__ for e in all_events]}"
+                )
             finally:
                 client_sock.close()
 
@@ -436,24 +461,29 @@ class TestQpackDynamicTable:
 
     @pytest.mark.asyncio
     async def test_dynamic_table_enabled_with_capacity(
-        self, tls_certs: tuple[bytes, bytes],
+        self,
+        tls_certs: tuple[bytes, bytes],
     ) -> None:
         """H3Connection has encoder/decoder when capacity > 0."""
 
         async def app(scope: Any, receive: Any, send: Any) -> None:
             if scope["type"] == "http":
-                await send({
-                    "type": "http.response.start",
-                    "status": 200,
-                    "headers": [
-                        (b"content-type", b"text/plain"),
-                        (b"x-custom-repeated", b"same-value-every-time"),
-                    ],
-                })
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 200,
+                        "headers": [
+                            (b"content-type", b"text/plain"),
+                            (b"x-custom-repeated", b"same-value-every-time"),
+                        ],
+                    }
+                )
                 await send({"type": "http.response.body", "body": b"ok"})
 
         protocol, transport = _build_protocol(
-            tls_certs, app, http3_qpack_max_table_capacity=4096,
+            tls_certs,
+            app,
+            http3_qpack_max_table_capacity=4096,
         )
         client_quic, _client_h3 = _make_client()
 
@@ -484,21 +514,26 @@ class TestQpackDynamicTable:
 
     @pytest.mark.asyncio
     async def test_static_only_with_zero_capacity(
-        self, tls_certs: tuple[bytes, bytes],
+        self,
+        tls_certs: tuple[bytes, bytes],
     ) -> None:
         """With capacity=0, QPACK uses static table only (default behavior)."""
 
         async def app(scope: Any, receive: Any, send: Any) -> None:
             if scope["type"] == "http":
-                await send({
-                    "type": "http.response.start",
-                    "status": 200,
-                    "headers": [(b"content-type", b"text/plain")],
-                })
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 200,
+                        "headers": [(b"content-type", b"text/plain")],
+                    }
+                )
                 await send({"type": "http.response.body", "body": b"ok"})
 
         protocol, transport = _build_protocol(
-            tls_certs, app, http3_qpack_max_table_capacity=0,
+            tls_certs,
+            app,
+            http3_qpack_max_table_capacity=0,
         )
         client_quic, _client_h3 = _make_client()
         client_addr = ("127.0.0.1", 5000)
@@ -570,7 +605,8 @@ class TestProtocolFactoryIntegration:
             access_log=False,
         )
         quic_config = QuicConfiguration(
-            certificate=cert_pem, private_key=key_pem,
+            certificate=cert_pem,
+            private_key=key_pem,
         )
 
         async def app(scope: Any, receive: Any, send: Any) -> None:
@@ -589,9 +625,7 @@ class TestProtocolFactoryIntegration:
         # Protocol should still be functional
         assert protocol._transport is transport
 
-    def test_protocol_handles_many_invalid_datagrams(
-        self, tls_certs: tuple[bytes, bytes]
-    ) -> None:
+    def test_protocol_handles_many_invalid_datagrams(self, tls_certs: tuple[bytes, bytes]) -> None:
         """Protocol survives a burst of invalid datagrams without crashing."""
         from zoomies.core import QuicConfiguration
 
@@ -619,11 +653,11 @@ class TestProtocolFactoryIntegration:
 
         # Fire various malformed payloads — protocol must not crash
         payloads = [
-            b"",                      # empty
-            b"\x00",                  # tiny
-            b"\xff" * 1500,           # max-MTU garbage
+            b"",  # empty
+            b"\x00",  # tiny
+            b"\xff" * 1500,  # max-MTU garbage
             b"\xc0\x00\x00\x01" + b"\x00" * 100,  # long-header-ish
-            b"GET / HTTP/1.1\r\n",    # TCP data on UDP port
+            b"GET / HTTP/1.1\r\n",  # TCP data on UDP port
         ]
         for payload in payloads:
             protocol.datagram_received(payload, ("10.0.0.1", 5000))
@@ -631,9 +665,7 @@ class TestProtocolFactoryIntegration:
         # Protocol still functional
         assert protocol._transport is transport
 
-    def test_graceful_shutdown_with_real_certs(
-        self, tls_certs: tuple[bytes, bytes]
-    ) -> None:
+    def test_graceful_shutdown_with_real_certs(self, tls_certs: tuple[bytes, bytes]) -> None:
         """close_all_connections works with real QuicConnection objects."""
         from zoomies.core import QuicConfiguration
 
@@ -688,9 +720,7 @@ class TestProtocolFactoryIntegration:
 class TestConnectionLimitIntegration:
     """Connection limit enforcement with real QUIC connections."""
 
-    def test_limit_enforced_with_real_connections(
-        self, tls_certs: tuple[bytes, bytes]
-    ) -> None:
+    def test_limit_enforced_with_real_connections(self, tls_certs: tuple[bytes, bytes]) -> None:
         """http3_max_connections is enforced with real QuicConnection objects."""
         from zoomies.core import QuicConfiguration, QuicConnection
         from zoomies.h3 import H3Connection
@@ -726,7 +756,9 @@ class TestConnectionLimitIntegration:
             addr = ("10.0.0.1", 5000 + i)
             quic = QuicConnection(quic_config)
             conn = _ZoomiesConnection(
-                quic=quic, h3=H3Connection(sender=quic), last_addr=addr,
+                quic=quic,
+                h3=H3Connection(sender=quic),
+                last_addr=addr,
             )
             protocol._connections[addr] = conn
 
@@ -738,9 +770,7 @@ class TestConnectionLimitIntegration:
         assert excess_addr not in protocol._connections
         assert len(protocol._connections) == 3
 
-    def test_server_stable_under_excess_connections(
-        self, tls_certs: tuple[bytes, bytes]
-    ) -> None:
+    def test_server_stable_under_excess_connections(self, tls_certs: tuple[bytes, bytes]) -> None:
         """Server stays stable when 2x max_connections attempted."""
         from zoomies.core import QuicConfiguration, QuicConnection
         from zoomies.h3 import H3Connection
@@ -776,7 +806,9 @@ class TestConnectionLimitIntegration:
             addr = ("10.0.0.1", 5000 + i)
             quic = QuicConnection(quic_config)
             conn = _ZoomiesConnection(
-                quic=quic, h3=H3Connection(sender=quic), last_addr=addr,
+                quic=quic,
+                h3=H3Connection(sender=quic),
+                last_addr=addr,
             )
             protocol._connections[addr] = conn
 
