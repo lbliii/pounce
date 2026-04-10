@@ -43,6 +43,7 @@ from pounce._request_pipeline import (
     negotiate_compressor,
     prepare_request,
 )
+from pounce._sendfile import can_use_sendfile, create_sendfile_callable
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp, Receive, Send
 from pounce._ws_handler import handle_websocket
@@ -722,6 +723,11 @@ class Worker:
         scope, request_id = prepare_request(
             request, self._config, client, server, self._lifespan_state
         )
+
+        # Inject zero-copy sendfile extension for static file serving.
+        # Only available on non-TLS connections (SSL wraps the socket).
+        if can_use_sendfile(writer):
+            scope.setdefault("extensions", {})["pounce.sendfile"] = create_sendfile_callable(writer)
 
         # Built-in health check — respond before ASGI dispatch.
         # Skips access log to reduce noise from k8s/load balancer probes.

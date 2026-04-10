@@ -16,12 +16,18 @@ Example:
 
 """
 
+from __future__ import annotations
+
 import mimetypes
 import os
+import secrets
 import stat as stat_mod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pounce._sendfile import SendfileCallable
 
 from pounce._types import ASGIApp, Receive, Send
 
@@ -178,6 +184,9 @@ class StaticFiles:
             elif lower_name == b"accept-encoding":
                 accept_encoding = hdr_value
 
+        # Check for zero-copy sendfile extension
+        sendfile_fn = scope.get("extensions", {}).get("pounce.sendfile")
+
         # Try to resolve to static file
         file = self._resolve_file(path, accept_encoding)
         if file is None:
@@ -210,11 +219,11 @@ class StaticFiles:
         if range_header and method == "GET":
             ranges = self._parse_range_header(range_header.decode("latin1"), file.size)
             if ranges is not None:
-                await self._send_206(file, ranges, send)
+                await self._send_206(file, ranges, send, sendfile_fn=sendfile_fn)
                 return
 
         # Send full file
-        await self._send_file(file, method, send)
+        await self._send_file(file, method, send, sendfile_fn=sendfile_fn)
 
     def _resolve_file(self, url_path: str, accept_encoding: bytes | None) -> StaticFile | None:
         """Resolve URL path to static file.
@@ -497,18 +506,35 @@ class StaticFiles:
             }
         )
 
-    async def _send_206(self, file: StaticFile, ranges: list[tuple[int, int]], send: Send) -> None:
-        """Send 206 Partial Content response.
+    async def _send_206(
+        self,
+        file: StaticFile,
+        ranges: list[tuple[int, int]],
+        send: Send,
+        *,
+        sendfile_fn: SendfileCallable | None = None,
+    ) -> None:
+        """Send 206 Partial Content response (RFC 7233).
 
-        Currently supports single range only (multipart ranges not implemented).
+        Single range: Content-Range header with the range body.
+        Multiple ranges: multipart/byteranges body with MIME boundary.
 
         """
-        if len(ranges) != 1:
-            # Multipart ranges not supported yet, send full file instead
-            await self._send_file(file, "GET", send)
-            return
+        if len(ranges) == 1:
+            await self._send_206_single(file, ranges[0], send, sendfile_fn=sendfile_fn)
+        else:
+            await self._send_206_multipart(file, ranges, send)
 
-        start, end = ranges[0]
+    async def _send_206_single(
+        self,
+        file: StaticFile,
+        range_pair: tuple[int, int],
+        send: Send,
+        *,
+        sendfile_fn: SendfileCallable | None = None,
+    ) -> None:
+        """Send a single-range 206 response."""
+        start, end = range_pair
         content_length = end - start + 1
 
         headers = [
@@ -531,10 +557,113 @@ class StaticFiles:
             }
         )
 
-        # Send file chunk
-        await self._send_file_range(file.path, start, content_length, send)
+        await self._send_file_range(file.path, start, content_length, send, sendfile_fn=sendfile_fn)
 
-    async def _send_file(self, file: StaticFile, method: str, send: Send) -> None:
+    async def _send_206_multipart(
+        self,
+        file: StaticFile,
+        ranges: list[tuple[int, int]],
+        send: Send,
+    ) -> None:
+        """Send a multipart/byteranges 206 response (RFC 7233 §4.1).
+
+        Each part has its own Content-Type and Content-Range headers,
+        separated by a MIME boundary. Sendfile is not used here because
+        the part headers must be interleaved with file data.
+
+        """
+        boundary = secrets.token_hex(16)
+        boundary_bytes = boundary.encode("ascii")
+        mime_type_bytes = file.mime_type.encode("latin1")
+
+        # Pre-build all parts to compute total Content-Length
+        parts: list[tuple[bytes, int, int]] = []  # (part_header, start, count)
+        for start, end in ranges:
+            count = end - start + 1
+            part_header = (
+                b"--" + boundary_bytes + b"\r\n"
+                b"Content-Type: " + mime_type_bytes + b"\r\n"
+                b"Content-Range: bytes "
+                + f"{start}-{end}/{file.size}".encode("ascii")
+                + b"\r\n\r\n"
+            )
+            parts.append((part_header, start, count))
+
+        closing = b"\r\n--" + boundary_bytes + b"--\r\n"
+
+        total_length = sum(len(ph) + count for ph, _, count in parts)
+        # Add \r\n between parts (before each part except the first)
+        total_length += 2 * (len(parts) - 1)
+        total_length += len(closing)
+
+        headers = [
+            (
+                b"content-type",
+                f"multipart/byteranges; boundary={boundary}".encode("latin1"),
+            ),
+            (b"content-length", str(total_length).encode("latin1")),
+            (b"accept-ranges", b"bytes"),
+            (b"etag", file.etag.encode("latin1")),
+            (b"cache-control", b"public, max-age=3600"),
+        ]
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 206,
+                "headers": headers,
+            }
+        )
+
+        # Stream each part
+        chunk_size = 65536
+        for i, (part_header, start, count) in enumerate(parts):
+            # CRLF separator between parts (not before the first)
+            if i > 0:
+                part_header = b"\r\n" + part_header
+
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": part_header,
+                    "more_body": True,
+                }
+            )
+
+            # Stream file data for this range
+            with file.path.open("rb") as f:
+                f.seek(start)
+                remaining = count
+                while remaining > 0:
+                    chunk = f.read(min(chunk_size, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    await send(
+                        {
+                            "type": "http.response.body",
+                            "body": chunk,
+                            "more_body": True,
+                        }
+                    )
+
+        # Final boundary
+        await send(
+            {
+                "type": "http.response.body",
+                "body": closing,
+                "more_body": False,
+            }
+        )
+
+    async def _send_file(
+        self,
+        file: StaticFile,
+        method: str,
+        send: Send,
+        *,
+        sendfile_fn: SendfileCallable | None = None,
+    ) -> None:
         """Send full file response (200 OK)."""
         headers = [
             (b"content-type", file.mime_type.encode("latin1")),
@@ -566,14 +695,52 @@ class StaticFiles:
             return
 
         # Send file body
-        await self._send_file_body(file.path, 0, file.size, send)
+        await self._send_file_body(file.path, 0, file.size, send, sendfile_fn=sendfile_fn)
 
-    async def _send_file_body(self, path: Path, offset: int, count: int, send: Send) -> None:
-        """Send file body using chunked reads.
+    async def _send_file_body(
+        self,
+        path: Path,
+        offset: int,
+        count: int,
+        send: Send,
+        *,
+        sendfile_fn: SendfileCallable | None = None,
+    ) -> None:
+        """Send file body, using zero-copy sendfile when available.
 
-        TODO: Optimize with sendfile for zero-copy transfer.
+        When sendfile_fn is provided (non-TLS connections on supported platforms),
+        the file data is transferred directly from the filesystem to the socket
+        via os.sendfile(), bypassing Python memory entirely. An empty ASGI body
+        frame is sent afterwards to signal response completion.
+
+        Falls back to chunked reads through ASGI send otherwise.
 
         """
+        if sendfile_fn is not None:
+            # Zero-copy path: flush response headers to the socket first,
+            # then transfer file data directly via os.sendfile().
+            # The empty body with more_body=True forces the ASGI bridge
+            # to write the buffered response headers to the writer.
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"",
+                    "more_body": True,
+                }
+            )
+            await sendfile_fn(path, offset, count)
+            # Signal response completion to the protocol layer so that
+            # h11 transitions to EndOfMessage and keep-alive works.
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"",
+                    "more_body": False,
+                }
+            )
+            return
+
+        # Fallback: chunked read through ASGI send
         chunk_size = 65536  # 64 KB chunks
 
         with path.open("rb") as f:
@@ -594,9 +761,17 @@ class StaticFiles:
                 )
                 remaining -= len(chunk)
 
-    async def _send_file_range(self, path: Path, start: int, count: int, send: Send) -> None:
+    async def _send_file_range(
+        self,
+        path: Path,
+        start: int,
+        count: int,
+        send: Send,
+        *,
+        sendfile_fn: SendfileCallable | None = None,
+    ) -> None:
         """Send file range (for 206 responses)."""
-        await self._send_file_body(path, start, count, send)
+        await self._send_file_body(path, start, count, send, sendfile_fn=sendfile_fn)
 
 
 def create_static_handler(

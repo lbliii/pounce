@@ -276,6 +276,160 @@ class TestRangeRequests:
         # Start > end
         assert static_handler._parse_range_header("bytes=500-100", 1000) is None
 
+    def test_parse_multiple_ranges(self, static_handler):
+        """Test parsing multiple comma-separated ranges."""
+        ranges = static_handler._parse_range_header("bytes=0-9,20-29", 100)
+
+        assert ranges == [(0, 9), (20, 29)]
+
+    def test_parse_three_ranges(self, static_handler):
+        """Test parsing three ranges."""
+        ranges = static_handler._parse_range_header("bytes=0-4,10-14,90-99", 100)
+
+        assert ranges == [(0, 4), (10, 14), (90, 99)]
+
+
+class TestMultipartRangeResponse:
+    """Tests for multipart/byteranges 206 responses (RFC 7233 §4.1)."""
+
+    @pytest.fixture
+    def range_dir(self, tmp_path):
+        # 26 bytes: "abcdefghijklmnopqrstuvwxyz"
+        (tmp_path / "alpha.txt").write_text("abcdefghijklmnopqrstuvwxyz")
+        return tmp_path
+
+    @pytest.fixture
+    def range_handler(self, range_dir):
+        return StaticFiles(mounts=[StaticMount(url_path="/files", directory=range_dir)])
+
+    def _scope(self, path="/files/alpha.txt", range_header=None):
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": path,
+            "headers": [],
+            "query_string": b"",
+            "root_path": "",
+            "scheme": "http",
+            "server": ("127.0.0.1", 8000),
+        }
+        if range_header:
+            scope["headers"] = [(b"range", range_header.encode("latin1"))]
+        return scope
+
+    @pytest.mark.asyncio
+    async def test_single_range_no_multipart(self, range_handler):
+        """Single range produces simple 206, not multipart."""
+        sent = []
+
+        async def mock_send(msg):
+            sent.append(msg)
+
+        await range_handler(self._scope(range_header="bytes=0-4"), None, mock_send)
+
+        assert sent[0]["status"] == 206
+        ct = dict(sent[0]["headers"]).get(b"content-type")
+        assert ct == b"text/plain"  # Not multipart
+        body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+        assert body == b"abcde"
+
+    @pytest.mark.asyncio
+    async def test_multipart_two_ranges(self, range_handler):
+        """Two ranges produce multipart/byteranges response."""
+        sent = []
+
+        async def mock_send(msg):
+            sent.append(msg)
+
+        await range_handler(self._scope(range_header="bytes=0-4,21-25"), None, mock_send)
+
+        assert sent[0]["status"] == 206
+        headers_dict = dict(sent[0]["headers"])
+        ct = headers_dict[b"content-type"].decode("latin1")
+        assert ct.startswith("multipart/byteranges; boundary=")
+
+        # Extract boundary
+        boundary = ct.split("boundary=")[1]
+
+        # Collect full body
+        body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+        body_str = body.decode("latin1")
+
+        # Verify structure
+        assert f"--{boundary}" in body_str
+        assert f"--{boundary}--" in body_str
+        assert "Content-Range: bytes 0-4/26" in body_str
+        assert "Content-Range: bytes 21-25/26" in body_str
+        assert "abcde" in body_str
+        assert "vwxyz" in body_str
+
+    @pytest.mark.asyncio
+    async def test_multipart_three_ranges(self, range_handler):
+        """Three ranges produce correct multipart body."""
+        sent = []
+
+        async def mock_send(msg):
+            sent.append(msg)
+
+        await range_handler(self._scope(range_header="bytes=0-2,10-12,23-25"), None, mock_send)
+
+        assert sent[0]["status"] == 206
+        body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+        body_str = body.decode("latin1")
+
+        assert "Content-Range: bytes 0-2/26" in body_str
+        assert "Content-Range: bytes 10-12/26" in body_str
+        assert "Content-Range: bytes 23-25/26" in body_str
+        assert "abc" in body_str
+        assert "klm" in body_str
+        assert "xyz" in body_str
+
+    @pytest.mark.asyncio
+    async def test_multipart_content_length_accurate(self, range_handler):
+        """Content-Length matches actual body size."""
+        sent = []
+
+        async def mock_send(msg):
+            sent.append(msg)
+
+        await range_handler(self._scope(range_header="bytes=0-4,21-25"), None, mock_send)
+
+        headers_dict = dict(sent[0]["headers"])
+        declared_length = int(headers_dict[b"content-length"])
+        actual_body = b"".join(
+            m.get("body", b"") for m in sent if m["type"] == "http.response.body"
+        )
+        assert len(actual_body) == declared_length
+
+    @pytest.mark.asyncio
+    async def test_multipart_last_frame_more_body_false(self, range_handler):
+        """Last body frame has more_body=False."""
+        sent = []
+
+        async def mock_send(msg):
+            sent.append(msg)
+
+        await range_handler(self._scope(range_header="bytes=0-4,21-25"), None, mock_send)
+
+        body_frames = [m for m in sent if m["type"] == "http.response.body"]
+        assert body_frames[-1]["more_body"] is False
+        # All preceding body frames should have more_body=True
+        for frame in body_frames[:-1]:
+            assert frame["more_body"] is True
+
+    @pytest.mark.asyncio
+    async def test_multipart_has_etag(self, range_handler):
+        """Multipart response includes ETag header."""
+        sent = []
+
+        async def mock_send(msg):
+            sent.append(msg)
+
+        await range_handler(self._scope(range_header="bytes=0-4,21-25"), None, mock_send)
+
+        headers_dict = dict(sent[0]["headers"])
+        assert b"etag" in headers_dict
+
 
 class TestCreateStaticHandler:
     """Tests for create_static_handler helper."""

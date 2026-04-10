@@ -1,0 +1,1 @@
+Zero-copy ``os.sendfile()`` for static file serving on non-TLS connections, RFC 7233 multipart range requests, and TOML config file support (``pounce.toml`` / ``[tool.pounce]`` in ``pyproject.toml``).

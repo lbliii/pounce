@@ -99,6 +99,7 @@ def _install_branded_help(parser: argparse.ArgumentParser) -> None:
 # Help text for serve arguments (milo doesn't propagate these from annotations).
 _SERVE_HELP = {
     "app": "ASGI application (e.g., 'myapp:app' or 'myapp:create_app()')",
+    "config": "Path to config file (pounce.toml or pyproject.toml); auto-detected if omitted",
     "host": "Bind address",
     "port": "Bind port",
     "workers": "Number of workers; 0 = auto-detect",
@@ -177,6 +178,7 @@ register_bench_command(cli)
 @cli.command("serve", description="Start the ASGI server")
 def serve(
     app: str,
+    config: str | None = None,
     host: str = "127.0.0.1",
     port: int = 8000,
     workers: int = 1,
@@ -218,6 +220,7 @@ def serve(
     try:
         _serve_impl(
             app=app,
+            config=config,
             host=host,
             port=port,
             workers=workers,
@@ -277,6 +280,7 @@ def serve(
 def _serve_impl(
     *,
     app: str,
+    config: str | None,
     host: str,
     port: int,
     workers: int,
@@ -306,33 +310,51 @@ def _serve_impl(
     signage: str | None,
 ) -> None:
     """Inner serve implementation — raises on error, no catching."""
+    from pounce._config_file import load_config_with_overrides
+
     asgi_app = import_app(app)
 
-    config = ServerConfig(
-        host=host,
-        port=port,
-        workers=workers,
-        log_level=log_level,
-        log_format=log_format,
-        root_path=root_path,
-        compression=not no_compression,
-        server_timing=server_timing,
-        access_log=not no_access_log,
-        ssl_certfile=ssl_certfile,
-        ssl_keyfile=ssl_keyfile,
-        http3_enabled=http3,
-        reload=reload,
-        reload_include=parse_extensions(reload_include),
-        reload_dirs=parse_dirs(reload_dir),
-        keep_alive_timeout=keep_alive_timeout,
-        header_timeout=header_timeout,
-        max_requests_per_connection=max_requests_per_connection,
-        shutdown_timeout=shutdown_timeout,
-        uds=uds,
-        health_check_path=health_check_path,
-        worker_mode=worker_mode,
-        cpu_affinity=cpu_affinity,
-    )
+    # Map CLI args to ServerConfig fields, paired with CLI defaults.
+    # Only values that differ from the CLI default are treated as overrides,
+    # so that TOML file values can fill in unset options.
+    parsed_reload_include = parse_extensions(reload_include)
+    parsed_reload_dirs = parse_dirs(reload_dir)
+
+    cli_args_with_defaults: list[tuple[str, object, object]] = [
+        # (config_key, value, cli_default)
+        ("host", host, "127.0.0.1"),
+        ("port", port, 8000),
+        ("workers", workers, 1),
+        ("log_level", log_level, "info"),
+        ("log_format", log_format, "auto"),
+        ("root_path", root_path, ""),
+        ("compression", not no_compression, True),
+        ("server_timing", server_timing, False),
+        ("access_log", not no_access_log, True),
+        ("ssl_certfile", ssl_certfile, None),
+        ("ssl_keyfile", ssl_keyfile, None),
+        ("http3_enabled", http3, False),
+        ("reload", reload, False),
+        ("reload_include", parsed_reload_include, ()),
+        ("reload_dirs", parsed_reload_dirs, ()),
+        ("keep_alive_timeout", keep_alive_timeout, 5.0),
+        ("header_timeout", header_timeout, 10.0),
+        ("max_requests_per_connection", max_requests_per_connection, 0),
+        ("shutdown_timeout", shutdown_timeout, 10.0),
+        ("uds", uds, None),
+        ("health_check_path", health_check_path, None),
+        ("worker_mode", worker_mode, "auto"),
+        ("cpu_affinity", cpu_affinity, False),
+    ]
+
+    cli_overrides: dict[str, object] = {
+        key: value for key, value, default in cli_args_with_defaults if value != default
+    }
+
+    config_path = Path(config) if config else None
+    merged = load_config_with_overrides(cli_overrides, config_path=config_path)
+
+    server_config = ServerConfig(**merged)
 
     cli_display = (
         CliDisplayOverrides(
@@ -345,7 +367,7 @@ def _serve_impl(
         else None
     )
 
-    server = Server(config, asgi_app, app_path=app, cli_display=cli_display)
+    server = Server(server_config, asgi_app, app_path=app, cli_display=cli_display)
     server.run()
 
 
