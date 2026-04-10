@@ -17,6 +17,7 @@ class WorkerMode(StrEnum):
 
     THREAD = "thread"
     PROCESS = "process"
+    SUBINTERPRETER = "subinterpreter"
 
 
 class WorkerExecutionMode(StrEnum):
@@ -35,6 +36,16 @@ def is_gil_enabled() -> bool:
 
     """
     return getattr(sys, "_is_gil_enabled", lambda: True)()
+
+
+def has_subinterpreters() -> bool:
+    """Check whether ``concurrent.interpreters`` is available (Python 3.14+)."""
+    try:
+        import concurrent.interpreters  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
 
 
 def detect_worker_mode() -> WorkerMode:
@@ -62,14 +73,18 @@ def resolve_worker_execution_mode(worker_mode: str) -> WorkerExecutionMode:
     """Resolve the effective worker execution mode.
 
     Args:
-        worker_mode: Config value ("auto", "sync", "async").
+        worker_mode: Config value ("auto", "sync", "async", "subinterpreter").
 
     Returns:
         "sync" on free-threaded builds when worker_mode is "auto" or "sync".
+        "async" for subinterpreter mode (sync workers can't share AsyncPool
+        across interpreter boundaries).
         "async" otherwise (GIL builds or explicit "async").
 
     """
     worker_mode = worker_mode.lower()
+    if worker_mode == "subinterpreter":
+        return WorkerExecutionMode.ASYNC
     if worker_mode == "sync":
         return WorkerExecutionMode.SYNC
     if worker_mode == "async":

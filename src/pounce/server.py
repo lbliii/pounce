@@ -142,6 +142,8 @@ class Server:
 
         effective_workers = self._config.resolve_workers()
         mode = detect_worker_mode()
+        if self._config.worker_mode == "subinterpreter":
+            mode = WorkerMode.SUBINTERPRETER
 
         # Create TLS context if certificate is configured
         if is_tls_configured(self._config):
