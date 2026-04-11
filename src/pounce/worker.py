@@ -284,8 +284,27 @@ class Worker:
             # worker then tries to unregister the same (now-invalid) fd,
             # raising ``ValueError: Invalid file descriptor: -1``.
             try:
-                server.close()
-                await server.wait_closed()
+                server.close()  # Stop accepting new connections
+
+                # Grace period: wait for in-flight connections to complete.
+                # Without a timeout, keep-alive or long-lived connections
+                # (WebSocket, SSE) block wait_closed() indefinitely, preventing
+                # the worker thread from ever exiting.
+                timeout = self._config.shutdown_timeout
+                try:
+                    await asyncio.wait_for(server.wait_closed(), timeout=timeout)
+                except TimeoutError:
+                    self._logger.warning(
+                        "Worker %d: %d connection(s) still open after %.1fs "
+                        "— aborting remaining transports",
+                        self._worker_id,
+                        self._active_connections,
+                        timeout,
+                    )
+                    # Force-close lingering transports so the worker can exit
+                    server.abort_clients()
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(server.wait_closed(), timeout=2.0)
             except ValueError, OSError:
                 pass  # fd already closed by another worker sharing the socket
 
