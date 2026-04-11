@@ -1,0 +1,1 @@
+Fixed worker threads/processes hanging indefinitely on shutdown when keep-alive, WebSocket, or SSE connections were still open. The worker now applies `shutdown_timeout` to `server.wait_closed()` and calls `abort_clients()` to force-close lingering transports.
