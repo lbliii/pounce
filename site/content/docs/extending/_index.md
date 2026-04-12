@@ -1,6 +1,6 @@
 ---
 title: Extending
-description: ASGI bridge internals and custom protocol handlers
+description: ASGI bridge internals and protocol handler interface
 draft: false
 weight: 60
 lang: en
@@ -21,15 +21,7 @@ cascade:
 :::{card} ASGI Bridge
 :icon: link
 :link: ./asgi-bridge
-:description: How Pounce translates protocol events to ASGI interface
-The scope/receive/send bridge layer.
-:::{/card}
-
-:::{card} Custom Protocols
-:icon: code
-:link: ./custom-protocols
-:description: The ProtocolHandler protocol and how to extend it
-Adding custom protocol support.
+:description: Scope/receive/send bridge, security measures, and protocol handler interface
 :::{/card}
 
 :::{/cards}

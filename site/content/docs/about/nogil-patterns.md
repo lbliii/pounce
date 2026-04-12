@@ -1,3 +1,9 @@
+---
+title: Free-Threading Patterns
+description: Ten architectural patterns for building concurrent Python 3.14t applications
+weight: 7
+---
+
 # Free-Threading Patterns for Python 3.14t
 
 ## Lessons from building Pounce
@@ -404,10 +410,6 @@ by multiple threads and must never produce duplicates.
 **In Pounce.** Every accepted connection gets a unique `connection_id` from
 this generator. The ID appears in lifecycle events, access logs, and error
 traces, enabling correlation across threads.
-
-**Future.** Python 3.15+ may provide `atomic_int` or similar primitives from
-the `concurrent` module, eliminating the lock entirely. The pattern is
-designed to be swapped in place when that happens.
 
 **Generalization.** Request IDs, trace IDs, sequence numbers for ordered
 delivery, epoch counters for optimistic concurrency -- any global counter

@@ -1,135 +1,70 @@
 ---
 title: Observability
-description: Health checks, request tracing, and Prometheus metrics
+description: Health checks, request tracing, Prometheus metrics, OpenTelemetry, and Sentry
 draft: false
 weight: 50
 lang: en
 type: doc
-tags: [observability, health-check, metrics, tracing, request-id]
-keywords: [health-check, prometheus, metrics, request-id, tracing, monitoring, kubernetes]
+tags: [observability, health-check, metrics, tracing, opentelemetry, sentry]
+keywords: [health-check, prometheus, metrics, request-id, tracing, opentelemetry, sentry, monitoring]
 category: how-to
 ---
 
-## Overview
+# Observability
 
-Pounce provides three observability primitives out of the box — health checks, request IDs, and Prometheus-compatible metrics — with zero external dependencies.
+Pounce provides five observability layers: health checks, request IDs, Prometheus metrics, OpenTelemetry tracing, and Sentry error tracking.
 
 ## Health Checks
 
-Enable a built-in health endpoint that responds before the ASGI app is invoked:
+Built-in endpoint that responds before the ASGI app is invoked:
 
 ```bash
-pounce myapp:app --health-check-path /health
+pounce serve myapp:app --health-check-path /health
 ```
 
-### Response
+Response:
 
 ```json
-{
-    "status": "ok",
-    "uptime_seconds": 3600.1,
-    "worker_id": 0,
-    "active_connections": 42
-}
+{"status": "ok", "uptime_seconds": 3600.1, "worker_id": 0, "active_connections": 42}
 ```
 
-The response includes `Cache-Control: no-cache, no-store` to prevent caching by intermediaries.
+Characteristics: fast (bypasses ASGI), excluded from access logs, works even if your app is unhealthy, includes `Cache-Control: no-cache`.
 
-### Characteristics
-
-- **Fast** — Responds at the worker level, before ASGI dispatch
-- **Silent** — Excluded from access logs to reduce noise
-- **Independent** — Works even if your ASGI app is unhealthy
-- **Lightweight** — JSON payload with status, uptime, worker ID, and connection count
-
-### Kubernetes Integration
+### Kubernetes
 
 ```yaml
-apiVersion: v1
-kind: Pod
-spec:
-    containers:
-        - name: app
-          livenessProbe:
-              httpGet:
-                  path: /health
-                  port: 8000
-              initialDelaySeconds: 5
-              periodSeconds: 10
-          readinessProbe:
-              httpGet:
-                  path: /health
-                  port: 8000
-              initialDelaySeconds: 2
-              periodSeconds: 5
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 2
+  periodSeconds: 5
 ```
-
-### Load Balancer Integration
-
-Point your load balancer's health check at the configured path. Since health checks bypass the ASGI app, they reflect the server's true availability — not application-level readiness.
 
 ## Request IDs
 
-Every request is assigned a unique identifier for end-to-end tracing.
+Every request gets a unique identifier for end-to-end tracing:
 
-### How It Works
+1. If a trusted proxy sends `X-Request-ID`, pounce uses that value
+2. Otherwise, pounce generates a UUID4 hex string (32 chars, no dashes)
+3. The ID is injected into response headers, `scope["extensions"]["request_id"]`, and access logs
 
-1. If a **trusted proxy** sends `X-Request-ID`, Pounce uses that value
-2. Otherwise, Pounce generates a new UUID4 hex string (32 characters, no dashes)
-3. The ID is injected into:
-   - **Response headers** — `X-Request-ID` on every response
-   - **ASGI scope** — `scope["extensions"]["request_id"]`
-   - **Access logs** — Both text and JSON formats
-
-### Access Log Format
-
-**Text mode:**
-
-```
-127.0.0.1:5000 - "GET / HTTP/1.1" 200 1234 5.2ms [a1b2c3d4e5f6]
-```
-
-The request ID is truncated to 12 characters in text mode for readability.
-
-**JSON mode:**
-
-```json
-{
-    "timestamp": "2026-02-09T12:00:00+00:00",
-    "level": "INFO",
-    "logger": "pounce.access",
-    "method": "GET",
-    "path": "/",
-    "http_version": "1.1",
-    "status": 200,
-    "bytes_sent": 1234,
-    "duration_ms": 5.2,
-    "client": "127.0.0.1:5000",
-    "request_id": "a1b2c3d4e5f67890abcdef1234567890"
-}
-```
-
-### App-Level Access
-
-Your ASGI app can access the request ID from the scope:
+Access your app's request ID:
 
 ```python
 async def app(scope, receive, send):
     request_id = scope.get("extensions", {}).get("request_id")
-    # Use in your own logging, pass to downstream services, etc.
-```
-
-### Nginx Forwarding
-
-To propagate request IDs from nginx, add `X-Request-ID` as a proxy header and configure `trusted_hosts`:
-
-```nginx
-proxy_set_header X-Request-ID $request_id;
 ```
 
 ## Prometheus Metrics
 
-Pounce includes a `PrometheusCollector` that implements the `LifecycleCollector` protocol. It tracks standard HTTP server metrics from lifecycle events with zero external dependencies.
+`PrometheusCollector` implements the `LifecycleCollector` protocol. Thread-safe for free-threading mode.
 
 ### Setup
 
@@ -143,111 +78,136 @@ config = ServerConfig(host="0.0.0.0", workers=4)
 server = Server(config, app, lifecycle_collector=collector)
 ```
 
+Or use the built-in metrics endpoint:
+
+```python
+config = ServerConfig(
+    metrics_enabled=True,
+    metrics_path="/metrics",  # default
+)
+```
+
 ### Metrics
 
 | Metric | Type | Description |
 |---|---|---|
-| `http_requests_total` | Counter | Total requests by status code |
+| `http_requests_total` | Counter | Requests by status code |
 | `http_request_duration_seconds` | Histogram | Request duration distribution |
-| `http_connections_active` | Gauge | Currently open TCP connections |
-| `http_requests_in_flight` | Gauge | Requests currently being processed |
-| `http_bytes_sent_total` | Counter | Total response bytes sent |
+| `http_connections_active` | Gauge | Open TCP connections |
+| `http_requests_in_flight` | Gauge | Requests being processed |
+| `http_bytes_sent_total` | Counter | Total response bytes |
 
-### Export Format
-
-Call `collector.export()` to get Prometheus text exposition format:
-
-```
-# HELP http_requests_total Total HTTP requests.
-# TYPE http_requests_total counter
-http_requests_total{method="unknown",status="200"} 1523
-http_requests_total{method="unknown",status="404"} 12
-
-# HELP http_request_duration_seconds Request duration in seconds.
-# TYPE http_request_duration_seconds histogram
-http_request_duration_seconds_bucket{le="0.005"} 800
-http_request_duration_seconds_bucket{le="0.01"} 1200
-http_request_duration_seconds_bucket{le="0.025"} 1400
-...
-http_request_duration_seconds_bucket{le="+Inf"} 1535
-http_request_duration_seconds_sum 45.678
-http_request_duration_seconds_count 1535
-
-# HELP http_connections_active Active TCP connections.
-# TYPE http_connections_active gauge
-http_connections_active 42
-
-# HELP http_requests_in_flight Requests currently being processed.
-# TYPE http_requests_in_flight gauge
-http_requests_in_flight 3
-
-# HELP http_bytes_sent_total Total bytes sent in responses.
-# TYPE http_bytes_sent_total counter
-http_bytes_sent_total 15234567
-```
-
-### Serving Metrics
-
-Expose a `/metrics` endpoint in your ASGI app:
-
-```python
-from pounce.metrics import PrometheusCollector
-
-collector = PrometheusCollector()
-
-async def app(scope, receive, send):
-    if scope["path"] == "/metrics":
-        body = collector.export().encode()
-        await send({
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [
-                (b"content-type", b"text/plain; version=0.0.4; charset=utf-8"),
-                (b"content-length", str(len(body)).encode()),
-            ],
-        })
-        await send({"type": "http.response.body", "body": body})
-        return
-    # ... rest of your app
-```
-
-### Thread Safety
-
-`PrometheusCollector` uses `threading.Lock` internally — safe for concurrent access from multiple workers in free-threading mode.
-
-### JSON Snapshot
-
-For programmatic access, use `collector.snapshot()`:
+### Programmatic Access
 
 ```python
 data = collector.snapshot()
-# {
-#     "requests_total": {("", "200"): 1523, ("", "404"): 12},
-#     "duration_sum_seconds": 45.678,
-#     "duration_count": 1535,
-#     "connections_active": 42,
-#     "requests_in_flight": 3,
-#     "bytes_sent_total": 15234567,
-# }
+# {"requests_total": {("", "200"): 1523}, "connections_active": 42, ...}
+
+text = collector.export()  # Prometheus text exposition format
 ```
+
+## OpenTelemetry
+
+Native distributed tracing with automatic span creation and W3C Trace Context propagation.
+
+### Setup
+
+```bash
+pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
+```
+
+```python
+config = ServerConfig(
+    otel_endpoint="http://localhost:4318",
+    otel_service_name="my-api",
+)
+```
+
+OTel is disabled by default. Setting `otel_endpoint` enables it.
+
+### What Gets Traced
+
+Every request creates a span named `{METHOD} {path}` with HTTP semantic convention attributes (`http.method`, `http.target`, `http.status_code`, etc.). Incoming `traceparent` headers are parsed to continue distributed traces. Unhandled exceptions are recorded on spans with `ERROR` status.
+
+### Platform Examples
+
+| Platform | Endpoint |
+|---|---|
+| Jaeger | `http://localhost:4318` |
+| Datadog Agent | `http://localhost:4318` |
+| Grafana Tempo | `http://tempo:4318` |
+| Honeycomb | `https://api.honeycomb.io` |
+
+Pounce appends `/v1/traces` automatically.
+
+### Sampling
+
+Spans are batched (default: every 5s or 512 spans). For high-traffic apps, configure OTel SDK sampling:
+
+```python
+from opentelemetry.sdk.trace.sampling import TraceIdRatioBased
+sampler = TraceIdRatioBased(0.1)  # 10%
+```
+
+### Troubleshooting
+
+- **"package not installed"**: `pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http`
+- **Traces not appearing**: Verify collector is running (`curl http://localhost:4318/v1/traces`), check pounce logs
+- **Context not propagating**: Install `opentelemetry-instrumentation-httpx` for automatic HTTP client instrumentation
+
+## Sentry
+
+Automatic error tracking and performance monitoring.
+
+### Setup
+
+```bash
+pip install sentry-sdk
+```
+
+```python
+config = ServerConfig(
+    sentry_dsn="https://key@o0.ingest.sentry.io/0",
+    sentry_environment="production",
+    sentry_release="myapp@1.0.0",
+    sentry_traces_sample_rate=0.1,   # 10% of requests
+    sentry_profiles_sample_rate=0.1,
+)
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `sentry_dsn` | `None` | Sentry DSN (None = disabled) |
+| `sentry_environment` | `None` | Environment name |
+| `sentry_release` | `None` | Release version |
+| `sentry_traces_sample_rate` | `0.1` | Performance sample rate (0.0-1.0) |
+| `sentry_profiles_sample_rate` | `0.1` | Profiling sample rate (0.0-1.0) |
+
+### What Gets Captured
+
+- **Exceptions**: Automatically captured from ASGI apps with full request context (method, path, sanitized headers, client IP)
+- **Performance**: Request duration, database queries, external API calls (at configured sample rate)
+- **Breadcrumbs**: Debug context for error reports
+
+### Sampling Strategy
+
+| Environment | Traces | Profiles |
+|---|---|---|
+| Production (high traffic) | 0.01 (1%) | 0.01 |
+| Staging | 0.5 (50%) | 0.1 |
+| Development | 1.0 (100%) | 0.0 |
+
+### Troubleshooting
+
+- **No events**: Verify DSN, ensure `sentry-sdk` is installed, check pounce logs for init messages
+- **High overhead**: Lower sample rates, disable profiling, filter noisy events with `before_send`
 
 ## Lifecycle Events
 
-All observability features build on Pounce's structured lifecycle event system. Every connection and request emits immutable events:
-
-| Event | When |
-|---|---|
-| `ConnectionOpened` | TCP connection accepted |
-| `RequestStarted` | HTTP request headers parsed |
-| `ResponseCompleted` | Response fully sent |
-| `RequestFailed` | Request handler raised an exception |
-| `ClientDisconnected` | Client disconnected mid-request |
-| `ConnectionClosed` | TCP connection closed |
-
-These events flow to any `LifecycleCollector` — the `PrometheusCollector` is one implementation, but you can write your own for custom metrics, tracing, or event sourcing.
+All observability features build on pounce's structured lifecycle event system. Every connection emits immutable events: `ConnectionOpened`, `RequestStarted`, `ResponseCompleted`, `RequestFailed`, `ClientDisconnected`, `ConnectionClosed`. These flow to any `LifecycleCollector` implementation.
 
 ## See Also
 
-- [[docs/deployment/production|Production]] — Full production deployment guide
-- [[docs/deployment/security|Security]] — Security hardening features
-- [[docs/configuration/server-config|ServerConfig]] — All configuration options
+- [[docs/deployment/production|Production]] -- Full deployment guide
+- [[docs/features/lifecycle-logging|Lifecycle Logging]] -- Structured event logging
+- [[docs/configuration/server-config|ServerConfig]] -- All configuration options

@@ -80,25 +80,9 @@ This appears directly in browser DevTools (Network tab → Timing), enabling zer
 - **SO_REUSEPORT** — Kernel-level load balancing across workers
 - **Graceful shutdown** — In-flight requests complete before workers exit
 
-## Fused Sync Path (Chirp)
-
-When Chirp runs behind Pounce with no middleware, sync handlers that return `dict`, `list`, `str`, or `bytes` use a fused path that bypasses ASGI and the HTTP protocol layer. Pounce uses:
-
-- **Reusable recv buffer** — `recv_into()` with a per-worker `bytearray` to avoid per-request allocations
-- **Scatter-gather send** — `sendmsg([head, body])` when available to avoid concatenating response head and body
-
 ## HTTP Parsing
 
-Pounce uses two HTTP/1.1 parsers:
-
-| Parser | Speed | Used By | Safety |
-|--------|-------|---------|--------|
-| `_fast_h1` (built-in) | ~3 us/req | Sync workers | Full RFC 7230 checks |
-| h11 (pure Python) | ~22 us/req | Async workers | Full h11 validation |
-
-Both parsers are pure Python and free-threading safe — no C extensions that re-enable the GIL on Python 3.14t.
-
-The fast parser is not a full HTTP implementation — it handles request/response cycles on the hot path. Chunked body decoding, obs-fold continuation lines, and trailer headers are handled by h11 or deferred to the async pool.
+Pounce uses two HTTP/1.1 parsers: `_fast_h1` (~3 us/req, sync workers) and h11 (~22 us/req, async workers). Both are pure Python and free-threading safe. The fast parser handles the hot path; chunked body decoding, obs-fold, and trailer headers fall through to h11 or the async pool.
 
 ## CPU Affinity (Linux)
 
