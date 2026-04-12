@@ -270,6 +270,7 @@ def create_send(
     config: ServerConfig | None = None,
     server: tuple[str, int] | None = None,
     dictionary_hash: str | None = None,
+    extra_headers: list[tuple[bytes, bytes]] | None = None,
 ) -> Send:
     """Create an ASGI send callable that streams to the transport.
 
@@ -342,6 +343,10 @@ def create_send(
                             f'h3=":{port}"; ma=2592000'.encode("ascii"),
                         ),
                     )
+
+            # Inject extra response headers (e.g. Use-As-Dictionary for RFC 9842)
+            if extra_headers:
+                headers.extend(extra_headers)
 
             # Bodyless responses (RFC 9110 §6.4.1): 1xx, 204, 304 MUST NOT
             # contain a message body.  Disable compression so the compressor's

@@ -27,6 +27,7 @@ from pounce._compression import (
     negotiate_encoding,
 )
 from pounce._cpu_affinity import maybe_pin_worker
+from pounce._dictionary_endpoint import build_dictionary_response, use_as_dictionary_headers
 from pounce._fast_h1 import ParseError
 from pounce._fast_h1 import parse_request as _fast_parse
 from pounce._health import build_health_response
@@ -414,6 +415,14 @@ class SyncWorker:
                                 headers_list.append(
                                     (b"content-length", str(len(body_out)).encode("ascii"))
                                 )
+                        # Advertise dictionaries for matching paths (RFC 9842)
+                        if self._config.compression_dictionaries:
+                            target_str = request.target.decode("ascii", errors="replace")
+                            headers_list.extend(
+                                use_as_dictionary_headers(
+                                    self._config.compression_dictionaries, target_str,
+                                )
+                            )
                         headers_list.append((b"connection", b"close"))
                         date_hdr = self._cached_date_header()
                         head, body_bytes = serialize_raw_response_parts(
@@ -504,6 +513,30 @@ class SyncWorker:
                     if close_after or at_limit:
                         break
                     continue
+
+                # Built-in dictionary serving (RFC 9842)
+                if (
+                    self._config.compression_dictionaries
+                    and request.method == b"GET"
+                ):
+                    dict_resp = build_dictionary_response(
+                        self._config.compression_dictionaries, scope["path"],
+                    )
+                    if dict_resp is not None:
+                        d_status, d_headers, d_body = dict_resp
+                        d_headers = [*d_headers, (b"connection", conn_header)]
+                        date_hdr = self._cached_date_header()
+                        head, body_out_bytes = serialize_raw_response_parts(
+                            d_status,
+                            tuple(d_headers),
+                            d_body,
+                            server_header=self._config.server_header,
+                            date_header=date_hdr,
+                        )
+                        conn.sendall(head + body_out_bytes)
+                        if close_after or at_limit:
+                            break
+                        continue
 
                 try:
                     response = call_asgi_sync(
@@ -597,6 +630,14 @@ class SyncWorker:
                         headers.append((b"content-length", str(len(body_out)).encode("ascii")))
                 if request_id:
                     headers.append((b"x-request-id", request_id.encode("latin-1")))
+                # Advertise dictionaries for matching paths (RFC 9842)
+                if self._config.compression_dictionaries:
+                    target_str = request.target.decode("ascii", errors="replace")
+                    headers.extend(
+                        use_as_dictionary_headers(
+                            self._config.compression_dictionaries, target_str,
+                        )
+                    )
                 headers.append((b"connection", conn_header))
 
                 date_hdr = self._cached_date_header()
