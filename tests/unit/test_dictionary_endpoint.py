@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from pounce._compression import CompressionDictionary, _HAS_ZSTD
+from pounce._compression import _HAS_ZSTD, CompressionDictionary
 from pounce._dictionary_endpoint import (
     DICTIONARY_PATH_PREFIX,
     build_dictionary_response,
@@ -32,7 +32,7 @@ class TestBuildDictionaryResponse:
         path = f"{DICTIONARY_PATH_PREFIX}{cd.sf_hash}"
         resp = build_dictionary_response((cd,), path)
         assert resp is not None
-        status, headers, body = resp
+        status, _headers, body = resp
         assert status == 200
         assert body == cd.zstd_dict.dict_content
 

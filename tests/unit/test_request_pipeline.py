@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from pounce._compression import CompressionDictionary, _HAS_ZSTD
+from pounce._compression import _HAS_ZSTD, CompressionDictionary
 from pounce._request_pipeline import negotiate_compressor
 from pounce.config import ServerConfig
 
