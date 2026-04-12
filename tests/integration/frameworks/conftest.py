@@ -17,6 +17,8 @@ Usage::
 
 """
 
+import asyncio
+import contextlib
 import socket
 import threading
 import time
@@ -26,6 +28,7 @@ import httpx
 import pytest
 
 from pounce._types import ASGIApp
+from pounce.asgi.lifespan import run_lifespan
 from pounce.config import ServerConfig
 from pounce.net.listener import create_listener
 from pounce.worker import Worker
@@ -47,11 +50,31 @@ def _wait_for_ready(addr: tuple[str, int], *, timeout: float = 5.0) -> None:
     raise RuntimeError(msg)
 
 
+def _run_lifespan_startup(app: ASGIApp, config: ServerConfig) -> dict:
+    """Run ASGI lifespan startup synchronously and return state dict.
+
+    Returns the lifespan state populated by the app during startup.
+    The lifespan context manager is kept open (shutdown runs in cleanup).
+    """
+    loop = asyncio.new_event_loop()
+    state = {}
+
+    async def _startup():
+        ctx = run_lifespan(app, config)
+        lifespan_state = await ctx.__aenter__()
+        state.update(lifespan_state)
+        return ctx
+
+    ctx = loop.run_until_complete(_startup())
+    return state, ctx, loop
+
+
 class PounceTestServer:
     """Manages a pounce Worker serving a framework app."""
 
     def __init__(self) -> None:
         self._workers: list[tuple[Worker, socket.socket, threading.Thread]] = []
+        self._lifespans: list[tuple[object, asyncio.AbstractEventLoop]] = []
 
     def start(
         self,
@@ -59,12 +82,22 @@ class PounceTestServer:
         *,
         config: ServerConfig | None = None,
     ) -> tuple[str, int]:
-        """Start a pounce worker serving *app* and return ``(host, port)``."""
+        """Start a pounce worker serving *app* and return ``(host, port)``.
+
+        Runs ASGI lifespan startup before accepting connections, matching
+        the real Server behavior.
+        """
         if config is None:
             config = ServerConfig(host="127.0.0.1", port=0, access_log=False, compression=False)
+
+        # Run lifespan startup to populate state
+        lifespan_state, ctx, loop = _run_lifespan_startup(app, config)
+        self._lifespans.append((ctx, loop))
+
         sock = create_listener(config)
         addr = sock.getsockname()
         worker = Worker(config, app, sock, worker_id=0)
+        worker.set_lifespan_state(lifespan_state)
         thread = threading.Thread(target=worker.run, daemon=True)
         thread.start()
         _wait_for_ready(addr)
@@ -72,20 +105,29 @@ class PounceTestServer:
         return addr[0], addr[1]
 
     def shutdown_all(self) -> None:
-        """Shut down all started workers."""
+        """Shut down all started workers and run lifespan shutdown."""
         for worker, sock, thread in self._workers:
             worker.shutdown()
             thread.join(timeout=3)
             sock.close()
         self._workers.clear()
 
+        for ctx, loop in self._lifespans:
+            with contextlib.suppress(Exception):
+                loop.run_until_complete(ctx.__aexit__(None, None, None))
+            loop.close()
+        self._lifespans.clear()
+
 
 @pytest.fixture
 def pounce_server() -> Generator[Callable[..., tuple[str, int]]]:
     """Fixture that provides a callable to start a pounce server.
 
+    Runs ASGI lifespan startup before the worker begins accepting
+    connections, matching real Server behavior. Lifespan shutdown
+    runs automatically after the test.
+
     Returns a function: ``start(app, *, config=None) -> (host, port)``.
-    All started servers are shut down automatically after the test.
 
     Example::
 
