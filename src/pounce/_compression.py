@@ -17,10 +17,23 @@ re-enables the GIL on Python 3.14t, defeating pounce's free-threading
 architecture. Clients that only send ``Accept-Encoding: br`` will receive
 uncompressed responses.
 
+Dictionary compression (RFC 9842): When a client sends an
+``Available-Dictionary`` header matching a server-loaded dictionary,
+responses use ``dcz`` (dictionary-compressed zstd) encoding for
+dramatically better compression ratios on repetitive payloads.
+
 """
 
+from __future__ import annotations
+
+import hashlib
 import zlib
-from typing import Final, Protocol
+from base64 import b64decode, b64encode
+from pathlib import Path
+from typing import TYPE_CHECKING, Final, Protocol
+
+if TYPE_CHECKING:
+    from compression import zstd as _zstd_mod
 
 # compression.zstd is new in Python 3.14 — import with fallback
 try:
@@ -143,6 +156,105 @@ class ZstdCompressor:
         return "zstd"
 
 
+class DictZstdCompressor:
+    """Zstd compressor pre-loaded with a shared dictionary (RFC 9842).
+
+    Uses a ``CompressionDictionary`` to achieve dramatically better
+    compression ratios on repetitive payloads (e.g. API JSON responses).
+    The ``Content-Encoding`` is ``dcz`` (dictionary-compressed zstd).
+
+    Each request gets its own DictZstdCompressor — the underlying
+    ``ZstdDict`` is immutable and safe to share across threads.
+
+    """
+
+    __slots__ = ("_compressor",)
+
+    def __init__(self, zstd_dict: _zstd_mod.ZstdDict, *, level: int = 3) -> None:
+        if not _HAS_ZSTD:
+            raise RuntimeError("Zstd compression requires Python 3.14+ with compression.zstd")
+        self._compressor = _zstd.ZstdCompressor(level=level, zstd_dict=zstd_dict)
+
+    def compress(self, data: bytes) -> bytes:
+        return self._compressor.compress(data)
+
+    def flush(self) -> bytes:
+        return self._compressor.flush()
+
+    def sync_flush(self) -> bytes:
+        return self._compressor.flush(mode=_zstd.ZstdCompressor.FLUSH_BLOCK)
+
+    @property
+    def encoding(self) -> str:
+        return "dcz"
+
+
+class CompressionDictionary:
+    """A loaded zstd dictionary with its RFC 9842 identity.
+
+    Immutable after creation — safe to share across threads.
+
+    Attributes:
+        sf_hash: SHA-256 hash of dict content as sf-binary (e.g. ``:abc=:``).
+        match: URL pattern this dictionary applies to (e.g. ``/api/v1/*``).
+        zstd_dict: The stdlib ``ZstdDict`` instance for compressor creation.
+    """
+
+    __slots__ = ("match", "sf_hash", "zstd_dict")
+
+    def __init__(
+        self,
+        dict_content: bytes,
+        match: str,
+    ) -> None:
+        if not _HAS_ZSTD:
+            raise RuntimeError("Zstd compression requires Python 3.14+ with compression.zstd")
+        sha = hashlib.sha256(dict_content).digest()
+        self.sf_hash: str = ":" + b64encode(sha).decode() + ":"
+        self.match: str = match
+        self.zstd_dict: _zstd_mod.ZstdDict = _zstd.ZstdDict(dict_content)
+
+
+def load_dictionary(path: Path, match: str) -> CompressionDictionary:
+    """Load a zstd dictionary from disk.
+
+    Args:
+        path: Path to the dictionary file (created by ``zstd --train``).
+        match: URL pattern this dictionary applies to.
+
+    Returns:
+        A ``CompressionDictionary`` ready for use with ``DictZstdCompressor``.
+
+    Raises:
+        FileNotFoundError: If the dictionary file does not exist.
+        RuntimeError: If zstd is not available.
+    """
+    return CompressionDictionary(path.read_bytes(), match)
+
+
+def parse_sf_binary(value: bytes | str) -> bytes:
+    """Parse an RFC 8941 structured field binary value.
+
+    Structured field binary is base64-encoded content between colons:
+    ``:base64content=:``
+
+    Args:
+        value: The sf-binary value (with or without surrounding whitespace).
+
+    Returns:
+        The decoded binary content.
+
+    Raises:
+        ValueError: If the value is not valid sf-binary.
+    """
+    if isinstance(value, bytes):
+        value = value.decode("ascii", errors="replace")
+    value = value.strip()
+    if not value.startswith(":") or not value.endswith(":"):
+        raise ValueError(f"Invalid sf-binary: must be wrapped in colons, got {value!r}")
+    return b64decode(value[1:-1])
+
+
 def negotiate_encoding(accept_encoding: bytes | str) -> str | None:
     """Parse Accept-Encoding and return the best supported encoding.
 
@@ -201,21 +313,72 @@ def negotiate_encoding(accept_encoding: bytes | str) -> str | None:
     return None
 
 
-def create_compressor(encoding: str) -> Compressor:
+def create_compressor(
+    encoding: str,
+    *,
+    dictionary: CompressionDictionary | None = None,
+) -> Compressor:
     """Create a compressor instance for the given encoding.
 
     Args:
-        encoding: Encoding name (e.g., "zstd", "gzip").
+        encoding: Encoding name (e.g., "zstd", "gzip", "dcz").
+        dictionary: Optional compression dictionary for ``dcz`` encoding.
 
     Returns:
         A fresh Compressor instance.
 
     Raises:
-        ValueError: If the encoding is not supported.
+        ValueError: If the encoding is not supported, or ``dcz`` requested
+            without a dictionary.
 
     """
+    if encoding == "dcz":
+        if dictionary is None:
+            raise ValueError("dcz encoding requires a CompressionDictionary")
+        return DictZstdCompressor(dictionary.zstd_dict)
     if encoding == "zstd":
         return ZstdCompressor()
     if encoding == "gzip":
         return GzipCompressor()
     raise ValueError(f"Unsupported encoding: {encoding!r}")
+
+
+def negotiate_dictionary(
+    available_dictionary: bytes | str,
+    dictionaries: tuple[CompressionDictionary, ...],
+    request_target: str = "",
+) -> CompressionDictionary | None:
+    """Match an ``Available-Dictionary`` header to a loaded dictionary.
+
+    Args:
+        available_dictionary: The ``Available-Dictionary`` header value (sf-binary hash).
+        dictionaries: Server-loaded dictionaries to match against.
+        request_target: The request URL path — used to filter by ``match`` pattern.
+
+    Returns:
+        The matching ``CompressionDictionary``, or ``None`` if no match.
+    """
+    if not dictionaries:
+        return None
+
+    if isinstance(available_dictionary, bytes):
+        available_dictionary = available_dictionary.decode("ascii", errors="replace")
+    available_dictionary = available_dictionary.strip()
+
+    if not available_dictionary:
+        return None
+
+    for d in dictionaries:
+        if d.sf_hash != available_dictionary:
+            continue
+        if d.match and request_target and not _match_pattern(d.match, request_target):
+            continue
+        return d
+    return None
+
+
+def _match_pattern(pattern: str, target: str) -> bool:
+    """Simple glob-style match: ``/api/v1/*`` matches ``/api/v1/users``."""
+    if pattern.endswith("*"):
+        return target.startswith(pattern[:-1])
+    return target == pattern

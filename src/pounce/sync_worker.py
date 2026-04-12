@@ -20,7 +20,12 @@ import threading
 import time
 from typing import Any, cast
 
-from pounce._compression import Compressor, create_compressor, negotiate_encoding
+from pounce._compression import (
+    Compressor,
+    create_compressor,
+    negotiate_dictionary,
+    negotiate_encoding,
+)
 from pounce._cpu_affinity import maybe_pin_worker
 from pounce._fast_h1 import ParseError
 from pounce._fast_h1 import parse_request as _fast_parse
@@ -59,12 +64,13 @@ class _RequestMeta:
     lowered, so no ``.lower()`` is needed on names.
     """
 
-    __slots__ = ("accept_encoding", "is_websocket", "wants_close")
+    __slots__ = ("accept_encoding", "available_dictionary", "is_websocket", "wants_close")
 
     def __init__(self) -> None:
         self.wants_close: bool = False
         self.is_websocket: bool = False
         self.accept_encoding: bytes | None = None
+        self.available_dictionary: bytes | None = None
 
 
 def _classify_request(request: RequestReceived) -> _RequestMeta:
@@ -92,6 +98,8 @@ def _classify_request(request: RequestReceived) -> _RequestMeta:
             has_ws_upgrade = True
         elif name == b"accept-encoding":
             meta.accept_encoding = value
+        elif name == b"available-dictionary":
+            meta.available_dictionary = value
 
     meta.is_websocket = has_upgrade_conn and has_ws_upgrade
 
@@ -356,10 +364,26 @@ class SyncWorker:
                     if raw_resp is not None:
                         # Fast path: direct response, no asyncio, bypass h11
                         compressor: Compressor | None = None
+                        dictionary = None
                         if self._config.compression and meta.accept_encoding:
-                            enc = negotiate_encoding(meta.accept_encoding)
-                            if enc:
-                                compressor = create_compressor(enc)
+                            # Try dictionary compression first (RFC 9842)
+                            if (
+                                self._config.compression_dictionaries
+                                and meta.available_dictionary
+                                and b"zstd" in meta.accept_encoding
+                            ):
+                                target_str = request.target.decode("ascii", errors="replace")
+                                dictionary = negotiate_dictionary(
+                                    meta.available_dictionary,
+                                    self._config.compression_dictionaries,
+                                    target_str,
+                                )
+                                if dictionary is not None:
+                                    compressor = create_compressor("dcz", dictionary=dictionary)
+                            if compressor is None:
+                                enc = negotiate_encoding(meta.accept_encoding)
+                                if enc:
+                                    compressor = create_compressor(enc)
 
                         # Single pass: strip CL only when compressing, track presence
                         has_cl = False
@@ -380,6 +404,10 @@ class SyncWorker:
                             headers_list.append(
                                 (b"content-length", str(len(body_out)).encode("ascii"))
                             )
+                            if dictionary is not None:
+                                headers_list.append(
+                                    (b"used-dictionary", dictionary.sf_hash.encode("ascii"))
+                                )
                         else:
                             body_out = raw_resp.body
                             if not has_cl:
@@ -521,10 +549,28 @@ class SyncWorker:
 
                 # Negotiate compression using pre-extracted accept-encoding
                 asgi_compressor: Compressor | None = None
+                asgi_dictionary = None
                 if self._config.compression and meta.accept_encoding:
-                    enc = negotiate_encoding(meta.accept_encoding)
-                    if enc:
-                        asgi_compressor = create_compressor(enc)
+                    # Try dictionary compression first (RFC 9842)
+                    if (
+                        self._config.compression_dictionaries
+                        and meta.available_dictionary
+                        and b"zstd" in meta.accept_encoding
+                    ):
+                        target_str = request.target.decode("ascii", errors="replace")
+                        asgi_dictionary = negotiate_dictionary(
+                            meta.available_dictionary,
+                            self._config.compression_dictionaries,
+                            target_str,
+                        )
+                        if asgi_dictionary is not None:
+                            asgi_compressor = create_compressor(
+                                "dcz", dictionary=asgi_dictionary,
+                            )
+                    if asgi_compressor is None:
+                        enc = negotiate_encoding(meta.accept_encoding)
+                        if enc:
+                            asgi_compressor = create_compressor(enc)
 
                 # Single pass: strip CL only when compressing, track presence
                 has_cl = False
@@ -541,6 +587,10 @@ class SyncWorker:
                     body_out = asgi_compressor.compress(response.body) + asgi_compressor.flush()
                     headers.append((b"content-encoding", asgi_compressor.encoding.encode("ascii")))
                     headers.append((b"content-length", str(len(body_out)).encode("ascii")))
+                    if asgi_dictionary is not None:
+                        headers.append(
+                            (b"used-dictionary", asgi_dictionary.sf_hash.encode("ascii"))
+                        )
                 else:
                     body_out = response.body
                     if not has_cl:

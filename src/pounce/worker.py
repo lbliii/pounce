@@ -31,7 +31,6 @@ from typing import Any, cast
 
 import h11
 
-from pounce._compression import Compressor
 from pounce._cpu_affinity import maybe_pin_worker
 from pounce._errors import ParseError
 from pounce._h2_handler import handle_h2_connection
@@ -789,7 +788,10 @@ class Worker:
             timing = ServerTiming()
             timing.add("parse", elapsed_ms(request_start))
 
-        compressor: Compressor | None = negotiate_compressor(self._config, request.headers)
+        compressor, dictionary = negotiate_compressor(
+            self._config, request.headers,
+            request_target=request.target.decode("ascii", errors="replace"),
+        )
 
         # Determine body status and create receive callable.
         # All paths now create a disconnect event so the ASGI app can
@@ -842,6 +844,7 @@ class Worker:
             request_id=request_id,
             config=self._config,
             server=server,
+            dictionary_hash=dictionary.sf_hash if dictionary else None,
         )
 
         # Create OpenTelemetry span for this request

@@ -269,6 +269,7 @@ def create_send(
     request_id: str | None = None,
     config: ServerConfig | None = None,
     server: tuple[str, int] | None = None,
+    dictionary_hash: str | None = None,
 ) -> Send:
     """Create an ASGI send callable that streams to the transport.
 
@@ -379,6 +380,8 @@ def create_send(
                 else:
                     headers = filtered
                     headers.append((b"content-encoding", compressor.encoding.encode("ascii")))
+                    if dictionary_hash is not None:
+                        headers.append((b"used-dictionary", dictionary_hash.encode("ascii")))
                     # Compressor removed CL, so inject chunked if no TE
                     if not has_transfer_encoding:
                         headers.append((b"transfer-encoding", b"chunked"))

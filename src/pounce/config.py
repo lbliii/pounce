@@ -17,6 +17,7 @@ from pounce.display import DisplayConfig
 _IIC_SKIP_FIELDS: frozenset[str] = frozenset(
     {
         "access_log_filter",
+        "compression_dictionaries",
         "middleware",
         "display",
         "_VALID_LOG_LEVELS",
@@ -100,6 +101,9 @@ class ServerConfig:
     # zstd uses stdlib compression.zstd (PEP 784), gzip uses stdlib zlib
     compression: bool = True
     compression_min_size: int = 500  # Don't compress responses smaller than this (bytes)
+    # Dictionary compression (RFC 9842) — loaded zstd dictionaries for
+    # dramatically better compression on repetitive payloads (e.g. API JSON)
+    compression_dictionaries: tuple[Any, ...] = ()
 
     # Server-Timing header — auto-injected with parse/app/encode durations
     server_timing: bool = False
