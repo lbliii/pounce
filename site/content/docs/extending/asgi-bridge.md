@@ -118,9 +118,26 @@ The `send` callable applies several security measures during `http.response.star
 
 These protections are active on both HTTP/1.1 and HTTP/2 bridges.
 
+## Protocol Handler Interface
+
+Pounce's protocol layer is modular. Each handler implements a consistent sans-I/O interface:
+
+| Handler | Protocol | Module |
+|---|---|---|
+| `H1Protocol` | HTTP/1.1 (h11) | `protocols/h1.py` |
+| `H2Protocol` | HTTP/2 (h2) | `protocols/h2.py` |
+| `H3Protocol` | HTTP/3 (bengal-zoomies) | `protocols/h3.py` |
+| `WSProtocol` | WebSocket (wsproto) | `protocols/ws.py` |
+
+Each handler: feeds raw bytes in, yields parsed events, serializes responses back to bytes, and tracks connection state. The worker selects the handler based on connection type (plain HTTP, TLS+ALPN, WebSocket upgrade).
+
+:::{note}
+The protocol handler interface is internal and may change between releases. Pin your pounce version if building custom handlers.
+:::
+
 ## See Also
 
 - [[docs/about/architecture|Architecture]] — Full pipeline overview
 - [[docs/reference/api|API Reference]] — ASGI type definitions
-- [[docs/deployment/security|Security]] — Full security feature reference
+- [[docs/deployment/security|Security]] — Security features
 - [[docs/deployment/observability|Observability]] — Health checks, request IDs, metrics

@@ -1,12 +1,12 @@
 ---
 title: Configuration
-description: ServerConfig, CLI options, and TLS setup
+description: ServerConfig, CLI options, TLS, and display settings
 draft: false
 weight: 40
 lang: en
 type: doc
 tags: [configuration, settings, cli, tls]
-keywords: [configuration, settings, serverconfig, cli, tls, ssl]
+keywords: [configuration, settings, serverconfig, cli, tls, ssl, display]
 category: reference
 icon: sliders
 
@@ -37,6 +37,13 @@ All flags and arguments.
 :link: ./tls
 :description: Setting up TLS termination
 Certificate configuration and ALPN for HTTP/2.
+:::{/card}
+
+:::{card} Display & Signage
+:icon: monitor
+:link: ./display
+:description: Application banner and startup display modes
+Name, version, tagline, and signage layout.
 :::{/card}
 
 :::{/cards}

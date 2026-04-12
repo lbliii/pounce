@@ -76,20 +76,6 @@ A W3C standard that surfaces server-side latency in browser DevTools. When enabl
 
 ## Part of Bengal
 
-### What is the Bengal ecosystem?
-
-Bengal is a family of Python packages for content and web applications:
-
-```
-purr        Content runtime   (connects everything)
-pounce      ASGI server       (serves apps)
-chirp       Web framework     (serves HTML)
-kida        Template engine   (renders HTML)
-patitas     Markdown parser   (parses content)
-rosettes    Syntax highlighter (highlights code)
-bengal      Static site gen   (builds sites)
-```
-
 ### Do I need other Bengal packages to use Pounce?
 
-No. Pounce works with any ASGI framework. The Bengal ecosystem is modular — use what you need.
+No. Pounce works with any ASGI framework. It's part of the Bengal ecosystem but fully standalone. See [[docs/about/ecosystem|Ecosystem]] for the full picture.

@@ -51,57 +51,22 @@ Built-in security features for production deployments.
 :::{card} Observability
 :icon: activity
 :link: ./observability
-:description: Health checks, request IDs, Prometheus metrics
-Monitoring, tracing, and metrics for production.
+:description: Health checks, metrics, OpenTelemetry, Sentry
+Monitoring, tracing, and error tracking for production.
 :::{/card}
 
-:::{card} Graceful Reload
+:::{card} Server Lifecycle
 :icon: refresh-cw
-:link: ./graceful-reload
-:description: Zero-downtime code reloads via SIGHUP
-Rolling restart with automatic worker draining.
+:link: ./lifecycle
+:description: Graceful reload, hot deploy, and shutdown
+Zero-downtime operations with connection draining.
 :::{/card}
 
-:::{card} Hot Reload
-:icon: zap
-:link: ./hot-reload
-:description: Deploy code without dropping connections
-Graceful worker replacement with SO_REUSEPORT.
-:::{/card}
-
-:::{card} Graceful Shutdown
-:icon: power
-:link: ./graceful-shutdown
-:description: Connection draining for Kubernetes, Docker, systemd
-Production-grade SIGTERM handling.
-:::{/card}
-
-:::{card} OpenTelemetry
-:icon: radio
-:link: ./opentelemetry
-:description: Distributed tracing with Jaeger, Datadog, Tempo
-Native OTLP export with zero code changes.
-:::{/card}
-
-:::{card} Rate Limiting
+:::{card} Backpressure
 :icon: shield-off
-:link: ./rate-limiting
-:description: Per-IP token bucket abuse protection
-Built-in 429 responses with burst support.
-:::{/card}
-
-:::{card} Request Queueing
-:icon: layers
-:link: ./request-queueing
-:description: Bounded queues with load shedding
-Graceful 503 responses when overloaded.
-:::{/card}
-
-:::{card} Sentry
-:icon: alert-triangle
-:link: ./sentry
-:description: Error tracking and performance monitoring
-Automatic exception capture with request context.
+:link: ./backpressure
+:description: Rate limiting and request queueing
+Per-client and global load protection.
 :::{/card}
 
 :::{/cards}
