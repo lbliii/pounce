@@ -269,6 +269,8 @@ def create_send(
     request_id: str | None = None,
     config: ServerConfig | None = None,
     server: tuple[str, int] | None = None,
+    dictionary_hash: str | None = None,
+    extra_headers: list[tuple[bytes, bytes]] | None = None,
 ) -> Send:
     """Create an ASGI send callable that streams to the transport.
 
@@ -342,6 +344,10 @@ def create_send(
                         ),
                     )
 
+            # Inject extra response headers (e.g. Use-As-Dictionary for RFC 9842)
+            if extra_headers:
+                headers.extend(extra_headers)
+
             # Bodyless responses (RFC 9110 §6.4.1): 1xx, 204, 304 MUST NOT
             # contain a message body.  Disable compression so the compressor's
             # flush() doesn't produce gzip/zstd trailer bytes that h11 would
@@ -379,6 +385,8 @@ def create_send(
                 else:
                     headers = filtered
                     headers.append((b"content-encoding", compressor.encoding.encode("ascii")))
+                    if dictionary_hash is not None:
+                        headers.append((b"used-dictionary", dictionary_hash.encode("ascii")))
                     # Compressor removed CL, so inject chunked if no TE
                     if not has_transfer_encoding:
                         headers.append((b"transfer-encoding", b"chunked"))

@@ -9,7 +9,13 @@ parity (access log filter, duration tracking, request ID propagation).
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from pounce._compression import Compressor, create_compressor, negotiate_encoding
+from pounce._compression import (
+    CompressionDictionary,
+    Compressor,
+    create_compressor,
+    negotiate_dictionary,
+    negotiate_encoding,
+)
 from pounce._headers import get_header
 from pounce._request_id import extract_or_generate
 from pounce.asgi.bridge import build_scope
@@ -47,17 +53,37 @@ def prepare_request(
 def negotiate_compressor(
     config: ServerConfig,
     headers: Sequence[tuple[bytes, bytes]],
-) -> Compressor | None:
-    """Negotiate content-encoding compression from request headers."""
+    *,
+    request_target: str = "",
+) -> tuple[Compressor | None, CompressionDictionary | None]:
+    """Negotiate content-encoding compression from request headers.
+
+    Returns (compressor, dictionary) — dictionary is non-None only when
+    ``dcz`` (dictionary-compressed zstd) encoding is selected.
+    """
     if not config.compression:
-        return None
+        return None, None
     accept_enc = get_header(headers, b"accept-encoding")
     if not accept_enc:
-        return None
+        return None, None
+
+    # Check for dictionary compression (RFC 9842)
+    if config.compression_dictionaries and b"zstd" in accept_enc:
+        avail_dict = get_header(headers, b"available-dictionary")
+        if avail_dict:
+            dictionary = negotiate_dictionary(
+                avail_dict,
+                config.compression_dictionaries,
+                request_target,
+            )
+            if dictionary is not None:
+                return create_compressor("dcz", dictionary=dictionary), dictionary
+
+    # Standard encoding negotiation
     enc = negotiate_encoding(accept_enc)
     if not enc:
-        return None
-    return create_compressor(enc)
+        return None, None
+    return create_compressor(enc), None
 
 
 def log_request(

@@ -31,8 +31,8 @@ from typing import Any, cast
 
 import h11
 
-from pounce._compression import Compressor
 from pounce._cpu_affinity import maybe_pin_worker
+from pounce._dictionary_endpoint import build_dictionary_response, use_as_dictionary_headers
 from pounce._errors import ParseError
 from pounce._h2_handler import handle_h2_connection
 from pounce._headers import is_websocket_upgrade as _is_websocket_upgrade
@@ -783,13 +783,42 @@ class Worker:
             )
             return
 
+        # Built-in dictionary serving (RFC 9842) — serve dictionaries at
+        # /.well-known/compression-dictionary/<hash> before ASGI dispatch.
+        if self._config.compression_dictionaries and request.method == b"GET":
+            dict_resp = build_dictionary_response(
+                self._config.compression_dictionaries,
+                scope["path"],
+            )
+            if dict_resp is not None:
+                status, resp_headers, body = dict_resp
+                send_state = SendState()
+                send_state.status = status
+                send_fn = create_send(
+                    proto,
+                    writer,
+                    send_state,
+                    request_id=request_id,
+                    config=self._config,
+                    server=server,
+                )
+                await send_fn(
+                    {"type": "http.response.start", "status": status, "headers": resp_headers}
+                )
+                await send_fn({"type": "http.response.body", "body": body})
+                return
+
         # Set up timing if enabled
         timing: ServerTiming | None = None
         if self._config.server_timing:
             timing = ServerTiming()
             timing.add("parse", elapsed_ms(request_start))
 
-        compressor: Compressor | None = negotiate_compressor(self._config, request.headers)
+        compressor, dictionary = negotiate_compressor(
+            self._config,
+            request.headers,
+            request_target=request.target.decode("ascii", errors="replace"),
+        )
 
         # Determine body status and create receive callable.
         # All paths now create a disconnect event so the ASGI app can
@@ -832,6 +861,18 @@ class Worker:
         app_start = monotonic_ns()
         profile_app_start = app_start if profile_ctx is not None else 0
         send_state = SendState()
+        # Build Use-As-Dictionary advertisement headers for matching paths
+        dict_advert_headers: list[tuple[bytes, bytes]] | None = None
+        if self._config.compression_dictionaries:
+            target_str = request.target.decode("ascii", errors="replace")
+            dict_advert_headers = (
+                use_as_dictionary_headers(
+                    self._config.compression_dictionaries,
+                    target_str,
+                )
+                or None
+            )
+
         send = create_send(
             proto,
             writer,
@@ -842,6 +883,8 @@ class Worker:
             request_id=request_id,
             config=self._config,
             server=server,
+            dictionary_hash=dictionary.sf_hash if dictionary else None,
+            extra_headers=dict_advert_headers,
         )
 
         # Create OpenTelemetry span for this request
