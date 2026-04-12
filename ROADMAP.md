@@ -36,15 +36,15 @@ First ASGI server to ship a subinterpreter worker mode via `concurrent.interpret
 
 ### Framework Compatibility
 
-Test and certify compatibility with every major ASGI framework:
+~~Test and certify compatibility with every major ASGI framework.~~ **Testing complete.** 48 integration tests across 4 frameworks, all green in CI:
 
-- **FastAPI** — Full compatibility matrix, integration guide, pitch for inclusion in FastAPI deployment docs
-- **Starlette** — Baseline compatibility (FastAPI depends on this)
-- **Litestar** — Growing community, active maintainers
-- **Django** (ASGI mode) — Largest potential user base
-- **chirp** — Bengal ecosystem integration
+- **FastAPI** — ✅ Full compatibility (routing, DI, Pydantic, middleware, lifespan, WebSocket, streaming, OpenAPI)
+- **Starlette** — ✅ Full compatibility (routing, middleware, lifespan, streaming, WebSocket, background tasks)
+- **Django** (ASGI mode) — ✅ Full compatibility (async views, URL routing, middleware, error handling)
+- **Litestar** — ✅ Core compatibility (routing, DI, middleware, lifespan, streaming). WebSocket: known routing issue with scope method lookup
+- **chirp** — ✅ Bengal ecosystem integration (existing `test_bengal_compat.py`)
 
-The goal is not just "it works" — it's getting Pounce mentioned as a recommended server in framework documentation.
+**Remaining:** Framework outreach — PRs to FastAPI, Litestar, and Django docs adding Pounce as a deployment option. Published compatibility matrix on docs site.
 
 ### Published Benchmarks
 
@@ -59,9 +59,9 @@ Reproducible, public benchmarks across realistic workloads:
 
 Publish as a dedicated site section with methodology, reproduction scripts, and hardware specs.
 
-### Configuration File Support
+### ~~Configuration File Support~~ — Done
 
-`pounce.toml` or `[tool.pounce]` in `pyproject.toml`. Projects outgrow CLI flags fast — especially with 50+ config options. This unblocks adoption for teams with complex deployments.
+Shipped in v0.5.x. `pounce.toml` or `[tool.pounce]` in `pyproject.toml`. CLI arguments always take precedence over file values.
 
 ---
 
@@ -71,9 +71,9 @@ Publish as a dedicated site section with methodology, reproduction scripts, and 
 
 Batched I/O via io_uring for accept, read, and write operations. Third-party Python io_uring libraries are showing 36% throughput gains over standard asyncio. Ship as an opt-in backend (`--io-backend uring`) — standard asyncio remains the default.
 
-### Compression Dictionary Transport (RFC 9842)
+### ~~Compression Dictionary Transport (RFC 9842)~~ — Done
 
-Delta compression using shared zstd dictionaries. Dramatically smaller responses for API endpoints with repetitive JSON payloads. Chrome has supported this since 123+. This is genuine innovation — no other Python ASGI server offers it.
+Shipped. Delta compression using shared zstd dictionaries for API endpoints with repetitive JSON payloads. Chrome 123+ compatible. `DictZstdCompressor` with `Available-Dictionary` header negotiation.
 
 ### Memory Profiling & Leak Detection
 
