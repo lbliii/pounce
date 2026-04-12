@@ -1,6 +1,6 @@
 # Epic: RFC 9842 Compression Dictionary Transport — Shared Zstd Dictionaries for API Responses
 
-**Status**: Draft
+**Status**: Implemented
 **Created**: 2026-04-12
 **Target**: Pounce 0.7.0 (Q3 2026)
 **Estimated Effort**: 32–48 hours
@@ -295,3 +295,4 @@ This tells browsers to fetch the dictionary for future requests.
 ## Changelog
 
 - **2026-04-12**: Initial draft from codebase analysis.
+- **2026-04-12**: Sprints 0–4 implemented. DictZstdCompressor, header negotiation, config integration, dictionary serving endpoint, and Use-As-Dictionary advertisement all complete. PR #44 open. Status updated to Implemented.
