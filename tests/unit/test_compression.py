@@ -249,8 +249,7 @@ def _make_test_dictionary(match: str = "/api/*") -> CompressionDictionary:
     from compression import zstd
 
     samples = [
-        json.dumps({"id": i, "name": f"item_{i}", "status": "active"}).encode()
-        for i in range(200)
+        json.dumps({"id": i, "name": f"item_{i}", "status": "active"}).encode() for i in range(200)
     ]
     d = zstd.train_dict(samples, dict_size=8192)
     return CompressionDictionary(d.dict_content, match)

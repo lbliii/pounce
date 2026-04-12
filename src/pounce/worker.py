@@ -787,15 +787,20 @@ class Worker:
         # /.well-known/compression-dictionary/<hash> before ASGI dispatch.
         if self._config.compression_dictionaries and request.method == b"GET":
             dict_resp = build_dictionary_response(
-                self._config.compression_dictionaries, scope["path"],
+                self._config.compression_dictionaries,
+                scope["path"],
             )
             if dict_resp is not None:
                 status, resp_headers, body = dict_resp
                 send_state = SendState()
                 send_state.status = status
                 send_fn = create_send(
-                    proto, writer, send_state,
-                    request_id=request_id, config=self._config, server=server,
+                    proto,
+                    writer,
+                    send_state,
+                    request_id=request_id,
+                    config=self._config,
+                    server=server,
                 )
                 await send_fn(
                     {"type": "http.response.start", "status": status, "headers": resp_headers}
@@ -810,7 +815,8 @@ class Worker:
             timing.add("parse", elapsed_ms(request_start))
 
         compressor, dictionary = negotiate_compressor(
-            self._config, request.headers,
+            self._config,
+            request.headers,
             request_target=request.target.decode("ascii", errors="replace"),
         )
 
@@ -859,9 +865,13 @@ class Worker:
         dict_advert_headers: list[tuple[bytes, bytes]] | None = None
         if self._config.compression_dictionaries:
             target_str = request.target.decode("ascii", errors="replace")
-            dict_advert_headers = use_as_dictionary_headers(
-                self._config.compression_dictionaries, target_str,
-            ) or None
+            dict_advert_headers = (
+                use_as_dictionary_headers(
+                    self._config.compression_dictionaries,
+                    target_str,
+                )
+                or None
+            )
 
         send = create_send(
             proto,

@@ -420,7 +420,8 @@ class SyncWorker:
                             target_str = request.target.decode("ascii", errors="replace")
                             headers_list.extend(
                                 use_as_dictionary_headers(
-                                    self._config.compression_dictionaries, target_str,
+                                    self._config.compression_dictionaries,
+                                    target_str,
                                 )
                             )
                         headers_list.append((b"connection", b"close"))
@@ -515,12 +516,10 @@ class SyncWorker:
                     continue
 
                 # Built-in dictionary serving (RFC 9842)
-                if (
-                    self._config.compression_dictionaries
-                    and request.method == b"GET"
-                ):
+                if self._config.compression_dictionaries and request.method == b"GET":
                     dict_resp = build_dictionary_response(
-                        self._config.compression_dictionaries, scope["path"],
+                        self._config.compression_dictionaries,
+                        scope["path"],
                     )
                     if dict_resp is not None:
                         d_status, d_headers, d_body = dict_resp
@@ -598,7 +597,8 @@ class SyncWorker:
                         )
                         if asgi_dictionary is not None:
                             asgi_compressor = create_compressor(
-                                "dcz", dictionary=asgi_dictionary,
+                                "dcz",
+                                dictionary=asgi_dictionary,
                             )
                     if asgi_compressor is None:
                         enc = negotiate_encoding(meta.accept_encoding)
@@ -635,7 +635,8 @@ class SyncWorker:
                     target_str = request.target.decode("ascii", errors="replace")
                     headers.extend(
                         use_as_dictionary_headers(
-                            self._config.compression_dictionaries, target_str,
+                            self._config.compression_dictionaries,
+                            target_str,
                         )
                     )
                 headers.append((b"connection", conn_header))

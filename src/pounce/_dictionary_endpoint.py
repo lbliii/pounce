@@ -85,9 +85,8 @@ def use_as_dictionary_headers(
             headers.append((b"use-as-dictionary", value))
             # Also advertise where to fetch this dictionary
             dict_url = f"{DICTIONARY_PATH_PREFIX}{d.sf_hash}".encode("ascii")
-            headers.append((b"link", b"<" + dict_url + b">; rel=\"dictionary\""))
+            headers.append((b"link", b"<" + dict_url + b'>; rel="dictionary"'))
     return headers
-
 
 
 def _not_found() -> tuple[int, list[tuple[bytes, bytes]], bytes]:

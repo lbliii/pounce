@@ -13,8 +13,7 @@ def _make_dict(match: str = "/api/*") -> CompressionDictionary:
     from compression import zstd
 
     samples = [
-        json.dumps({"id": i, "name": f"item_{i}", "status": "active"}).encode()
-        for i in range(200)
+        json.dumps({"id": i, "name": f"item_{i}", "status": "active"}).encode() for i in range(200)
     ]
     d = zstd.train_dict(samples, dict_size=8192)
     return CompressionDictionary(d.dict_content, match)
@@ -25,9 +24,7 @@ class TestNegotiateCompressorBasic:
 
     def test_compression_disabled(self):
         config = ServerConfig(compression=False)
-        compressor, dictionary = negotiate_compressor(
-            config, [(b"accept-encoding", b"gzip")]
-        )
+        compressor, dictionary = negotiate_compressor(config, [(b"accept-encoding", b"gzip")])
         assert compressor is None
         assert dictionary is None
 
@@ -39,9 +36,7 @@ class TestNegotiateCompressorBasic:
 
     def test_gzip(self):
         config = ServerConfig(compression=True)
-        compressor, dictionary = negotiate_compressor(
-            config, [(b"accept-encoding", b"gzip")]
-        )
+        compressor, dictionary = negotiate_compressor(config, [(b"accept-encoding", b"gzip")])
         assert compressor is not None
         assert compressor.encoding == "gzip"
         assert dictionary is None
@@ -49,9 +44,7 @@ class TestNegotiateCompressorBasic:
     @pytest.mark.skipif(not _HAS_ZSTD, reason="zstd not available")
     def test_zstd(self):
         config = ServerConfig(compression=True)
-        compressor, dictionary = negotiate_compressor(
-            config, [(b"accept-encoding", b"zstd, gzip")]
-        )
+        compressor, dictionary = negotiate_compressor(config, [(b"accept-encoding", b"zstd, gzip")])
         assert compressor is not None
         assert compressor.encoding == "zstd"
         assert dictionary is None

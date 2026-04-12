@@ -72,7 +72,9 @@ def negotiate_compressor(
         avail_dict = get_header(headers, b"available-dictionary")
         if avail_dict:
             dictionary = negotiate_dictionary(
-                avail_dict, config.compression_dictionaries, request_target,
+                avail_dict,
+                config.compression_dictionaries,
+                request_target,
             )
             if dictionary is not None:
                 return create_compressor("dcz", dictionary=dictionary), dictionary
