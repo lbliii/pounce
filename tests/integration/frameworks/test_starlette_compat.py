@@ -13,16 +13,16 @@ from pathlib import Path
 
 import pytest
 
-starlette = pytest.importorskip("starlette")
+pytest.importorskip("starlette")
 
-from starlette.applications import Starlette  # noqa: E402
-from starlette.background import BackgroundTask  # noqa: E402
-from starlette.middleware import Middleware  # noqa: E402
-from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
-from starlette.requests import Request  # noqa: E402
-from starlette.responses import JSONResponse, PlainTextResponse, StreamingResponse  # noqa: E402
-from starlette.routing import Route, WebSocketRoute  # noqa: E402
-from starlette.websockets import WebSocket  # noqa: E402
+from starlette.applications import Starlette
+from starlette.background import BackgroundTask
+from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from starlette.routing import Route, WebSocketRoute
+from starlette.websockets import WebSocket
 
 # ---------------------------------------------------------------------------
 # App builders — each test gets a fresh app instance

@@ -11,14 +11,14 @@ from dataclasses import dataclass
 
 import pytest
 
-litestar = pytest.importorskip("litestar")
+pytest.importorskip("litestar")
 
-from litestar import Litestar, MediaType, Request, get, post, websocket  # noqa: E402
-from litestar.connection import WebSocket as LitestarWebSocket  # noqa: E402
-from litestar.di import Provide  # noqa: E402
-from litestar.middleware.base import AbstractMiddleware  # noqa: E402
-from litestar.response import Stream  # noqa: E402
-from litestar.types import Receive, Scope, Send  # noqa: E402
+from litestar import Litestar, MediaType, Request, get, post, websocket
+from litestar.connection import WebSocket as LitestarWebSocket
+from litestar.di import Provide
+from litestar.middleware.base import AbstractMiddleware
+from litestar.response import Stream
+from litestar.types import Receive, Scope, Send
 
 # ---------------------------------------------------------------------------
 # Data models

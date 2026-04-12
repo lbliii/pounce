@@ -14,14 +14,14 @@ import json
 
 import pytest
 
-django = pytest.importorskip("django")
+pytest.importorskip("django")
 
-import os  # noqa: E402
+import os
 
 # Configure Django settings before any Django imports
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tests.integration.frameworks._django_settings")
 
-import django as django_mod  # noqa: E402
+import django as django_mod
 
 django_mod.setup()
 

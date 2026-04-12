@@ -11,11 +11,11 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-fastapi = pytest.importorskip("fastapi")
+pytest.importorskip("fastapi")
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket  # noqa: E402
-from fastapi.responses import JSONResponse, StreamingResponse  # noqa: E402
-from pydantic import BaseModel  # noqa: E402
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
 # Pydantic models

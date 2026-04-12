@@ -39,22 +39,22 @@ def _wait_for_ready(addr: tuple[str, int], *, timeout: float = 5.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            probe.settimeout(0.5)
-            probe.connect(addr)
-            probe.close()
-            return
+            with socket.create_connection(addr, timeout=0.5):
+                return
         except ConnectionRefusedError, OSError:
             time.sleep(0.02)
     msg = f"Worker at {addr} did not become ready within {timeout}s"
     raise RuntimeError(msg)
 
 
-def _run_lifespan_startup(app: ASGIApp, config: ServerConfig) -> dict:
-    """Run ASGI lifespan startup synchronously and return state dict.
+def _run_lifespan_startup(
+    app: ASGIApp, config: ServerConfig
+) -> tuple[dict, contextlib.AbstractAsyncContextManager, asyncio.AbstractEventLoop]:
+    """Run ASGI lifespan startup synchronously and return startup resources.
 
-    Returns the lifespan state populated by the app during startup.
-    The lifespan context manager is kept open (shutdown runs in cleanup).
+    Returns a 3-tuple ``(state, ctx, loop)`` where ``state`` is the lifespan
+    state populated by the app during startup, ``ctx`` is the open lifespan
+    context manager, and ``loop`` is the event loop used to run startup.
     """
     loop = asyncio.new_event_loop()
     state = {}
