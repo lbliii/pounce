@@ -194,6 +194,13 @@ docs = [
     "bengal>=0.2.6", # Static site generator for documentation
     "lunr>=0.8.0",   # Pre-built search index
 ]
+test-frameworks = [
+    "fastapi>=0.115.0",
+    "starlette>=0.40.0",
+    "litestar>=2.0",
+    "django>=5.0",
+    "httpx>=0.28.1",
+]
 dev = [
     # Testing
     "pytest>=9.0.2",

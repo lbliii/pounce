@@ -1,0 +1,1 @@
+Add 48 integration tests proving compatibility with FastAPI, Starlette, Django, and Litestar. All tests run through real Pounce workers — no mocks. Includes shared test infrastructure with proper ASGI lifespan handling.

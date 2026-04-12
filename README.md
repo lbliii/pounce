@@ -48,6 +48,21 @@ builds, Pounce falls back to multi-process workers automatically.
 
 ---
 
+## Framework Compatibility
+
+Tested in CI with 48 integration tests across every major ASGI framework:
+
+| Framework | Status | Features Verified |
+|-----------|--------|-------------------|
+| **FastAPI** 0.135+ | Full | Routing, Pydantic validation, dependency injection, middleware, exception handlers, lifespan, WebSocket, streaming, OpenAPI schema |
+| **Starlette** 1.0+ | Full | Routing, BaseHTTPMiddleware, lifespan with state, streaming, WebSocket, background tasks, exception handlers |
+| **Django** 6.0+ | Full | Async views, URL routing, path params, JSON body, query params, middleware, error handling |
+| **Litestar** 2.21+ | Core | Routing, dependency injection, middleware, lifespan, streaming, exception handlers. WebSocket: [known routing issue](docs/plans/framework-compatibility-matrix.md) |
+
+Pounce achieves compatibility through correct ASGI 3.0 implementation — no framework-specific code or workarounds.
+
+---
+
 ## Performance
 
 Pounce matches uvicorn on throughput — pure Python, no C extensions.
@@ -218,7 +233,7 @@ def test_api(pounce_server, my_app):
 - **Typed end-to-end.** Frozen config, typed ASGI definitions, zero `type: ignore` comments.
 - **One dependency.** `h11` for HTTP/1.1 parsing. Everything else is optional.
 - **Observable by design.** Lifecycle events are public API — `from pounce import BufferedCollector, ResponseCompleted`. Frameworks build dashboards on typed events, not log parsing.
-- **Chirp companion.** Built to serve Chirp apps natively, but works with any ASGI framework.
+- **Framework tested.** Verified against FastAPI, Starlette, Django, and Litestar with 48 integration tests.
 - **Batteries included.** Static files, middleware, rate limiting, request queueing,
   Prometheus metrics, Sentry, and OpenTelemetry — all built in, all optional.
 

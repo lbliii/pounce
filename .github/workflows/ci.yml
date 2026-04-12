@@ -78,3 +78,21 @@ jobs:
       - name: Verify GIL status (free-threaded only)
         if: matrix.python-version == '3.14t'
         run: uv run python -c "import sys; assert not sys._is_gil_enabled(), 'GIL should be disabled on 3.14t'"
+
+  framework-compat:
+    name: Framework Compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.14t"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --group dev --group test-frameworks --extra h2 --extra ws --extra tls
+
+      - name: Run framework tests
+        run: uv run pytest tests/integration/frameworks/ -ra -q --maxfail=5

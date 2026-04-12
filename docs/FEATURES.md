@@ -630,8 +630,12 @@ ServerConfig(
 
 ### ASGI Compatibility
 - ✅ ASGI 3.0 specification compliant
-- ✅ Works with FastAPI, Starlette, Quart, Django, Flask (via asgiref)
 - ✅ Lifespan protocol support
+- ✅ **FastAPI** — Full compatibility (routing, DI, Pydantic, middleware, lifespan, WebSocket, streaming)
+- ✅ **Starlette** — Full compatibility (routing, middleware, lifespan, streaming, WebSocket, background tasks)
+- ✅ **Django** (ASGI) — Full compatibility (async views, URL routing, middleware, error handling)
+- ✅ **Litestar** — Core compatibility (routing, DI, middleware, lifespan, streaming; WebSocket: known routing issue)
+- 48 integration tests across 4 frameworks in CI
 
 ## Roadmap
 
