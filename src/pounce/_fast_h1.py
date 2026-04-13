@@ -23,9 +23,9 @@ import logging
 import re as _re
 from typing import Final
 
-logger = logging.getLogger("pounce.parser")
-
 from pounce.protocols._base import RequestReceived
+
+logger = logging.getLogger("pounce.parser")
 
 # Pre-intern constants
 _CRLF: Final = b"\r\n"
