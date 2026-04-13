@@ -270,9 +270,10 @@ class StaticFiles:
             except ValueError, OSError:
                 return None
 
-            # Block hidden files (anything starting with .)
+            # Block hidden files (anything starting with .) but allow .well-known
+            # per RFC 8615 (used by ACME/Let's Encrypt, security.txt, etc.)
             for part in resolved.parts:
-                if part.startswith("."):
+                if part.startswith(".") and part != ".well-known":
                     return None
 
             # Single stat + lstat to derive type flags (avoid multiple syscalls)
