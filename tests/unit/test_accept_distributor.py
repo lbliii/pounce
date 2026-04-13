@@ -95,9 +95,7 @@ class TestAcceptDistributorHappyPath:
         dist = AcceptDistributor(mock_sock, conn_queue, shutdown_event=shutdown)
         dist.run()
 
-        mock_conn.setsockopt.assert_called_once_with(
-            socket.IPPROTO_TCP, socket.TCP_NODELAY, 1
-        )
+        mock_conn.setsockopt.assert_called_once_with(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
     def test_tcp_nodelay_skipped_for_unix(self):
         """TCP_NODELAY is not set for AF_UNIX connections."""

@@ -967,7 +967,9 @@ class TestSendRejectsInvalidType:
         transport = _FakeTransport()
         send = create_send(proto, transport, SendState())
 
-        with pytest.raises(RuntimeError, match=r"Unexpected ASGI message type: 'http\.response\.invalid'"):
+        with pytest.raises(
+            RuntimeError, match=r"Unexpected ASGI message type: 'http\.response\.invalid'"
+        ):
             await send({"type": "http.response.invalid"})
 
     @pytest.mark.asyncio

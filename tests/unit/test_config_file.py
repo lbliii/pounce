@@ -227,9 +227,7 @@ class TestDeprecatedAliases:
 
     def test_both_reload_dir_and_reload_dirs_raises(self, tmp_path):
         """Having both reload_dir and reload_dirs raises ValueError."""
-        (tmp_path / "pounce.toml").write_text(
-            'reload_dir = ["src"]\nreload_dirs = ["lib"]\n'
-        )
+        (tmp_path / "pounce.toml").write_text('reload_dir = ["src"]\nreload_dirs = ["lib"]\n')
         with pytest.raises(ValueError, match=r"Both.*reload_dir.*reload_dirs"):
             load_config_file(tmp_path / "pounce.toml")
 

@@ -746,7 +746,8 @@ class Supervisor:
                 self._sockets[socket_index],
                 worker_id=worker_id,
                 shutdown_event=self._shutdown_event,
-                max_connections=self._per_worker_max_base + (1 if worker_id < self._per_worker_max_remainder else 0),
+                max_connections=self._per_worker_max_base
+                + (1 if worker_id < self._per_worker_max_remainder else 0),
                 ssl_context=self._ssl_context,
                 lifecycle_collector=self._lifecycle_collector,
             )
