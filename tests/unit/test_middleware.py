@@ -348,6 +348,86 @@ class TestBuiltInMiddleware:
         assert headers_dict[b"x-content-type-options"] == b"nosniff"
         assert headers_dict[b"x-xss-protection"] == b"1; mode=block"
 
+    async def test_security_headers_no_hsts_by_default(self):
+        """Test that HSTS is not set by default (safe for dev)."""
+        security = SecurityHeadersMiddleware()
+
+        scope = {"type": "http"}
+        _, modified_headers = await security(scope, 200, [])
+
+        headers_dict = dict(modified_headers)
+        assert b"strict-transport-security" not in headers_dict
+
+    async def test_security_headers_explicit_hsts(self):
+        """Test that explicit HSTS value is applied."""
+        security = SecurityHeadersMiddleware(hsts="max-age=63072000; includeSubDomains")
+
+        scope = {"type": "http"}
+        _, modified_headers = await security(scope, 200, [])
+
+        headers_dict = dict(modified_headers)
+        assert headers_dict[b"strict-transport-security"] == b"max-age=63072000; includeSubDomains"
+
+
+class TestMiddlewareSignatureValidation:
+    """Tests for middleware signature validation."""
+
+    def test_middleware_with_zero_params_raises(self):
+        """Middleware with 0 params raises TypeError."""
+
+        async def bad_middleware():
+            pass
+
+        async def app(scope, receive, send):
+            pass
+
+        with pytest.raises(TypeError, match="0 parameter"):
+            MiddlewareStack([bad_middleware], app)
+
+    def test_middleware_with_four_params_raises(self):
+        """Middleware with 4 params raises TypeError."""
+
+        async def bad_middleware(a, b, c, d):
+            pass
+
+        async def app(scope, receive, send):
+            pass
+
+        with pytest.raises(TypeError, match="4 parameter"):
+            MiddlewareStack([bad_middleware], app)
+
+    def test_middleware_error_includes_name(self):
+        """Error message includes the middleware function name."""
+
+        async def my_custom_middleware(a, b, c, d):
+            pass
+
+        async def app(scope, receive, send):
+            pass
+
+        with pytest.raises(TypeError, match="my_custom_middleware"):
+            MiddlewareStack([my_custom_middleware], app)
+
+    def test_valid_middleware_accepted(self):
+        """Middleware with 1, 2, or 3 params is accepted without error."""
+
+        async def pre(scope):
+            return scope
+
+        async def exc(scope, error):
+            return None
+
+        async def post(scope, status, headers):
+            return (status, headers)
+
+        async def app(scope, receive, send):
+            pass
+
+        stack = MiddlewareStack([pre, exc, post], app)
+        assert len(stack._pre_request) == 1
+        assert len(stack._exception_handlers) == 1
+        assert len(stack._post_response) == 1
+
 
 class TestMixedMiddleware:
     """Tests for mixing different middleware types."""
@@ -430,3 +510,36 @@ class TestMixedMiddleware:
         # Error response sent
         assert messages_sent[0]["status"] == 500
         assert messages_sent[1]["body"] == b"Error handled"
+
+
+class TestPostHeaderExceptionLogging:
+    """Exception after headers sent is logged at WARNING."""
+
+    async def test_exception_after_headers_logged(self, caplog):
+        """Exception after response.start logs warning instead of silent swallow."""
+        import logging
+
+        async def exception_handler(scope, exc):
+            return Response(status=500, body=b"Error")
+
+        async def app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            raise RuntimeError("post-header boom")
+
+        stack = MiddlewareStack([exception_handler], app)
+
+        scope = {"type": "http", "method": "GET", "path": "/test", "client": ("1.2.3.4", 5000)}
+        messages_sent = []
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            messages_sent.append(message)
+
+        with caplog.at_level(logging.WARNING, logger="pounce.middleware"):
+            await stack(scope, receive, send)
+
+        assert "post-header boom" in caplog.text
+        assert "/test" in caplog.text
+        assert "1.2.3.4" in caplog.text

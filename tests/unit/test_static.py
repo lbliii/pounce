@@ -211,6 +211,17 @@ class TestETagGeneration:
         assert file2 is not None
         assert file1.etag == file2.etag
 
+    def test_etag_differs_for_compressed_variant(self, static_handler):
+        """Compressed and uncompressed variants have different ETags (RFC 7232)."""
+        plain = static_handler._resolve_file("/static/style.css", None)
+        gzipped = static_handler._resolve_file("/static/style.css", b"gzip")
+
+        assert plain is not None
+        assert gzipped is not None
+        assert plain.etag != gzipped.etag
+        assert "gzip" in gzipped.etag
+        assert "gzip" not in plain.etag
+
 
 class TestPrecompressedFiles:
     """Tests for precompressed file serving."""

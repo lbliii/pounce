@@ -57,6 +57,11 @@ _VALID_KEYS = frozenset(
     f.name for f in dataclass_fields(ServerConfig) if f.name not in _EXCLUDED_FIELDS
 )
 
+# Deprecated aliases: old name → canonical name.
+_DEPRECATED_ALIASES: dict[str, str] = {
+    "reload_dir": "reload_dirs",
+}
+
 
 def find_config_file(search_dir: Path | None = None) -> Path | None:
     """Find a pounce config file in the given (or current) directory.
@@ -113,6 +118,23 @@ def _validate_and_coerce(data: dict[str, Any], source: Path) -> dict[str, Any]:
 
     """
     result: dict[str, Any] = {}
+
+    # Rewrite deprecated aliases before validation.
+    for old_name, new_name in _DEPRECATED_ALIASES.items():
+        if old_name in data:
+            if new_name in data:
+                msg = (
+                    f"Both '{old_name}' and '{new_name}' found in {source}. "
+                    f"Remove '{old_name}' (deprecated) and use '{new_name}' instead."
+                )
+                raise ValueError(msg)
+            logger.warning(
+                "'%s' is deprecated in config files, use '%s' instead",
+                old_name,
+                new_name,
+            )
+            data[new_name] = data.pop(old_name)
+
     unknown = set(data.keys()) - _VALID_KEYS
 
     if unknown:

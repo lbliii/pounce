@@ -22,11 +22,14 @@ Example:
 """
 
 import inspect
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 
 from pounce._types import Receive, Send
+
+logger = logging.getLogger("pounce.middleware")
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +179,13 @@ class MiddlewareStack:
             elif param_count == 3:
                 # Three params = post-response (scope, status, headers)
                 self._post_response.append(cast("PostResponseMiddleware", mw))
+            else:
+                name = getattr(mw, "__name__", getattr(mw, "__class__", type(mw)).__name__)
+                msg = (
+                    f"Middleware {name!r} has {param_count} parameter(s), "
+                    f"expected 1 (pre-request), 2 (exception), or 3 (post-response)"
+                )
+                raise TypeError(msg)
 
     async def __call__(self, scope: dict[str, Any], receive: Receive, send: Send) -> None:
         """Execute middleware stack around app call.
@@ -249,6 +259,15 @@ class MiddlewareStack:
                 # Send error response if not already started
                 if not response_started:
                     await self._send_response(response, send)
+                else:
+                    logger.warning(
+                        "Exception after response headers sent for %s %s "
+                        "(client %s): %s — exception middleware cannot send error response",
+                        modified_scope.get("method", "?"),
+                        modified_scope.get("path", "?"),
+                        modified_scope.get("client", ("?", "?"))[0],
+                        exc,
+                    )
                 return
 
             # No middleware handled it, re-raise
@@ -344,7 +363,7 @@ class SecurityHeadersMiddleware:
     - ``X-Frame-Options: DENY``
     - ``X-Content-Type-Options: nosniff``
     - ``X-XSS-Protection: 1; mode=block``
-    - ``Strict-Transport-Security: max-age=63072000; includeSubDomains``
+    - ``Strict-Transport-Security`` (empty by default — pass an explicit value for production)
     - ``Content-Security-Policy: default-src 'self'``
     - ``Referrer-Policy: strict-origin-when-cross-origin``
     - ``Permissions-Policy: camera=(), microphone=(), geolocation=()``
@@ -359,7 +378,7 @@ class SecurityHeadersMiddleware:
         x_frame_options: str = "DENY",
         x_content_type_options: str = "nosniff",
         x_xss_protection: str = "1; mode=block",
-        hsts: str = "max-age=63072000; includeSubDomains",
+        hsts: str = "",
         csp: str = "default-src 'self'",
         referrer_policy: str = "strict-origin-when-cross-origin",
         permissions_policy: str = "camera=(), microphone=(), geolocation=()",

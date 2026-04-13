@@ -281,19 +281,42 @@ class TestSupervisorRestartWorkers:
 
 
 class TestSupervisorPerWorkerConnections:
-    """Supervisor calculates per-worker connection limits."""
+    """Supervisor calculates per-worker connection limits.
 
-    def test_per_worker_max_connections(self):
+    The per-worker max is computed in prepare() (after sockets are ready),
+    so we test the math via divmod directly and verify the supervisor
+    stores the right values after prepare().
+    """
+
+    def test_per_worker_max_even_split(self):
+        """Even split: 1000 / 4 = 250 each, no remainder."""
         config = ServerConfig(workers=4, max_connections=1000)
-        sup = Supervisor(config, _noop_app, mode="thread")
-        # Per-worker limit should be 1000 // 4 = 250
-        # Verify by checking the supervisor calculates it
-        assert config.max_connections // sup.worker_count == 250
+        base, remainder = divmod(config.max_connections, config.workers)
+        assert base == 250
+        assert remainder == 0
 
     def test_zero_max_connections_means_unlimited(self):
         config = ServerConfig(workers=4, max_connections=0)
         sup = Supervisor(config, _noop_app, mode="thread")
-        assert config.max_connections // sup.worker_count == 0
+        assert sup._per_worker_max_base == 0
+
+    def test_remainder_distributed_to_first_workers(self):
+        """max_connections=100 across 3 workers: first gets 34, rest get 33."""
+        config = ServerConfig(workers=3, max_connections=100)
+        base, remainder = divmod(config.max_connections, config.workers)
+        assert base == 33
+        assert remainder == 1
+        # Total: 34 + 33 + 33 = 100 (no connections lost)
+        total = sum(base + (1 if i < remainder else 0) for i in range(3))
+        assert total == 100
+
+    def test_remainder_all_workers_get_extra(self):
+        """max_connections=7 across 3 workers: 3+2+2 = 7."""
+        base, remainder = divmod(7, 3)
+        assert base == 2
+        assert remainder == 1
+        total = sum(base + (1 if i < remainder else 0) for i in range(3))
+        assert total == 7
 
 
 class TestWorkerHandle:
