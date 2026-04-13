@@ -938,6 +938,23 @@ class Supervisor:
 
         dispatch(WORKER_CRASHED, worker_id=worker_id, restart_count=handle.restart_count)
 
+        # Exponential backoff: 0.5s, 1s, 2s, 4s, ... capped at 30s.
+        # Prevents tight crash-restart loops from saturating the system.
+        backoff = min(0.5 * (2 ** (len(handle.restarts) - 1)), 30.0)
+        logger.info(
+            "Worker %d: waiting %.1fs before restart (attempt %d/%d)",
+            worker_id,
+            backoff,
+            len(handle.restarts),
+            _MAX_RESTARTS,
+        )
+        if self._shutdown_event.wait(backoff):
+            logger.debug(
+                "Shutdown requested during restart backoff; skipping respawn of worker %d",
+                worker_id,
+            )
+            return
+
         self._spawn_worker(worker_id)
 
     # ------------------------------------------------------------------

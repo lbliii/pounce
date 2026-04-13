@@ -179,14 +179,14 @@ register_bench_command(cli)
 def serve(
     app: str,
     config: str | None = None,
-    host: str = "127.0.0.1",
-    port: int = 8000,
-    workers: int = 1,
-    worker_mode: str = "auto",
+    host: str | None = None,
+    port: int | None = None,
+    workers: int | None = None,
+    worker_mode: str | None = None,
     cpu_affinity: bool = False,
-    log_level: str = "info",
-    log_format: str = "auto",
-    root_path: str = "",
+    log_level: str | None = None,
+    log_format: str | None = None,
+    root_path: str | None = None,
     no_compression: bool = False,
     server_timing: bool = False,
     no_access_log: bool = False,
@@ -196,10 +196,10 @@ def serve(
     reload: bool = False,
     reload_include: str | None = None,
     reload_dir: list[str] | None = None,
-    keep_alive_timeout: float = 5.0,
-    header_timeout: float = 10.0,
-    max_requests_per_connection: int = 0,
-    shutdown_timeout: float = 10.0,
+    keep_alive_timeout: float | None = None,
+    header_timeout: float | None = None,
+    max_requests_per_connection: int | None = None,
+    shutdown_timeout: float | None = None,
     uds: str | None = None,
     health_check_path: str | None = None,
     app_name: str | None = None,
@@ -281,12 +281,12 @@ def _serve_impl(
     *,
     app: str,
     config: str | None,
-    host: str,
-    port: int,
-    workers: int,
-    log_level: str,
-    log_format: str,
-    root_path: str,
+    host: str | None,
+    port: int | None,
+    workers: int | None,
+    log_level: str | None,
+    log_format: str | None,
+    root_path: str | None,
     no_compression: bool,
     server_timing: bool,
     no_access_log: bool,
@@ -296,13 +296,13 @@ def _serve_impl(
     reload: bool,
     reload_include: str | None,
     reload_dir: list[str] | None,
-    keep_alive_timeout: float,
-    header_timeout: float,
-    max_requests_per_connection: int,
-    shutdown_timeout: float,
+    keep_alive_timeout: float | None,
+    header_timeout: float | None,
+    max_requests_per_connection: int | None,
+    shutdown_timeout: float | None,
     uds: str | None,
     health_check_path: str | None,
-    worker_mode: str,
+    worker_mode: str | None,
     cpu_affinity: bool,
     app_name: str | None,
     app_tagline: str | None,
@@ -314,42 +314,59 @@ def _serve_impl(
 
     asgi_app = import_app(app)
 
-    # Map CLI args to ServerConfig fields, paired with CLI defaults.
-    # Only values that differ from the CLI default are treated as overrides,
-    # so that TOML file values can fill in unset options.
+    # Build CLI overrides from explicitly-provided arguments only.
+    # None means "not provided" — let TOML or ServerConfig defaults fill in.
+    # Boolean flags use False as "not provided" since --store-true can only set True.
     parsed_reload_include = parse_extensions(reload_include)
     parsed_reload_dirs = parse_dirs(reload_dir)
 
-    cli_args_with_defaults: list[tuple[str, object, object]] = [
-        # (config_key, value, cli_default)
-        ("host", host, "127.0.0.1"),
-        ("port", port, 8000),
-        ("workers", workers, 1),
-        ("log_level", log_level, "info"),
-        ("log_format", log_format, "auto"),
-        ("root_path", root_path, ""),
-        ("compression", not no_compression, True),
-        ("server_timing", server_timing, False),
-        ("access_log", not no_access_log, True),
-        ("ssl_certfile", ssl_certfile, None),
-        ("ssl_keyfile", ssl_keyfile, None),
-        ("http3_enabled", http3, False),
-        ("reload", reload, False),
-        ("reload_include", parsed_reload_include, ()),
-        ("reload_dirs", parsed_reload_dirs, ()),
-        ("keep_alive_timeout", keep_alive_timeout, 5.0),
-        ("header_timeout", header_timeout, 10.0),
-        ("max_requests_per_connection", max_requests_per_connection, 0),
-        ("shutdown_timeout", shutdown_timeout, 10.0),
-        ("uds", uds, None),
-        ("health_check_path", health_check_path, None),
-        ("worker_mode", worker_mode, "auto"),
-        ("cpu_affinity", cpu_affinity, False),
-    ]
-
-    cli_overrides: dict[str, object] = {
-        key: value for key, value, default in cli_args_with_defaults if value != default
-    }
+    cli_overrides: dict[str, object] = {}
+    if host is not None:
+        cli_overrides["host"] = host
+    if port is not None:
+        cli_overrides["port"] = port
+    if workers is not None:
+        cli_overrides["workers"] = workers
+    if log_level is not None:
+        cli_overrides["log_level"] = log_level
+    if log_format is not None:
+        cli_overrides["log_format"] = log_format
+    if root_path is not None:
+        cli_overrides["root_path"] = root_path
+    if no_compression:
+        cli_overrides["compression"] = False
+    if server_timing:
+        cli_overrides["server_timing"] = True
+    if no_access_log:
+        cli_overrides["access_log"] = False
+    if ssl_certfile is not None:
+        cli_overrides["ssl_certfile"] = ssl_certfile
+    if ssl_keyfile is not None:
+        cli_overrides["ssl_keyfile"] = ssl_keyfile
+    if http3:
+        cli_overrides["http3_enabled"] = True
+    if reload:
+        cli_overrides["reload"] = True
+    if parsed_reload_include:
+        cli_overrides["reload_include"] = parsed_reload_include
+    if parsed_reload_dirs:
+        cli_overrides["reload_dirs"] = parsed_reload_dirs
+    if keep_alive_timeout is not None:
+        cli_overrides["keep_alive_timeout"] = keep_alive_timeout
+    if header_timeout is not None:
+        cli_overrides["header_timeout"] = header_timeout
+    if max_requests_per_connection is not None:
+        cli_overrides["max_requests_per_connection"] = max_requests_per_connection
+    if shutdown_timeout is not None:
+        cli_overrides["shutdown_timeout"] = shutdown_timeout
+    if uds is not None:
+        cli_overrides["uds"] = uds
+    if health_check_path is not None:
+        cli_overrides["health_check_path"] = health_check_path
+    if worker_mode is not None:
+        cli_overrides["worker_mode"] = worker_mode
+    if cpu_affinity:
+        cli_overrides["cpu_affinity"] = True
 
     config_path = Path(config) if config else None
     merged = load_config_with_overrides(cli_overrides, config_path=config_path)

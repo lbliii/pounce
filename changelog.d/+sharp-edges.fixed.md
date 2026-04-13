@@ -1,0 +1,1 @@
+Fixed CLI config precedence so explicit args always override TOML values even when matching the default. Added exponential backoff to worker restart to prevent tight crash-restart loops. CORS and security header middleware now skip headers already set by the app. Static file serving now allows ``.well-known/`` paths per RFC 8615. Fixed incorrect middleware docstring example.

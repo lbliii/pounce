@@ -7,7 +7,8 @@ modifying the ASGI bridge or requiring apps to wrap themselves in middleware.
 Example:
     async def auth_middleware(scope):
         '''Pre-request hook that can short-circuit.'''
-        if not scope["headers"].get(b"authorization"):
+        headers = dict(scope["headers"])
+        if not headers.get(b"authorization"):
             return Response(status=401, body=b"Unauthorized")
         return scope  # Continue to app
 
@@ -318,12 +319,17 @@ class CORSMiddleware:
         status: int,
         headers: list[tuple[bytes, bytes]],
     ) -> tuple[int, list[tuple[bytes, bytes]]]:
-        """Add CORS headers to response."""
+        """Add CORS headers to response, skipping any already set by the app."""
         headers = list(headers)
-        headers.append((b"access-control-allow-origin", self._allow_origin))
-        headers.append((b"access-control-allow-methods", self._allow_methods))
-        headers.append((b"access-control-allow-headers", self._allow_headers))
-        headers.append((b"access-control-max-age", self._max_age))
+        existing = {name.lower() for name, _ in headers}
+        if b"access-control-allow-origin" not in existing:
+            headers.append((b"access-control-allow-origin", self._allow_origin))
+        if b"access-control-allow-methods" not in existing:
+            headers.append((b"access-control-allow-methods", self._allow_methods))
+        if b"access-control-allow-headers" not in existing:
+            headers.append((b"access-control-allow-headers", self._allow_headers))
+        if b"access-control-max-age" not in existing:
+            headers.append((b"access-control-max-age", self._max_age))
         return (status, headers)
 
 
@@ -379,7 +385,10 @@ class SecurityHeadersMiddleware:
         status: int,
         headers: list[tuple[bytes, bytes]],
     ) -> tuple[int, list[tuple[bytes, bytes]]]:
-        """Add security headers to response."""
+        """Add security headers to response, skipping any already set by the app."""
         headers = list(headers)
-        headers.extend(self._headers)
+        existing = {name.lower() for name, _ in headers}
+        for name, value in self._headers:
+            if name not in existing:
+                headers.append((name, value))
         return (status, headers)

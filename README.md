@@ -57,7 +57,7 @@ Tested in CI with 48 integration tests across every major ASGI framework:
 | **FastAPI** 0.135+ | Full | Routing, Pydantic validation, dependency injection, middleware, exception handlers, lifespan, WebSocket, streaming, OpenAPI schema |
 | **Starlette** 1.0+ | Full | Routing, BaseHTTPMiddleware, lifespan with state, streaming, WebSocket, background tasks, exception handlers |
 | **Django** 6.0+ | Full | Async views, URL routing, path params, JSON body, query params, middleware, error handling |
-| **Litestar** 2.21+ | Core | Routing, dependency injection, middleware, lifespan, streaming, exception handlers. WebSocket: [known routing issue](docs/plans/framework-compatibility-matrix.md) |
+| **Litestar** 2.21+ | Core | Routing, dependency injection, middleware, lifespan, streaming, exception handlers. WebSocket: known routing issue |
 
 Pounce achieves compatibility through correct ASGI 3.0 implementation — no framework-specific code or workarounds.
 
@@ -126,27 +126,27 @@ pip install bengal-pounce[full]   # All protocol extras
 | **Migration** | Move from Uvicorn with similar CLI concepts | [Migrate from Uvicorn →](https://lbliii.github.io/pounce/docs/tutorials/migrate-from-uvicorn/) |
 | **HTTP/1.1** | h11 (async) + fast built-in parser (sync) | [HTTP/1.1 →](https://lbliii.github.io/pounce/docs/protocols/http1/) |
 | **HTTP/2** | Stream multiplexing via h2 | [HTTP/2 →](https://lbliii.github.io/pounce/docs/protocols/http2/) |
-| **HTTP/3** | QUIC/UDP via bengal-zoomies (requires TLS) | [HTTP/3 →](docs/design/http3-roadmap.md) |
+| **HTTP/3** | QUIC/UDP via bengal-zoomies (requires TLS) | [HTTP/3 →](https://lbliii.github.io/pounce/docs/protocols/http3/) |
 | **WebSocket** | Full RFC 6455 via wsproto (including WS over H2) | [WebSocket →](https://lbliii.github.io/pounce/docs/protocols/websocket/) |
-| **Static Files** | Pre-compressed files, ETags, range requests | [Static Files →](docs/features/) |
-| **Middleware** | ASGI3 middleware stack support | [Middleware →](docs/features/) |
-| **OpenTelemetry** | Native distributed tracing (OTLP) | [OpenTelemetry →](docs/deployment/opentelemetry.md) |
-| **Lifecycle Logging** | Structured JSON event logging | [Logging →](docs/features/lifecycle-logging.md) |
-| **Graceful Shutdown** | Kubernetes-ready connection draining | [Shutdown →](docs/deployment/graceful-shutdown.md) |
-| **Dev Error Pages** | Rich tracebacks with syntax highlighting | [Errors →](docs/development/error-pages.md) |
+| **Static Files** | Pre-compressed files, ETags, range requests | [Static Files →](https://lbliii.github.io/pounce/docs/features/static-files/) |
+| **Middleware** | ASGI3 middleware stack support | [Middleware →](https://lbliii.github.io/pounce/docs/features/middleware/) |
+| **OpenTelemetry** | Native distributed tracing (OTLP) | [OpenTelemetry →](https://lbliii.github.io/pounce/docs/deployment/observability/) |
+| **Lifecycle Logging** | Structured JSON event logging | [Logging →](https://lbliii.github.io/pounce/docs/features/lifecycle-logging/) |
+| **Graceful Shutdown** | Kubernetes-ready connection draining | [Shutdown →](https://lbliii.github.io/pounce/docs/deployment/lifecycle/) |
+| **Dev Error Pages** | Rich tracebacks with syntax highlighting | [Errors →](https://lbliii.github.io/pounce/docs/features/error-pages/) |
 | **TLS** | SSL with truststore integration | [TLS →](https://lbliii.github.io/pounce/docs/configuration/tls/) |
 | **Compression** | zstd (stdlib PEP 784) + gzip + WS compression | [Compression →](https://lbliii.github.io/pounce/docs/deployment/compression/) |
 | **Workers** | Auto-detect: threads (3.14t) or processes (GIL) | [Workers →](https://lbliii.github.io/pounce/docs/deployment/workers/) |
-| **Auto Reload** | Graceful restart on file changes | [Reload →](docs/deployment/graceful-reload.md) |
-| **Rate Limiting** | Per-IP token bucket with 429 responses | [Rate Limiting →](docs/deployment/rate-limiting.md) |
-| **Request Queueing** | Bounded queue with 503 load shedding | [Request Queueing →](docs/deployment/request-queueing.md) |
-| **Prometheus** | Built-in `/metrics` endpoint | [Metrics →](docs/deployment/prometheus-metrics.md) |
-| **Sentry** | Error tracking and performance monitoring | [Sentry →](docs/deployment/sentry.md) |
+| **Auto Reload** | Graceful restart on file changes | [Reload →](https://lbliii.github.io/pounce/docs/deployment/lifecycle/) |
+| **Rate Limiting** | Per-IP token bucket with 429 responses | [Rate Limiting →](https://lbliii.github.io/pounce/docs/deployment/backpressure/) |
+| **Request Queueing** | Bounded queue with 503 load shedding | [Request Queueing →](https://lbliii.github.io/pounce/docs/deployment/backpressure/) |
+| **Prometheus** | Built-in `/metrics` endpoint | [Metrics →](https://lbliii.github.io/pounce/docs/deployment/observability/) |
+| **Sentry** | Error tracking and performance monitoring | [Sentry →](https://lbliii.github.io/pounce/docs/deployment/observability/) |
 | **Testing** | `TestServer` + pytest fixture for integration tests | [Testing →](https://lbliii.github.io/pounce/docs/testing/) |
-| **Benchmarking** | Built-in `pounce bench` command with comparative analysis | [Bench →](docs/FEATURES.md) |
+| **Benchmarking** | Built-in `pounce bench` command with comparative analysis | [Bench →](https://lbliii.github.io/pounce/docs/features/) |
 | **Lifecycle Events** | Public API for typed connection/request events | [API →](https://lbliii.github.io/pounce/docs/reference/api/) |
 
-📚 **Full documentation**: [lbliii.github.io/pounce](https://lbliii.github.io/pounce/) | **[Complete Feature List →](docs/FEATURES.md)**
+📚 **Full documentation**: [lbliii.github.io/pounce](https://lbliii.github.io/pounce/) | **[Complete Feature List →](https://lbliii.github.io/pounce/docs/features/)**
 
 ---
 
