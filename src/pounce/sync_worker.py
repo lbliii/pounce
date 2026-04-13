@@ -686,7 +686,7 @@ class SyncWorker:
 
                 if close_after or at_limit:
                     break
-        except ConnectionError, OSError:
+        except (ConnectionError, OSError):
             close_reason = "client_disconnect"
             self._lifecycle.record(
                 ClientDisconnected(

@@ -172,7 +172,7 @@ async def handle_h2_connection(
                     end_stream=True,
                 )
                 writer.write(h2_conn.data_to_send())
-            except OSError, ConnectionError:
+            except (OSError, ConnectionError):
                 pass
             if send_state.status == 0:
                 send_state.status = 500
@@ -214,7 +214,7 @@ async def handle_h2_connection(
                 )
             except TimeoutError:
                 break
-            except ConnectionError, OSError:
+            except (ConnectionError, OSError):
                 break
 
             if not data:
@@ -296,7 +296,7 @@ async def handle_h2_connection(
 
             try:
                 await writer.drain()
-            except ConnectionError, OSError:
+            except (ConnectionError, OSError):
                 break
 
     finally:
@@ -314,7 +314,7 @@ async def handle_h2_connection(
             h2_conn.close_connection()
             writer.write(h2_conn.data_to_send())
             await writer.drain()
-        except OSError, ConnectionError:
+        except (OSError, ConnectionError):
             pass
 
 
