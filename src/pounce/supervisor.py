@@ -600,7 +600,10 @@ class Supervisor:
                     except Exception as exc:
                         eh[0] = exc
                         logger.error(
-                            "Worker %d crashed: %s", wid, exc, exc_info=True,
+                            "Worker %d crashed: %s",
+                            wid,
+                            exc,
+                            exc_info=True,
                         )
 
                 target = threading.Thread(
@@ -1192,7 +1195,7 @@ def _serialize_lifespan_state(state: dict[str, Any]) -> str:
         try:
             json.dumps(val)
             safe[key] = val
-        except (TypeError, ValueError):
+        except (TypeError, ValueError):  # fmt: skip
             logger.warning(
                 "Lifespan state key %r is not JSON-serializable — "
                 "skipping for subinterpreter workers (use pounce.worker.startup hook instead)",

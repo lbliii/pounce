@@ -308,7 +308,7 @@ class Worker:
                     server.abort_clients()
                     with contextlib.suppress(TimeoutError):
                         await asyncio.wait_for(server.wait_closed(), timeout=2.0)
-            except (ValueError, OSError):
+            except (ValueError, OSError):  # fmt: skip
                 pass  # fd already closed by another worker sharing the socket
 
             # Per-worker shutdown hook — runs on this worker's event loop
@@ -325,9 +325,9 @@ class Worker:
                 )
             except Exception:
                 self._logger.warning(
-                "Worker shutdown hook raised — if this is unexpected, check your app",
-                exc_info=True,
-            )
+                    "Worker shutdown hook raised — if this is unexpected, check your app",
+                    exc_info=True,
+                )
 
             # Run executor shutdown on a dedicated pool — ``asyncio.to_thread`` /
             # ``run_in_executor(None, ...)`` would use this worker's default executor
@@ -418,7 +418,7 @@ class Worker:
                 await writer.drain()
                 writer.close()
                 await writer.wait_closed()
-            except (OSError, ConnectionError):
+            except (OSError, ConnectionError):  # fmt: skip
                 pass
             return
 
@@ -443,7 +443,7 @@ class Worker:
                 await writer.drain()
                 writer.close()
                 await writer.wait_closed()
-            except (OSError, ConnectionError):
+            except (OSError, ConnectionError):  # fmt: skip
                 pass
             return
 
@@ -529,7 +529,7 @@ class Worker:
                     try:
                         writer.close()
                         await writer.wait_closed()
-                    except (OSError, ConnectionError):
+                    except (OSError, ConnectionError):  # fmt: skip
                         pass
                 return
 
@@ -634,7 +634,7 @@ class Worker:
                 except TimeoutError:
                     close_reason = "timeout"
                     break  # Timeout — close connection
-                except (ConnectionError, OSError):
+                except (ConnectionError, OSError):  # fmt: skip
                     close_reason = "client_disconnect"
                     break
 
@@ -709,7 +709,7 @@ class Worker:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except (OSError, ConnectionError):
+            except (OSError, ConnectionError):  # fmt: skip
                 pass
 
     # ------------------------------------------------------------------
@@ -1158,7 +1158,7 @@ class Worker:
                     except TimeoutError:
                         await body_queue.put(BodyReceived(data=b"", more=False))
                         return
-                    except (ConnectionError, OSError):
+                    except (ConnectionError, OSError):  # fmt: skip
                         await body_queue.put(BodyReceived(data=b"", more=False))
                         return
 
@@ -1265,7 +1265,7 @@ class Worker:
                 if not data:
                     # Client disconnected — EOF
                     break
-        except (ConnectionError, OSError):
+        except (ConnectionError, OSError):  # fmt: skip
             pass
         finally:
             disconnect.set()

@@ -27,7 +27,9 @@ class TestExceptionSyntax:
             text = py_file.read_text()
             for match in self._BAD_EXCEPT_RE.finditer(text):
                 lineno = text[: match.start()].count("\n") + 1
-                violations.append(f"{py_file.relative_to(SRC_DIR)}:{lineno}: {match.group().strip()}")
+                violations.append(
+                    f"{py_file.relative_to(SRC_DIR)}:{lineno}: {match.group().strip()}"
+                )
 
         assert not violations, (
             f"Found {len(violations)} Python 2-style except handler(s):\n"

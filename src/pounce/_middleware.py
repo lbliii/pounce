@@ -187,9 +187,7 @@ class MiddlewareStack:
                 self._pre_request.append(cast("PreRequestMiddleware", mw))
                 param_names = list(sig.parameters.keys())
                 if param_names[0] not in ("scope", "request", "req"):
-                    mw_name = getattr(
-                        mw, "__name__", getattr(mw, "__class__", type(mw)).__name__
-                    )
+                    mw_name = getattr(mw, "__name__", getattr(mw, "__class__", type(mw)).__name__)
                     logger.warning(
                         "Middleware %r classified as pre-request (1 param) but parameter "
                         "name %r does not match expected pattern (e.g. 'scope')",
@@ -201,9 +199,7 @@ class MiddlewareStack:
                 self._exception_handlers.append(cast("ExceptionMiddleware", mw))
                 param_names = list(sig.parameters.keys())
                 if param_names[1] not in ("exc", "exception", "error", "err"):
-                    mw_name = getattr(
-                        mw, "__name__", getattr(mw, "__class__", type(mw)).__name__
-                    )
+                    mw_name = getattr(mw, "__name__", getattr(mw, "__class__", type(mw)).__name__)
                     logger.warning(
                         "Middleware %r classified as exception handler (2 params) but "
                         "parameter names %r do not match expected pattern "
@@ -216,9 +212,7 @@ class MiddlewareStack:
                 self._post_response.append(cast("PostResponseMiddleware", mw))
                 param_names = list(sig.parameters.keys())
                 if param_names[1] not in ("status", "response", "code", "status_code"):
-                    mw_name = getattr(
-                        mw, "__name__", getattr(mw, "__class__", type(mw)).__name__
-                    )
+                    mw_name = getattr(mw, "__name__", getattr(mw, "__class__", type(mw)).__name__)
                     logger.warning(
                         "Middleware %r classified as post-response (3 params) but "
                         "parameter names %r do not match expected pattern "

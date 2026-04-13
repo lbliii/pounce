@@ -281,7 +281,7 @@ class StaticFiles:
                 # Use is_relative_to() which handles symlinks correctly
                 if not resolved.is_relative_to(mount_resolved):
                     return None
-            except (ValueError, OSError):
+            except (ValueError, OSError):  # fmt: skip
                 return None
 
             # Block hidden files (anything starting with .) but allow .well-known
@@ -415,7 +415,7 @@ class StaticFiles:
             resolved = path.resolve()
             if not resolved.is_relative_to(mount.directory):
                 return False
-        except (ValueError, OSError):
+        except (ValueError, OSError):  # fmt: skip
             return False
 
         # Block hidden files (same check as _resolve_file)
