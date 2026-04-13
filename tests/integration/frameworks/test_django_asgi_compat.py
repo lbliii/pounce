@@ -51,7 +51,8 @@ async def echo_method_view(request):
 
 
 async def post_json_view(request):
-    body = json.loads(request.body)
+    raw = await request.aread()
+    body = json.loads(raw)
     return JsonResponse({"received": body}, status=201)
 
 
