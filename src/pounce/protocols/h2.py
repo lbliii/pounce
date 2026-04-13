@@ -440,7 +440,6 @@ class H2Connection:
             error_code: The h2 error code (default: NO_ERROR).
 
         """
-        max(self._streams.keys(), default=0)
         self._conn.close_connection(error_code=error_code)
         self._closed = True
 

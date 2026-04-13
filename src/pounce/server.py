@@ -347,10 +347,14 @@ class Server:
                         _worker_lifecycle_receive,
                         _worker_lifecycle_send,
                     ),
-                    timeout=30.0,
+                    timeout=self._config.startup_timeout,
                 )
             except TimeoutError:
-                pass  # App doesn't handle this scope type
+                logger.warning(
+                    "Worker startup hook timed out after %.1fs"
+                    " — app may not handle lifespan.startup.complete",
+                    self._config.startup_timeout,
+                )
             except Exception:
                 logger.exception("Worker startup hook failed")
                 return
@@ -566,10 +570,18 @@ class Server:
 
         cert_path = self._config.ssl_certfile or ""
         key_path = self._config.ssl_keyfile or ""
-        with open(cert_path, "rb") as f:
-            cert_bytes = f.read()
-        with open(key_path, "rb") as f:
-            key_bytes = f.read()
+        try:
+            with open(cert_path, "rb") as f:
+                cert_bytes = f.read()
+        except (FileNotFoundError, PermissionError, OSError) as exc:
+            logger.error("HTTP/3 setup failed: cannot read certificate at %s: %s", cert_path, exc)
+            return
+        try:
+            with open(key_path, "rb") as f:
+                key_bytes = f.read()
+        except (FileNotFoundError, PermissionError, OSError) as exc:
+            logger.error("HTTP/3 setup failed: cannot read private key at %s: %s", key_path, exc)
+            return
 
         zero_rtt_policy = _make_zero_rtt_policy() if self._config.http3_zero_rtt_enabled else None
         quic_config = QuicConfiguration(

@@ -437,6 +437,8 @@ def create_send(
             body: bytes = message.get("body", b"")
             more_body: bool = message.get("more_body", False)
 
+            original_len = len(body)
+
             if compressor is not None and body:
                 body = compressor.compress(body)
                 if not more_body:
@@ -469,7 +471,7 @@ def create_send(
             if transport is not None and transport.get_write_buffer_size() > _DRAIN_THRESHOLD:
                 await writer.drain()
 
-            state.bytes_sent += len(body)
+            state.bytes_sent += original_len
             if not more_body:
                 response_complete = True
 

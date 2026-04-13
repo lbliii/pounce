@@ -20,6 +20,10 @@ _IIC_SKIP_FIELDS: frozenset[str] = frozenset(
         "compression_dictionaries",
         "middleware",
         "display",
+        "app_name",
+        "app_tagline",
+        "app_version",
+        "signage",
         "_VALID_LOG_LEVELS",
         "_VALID_LOG_FORMATS",
         "_VALID_WORKER_MODES",
@@ -89,6 +93,11 @@ class ServerConfig:
     log_format: str = "auto"  # "auto", "text", or "json"
     # Optional application branding for startup banner / JSON startup line
     display: DisplayConfig | None = None
+    # Branding fields settable via config file (merged into DisplayConfig at startup)
+    app_name: str | None = None
+    app_tagline: str | None = None
+    app_version: str | None = None
+    signage: str | None = None
     # Optional filter: (method, path, status) -> bool.  True = log, False = skip.
     access_log_filter: Callable[[str, str, int], bool] | None = None
 
@@ -216,6 +225,9 @@ class ServerConfig:
         if self.header_timeout <= 0:
             msg = f"header_timeout must be > 0 (got {self.header_timeout})"
             raise ValueError(msg)
+        if self.startup_timeout <= 0:
+            msg = f"startup_timeout must be > 0 (got {self.startup_timeout})"
+            raise ValueError(msg)
         if self.shutdown_timeout <= 0:
             msg = f"shutdown_timeout must be > 0 (got {self.shutdown_timeout})"
             raise ValueError(msg)
@@ -294,6 +306,12 @@ class ServerConfig:
         if self.uds is not None and not self.uds:
             msg = "uds must be a non-empty path or None"
             raise ValueError(msg)
+        if self.signage is not None:
+            from pounce.display import _VALID_SIGNAGE
+
+            if self.signage.strip().lower() not in _VALID_SIGNAGE:
+                msg = f"signage must be one of {sorted(_VALID_SIGNAGE)} (got {self.signage!r})"
+                raise ValueError(msg)
         if self.log_slow_requests_threshold <= 0:
             msg = (
                 f"log_slow_requests_threshold must be > 0 (got {self.log_slow_requests_threshold})"

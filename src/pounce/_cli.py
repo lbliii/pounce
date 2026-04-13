@@ -113,10 +113,10 @@ _SERVE_HELP = {
     "no_access_log": "Disable access logging (config file: access_log = false)",
     "ssl_certfile": "Path to TLS certificate file (enables HTTPS)",
     "ssl_keyfile": "Path to TLS private key file",
-    "http3": "Enable HTTP/3 (QUIC/UDP); requires TLS",
+    "http3": "Enable HTTP/3 (QUIC/UDP); requires TLS (config: http3_enabled)",
     "reload": "Auto-reload on source file changes",
     "reload_include": "Extra file extensions to watch (comma-separated)",
-    "reload_dir": "Extra directories to watch (repeatable)",
+    "reload_dir": "Extra directories to watch (repeatable) (config: reload_dirs)",
     "keep_alive_timeout": "Idle keep-alive timeout in seconds",
     "header_timeout": "Header receive timeout in seconds",
     "request_timeout": "Request body receive timeout in seconds",
@@ -380,19 +380,36 @@ def _serve_impl(
     if cpu_affinity:
         cli_overrides["cpu_affinity"] = True
 
+    # Early validation for mutually exclusive / co-dependent options.
+    if http3 and uds is not None:
+        msg = "--http3 cannot be used with --uds (HTTP/3 requires UDP, not Unix domain sockets)"
+        raise ValueError(msg)
+    if ssl_certfile is not None and ssl_keyfile is None:
+        msg = "--ssl-certfile requires --ssl-keyfile"
+        raise ValueError(msg)
+    if ssl_keyfile is not None and ssl_certfile is None:
+        msg = "--ssl-keyfile requires --ssl-certfile"
+        raise ValueError(msg)
+
     config_path = Path(config) if config else None
     merged = load_config_with_overrides(cli_overrides, config_path=config_path)
 
     server_config = ServerConfig(**merged)
 
+    # Merge branding: CLI flags override config-file values.
+    effective_name = app_name or server_config.app_name
+    effective_tagline = app_tagline or server_config.app_tagline
+    effective_version = app_version or server_config.app_version
+    effective_signage = signage or server_config.signage
+
     cli_display = (
         CliDisplayOverrides(
-            name=app_name,
-            tagline=app_tagline,
-            version=app_version,
-            signage=signage,
+            name=effective_name,
+            tagline=effective_tagline,
+            version=effective_version,
+            signage=effective_signage,
         )
-        if any((app_name, app_tagline, app_version, signage))
+        if any((effective_name, effective_tagline, effective_version, effective_signage))
         else None
     )
 
@@ -584,14 +601,14 @@ def info() -> None:
 @cli.command("check", description="Validate configuration before starting")
 def check(
     app: str,
-    host: str = "127.0.0.1",
-    port: int = 8000,
-    workers: int = 1,
-    worker_mode: str = "auto",
+    host: str | None = None,
+    port: int | None = None,
+    workers: int | None = None,
+    worker_mode: str | None = None,
     cpu_affinity: bool = False,
-    log_level: str = "info",
-    log_format: str = "auto",
-    root_path: str = "",
+    log_level: str | None = None,
+    log_format: str | None = None,
+    root_path: str | None = None,
     no_compression: bool = False,
     server_timing: bool = False,
     no_access_log: bool = False,
@@ -601,12 +618,12 @@ def check(
     reload: bool = False,
     reload_include: str | None = None,
     reload_dir: list[str] | None = None,
-    keep_alive_timeout: float = 5.0,
-    header_timeout: float = 10.0,
-    request_timeout: float = 30.0,
-    startup_timeout: float = 30.0,
-    max_requests_per_connection: int = 0,
-    shutdown_timeout: float = 10.0,
+    keep_alive_timeout: float | None = None,
+    header_timeout: float | None = None,
+    request_timeout: float | None = None,
+    startup_timeout: float | None = None,
+    max_requests_per_connection: int | None = None,
+    shutdown_timeout: float | None = None,
     uds: str | None = None,
     health_check_path: str | None = None,
     signage: str | None = None,
@@ -620,44 +637,84 @@ def check(
         sys.path.insert(0, ".")
 
     from pounce import _output
+    from pounce._config_file import load_config_with_overrides
 
-    checks: list[dict[str, str]] = []
+    # Build CLI overrides the same way serve does — None means "not provided".
+    parsed_reload_include = parse_extensions(reload_include)
+    parsed_reload_dirs = parse_dirs(reload_dir)
 
-    checks.append(_check_app_importable(app))
-    if not uds:
-        checks.append(_check_port_available(host, port))
-    if ssl_certfile:
-        checks.append(_check_tls_cert(ssl_certfile, ssl_keyfile))
-    checks.extend(_check_deps_for_config(http3=http3, ssl_certfile=ssl_certfile))
-    checks.append(
-        _check_config_valid(
-            host=host,
-            port=port,
-            workers=workers,
-            worker_mode=worker_mode,
-            cpu_affinity=cpu_affinity,
-            log_level=log_level,
-            log_format=log_format,
-            root_path=root_path,
-            no_compression=no_compression,
-            server_timing=server_timing,
-            no_access_log=no_access_log,
-            ssl_certfile=ssl_certfile,
-            ssl_keyfile=ssl_keyfile,
-            http3=http3,
-            reload=reload,
-            reload_include=reload_include,
-            reload_dir=reload_dir,
-            keep_alive_timeout=keep_alive_timeout,
-            header_timeout=header_timeout,
-            request_timeout=request_timeout,
-            startup_timeout=startup_timeout,
-            max_requests_per_connection=max_requests_per_connection,
-            shutdown_timeout=shutdown_timeout,
-            uds=uds,
-            health_check_path=health_check_path,
+    cli_overrides: dict[str, object] = {}
+    if host is not None:
+        cli_overrides["host"] = host
+    if port is not None:
+        cli_overrides["port"] = port
+    if workers is not None:
+        cli_overrides["workers"] = workers
+    if worker_mode is not None:
+        cli_overrides["worker_mode"] = worker_mode
+    if cpu_affinity:
+        cli_overrides["cpu_affinity"] = True
+    if log_level is not None:
+        cli_overrides["log_level"] = log_level
+    if log_format is not None:
+        cli_overrides["log_format"] = log_format
+    if root_path is not None:
+        cli_overrides["root_path"] = root_path
+    if no_compression:
+        cli_overrides["compression"] = False
+    if server_timing:
+        cli_overrides["server_timing"] = True
+    if no_access_log:
+        cli_overrides["access_log"] = False
+    if ssl_certfile is not None:
+        cli_overrides["ssl_certfile"] = ssl_certfile
+    if ssl_keyfile is not None:
+        cli_overrides["ssl_keyfile"] = ssl_keyfile
+    if http3:
+        cli_overrides["http3_enabled"] = True
+    if reload:
+        cli_overrides["reload"] = True
+    if parsed_reload_include:
+        cli_overrides["reload_include"] = parsed_reload_include
+    if parsed_reload_dirs:
+        cli_overrides["reload_dirs"] = parsed_reload_dirs
+    if keep_alive_timeout is not None:
+        cli_overrides["keep_alive_timeout"] = keep_alive_timeout
+    if header_timeout is not None:
+        cli_overrides["header_timeout"] = header_timeout
+    if request_timeout is not None:
+        cli_overrides["request_timeout"] = request_timeout
+    if startup_timeout is not None:
+        cli_overrides["startup_timeout"] = startup_timeout
+    if max_requests_per_connection is not None:
+        cli_overrides["max_requests_per_connection"] = max_requests_per_connection
+    if shutdown_timeout is not None:
+        cli_overrides["shutdown_timeout"] = shutdown_timeout
+    if uds is not None:
+        cli_overrides["uds"] = uds
+    if health_check_path is not None:
+        cli_overrides["health_check_path"] = health_check_path
+
+    try:
+        merged = load_config_with_overrides(cli_overrides)
+    except ValueError as exc:
+        _output.error(str(exc))
+        sys.exit(1)
+
+    # Validate config first so pre-flight checks use typed values.
+    config_check = _check_merged_config_valid(merged)
+    checks: list[dict[str, str]] = [_check_app_importable(app), config_check]
+
+    if config_check["status"] != "error":
+        # Config is valid — construct typed config for pre-flight checks.
+        cfg = ServerConfig(**merged)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        if not cfg.uds:
+            checks.append(_check_port_available(cfg.host, cfg.port))
+        if cfg.ssl_certfile:
+            checks.append(_check_tls_cert(cfg.ssl_certfile, cfg.ssl_keyfile))
+        checks.extend(
+            _check_deps_for_config(http3=cfg.http3_enabled, ssl_certfile=cfg.ssl_certfile)
         )
-    )
 
     if signage is not None:
         checks.append(_check_signage(signage))
@@ -844,6 +901,20 @@ def _check_config_valid(
             uds=uds,
             health_check_path=health_check_path,
         )
+        return {"name": "Config validation", "status": "success", "detail": "Valid", "hint": ""}
+    except (ValueError, TypeError) as exc:
+        return {
+            "name": "Config validation",
+            "status": "error",
+            "detail": str(exc),
+            "hint": "",
+        }
+
+
+def _check_merged_config_valid(merged: dict[str, object]) -> dict[str, str]:
+    """Try to construct ServerConfig from merged config dict and catch validation errors."""
+    try:
+        ServerConfig(**merged)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         return {"name": "Config validation", "status": "success", "detail": "Valid", "hint": ""}
     except (ValueError, TypeError) as exc:
         return {
