@@ -948,7 +948,12 @@ class Supervisor:
             len(handle.restarts),
             _MAX_RESTARTS,
         )
-        time.sleep(backoff)
+        if self._shutdown_event.wait(backoff):
+            logger.debug(
+                "Shutdown requested during restart backoff; skipping respawn of worker %d",
+                worker_id,
+            )
+            return
 
         self._spawn_worker(worker_id)
 
