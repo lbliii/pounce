@@ -124,14 +124,18 @@ def run(app: str | ASGIApp, **kwargs: Unpack[ServerConfigKwargs]) -> None:
     from pounce.server import Server
 
     # Accept a pre-built ServerConfig via config= kwarg.
-    pre_built = kwargs.pop("config", None)  # type: ignore[arg-type]
-    if pre_built is not None and isinstance(pre_built, ServerConfig):
+    _missing = object()
+    pre_built = kwargs.pop("config", _missing)  # type: ignore[arg-type]
+    if pre_built is _missing:
+        config = ServerConfig(**kwargs)
+    elif isinstance(pre_built, ServerConfig):
         if kwargs:
             msg = "Cannot pass both config=ServerConfig(...) and additional keyword arguments"
             raise TypeError(msg)
         config = pre_built
     else:
-        config = ServerConfig(**kwargs)
+        msg = "config must be a ServerConfig instance"
+        raise TypeError(msg)
 
     if isinstance(app, str):
         from pounce._importer import import_app

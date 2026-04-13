@@ -47,7 +47,7 @@ def build_h3_scope(
     from pounce._proxy import apply_proxy_headers
 
     method = "GET"
-    path = "/"
+    raw_path_value = b"/"
     scheme = "https"  # QUIC mandates TLS
     header_list: list[tuple[bytes, bytes]] = []
 
@@ -56,25 +56,23 @@ def build_h3_scope(
         if name_lower == b":method":
             method = value.decode("ascii", errors="replace")
         elif name_lower == b":path":
-            path = value.decode("ascii", errors="replace")
+            raw_path_value = value
         elif name_lower == b":scheme":
             scheme = value.decode("ascii", errors="replace")
         elif name_lower == b":authority":
-            value.decode("ascii", errors="replace")
             header_list.append((b"host", value))
         else:
             header_list.append((name_lower, value))
 
-    # Parse path and query_string — save raw bytes before unquoting
-    if "?" in path:
-        path_part, _, query_part = path.partition("?")
-        raw_path = path_part.encode("ascii", errors="replace")
-        query_string = query_part.encode("ascii", errors="replace")
-        path = unquote(path_part)
+    # Parse path and query_string from raw bytes — split before decoding
+    if b"?" in raw_path_value:
+        raw_path, _, raw_query = raw_path_value.partition(b"?")
+        query_string = raw_query
+        path = unquote(raw_path.decode("ascii", errors="replace"))
     else:
-        raw_path = path.encode("ascii", errors="replace")
+        raw_path = raw_path_value
         query_string = b""
-        path = unquote(path)
+        path = unquote(raw_path.decode("ascii", errors="replace"))
 
     scope: dict[str, Any] = {
         "type": "http",
@@ -180,7 +178,7 @@ def create_h3_send(
                     compressor = None
                 else:
                     filtered.append((b"content-encoding", compressor.encoding.encode("ascii")))
-                    headers = filtered
+                headers = filtered
 
             if timing is not None:
                 rendered = timing.render_bytes()

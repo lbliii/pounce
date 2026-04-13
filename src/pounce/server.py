@@ -347,12 +347,13 @@ class Server:
                         _worker_lifecycle_receive,
                         _worker_lifecycle_send,
                     ),
-                    timeout=30.0,
+                    timeout=self._config.startup_timeout,
                 )
             except TimeoutError:
                 logger.warning(
-                    "Worker startup hook timed out after 30s"
-                    " — app may not handle lifespan.startup.complete"
+                    "Worker startup hook timed out after %.1fs"
+                    " — app may not handle lifespan.startup.complete",
+                    self._config.startup_timeout,
                 )
             except Exception:
                 logger.exception("Worker startup hook failed")

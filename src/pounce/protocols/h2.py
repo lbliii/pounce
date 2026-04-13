@@ -440,8 +440,7 @@ class H2Connection:
             error_code: The h2 error code (default: NO_ERROR).
 
         """
-        last_stream_id = max(self._streams.keys(), default=0)
-        self._conn.close_connection(error_code=error_code, last_stream_id=last_stream_id)
+        self._conn.close_connection(error_code=error_code)
         self._closed = True
 
     def data_to_send(self) -> bytes:

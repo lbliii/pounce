@@ -212,10 +212,12 @@ def create_h2_send(
                     await writer.drain()
                     if asyncio.get_event_loop().time() > deadline:
                         logger.warning(
-                            "H2 flow control window timeout on stream %d, breaking send loop",
+                            "H2 flow control window timeout on stream %d — resetting stream",
                             stream_id,
                         )
-                        break
+                        h2_conn.reset_stream(stream_id)
+                        _flush(h2_conn, writer)
+                        return
                     continue
                 chunk_size = min(len(remaining), window)
                 is_last = end_stream and chunk_size == len(remaining)

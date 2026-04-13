@@ -697,28 +697,24 @@ def check(
 
     try:
         merged = load_config_with_overrides(cli_overrides)
-    except (ValueError, Exception) as exc:
+    except ValueError as exc:
         _output.error(str(exc))
         sys.exit(1)
 
-    # Resolve effective values for pre-flight checks (merged config or ServerConfig defaults).
-    effective_host = merged.get("host", "127.0.0.1")
-    effective_port = merged.get("port", 8000)
-    effective_http3 = merged.get("http3_enabled", False)
-    effective_ssl_certfile = merged.get("ssl_certfile")
-    effective_uds = merged.get("uds")
+    # Validate config first so pre-flight checks use typed values.
+    config_check = _check_merged_config_valid(merged)
+    checks: list[dict[str, str]] = [_check_app_importable(app), config_check]
 
-    checks: list[dict[str, str]] = []
-
-    checks.append(_check_app_importable(app))
-    if not effective_uds:
-        checks.append(_check_port_available(effective_host, effective_port))
-    if effective_ssl_certfile:
-        checks.append(_check_tls_cert(effective_ssl_certfile, merged.get("ssl_keyfile")))
-    checks.extend(
-        _check_deps_for_config(http3=effective_http3, ssl_certfile=effective_ssl_certfile)
-    )
-    checks.append(_check_merged_config_valid(merged))
+    if config_check["status"] != "error":
+        # Config is valid — construct typed config for pre-flight checks.
+        cfg = ServerConfig(**merged)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        if not cfg.uds:
+            checks.append(_check_port_available(cfg.host, cfg.port))
+        if cfg.ssl_certfile:
+            checks.append(_check_tls_cert(cfg.ssl_certfile, cfg.ssl_keyfile))
+        checks.extend(
+            _check_deps_for_config(http3=cfg.http3_enabled, ssl_certfile=cfg.ssl_certfile)
+        )
 
     if signage is not None:
         checks.append(_check_signage(signage))

@@ -35,19 +35,13 @@ logger = logging.getLogger("pounce.middleware")
 def _sanitize_headers(headers: list[tuple[bytes, bytes]]) -> list[tuple[bytes, bytes]]:
     """Strip CR/LF characters from header names and values.
 
-    Defense-in-depth against CRLF injection from middleware-modified headers.
-    Mirrors the same sanitization applied in the ASGI bridge for app headers.
+    Reuses the canonical sanitization applied in the ASGI bridge for app headers
+    to avoid drift between duplicate implementations.
 
     """
-    clean: list[tuple[bytes, bytes]] = []
-    for name, value in headers:
-        if b"\r" in name or b"\n" in name:
-            name = name.replace(b"\r", b"").replace(b"\n", b"")
-        if b"\r" in value or b"\n" in value:
-            value = value.replace(b"\r", b"").replace(b"\n", b"")
-        if name:  # skip empty names after stripping
-            clean.append((name, value))
-    return clean
+    from pounce.asgi.bridge import _sanitize_headers as _bridge_sanitize
+
+    return _bridge_sanitize(headers)
 
 
 @dataclass(frozen=True, slots=True)

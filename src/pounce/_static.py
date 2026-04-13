@@ -22,7 +22,7 @@ import mimetypes
 import os
 import secrets
 import stat as stat_mod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -53,12 +53,7 @@ class StaticMount:
     precompressed: bool = True
     follow_symlinks: bool = False
     index_file: str | None = "index.html"
-    extra_mime_types: dict[str, str] = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
-
-    def __post_init__(self) -> None:
-        # frozen dataclass: use object.__setattr__ to set default
-        if self.extra_mime_types is None:
-            object.__setattr__(self, "extra_mime_types", {})
+    extra_mime_types: dict[str, str] = field(default_factory=dict)
 
 
 # Common modern MIME types not yet in stdlib mimetypes database
@@ -428,13 +423,8 @@ class StaticFiles:
             if part.startswith(".") and part != ".well-known":
                 return False
 
-        # Check symlinks
-        try:
-            lst = resolved.lstat()
-        except OSError:
-            return False
-
-        if stat_mod.S_ISLNK(lst.st_mode) and not mount.follow_symlinks:
+        # Check symlinks — use original path (not resolved) so lstat sees the link
+        if not mount.follow_symlinks and path.is_symlink():
             return False
 
         # Must be a regular file
