@@ -13,6 +13,7 @@ worker's event loop — no lock needed).
 """
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING, Any
 
 from pounce._compression import Compressor
@@ -22,6 +23,8 @@ from pounce.asgi._scope import build_base_scope
 from pounce.asgi.bridge import SendState, _sanitize_headers
 from pounce.config import ServerConfig
 from pounce.protocols._base import RequestReceived
+
+logger = logging.getLogger("pounce.asgi.h2_bridge")
 
 if TYPE_CHECKING:
     from pounce.protocols.h2 import H2Connection
@@ -184,6 +187,8 @@ def create_h2_send(
             body: bytes = message.get("body", b"")
             more_body: bool = message.get("more_body", False)
 
+            original_len = len(body)
+
             if compressor is not None and body:
                 body = compressor.compress(body)
                 if not more_body:
@@ -198,12 +203,19 @@ def create_h2_send(
             # Respect H2 flow control: split large bodies into
             # window-sized chunks to avoid FlowControlError.
             remaining = body
+            deadline = asyncio.get_event_loop().time() + 30.0
             while remaining:
                 window = h2_conn.local_flow_control_window(stream_id)
                 if window <= 0:
                     # Window exhausted — flush and wait for WINDOW_UPDATE
                     _flush(h2_conn, writer)
                     await writer.drain()
+                    if asyncio.get_event_loop().time() > deadline:
+                        logger.warning(
+                            "H2 flow control window timeout on stream %d, breaking send loop",
+                            stream_id,
+                        )
+                        break
                     continue
                 chunk_size = min(len(remaining), window)
                 is_last = end_stream and chunk_size == len(remaining)
@@ -225,7 +237,7 @@ def create_h2_send(
             if transport is not None and transport.get_write_buffer_size() > 65536:
                 await writer.drain()
 
-            state.bytes_sent += len(body)
+            state.bytes_sent += original_len
             if not more_body:
                 response_complete = True
 

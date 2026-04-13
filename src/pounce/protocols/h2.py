@@ -209,7 +209,7 @@ class H2Connection:
                     h2.settings.SettingCodes.ENABLE_CONNECT_PROTOCOL: 1,
                 }
             )
-        except AttributeError, Exception:
+        except (AttributeError, Exception):
             # Older h2 versions may not support this setting
             pass
 
@@ -440,8 +440,8 @@ class H2Connection:
             error_code: The h2 error code (default: NO_ERROR).
 
         """
-        max(self._streams.keys(), default=0)
-        self._conn.close_connection(error_code=error_code)
+        last_stream_id = max(self._streams.keys(), default=0)
+        self._conn.close_connection(error_code=error_code, last_stream_id=last_stream_id)
         self._closed = True
 
     def data_to_send(self) -> bytes:

@@ -123,7 +123,7 @@ def _load_pyproject_display(path: Path) -> DisplayConfig | None:
     try:
         with path.open("rb") as f:
             data = tomllib.load(f)
-    except OSError, UnicodeDecodeError, tomllib.TOMLDecodeError, ValueError:
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError, ValueError):
         return None
     tool = data.get("tool")
     if not isinstance(tool, dict):

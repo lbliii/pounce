@@ -167,4 +167,4 @@ if __name__ == "__main__":
     print(f"  kill -SIGUSR1 {os.getpid()}")
     print()
 
-    run(app, config=config)
+    run(app, config=config)  # type: ignore[arg-type]  # config= accepts pre-built ServerConfig

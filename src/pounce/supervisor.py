@@ -380,8 +380,10 @@ class Supervisor:
         """
         if self._mode == "subinterpreter":
             for ctrl_queue, _status_queue in self._iic_queues:
-                with contextlib.suppress(Exception):
+                try:
                     ctrl_queue.put(("drain",))
+                except Exception:
+                    logger.debug("Failed to send drain command via IIC queue", exc_info=True)
         else:
             for handle in self._handles:
                 if handle.worker is not None:
@@ -601,8 +603,10 @@ class Supervisor:
         if self._mode == "subinterpreter":
             # Send drain command via IIC
             for ctrl_queue, _status_queue in old_iic_queues:
-                with contextlib.suppress(Exception):
+                try:
                     ctrl_queue.put(("drain",))
+                except Exception:
+                    logger.debug("Failed to send drain command via IIC queue", exc_info=True)
         else:
             for handle in old_handles:
                 if handle.worker is not None:
@@ -662,8 +666,10 @@ class Supervisor:
         # For subinterpreter workers that were drained, send shutdown to finish them.
         if self._mode == "subinterpreter":
             for ctrl_queue, _status_queue in old_iic_queues:
-                with contextlib.suppress(Exception):
+                try:
                     ctrl_queue.put(("shutdown",))
+                except Exception:
+                    logger.debug("Failed to send shutdown command via IIC queue", exc_info=True)
 
         join_per = self._config.shutdown_timeout
         if old_handles:
@@ -1032,8 +1038,10 @@ class Supervisor:
         # Subinterpreter workers need an explicit shutdown command after drain
         if self._mode == "subinterpreter":
             for ctrl_queue, _status_queue in self._iic_queues:
-                with contextlib.suppress(Exception):
+                try:
                     ctrl_queue.put(("shutdown",))
+                except Exception:
+                    logger.debug("Failed to send shutdown command via IIC queue", exc_info=True)
 
         # ``shutdown_timeout`` is per auxiliary thread and per worker (parallel joins).
         per = self._config.shutdown_timeout
@@ -1132,7 +1140,7 @@ def _serialize_lifespan_state(state: dict[str, Any]) -> str:
         try:
             json.dumps(val)
             safe[key] = val
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             logger.warning(
                 "Lifespan state key %r is not JSON-serializable — "
                 "skipping for subinterpreter workers (use pounce.worker.startup hook instead)",

@@ -93,11 +93,11 @@ class TestBuildH3Scope:
         assert scope["raw_path"] == b"/hello"
 
     def test_percent_encoded_path_decoded(self) -> None:
-        """Path is unquoted; raw_path reflects decoded form (no wire bytes in H3)."""
+        """Path is unquoted; raw_path preserves original percent-encoded bytes."""
         scope = build_h3_scope(_h3_headers(path="/hello%20world"), ServerConfig(), _CLIENT, _SERVER)
         assert scope["path"] == "/hello world"
-        # H3 bridge: raw_path = unquoted_path.encode() (no original wire bytes)
-        assert scope["raw_path"] == b"/hello world"
+        # ASGI spec: raw_path is the original undecoded bytes
+        assert scope["raw_path"] == b"/hello%20world"
 
     def test_percent_encoded_path_with_query_preserves_raw(self) -> None:
         """With query string, raw_path preserves percent-encoding."""

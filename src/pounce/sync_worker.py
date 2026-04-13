@@ -296,6 +296,7 @@ class SyncWorker:
         max_requests = self._config.max_requests_per_connection
 
         keep_alive_timeout = self._config.keep_alive_timeout
+        close_reason = "complete"
 
         try:
             while True:
@@ -685,7 +686,8 @@ class SyncWorker:
 
                 if close_after or at_limit:
                     break
-        except ConnectionError, OSError:
+        except (ConnectionError, OSError):
+            close_reason = "client_disconnect"
             self._lifecycle.record(
                 ClientDisconnected(
                     connection_id=conn_id,
@@ -702,7 +704,7 @@ class SyncWorker:
                     requests_served=request_count,
                     total_bytes_sent=0,
                     duration_ms=round((lifecycle_ns() - conn_start) / 1_000_000, 1),
-                    reason="complete",
+                    reason=close_reason,
                     timestamp_ns=lifecycle_ns(),
                 )
             )
@@ -722,7 +724,7 @@ class SyncWorker:
         while True:
             try:
                 n = conn.recv_into(mv[total:])
-            except ConnectionError, OSError, TimeoutError:
+            except (ConnectionError, OSError, TimeoutError):
                 self._recv_buf_len = 0
                 return (None, b"")
 
@@ -737,7 +739,8 @@ class SyncWorker:
                     total,
                     max_headers=self._config.max_headers,
                 )
-            except ParseError:
+            except ParseError as exc:
+                self._logger.debug("Malformed request from client: %s", exc)
                 self._recv_buf_len = 0
                 self._send_error(conn, 400, "Bad Request")
                 return (None, b"")

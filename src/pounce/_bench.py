@@ -174,7 +174,7 @@ def _get_rss_mb(pid: int) -> float:
                     # Value is in kB
                     kb = int(line.split()[1])
                     return kb / 1024.0
-    except FileNotFoundError, PermissionError, ValueError:
+    except (FileNotFoundError, PermissionError, ValueError):
         pass
 
     # Try ps (macOS / BSD / Linux fallback)
@@ -188,7 +188,7 @@ def _get_rss_mb(pid: int) -> float:
         if result.returncode == 0 and result.stdout.strip():
             kb = int(result.stdout.strip())
             return kb / 1024.0
-    except FileNotFoundError, subprocess.TimeoutExpired, ValueError:
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
         pass
 
     return 0.0
@@ -205,7 +205,7 @@ def _wait_for_server(host: str, port: int, timeout: float = 10.0) -> bool:
             resp.read()
             conn.close()
             return True
-        except ConnectionRefusedError, OSError, http.client.HTTPException:
+        except (ConnectionRefusedError, OSError, http.client.HTTPException):
             time.sleep(0.1)
     return False
 

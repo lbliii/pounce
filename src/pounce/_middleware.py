@@ -32,6 +32,24 @@ from pounce._types import Receive, Send
 logger = logging.getLogger("pounce.middleware")
 
 
+def _sanitize_headers(headers: list[tuple[bytes, bytes]]) -> list[tuple[bytes, bytes]]:
+    """Strip CR/LF characters from header names and values.
+
+    Defense-in-depth against CRLF injection from middleware-modified headers.
+    Mirrors the same sanitization applied in the ASGI bridge for app headers.
+
+    """
+    clean: list[tuple[bytes, bytes]] = []
+    for name, value in headers:
+        if b"\r" in name or b"\n" in name:
+            name = name.replace(b"\r", b"").replace(b"\n", b"")
+        if b"\r" in value or b"\n" in value:
+            value = value.replace(b"\r", b"").replace(b"\n", b"")
+        if name:  # skip empty names after stripping
+            clean.append((name, value))
+    return clean
+
+
 @dataclass(frozen=True, slots=True)
 class Response:
     """Simple response object for middleware short-circuiting.
@@ -231,6 +249,10 @@ class MiddlewareStack:
                     modified_status, modified_headers = await mw(
                         modified_scope, modified_status, modified_headers
                     )
+
+                # Defense-in-depth: strip CR/LF from header values to prevent
+                # header injection from middleware-modified headers.
+                modified_headers = _sanitize_headers(modified_headers)
 
                 # Send modified response
                 await send(

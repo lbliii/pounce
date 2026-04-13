@@ -54,26 +54,27 @@ def build_h3_scope(
     for name, value in headers:
         name_lower = name.lower()
         if name_lower == b":method":
-            method = value.decode("ascii")
+            method = value.decode("ascii", errors="replace")
         elif name_lower == b":path":
-            path = value.decode("ascii")
+            path = value.decode("ascii", errors="replace")
         elif name_lower == b":scheme":
-            scheme = value.decode("ascii")
+            scheme = value.decode("ascii", errors="replace")
         elif name_lower == b":authority":
-            value.decode("ascii")
+            value.decode("ascii", errors="replace")
+            header_list.append((b"host", value))
         else:
             header_list.append((name_lower, value))
 
-    # Parse path and query_string
+    # Parse path and query_string — save raw bytes before unquoting
     if "?" in path:
         path_part, _, query_part = path.partition("?")
+        raw_path = path_part.encode("ascii", errors="replace")
+        query_string = query_part.encode("ascii", errors="replace")
         path = unquote(path_part)
-        query_string = query_part.encode("ascii")
-        raw_path = path_part.encode("ascii")
     else:
-        path = unquote(path)
+        raw_path = path.encode("ascii", errors="replace")
         query_string = b""
-        raw_path = path.encode("ascii")
+        path = unquote(path)
 
     scope: dict[str, Any] = {
         "type": "http",
@@ -167,16 +168,17 @@ def create_h3_send(
                 compressor = None
             if compressor is not None:
                 filtered: list[tuple[bytes, bytes]] = []
+                is_sse = False
                 for name, value in headers:
                     nl = name.lower()
                     if nl == b"content-type" and b"text/event-stream" in value:
-                        compressor = None
-                        break
+                        is_sse = True
                     if nl == b"content-length":
                         continue
                     filtered.append((name, value))
+                if is_sse:
+                    compressor = None
                 else:
-                    # No SSE — use filtered headers with compression
                     filtered.append((b"content-encoding", compressor.encoding.encode("ascii")))
                     headers = filtered
 
@@ -200,6 +202,8 @@ def create_h3_send(
             body: bytes = message.get("body", b"")
             more_body: bool = message.get("more_body", False)
 
+            original_len = len(body)
+
             if compressor is not None and body:
                 body = compressor.compress(body)
                 if not more_body:
@@ -216,7 +220,7 @@ def create_h3_send(
             )
             transmit()
 
-            state.bytes_sent += len(body)
+            state.bytes_sent += original_len
             if not more_body:
                 response_complete = True
 

@@ -113,15 +113,26 @@ def run(app: str | ASGIApp, **kwargs: Unpack[ServerConfigKwargs]) -> None:
     Args:
         app: ASGI application import string (e.g., "myapp:app") or callable.
         **kwargs: Server configuration overrides passed to ServerConfig.
+            Pass ``config=ServerConfig(...)`` to use a pre-built config directly.
 
     Example:
         >>> import pounce
         >>> pounce.run("myapp:app", host="0.0.0.0", port=8000, workers=4)
+        >>> pounce.run(app, config=ServerConfig(host="0.0.0.0", workers=4))
 
     """
     from pounce.server import Server
 
-    config = ServerConfig(**kwargs)
+    # Accept a pre-built ServerConfig via config= kwarg.
+    pre_built = kwargs.pop("config", None)  # type: ignore[arg-type]
+    if pre_built is not None and isinstance(pre_built, ServerConfig):
+        if kwargs:
+            msg = "Cannot pass both config=ServerConfig(...) and additional keyword arguments"
+            raise TypeError(msg)
+        config = pre_built
+    else:
+        config = ServerConfig(**kwargs)
+
     if isinstance(app, str):
         from pounce._importer import import_app
 
@@ -133,30 +144,16 @@ def run(app: str | ASGIApp, **kwargs: Unpack[ServerConfigKwargs]) -> None:
 
 __all__ = [
     "ASGIApp",
-    "BufferedCollector",
     "CORSMiddleware",
-    "ClientDisconnected",
-    "ConnectionCompleted",
-    "ConnectionOpened",
-    "DisplayConfig",
-    "LifecycleCollector",
-    "LifecycleEvent",
     "LifespanError",
-    "LoggingCollector",
-    "NoopCollector",
     "PounceError",
     "Receive",
-    "ReloadError",
-    "RequestStarted",
     "Response",
-    "ResponseCompleted",
     "Scope",
     "SecurityHeadersMiddleware",
     "Send",
     "ServerConfig",
     "StaticFiles",
-    "SupervisorError",
-    "TLSError",
     "__version__",
     "create_static_handler",
     "run",

@@ -5,7 +5,7 @@ Parses request lines and headers directly from bytes using split/index
 operations (~3 µs vs ~22 µs for h11) while enforcing the same safety
 checks that matter for real-world deployment:
 
-- Method validation (rejects unknown methods)
+- Method validation (rejects malformed method tokens per RFC 9110)
 - Header size limit (prevents memory exhaustion)
 - Null byte / control character injection in targets and header names
 - Duplicate Content-Length detection (request smuggling vector)
@@ -19,6 +19,7 @@ Not a full HTTP parser — does not handle:
 - Trailer headers
 """
 
+import re as _re
 from typing import Final
 
 from pounce.protocols._base import RequestReceived
@@ -32,19 +33,10 @@ _SPACE: Final = b" "
 _HTTP_1_1: Final = "1.1"
 _HTTP_1_0: Final = "1.0"
 
-_VALID_METHODS: Final = frozenset(
-    {
-        b"GET",
-        b"HEAD",
-        b"POST",
-        b"PUT",
-        b"DELETE",
-        b"PATCH",
-        b"OPTIONS",
-        b"TRACE",
-        b"CONNECT",
-    }
-)
+# Regex for valid HTTP method tokens (RFC 9110 section 9.1: 1*tchar)
+# tchar = "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" / "." /
+#         "^" / "_" / "`" / "|" / "~" / DIGIT / ALPHA
+_METHOD_RE: Final = _re.compile(rb"^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$")
 
 # Max header block size (16 KiB) — matches nginx default
 _MAX_HEADER_SIZE: Final = 16384
@@ -102,8 +94,8 @@ def parse_request(
         raise ParseError("Malformed request line")
 
     method = first_line[:sp1]
-    if method not in _VALID_METHODS:
-        raise ParseError("Unknown HTTP method")
+    if not _METHOD_RE.match(method):
+        raise ParseError("Malformed HTTP method")
 
     target = first_line[sp1 + 1 : sp2]
     # Reject null bytes and bare CR/LF in the target (injection vectors)
