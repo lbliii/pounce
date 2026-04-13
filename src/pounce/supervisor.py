@@ -134,7 +134,9 @@ class _WorkerHandle:
     """Metadata about a running worker (thread or process)."""
 
     __slots__ = (
+        "_exc_holder",
         "generation",
+        "last_exception",
         "restart_count",
         "restarts",
         "started_at",
@@ -157,6 +159,8 @@ class _WorkerHandle:
         self.restart_count = 0
         self.restarts: list[float] = []  # timestamps of recent restarts
         self.generation = generation  # Used for rolling restart
+        self.last_exception: BaseException | None = None
+        self._exc_holder: list[BaseException | None] | None = None
 
 
 class _H3WorkerHandle:
@@ -341,6 +345,11 @@ class Supervisor:
             SUPERVISOR_STARTING,
             count=self._effective_workers,
             mode=f"{exec_label}{self._mode}",
+        )
+        logger.info(
+            "Worker mode: %s (%s execution)",
+            self._mode,
+            self._execution_mode,
         )
 
         self._setup_sync_infrastructure()
@@ -582,8 +591,20 @@ class Supervisor:
                     socket_index=i,
                 )
 
+                exc_holder: list[BaseException | None] = [None]
+                _w, _wid = worker, i  # capture for closure
+
+                def _run_with_exc_capture(w=_w, wid=_wid, eh=exc_holder) -> None:
+                    try:
+                        w.run()
+                    except Exception as exc:
+                        eh[0] = exc
+                        logger.error(
+                            "Worker %d crashed: %s", wid, exc, exc_info=True,
+                        )
+
                 target = threading.Thread(
-                    target=worker.run,
+                    target=_run_with_exc_capture,
                     name=f"pounce-worker-gen{self._generation}-{i}",
                     daemon=True,
                 )
@@ -595,6 +616,7 @@ class Supervisor:
                     worker=worker,
                     generation=self._generation,
                 )
+                handle._exc_holder = exc_holder  # type: ignore[attr-defined]
                 new_handles.append(handle)
 
         logger.info("New workers spawned. Draining old workers (generation %d)...", old_generation)
@@ -775,9 +797,25 @@ class Supervisor:
 
         worker = self._create_worker(worker_id, socket_index=worker_id)
 
+        # Container for capturing thread exceptions — shared between wrapper
+        # closure and handle so the watchdog can log tracebacks.
+        exc_holder: list[BaseException | None] = [None]
+
+        def _run_with_exc_capture() -> None:
+            try:
+                worker.run()
+            except Exception as exc:
+                exc_holder[0] = exc
+                logger.error(
+                    "Worker %d crashed: %s",
+                    worker_id,
+                    exc,
+                    exc_info=True,
+                )
+
         if self._mode == "thread":
             target: threading.Thread | multiprocessing.Process = threading.Thread(
-                target=worker.run,
+                target=_run_with_exc_capture,
                 name=f"pounce-worker-{worker_id}",
                 daemon=True,
             )
@@ -795,6 +833,7 @@ class Supervisor:
         worker_ref = worker if self._mode == "thread" else None
 
         handle = _WorkerHandle(worker_id, target, worker_ref, generation=self._generation)
+        handle._exc_holder = exc_holder
         # Replace existing handle if this is a restart
         if worker_id < len(self._handles):
             self._handles[worker_id] = handle
@@ -1006,11 +1045,24 @@ class Supervisor:
                     if isinstance(handle.target, multiprocessing.Process):
                         exit_info = f" (exitcode={handle.target.exitcode})"
 
-                    logger.warning(
-                        "Worker %d died%s",
-                        handle.worker_id,
-                        exit_info,
-                    )
+                    # Pull exception from capture wrapper if available
+                    if handle._exc_holder is not None and handle._exc_holder[0] is not None:
+                        handle.last_exception = handle._exc_holder[0]
+
+                    if handle.last_exception is not None:
+                        logger.warning(
+                            "Worker %d died%s: %s",
+                            handle.worker_id,
+                            exit_info,
+                            handle.last_exception,
+                            exc_info=handle.last_exception,
+                        )
+                    else:
+                        logger.warning(
+                            "Worker %d died%s (no exception captured)",
+                            handle.worker_id,
+                            exit_info,
+                        )
                     self._respawn_worker(handle.worker_id)
 
     # ------------------------------------------------------------------

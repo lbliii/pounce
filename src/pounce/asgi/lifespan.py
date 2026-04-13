@@ -93,8 +93,12 @@ async def run_lifespan(
             await app(scope, receive, send)
         except Exception:
             # App raised during lifespan — not unusual, many apps
-            # don't implement the lifespan protocol at all.
-            pass
+            # don't implement the lifespan protocol at all.  Log it
+            # so startup failures aren't silently swallowed.
+            logger.warning(
+                "Application raised during lifespan protocol",
+                exc_info=True,
+            )
         finally:
             # If the app returned or raised without completing startup,
             # treat it as "lifespan not supported" and unblock the server.

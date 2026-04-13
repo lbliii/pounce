@@ -201,6 +201,7 @@ class AsyncPool:
             send_state,
             compressor=compressor,
             request_method=request_method,
+            request_path=raw_path if isinstance(raw_path, bytes) else raw_path.encode(),
             request_id=handoff.request_id,
             config=self._config,
             server=scope.get("server", ("localhost", 0)),

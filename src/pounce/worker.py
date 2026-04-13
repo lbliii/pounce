@@ -241,7 +241,10 @@ class Worker:
                 timeout=30.0,
             )
         except Exception:
-            self._logger.debug("Worker startup hook raised (expected for most apps)")
+            self._logger.warning(
+                "Worker startup hook raised — if this is unexpected, check your app",
+                exc_info=True,
+            )
 
         server = await asyncio.start_server(
             self._handle_connection,
@@ -321,7 +324,10 @@ class Worker:
                     timeout=10.0,
                 )
             except Exception:
-                self._logger.debug("Worker shutdown hook raised (expected for most apps)")
+                self._logger.warning(
+                "Worker shutdown hook raised — if this is unexpected, check your app",
+                exc_info=True,
+            )
 
             # Run executor shutdown on a dedicated pool — ``asyncio.to_thread`` /
             # ``run_in_executor(None, ...)`` would use this worker's default executor
@@ -880,6 +886,7 @@ class Worker:
             timing=timing,
             compressor=compressor,
             request_method=request.method,
+            request_path=request.target,
             request_id=request_id,
             config=self._config,
             server=server,
