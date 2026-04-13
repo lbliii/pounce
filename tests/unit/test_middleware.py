@@ -516,7 +516,7 @@ class TestPostHeaderExceptionLogging:
     """Exception after headers sent is logged at WARNING."""
 
     async def test_exception_after_headers_logged(self, caplog):
-        """Exception after response.start logs warning instead of silent swallow."""
+        """Exception after response.start logs warning and re-raises."""
         import logging
 
         async def exception_handler(scope, exc):
@@ -537,7 +537,10 @@ class TestPostHeaderExceptionLogging:
         async def send(message):
             messages_sent.append(message)
 
-        with caplog.at_level(logging.WARNING, logger="pounce.middleware"):
+        with (
+            caplog.at_level(logging.WARNING, logger="pounce.middleware"),
+            pytest.raises(RuntimeError, match="post-header boom"),
+        ):
             await stack(scope, receive, send)
 
         assert "post-header boom" in caplog.text
@@ -566,7 +569,10 @@ class TestPostHeaderExceptionLogging:
         async def send(message):
             messages_sent.append(message)
 
-        with caplog.at_level(logging.WARNING, logger="pounce.middleware"):
+        with (
+            caplog.at_level(logging.WARNING, logger="pounce.middleware"),
+            pytest.raises(RuntimeError, match="none-client boom"),
+        ):
             await stack(scope, receive, send)
 
         assert "none-client boom" in caplog.text

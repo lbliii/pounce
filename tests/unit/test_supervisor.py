@@ -311,8 +311,8 @@ class TestSupervisorPerWorkerConnections:
         total = sum(base + (1 if i < remainder else 0) for i in range(3))
         assert total == 100
 
-    def test_remainder_all_workers_get_extra(self):
-        """max_connections=7 across 3 workers: 3+2+2 = 7."""
+    def test_remainder_only_first_workers_get_extra(self):
+        """max_connections=7 across 3 workers: 3+2+2 = 7 (only first gets +1)."""
         base, remainder = divmod(7, 3)
         assert base == 2
         assert remainder == 1

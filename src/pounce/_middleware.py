@@ -259,20 +259,24 @@ class MiddlewareStack:
                 # Send error response if not already started
                 if not response_started:
                     await self._send_response(response, send)
-                else:
-                    client = modified_scope.get("client")
-                    client_host = (
-                        client[0] if isinstance(client, (list, tuple)) and len(client) > 0 else "?"
-                    )
-                    logger.warning(
-                        "Exception after response headers sent for %s %s "
-                        "(client %s): %s — exception middleware cannot send error response",
-                        modified_scope.get("method", "?"),
-                        modified_scope.get("path", "?"),
-                        client_host,
-                        exc,
-                    )
-                return
+                    return
+                # Headers already sent — cannot send error response
+                client = modified_scope.get("client")
+                client_host = (
+                    client[0] if isinstance(client, (list, tuple)) and len(client) > 0 else "?"
+                )
+                logger.warning(
+                    "Exception after response headers sent for %s %s "
+                    "(client %s): %s — exception middleware cannot send error response",
+                    modified_scope.get("method", "?"),
+                    modified_scope.get("path", "?"),
+                    client_host,
+                    exc,
+                    exc_info=True,
+                )
+                # Re-raise so the server can close the connection cleanly;
+                # the response head may have been buffered but never flushed.
+                raise
 
             # No middleware handled it, re-raise
             raise

@@ -326,7 +326,7 @@ class StaticFiles:
 
             # Generate ETag — include encoding so compressed and uncompressed
             # variants produce distinct ETags (RFC 7232 compliance).
-            etag = self._generate_etag(file_stat.st_mtime, file_stat.st_size, encoding)
+            etag = self._generate_etag(final_stat.st_mtime, final_stat.st_size, encoding)
 
             return StaticFile(
                 path=final_path,
