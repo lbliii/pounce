@@ -53,7 +53,7 @@ class StaticMount:
     precompressed: bool = True
     follow_symlinks: bool = False
     index_file: str | None = "index.html"
-    extra_mime_types: dict[str, str] = None  # type: ignore[assignment]
+    extra_mime_types: dict[str, str] = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     def __post_init__(self) -> None:
         # frozen dataclass: use object.__setattr__ to set default
@@ -286,7 +286,7 @@ class StaticFiles:
                 # Use is_relative_to() which handles symlinks correctly
                 if not resolved.is_relative_to(mount_resolved):
                     return None
-            except (ValueError, OSError):
+            except ValueError, OSError:
                 return None
 
             # Block hidden files (anything starting with .) but allow .well-known
@@ -420,7 +420,7 @@ class StaticFiles:
             resolved = path.resolve()
             if not resolved.is_relative_to(mount.directory):
                 return False
-        except (ValueError, OSError):
+        except ValueError, OSError:
             return False
 
         # Block hidden files (same check as _resolve_file)

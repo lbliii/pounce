@@ -331,7 +331,7 @@ def _create_zoomies_datagram_protocol(
                     if self._transport is not None:
                         for dg in conn.quic.send_datagrams():
                             self._transport.sendto(dg, conn.last_addr)
-                except (OSError, ConnectionError):
+                except OSError, ConnectionError:
                     pass
             self._connections.clear()
             self._cid_to_conn.clear()
@@ -398,7 +398,7 @@ def _create_zoomies_datagram_protocol(
                     end_stream=True,
                 )
                 self._flush(conn, addr)
-            except (OSError, ConnectionError):
+            except OSError, ConnectionError:
                 pass
             if send_state.status == 0:
                 send_state.status = 500

@@ -1140,7 +1140,7 @@ def _serialize_lifespan_state(state: dict[str, Any]) -> str:
         try:
             json.dumps(val)
             safe[key] = val
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             logger.warning(
                 "Lifespan state key %r is not JSON-serializable — "
                 "skipping for subinterpreter workers (use pounce.worker.startup hook instead)",

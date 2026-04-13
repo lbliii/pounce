@@ -310,10 +310,7 @@ class ServerConfig:
             from pounce.display import _VALID_SIGNAGE
 
             if self.signage.strip().lower() not in _VALID_SIGNAGE:
-                msg = (
-                    f"signage must be one of {sorted(_VALID_SIGNAGE)} "
-                    f"(got {self.signage!r})"
-                )
+                msg = f"signage must be one of {sorted(_VALID_SIGNAGE)} (got {self.signage!r})"
                 raise ValueError(msg)
         if self.log_slow_requests_threshold <= 0:
             msg = (

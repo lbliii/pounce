@@ -509,7 +509,7 @@ def _diagnostics_for_os_error(exc: OSError) -> list[dict[str, str]] | None:
                 {"label": "PID using port", "value": f"{pid} ({proc_name})"},
                 {"label": "Quick fix", "value": f"kill {pid}"},
             ]
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except FileNotFoundError, subprocess.TimeoutExpired:
         pass
     return None
 

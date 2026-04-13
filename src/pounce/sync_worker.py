@@ -686,7 +686,7 @@ class SyncWorker:
 
                 if close_after or at_limit:
                     break
-        except (ConnectionError, OSError):
+        except ConnectionError, OSError:
             close_reason = "client_disconnect"
             self._lifecycle.record(
                 ClientDisconnected(
@@ -724,7 +724,7 @@ class SyncWorker:
         while True:
             try:
                 n = conn.recv_into(mv[total:])
-            except (ConnectionError, OSError, TimeoutError):
+            except ConnectionError, OSError, TimeoutError:
                 self._recv_buf_len = 0
                 return (None, b"")
 
