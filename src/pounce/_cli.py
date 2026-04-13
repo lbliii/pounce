@@ -918,7 +918,7 @@ def _check_config_valid(
 def _check_merged_config_valid(merged: dict[str, object]) -> dict[str, str]:
     """Try to construct ServerConfig from merged config dict and catch validation errors."""
     try:
-        ServerConfig(**merged)
+        ServerConfig(**merged)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         return {"name": "Config validation", "status": "success", "detail": "Valid", "hint": ""}
     except (ValueError, TypeError) as exc:
         return {

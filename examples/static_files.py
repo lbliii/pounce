@@ -19,7 +19,7 @@ Then visit:
 
 from pathlib import Path
 
-from pounce import ServerConfig, StaticFiles, run
+from pounce import StaticFiles, run
 from pounce._static import StaticMount
 
 
