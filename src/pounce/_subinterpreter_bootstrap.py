@@ -190,7 +190,7 @@ async def _run_worker_with_iic(
         try:
             server.close()
             await server.wait_closed()
-        except ValueError, OSError:
+        except (ValueError, OSError):  # fmt: skip
             pass  # FD already closed
 
         # Per-worker shutdown hook

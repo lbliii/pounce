@@ -320,6 +320,9 @@ class ServerConfig:
         if self.metrics_path and not self.metrics_path.startswith("/"):
             msg = f"metrics_path must start with / (got {self.metrics_path!r})"
             raise ValueError(msg)
+        if self.health_check_path and not self.health_check_path.startswith("/"):
+            msg = f"health_check_path must start with / (got {self.health_check_path!r})"
+            raise ValueError(msg)
         if self.rate_limit_requests_per_second <= 0:
             msg = (
                 f"rate_limit_requests_per_second must be > 0 "

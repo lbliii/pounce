@@ -150,7 +150,7 @@ class AsyncPool:
         loop = asyncio.get_running_loop()
         try:
             transport, _ = await loop.connect_accepted_socket(lambda: protocol, conn)
-        except OSError, ConnectionError:
+        except (OSError, ConnectionError):  # fmt: skip
             conn.close()
             return
 
@@ -201,6 +201,7 @@ class AsyncPool:
             send_state,
             compressor=compressor,
             request_method=request_method,
+            request_path=raw_path if isinstance(raw_path, bytes) else raw_path.encode(),
             request_id=handoff.request_id,
             config=self._config,
             server=scope.get("server", ("localhost", 0)),
@@ -220,13 +221,13 @@ class AsyncPool:
                     raw += proto.send_body(b"Internal Server Error", more=False)
                     writer.write(raw)
                     await writer.drain()
-                except OSError, ConnectionError:
+                except (OSError, ConnectionError):  # fmt: skip
                     pass
         finally:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except OSError, ConnectionError:
+            except (OSError, ConnectionError):  # fmt: skip
                 pass
 
     async def _handle_websocket_handoff(self, handoff: WebSocketHandoff) -> None:
@@ -239,7 +240,7 @@ class AsyncPool:
         loop = asyncio.get_running_loop()
         try:
             transport, _ = await loop.connect_accepted_socket(lambda: protocol, conn)
-        except OSError, ConnectionError:
+        except (OSError, ConnectionError):  # fmt: skip
             conn.close()
             return
 
@@ -264,5 +265,5 @@ class AsyncPool:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except OSError, ConnectionError:
+            except (OSError, ConnectionError):  # fmt: skip
                 pass

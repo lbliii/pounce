@@ -230,8 +230,20 @@ def _bind_unix_socket(config: ServerConfig) -> socket.socket:
         logger.info("Listening on unix:%s (backlog=%d)", path, config.backlog)
         return sock
 
-    except OSError:
+    except OSError as exc:
         sock.close()
+        if exc.errno == errno.EADDRINUSE or "already in use" in str(exc).lower():
+            hint = (
+                f" Run `lsof {path}` to find the blocking process."
+                if sys.platform in ("darwin", "linux")
+                else f" Check which process is using the socket at {path}."
+            )
+            raise OSError(
+                f"Unix socket {path} is already in use."
+                f"{hint}"
+                " If the socket file is stale (left over from a crash),"
+                f" remove it manually with `rm {path}` and retry."
+            ) from exc
         raise
 
 
@@ -317,8 +329,16 @@ def _bind_socket(
     except OSError as exc:
         sock.close()
         if exc.errno == errno.EADDRINUSE or "already in use" in str(exc).lower():
+            hint = (
+                f" Run `lsof -i :{config.port}` to find the blocking process."
+                if sys.platform in ("darwin", "linux")
+                else f" Check which process is using port {config.port}."
+            )
             raise OSError(
-                f"Address {config.host}:{config.port} is already in use. Is another server running?"
+                f"Address {config.host}:{config.port} is already in use."
+                f"{hint}"
+                " This can also happen due to TIME_WAIT after a recent server restart;"
+                " waiting a few seconds usually resolves it."
             ) from exc
         if exc.errno == errno.EACCES:
             raise OSError(
@@ -378,8 +398,16 @@ def _bind_udp_socket(
     except OSError as exc:
         sock.close()
         if exc.errno == errno.EADDRINUSE or "already in use" in str(exc).lower():
+            hint = (
+                f" Run `lsof -i :{config.port}` to find the blocking process."
+                if sys.platform in ("darwin", "linux")
+                else f" Check which process is using port {config.port}."
+            )
             raise OSError(
-                f"Address {config.host}:{config.port} is already in use. Is another server running?"
+                f"Address {config.host}:{config.port} is already in use."
+                f"{hint}"
+                " This can also happen due to TIME_WAIT after a recent server restart;"
+                " waiting a few seconds usually resolves it."
             ) from exc
         if exc.errno == errno.EACCES:
             raise OSError(

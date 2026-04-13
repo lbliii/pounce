@@ -266,6 +266,7 @@ def create_send(
     timing: ServerTiming | None = None,
     compressor: Compressor | None = None,
     request_method: bytes = b"GET",
+    request_path: bytes = b"/",
     request_id: str | None = None,
     config: ServerConfig | None = None,
     server: tuple[str, int] | None = None,
@@ -421,10 +422,18 @@ def create_send(
             pending_head = raw
 
         elif msg_type == "http.response.body":
+            _req_ctx = (
+                f" ({request_method.decode(errors='replace')} "
+                f"{request_path.decode(errors='replace')})"
+            )
             if not response_started:
-                raise RuntimeError("Received http.response.body before http.response.start")
+                raise RuntimeError(
+                    f"Received http.response.body before http.response.start{_req_ctx}"
+                )
             if response_complete:
-                raise RuntimeError("Received http.response.body after response is complete")
+                raise RuntimeError(
+                    f"Received http.response.body after response is complete{_req_ctx}"
+                )
 
             # Defense-in-depth: if the client already disconnected, skip
             # the write entirely.  This prevents asyncio's transport from
@@ -477,7 +486,9 @@ def create_send(
 
         else:
             raise RuntimeError(
-                f"Unexpected ASGI message type: {msg_type!r}. "
+                f"Unexpected ASGI message type: {msg_type!r} for "
+                f"{request_method.decode(errors='replace')} "
+                f"{request_path.decode(errors='replace')}. "
                 f"Expected 'http.response.start' or 'http.response.body'."
             )
 
