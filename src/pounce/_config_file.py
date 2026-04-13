@@ -29,6 +29,7 @@ Example ``pyproject.toml``::
 
 from __future__ import annotations
 
+import difflib
 import logging
 import tomllib
 from dataclasses import fields as dataclass_fields
@@ -138,7 +139,14 @@ def _validate_and_coerce(data: dict[str, Any], source: Path) -> dict[str, Any]:
     unknown = set(data.keys()) - _VALID_KEYS
 
     if unknown:
-        msg = f"Unknown keys in {source}: {', '.join(sorted(unknown))}"
+        parts = []
+        for key in sorted(unknown):
+            matches = difflib.get_close_matches(key, _VALID_KEYS, n=1, cutoff=0.6)
+            if matches:
+                parts.append(f"'{key}' (did you mean '{matches[0]}'?)")
+            else:
+                parts.append(f"'{key}'")
+        msg = f"Unknown keys in {source}: {', '.join(parts)}"
         raise ValueError(msg)
 
     # Build a map of field name → field type for coercion
