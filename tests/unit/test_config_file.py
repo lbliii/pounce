@@ -200,3 +200,39 @@ class TestLoadConfigWithOverrides:
         assert config.port == 9000
         assert config.workers == 2
         assert config.log_level == "debug"
+
+
+# ---------------------------------------------------------------------------
+# Deprecated alias: reload_dir → reload_dirs
+# ---------------------------------------------------------------------------
+
+
+class TestDeprecatedAliases:
+    def test_reload_dir_alias_accepted(self, tmp_path):
+        """reload_dir in TOML is accepted as alias for reload_dirs."""
+        (tmp_path / "pounce.toml").write_text('reload_dir = ["src", "templates"]\n')
+        result = load_config_file(tmp_path / "pounce.toml")
+        assert result["reload_dirs"] == ("src", "templates")
+        assert "reload_dir" not in result
+
+    def test_reload_dir_alias_emits_warning(self, tmp_path, caplog):
+        """reload_dir alias emits a deprecation warning."""
+        import logging
+
+        (tmp_path / "pounce.toml").write_text('reload_dir = ["src"]\n')
+        with caplog.at_level(logging.WARNING, logger="pounce.config"):
+            load_config_file(tmp_path / "pounce.toml")
+        assert "deprecated" in caplog.text.lower()
+        assert "reload_dirs" in caplog.text
+
+    def test_both_reload_dir_and_reload_dirs_raises(self, tmp_path):
+        """Having both reload_dir and reload_dirs raises ValueError."""
+        (tmp_path / "pounce.toml").write_text('reload_dir = ["src"]\nreload_dirs = ["lib"]\n')
+        with pytest.raises(ValueError, match=r"Both.*reload_dir.*reload_dirs"):
+            load_config_file(tmp_path / "pounce.toml")
+
+    def test_reload_dirs_canonical_still_works(self, tmp_path):
+        """The canonical reload_dirs name still works without warning."""
+        (tmp_path / "pounce.toml").write_text('reload_dirs = ["src"]\n')
+        result = load_config_file(tmp_path / "pounce.toml")
+        assert result["reload_dirs"] == ("src",)

@@ -281,19 +281,72 @@ class TestSupervisorRestartWorkers:
 
 
 class TestSupervisorPerWorkerConnections:
-    """Supervisor calculates per-worker connection limits."""
+    """Supervisor calculates per-worker connection limits.
 
-    def test_per_worker_max_connections(self):
+    The per-worker max is computed in ``Supervisor.run()`` after sockets
+    are ready, so we test the math via ``divmod`` directly and verify the
+    supervisor stores the expected values when that run-phase calculation
+    is applied.
+    """
+
+    def test_per_worker_max_even_split(self):
+        """Even split: 1000 / 4 = 250 each, no remainder."""
         config = ServerConfig(workers=4, max_connections=1000)
-        sup = Supervisor(config, _noop_app, mode="thread")
-        # Per-worker limit should be 1000 // 4 = 250
-        # Verify by checking the supervisor calculates it
-        assert config.max_connections // sup.worker_count == 250
+        base, remainder = divmod(config.max_connections, config.workers)
+        assert base == 250
+        assert remainder == 0
 
     def test_zero_max_connections_means_unlimited(self):
         config = ServerConfig(workers=4, max_connections=0)
         sup = Supervisor(config, _noop_app, mode="thread")
-        assert config.max_connections // sup.worker_count == 0
+        assert sup._per_worker_max_base == 0
+
+    def test_remainder_distributed_to_first_workers(self):
+        """max_connections=100 across 3 workers: first gets 34, rest get 33."""
+        config = ServerConfig(workers=3, max_connections=100)
+        base, remainder = divmod(config.max_connections, config.workers)
+        assert base == 33
+        assert remainder == 1
+        # Total: 34 + 33 + 33 = 100 (no connections lost)
+        total = sum(base + (1 if i < remainder else 0) for i in range(3))
+        assert total == 100
+
+    def test_remainder_only_first_workers_get_extra(self):
+        """max_connections=7 across 3 workers: 3+2+2 = 7 (only first gets +1)."""
+        base, remainder = divmod(7, 3)
+        assert base == 2
+        assert remainder == 1
+        total = sum(base + (1 if i < remainder else 0) for i in range(3))
+        assert total == 7
+
+    def test_max_connections_less_than_workers_raises(self):
+        """max_connections < workers is rejected with a clear error."""
+        config = ServerConfig(workers=4, max_connections=2)
+        sup = Supervisor(config, _noop_app, mode="thread")
+        socks = [MagicMock(spec=socket.socket) for _ in range(4)]
+        with pytest.raises(SupervisorError, match="must be >= workers"):
+            sup.run(socks)
+
+    def test_create_worker_distributes_remainder(self):
+        """Workers 0..remainder-1 get base+1; the rest get base."""
+        config = ServerConfig(workers=3, max_connections=100)
+        sup = Supervisor(config, _noop_app, mode="thread")
+        # Simulate what run() sets
+        sup._per_worker_max_base = 33
+        sup._per_worker_max_remainder = 1
+        sup._sockets = [MagicMock(spec=socket.socket) for _ in range(3)]
+        sup._shutdown_event = threading.Event()
+        sup._ssl_context = None
+        sup._lifecycle_collector = None
+        sup._execution_mode = "async"
+        sup._conn_queue = None
+
+        w0 = sup._create_worker(0, 0)
+        w1 = sup._create_worker(1, 1)
+        w2 = sup._create_worker(2, 2)
+        assert w0._max_connections == 34
+        assert w1._max_connections == 33
+        assert w2._max_connections == 33
 
 
 class TestWorkerHandle:

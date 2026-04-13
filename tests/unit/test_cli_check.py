@@ -7,6 +7,7 @@ from pounce._cli import (
     _check_config_valid,
     _check_deps_for_config,
     _check_port_available,
+    _check_signage,
     _check_tls_cert,
     cli,
 )
@@ -118,6 +119,8 @@ class TestCheckConfigValid:
             reload_dir=None,
             keep_alive_timeout=5.0,
             header_timeout=10.0,
+            request_timeout=30.0,
+            startup_timeout=30.0,
             max_requests_per_connection=0,
             shutdown_timeout=10.0,
             uds=None,
@@ -146,12 +149,29 @@ class TestCheckConfigValid:
             reload_dir=None,
             keep_alive_timeout=5.0,
             header_timeout=10.0,
+            request_timeout=30.0,
+            startup_timeout=30.0,
             max_requests_per_connection=0,
             shutdown_timeout=10.0,
             uds=None,
             health_check_path=None,
         )
         assert result["status"] == "error"
+
+
+class TestCheckSignage:
+    """_check_signage validates signage values."""
+
+    def test_valid_signage(self):
+        assert _check_signage("full")["status"] == "success"
+        assert _check_signage("minimal")["status"] == "success"
+        assert _check_signage("off")["status"] == "success"
+
+    def test_invalid_signage(self):
+        result = _check_signage("INVALID")
+        assert result["status"] == "error"
+        assert "INVALID" in result["detail"]
+        assert "full" in result["hint"]
 
 
 class TestCheckCommand:

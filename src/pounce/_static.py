@@ -324,8 +324,9 @@ class StaticFiles:
             # Determine MIME type from original path (not .gz/.zst)
             mime_type = self._get_mime_type(resolved)
 
-            # Generate ETag
-            etag = self._generate_etag(file_stat.st_mtime, file_stat.st_size)
+            # Generate ETag — include encoding so compressed and uncompressed
+            # variants produce distinct ETags (RFC 7232 compliance).
+            etag = self._generate_etag(final_stat.st_mtime, final_stat.st_size, encoding)
 
             return StaticFile(
                 path=final_path,
@@ -396,17 +397,21 @@ class StaticFiles:
         mime_type, _ = mimetypes.guess_type(str(path))
         return mime_type or "application/octet-stream"
 
-    def _generate_etag(self, mtime: float, size: int) -> str:
-        """Generate ETag from mtime and size.
+    def _generate_etag(self, mtime: float, size: int, encoding: str | None = None) -> str:
+        """Generate ETag from mtime, size, and encoding.
 
         Uses weak ETag (W/) because we use mtime, not content hash.
+        Encoding is included so that compressed and uncompressed variants
+        of the same file produce distinct ETags (RFC 7232).
 
         Returns:
-            ETag header value (e.g., W/"5f3c-1a2b")
+            ETag header value (e.g., W/"5f3c-1a2b" or W/"5f3c-1a2b-gzip")
 
         """
         mtime_hex = hex(int(mtime * 1_000_000))[2:]
         size_hex = hex(size)[2:]
+        if encoding:
+            return f'W/"{mtime_hex}-{size_hex}-{encoding}"'
         return f'W/"{mtime_hex}-{size_hex}"'
 
     def _check_not_modified(self, headers: list[tuple[bytes, bytes]], file: StaticFile) -> bool:

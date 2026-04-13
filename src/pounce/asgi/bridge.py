@@ -473,4 +473,10 @@ def create_send(
             if not more_body:
                 response_complete = True
 
+        else:
+            raise RuntimeError(
+                f"Unexpected ASGI message type: {msg_type!r}. "
+                f"Expected 'http.response.start' or 'http.response.body'."
+            )
+
     return send

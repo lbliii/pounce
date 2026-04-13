@@ -956,6 +956,34 @@ class _ClosingFakeTransport:
         """No-op drain for tests."""
 
 
+class TestSendRejectsInvalidType:
+    """send() raises RuntimeError for unrecognized ASGI message types."""
+
+    @pytest.mark.asyncio
+    async def test_invalid_message_type_raises(self):
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        send = create_send(proto, transport, SendState())
+
+        with pytest.raises(
+            RuntimeError, match=r"Unexpected ASGI message type: 'http\.response\.invalid'"
+        ):
+            await send({"type": "http.response.invalid"})
+
+    @pytest.mark.asyncio
+    async def test_typo_message_type_raises(self):
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        send = create_send(proto, transport, SendState())
+
+        with pytest.raises(RuntimeError, match="Unexpected ASGI message type"):
+            await send({"type": "http.response.stat"})
+
+
 class TestSendGuardClosedWriter:
     """send() silently returns when the writer is closing."""
 

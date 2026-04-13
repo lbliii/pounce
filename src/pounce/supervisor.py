@@ -207,7 +207,8 @@ class Supervisor:
         "_lifecycle_lock",
         "_lifespan_state",
         "_mode",
-        "_per_worker_max",
+        "_per_worker_max_base",
+        "_per_worker_max_remainder",
         "_reload_in_progress",
         "_shutdown_event",
         "_sockets",
@@ -260,7 +261,8 @@ class Supervisor:
         self._ssl_context = ssl_context
         self._lifecycle_collector = lifecycle_collector
         self._lifespan_state: dict[str, Any] = {}  # Set after lifespan startup
-        self._per_worker_max = 0
+        self._per_worker_max_base = 0
+        self._per_worker_max_remainder = 0
         self._generation = 0  # Incremented on each reload
 
     @property
@@ -310,11 +312,29 @@ class Supervisor:
         self._udp_sockets = udp_sockets or []
         self._install_signals()
 
-        self._per_worker_max = (
-            self._config.max_connections // self._effective_workers
-            if self._config.max_connections > 0
-            else 0
-        )
+        if self._config.max_connections > 0:
+            if self._config.max_connections < self._effective_workers:
+                msg = (
+                    f"max_connections ({self._config.max_connections}) must be >= "
+                    f"workers ({self._effective_workers}); cannot assign fewer than "
+                    f"1 connection per worker"
+                )
+                raise SupervisorError(msg)
+            base, remainder = divmod(self._config.max_connections, self._effective_workers)
+            self._per_worker_max_base = base
+            self._per_worker_max_remainder = remainder
+            if remainder:
+                logger.debug(
+                    "max_connections=%d across %d workers: first %d workers get %d, rest get %d",
+                    self._config.max_connections,
+                    self._effective_workers,
+                    remainder,
+                    base + 1,
+                    base,
+                )
+        else:
+            self._per_worker_max_base = 0
+            self._per_worker_max_remainder = 0
 
         exec_label = f"{self._execution_mode}+" if self._execution_mode == "sync" else ""
         dispatch(
@@ -733,7 +753,8 @@ class Supervisor:
                 self._sockets[socket_index],
                 worker_id=worker_id,
                 shutdown_event=self._shutdown_event,
-                max_connections=self._per_worker_max,
+                max_connections=self._per_worker_max_base
+                + (1 if worker_id < self._per_worker_max_remainder else 0),
                 ssl_context=self._ssl_context,
                 lifecycle_collector=self._lifecycle_collector,
             )

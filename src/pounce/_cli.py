@@ -108,9 +108,9 @@ _SERVE_HELP = {
     "log_level": "Log level",
     "log_format": "Log format: auto, text, or json",
     "root_path": "ASGI root_path for reverse proxy setups",
-    "no_compression": "Disable response compression",
+    "no_compression": "Disable response compression (config file: compression = false)",
     "server_timing": "Enable Server-Timing header injection",
-    "no_access_log": "Disable access logging",
+    "no_access_log": "Disable access logging (config file: access_log = false)",
     "ssl_certfile": "Path to TLS certificate file (enables HTTPS)",
     "ssl_keyfile": "Path to TLS private key file",
     "http3": "Enable HTTP/3 (QUIC/UDP); requires TLS",
@@ -119,6 +119,8 @@ _SERVE_HELP = {
     "reload_dir": "Extra directories to watch (repeatable)",
     "keep_alive_timeout": "Idle keep-alive timeout in seconds",
     "header_timeout": "Header receive timeout in seconds",
+    "request_timeout": "Request body receive timeout in seconds",
+    "startup_timeout": "Max seconds to wait for app lifespan startup",
     "max_requests_per_connection": "Max requests per connection; 0 = unlimited",
     "shutdown_timeout": "Max seconds per worker during shutdown",
     "uds": "Unix domain socket path",
@@ -198,6 +200,8 @@ def serve(
     reload_dir: list[str] | None = None,
     keep_alive_timeout: float | None = None,
     header_timeout: float | None = None,
+    request_timeout: float | None = None,
+    startup_timeout: float | None = None,
     max_requests_per_connection: int | None = None,
     shutdown_timeout: float | None = None,
     uds: str | None = None,
@@ -238,6 +242,8 @@ def serve(
             reload_dir=reload_dir,
             keep_alive_timeout=keep_alive_timeout,
             header_timeout=header_timeout,
+            request_timeout=request_timeout,
+            startup_timeout=startup_timeout,
             max_requests_per_connection=max_requests_per_connection,
             shutdown_timeout=shutdown_timeout,
             uds=uds,
@@ -298,6 +304,8 @@ def _serve_impl(
     reload_dir: list[str] | None,
     keep_alive_timeout: float | None,
     header_timeout: float | None,
+    request_timeout: float | None,
+    startup_timeout: float | None,
     max_requests_per_connection: int | None,
     shutdown_timeout: float | None,
     uds: str | None,
@@ -355,6 +363,10 @@ def _serve_impl(
         cli_overrides["keep_alive_timeout"] = keep_alive_timeout
     if header_timeout is not None:
         cli_overrides["header_timeout"] = header_timeout
+    if request_timeout is not None:
+        cli_overrides["request_timeout"] = request_timeout
+    if startup_timeout is not None:
+        cli_overrides["startup_timeout"] = startup_timeout
     if max_requests_per_connection is not None:
         cli_overrides["max_requests_per_connection"] = max_requests_per_connection
     if shutdown_timeout is not None:
@@ -591,10 +603,13 @@ def check(
     reload_dir: list[str] | None = None,
     keep_alive_timeout: float = 5.0,
     header_timeout: float = 10.0,
+    request_timeout: float = 30.0,
+    startup_timeout: float = 30.0,
     max_requests_per_connection: int = 0,
     shutdown_timeout: float = 10.0,
     uds: str | None = None,
     health_check_path: str | None = None,
+    signage: str | None = None,
 ) -> None:
     """Run pre-flight validation checks.
 
@@ -635,12 +650,17 @@ def check(
             reload_dir=reload_dir,
             keep_alive_timeout=keep_alive_timeout,
             header_timeout=header_timeout,
+            request_timeout=request_timeout,
+            startup_timeout=startup_timeout,
             max_requests_per_connection=max_requests_per_connection,
             shutdown_timeout=shutdown_timeout,
             uds=uds,
             health_check_path=health_check_path,
         )
     )
+
+    if signage is not None:
+        checks.append(_check_signage(signage))
 
     all_passed = all(c["status"] != "error" for c in checks)
     _output.check_results(version=__version__, checks=checks, all_passed=all_passed)
@@ -788,6 +808,8 @@ def _check_config_valid(
     reload_dir: list[str] | None,
     keep_alive_timeout: float,
     header_timeout: float,
+    request_timeout: float,
+    startup_timeout: float,
     max_requests_per_connection: int,
     shutdown_timeout: float,
     uds: str | None,
@@ -815,6 +837,8 @@ def _check_config_valid(
             reload_dirs=parse_dirs(reload_dir),
             keep_alive_timeout=keep_alive_timeout,
             header_timeout=header_timeout,
+            request_timeout=request_timeout,
+            startup_timeout=startup_timeout,
             max_requests_per_connection=max_requests_per_connection,
             shutdown_timeout=shutdown_timeout,
             uds=uds,
@@ -828,6 +852,21 @@ def _check_config_valid(
             "detail": str(exc),
             "hint": "",
         }
+
+
+def _check_signage(signage: str) -> dict[str, str]:
+    """Validate signage value."""
+    from pounce.display import _VALID_SIGNAGE
+
+    normalized = signage.strip().lower()
+    if normalized in _VALID_SIGNAGE:
+        return {"name": "Signage", "status": "success", "detail": normalized, "hint": ""}
+    return {
+        "name": "Signage",
+        "status": "error",
+        "detail": f"Invalid signage: {signage!r}",
+        "hint": f"Must be one of: {', '.join(sorted(_VALID_SIGNAGE))}",
+    }
 
 
 def main(args: list[str] | None = None) -> None:
