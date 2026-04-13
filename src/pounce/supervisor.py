@@ -313,6 +313,13 @@ class Supervisor:
         self._install_signals()
 
         if self._config.max_connections > 0:
+            if self._config.max_connections < self._effective_workers:
+                msg = (
+                    f"max_connections ({self._config.max_connections}) must be >= "
+                    f"workers ({self._effective_workers}); cannot assign fewer than "
+                    f"1 connection per worker"
+                )
+                raise SupervisorError(msg)
             base, remainder = divmod(self._config.max_connections, self._effective_workers)
             self._per_worker_max_base = base
             self._per_worker_max_remainder = remainder

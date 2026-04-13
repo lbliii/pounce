@@ -94,9 +94,11 @@ def bootstrap(
         # --- Create Worker (no shutdown_event — IIC bridge replaces it) ---
         from pounce.worker import Worker
 
-        per_worker_max = (
-            config.max_connections // config.resolve_workers() if config.max_connections > 0 else 0
-        )
+        if config.max_connections > 0:
+            base, remainder = divmod(config.max_connections, config.resolve_workers())
+            per_worker_max = base + (1 if worker_id < remainder else 0)
+        else:
+            per_worker_max = 0
 
         worker = Worker(
             config,

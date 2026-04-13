@@ -543,3 +543,31 @@ class TestPostHeaderExceptionLogging:
         assert "post-header boom" in caplog.text
         assert "/test" in caplog.text
         assert "1.2.3.4" in caplog.text
+
+    async def test_exception_after_headers_with_none_client(self, caplog):
+        """client=None in scope does not crash the warning logger."""
+        import logging
+
+        async def exception_handler(scope, exc):
+            return Response(status=500, body=b"Error")
+
+        async def app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            raise RuntimeError("none-client boom")
+
+        stack = MiddlewareStack([exception_handler], app)
+
+        scope = {"type": "http", "method": "GET", "path": "/x", "client": None}
+        messages_sent = []
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            messages_sent.append(message)
+
+        with caplog.at_level(logging.WARNING, logger="pounce.middleware"):
+            await stack(scope, receive, send)
+
+        assert "none-client boom" in caplog.text
+        assert "(client ?)" in caplog.text

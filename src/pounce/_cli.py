@@ -858,8 +858,9 @@ def _check_signage(signage: str) -> dict[str, str]:
     """Validate signage value."""
     from pounce.display import _VALID_SIGNAGE
 
-    if signage in _VALID_SIGNAGE:
-        return {"name": "Signage", "status": "success", "detail": signage, "hint": ""}
+    normalized = signage.strip().lower()
+    if normalized in _VALID_SIGNAGE:
+        return {"name": "Signage", "status": "success", "detail": normalized, "hint": ""}
     return {
         "name": "Signage",
         "status": "error",

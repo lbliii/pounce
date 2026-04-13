@@ -260,12 +260,16 @@ class MiddlewareStack:
                 if not response_started:
                     await self._send_response(response, send)
                 else:
+                    client = modified_scope.get("client")
+                    client_host = (
+                        client[0] if isinstance(client, (list, tuple)) and len(client) > 0 else "?"
+                    )
                     logger.warning(
                         "Exception after response headers sent for %s %s "
                         "(client %s): %s — exception middleware cannot send error response",
                         modified_scope.get("method", "?"),
                         modified_scope.get("path", "?"),
-                        modified_scope.get("client", ("?", "?"))[0],
+                        client_host,
                         exc,
                     )
                 return

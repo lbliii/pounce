@@ -283,9 +283,10 @@ class TestSupervisorRestartWorkers:
 class TestSupervisorPerWorkerConnections:
     """Supervisor calculates per-worker connection limits.
 
-    The per-worker max is computed in prepare() (after sockets are ready),
-    so we test the math via divmod directly and verify the supervisor
-    stores the right values after prepare().
+    The per-worker max is computed in ``Supervisor.run()`` after sockets
+    are ready, so we test the math via ``divmod`` directly and verify the
+    supervisor stores the expected values when that run-phase calculation
+    is applied.
     """
 
     def test_per_worker_max_even_split(self):
@@ -317,6 +318,35 @@ class TestSupervisorPerWorkerConnections:
         assert remainder == 1
         total = sum(base + (1 if i < remainder else 0) for i in range(3))
         assert total == 7
+
+    def test_max_connections_less_than_workers_raises(self):
+        """max_connections < workers is rejected with a clear error."""
+        config = ServerConfig(workers=4, max_connections=2)
+        sup = Supervisor(config, _noop_app, mode="thread")
+        socks = [MagicMock(spec=socket.socket) for _ in range(4)]
+        with pytest.raises(SupervisorError, match="must be >= workers"):
+            sup.run(socks)
+
+    def test_create_worker_distributes_remainder(self):
+        """Workers 0..remainder-1 get base+1; the rest get base."""
+        config = ServerConfig(workers=3, max_connections=100)
+        sup = Supervisor(config, _noop_app, mode="thread")
+        # Simulate what run() sets
+        sup._per_worker_max_base = 33
+        sup._per_worker_max_remainder = 1
+        sup._sockets = [MagicMock(spec=socket.socket) for _ in range(3)]
+        sup._shutdown_event = threading.Event()
+        sup._ssl_context = None
+        sup._lifecycle_collector = None
+        sup._execution_mode = "async"
+        sup._conn_queue = None
+
+        w0 = sup._create_worker(0, 0)
+        w1 = sup._create_worker(1, 1)
+        w2 = sup._create_worker(2, 2)
+        assert w0._max_connections == 34
+        assert w1._max_connections == 33
+        assert w2._max_connections == 33
 
 
 class TestWorkerHandle:
