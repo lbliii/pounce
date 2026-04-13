@@ -19,8 +19,11 @@ Not a full HTTP parser — does not handle:
 - Trailer headers
 """
 
+import logging
 import re as _re
 from typing import Final
+
+logger = logging.getLogger("pounce.parser")
 
 from pounce.protocols._base import RequestReceived
 
@@ -51,6 +54,7 @@ def parse_request(
     length: int,
     *,
     max_headers: int = 100,
+    max_header_size: int = _MAX_HEADER_SIZE,
 ) -> tuple[RequestReceived | None, bytes, int, bool]:
     """Parse an HTTP request from a buffer.
 
@@ -72,11 +76,11 @@ def parse_request(
     # Find end of headers
     header_end = data.find(_CRLFCRLF)
     if header_end == -1:
-        if length > _MAX_HEADER_SIZE:
+        if length > max_header_size:
             raise ParseError("Request headers too large")
         return (None, b"", 0, False)
 
-    if header_end > _MAX_HEADER_SIZE:
+    if header_end > max_header_size:
         raise ParseError("Request headers too large")
 
     head = data[:header_end]
@@ -135,6 +139,7 @@ def parse_request(
         else:
             colon = line.find(_COLON)
             if colon == -1:
+                logger.debug("Skipping malformed header line (no colon): %r", line)
                 continue  # skip malformed header lines
             name = line[:colon]
             value = line[colon + 1 :].lstrip()

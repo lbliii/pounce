@@ -738,6 +738,7 @@ class SyncWorker:
                     mv,
                     total,
                     max_headers=self._config.max_headers,
+                    max_header_size=self._config.max_header_size,
                 )
             except ParseError as exc:
                 self._logger.debug("Malformed request from client: %s", exc)

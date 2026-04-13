@@ -300,11 +300,12 @@ class TestSyncWorkerErrorPaths:
         assert b"Chunked" in response or b"chunked" in response.lower()
 
     def test_oversized_headers_returns_400(self) -> None:
-        """Headers exceeding parser limit (16KB) get 400 Bad Request."""
-        # _fast_h1 raises ParseError when header block > 16384 without \r\n\r\n
+        """Headers exceeding config max_header_size get 400 Bad Request."""
+        # Use a small max_header_size to test the parser limit specifically
+        config = _make_config(max_header_size=16384)
         huge_header = b"GET / HTTP/1.1\r\nHost: localhost\r\n" + b"X-Pad: " + b"A" * 20000
         mock_sock = MockSocket(huge_header)
-        worker = _make_worker()
+        worker = _make_worker(config=config)
         runner = asyncio.Runner()
         try:
             worker._handle_connection(mock_sock, ("127.0.0.1", 54321), runner)

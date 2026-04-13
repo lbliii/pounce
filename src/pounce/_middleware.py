@@ -185,12 +185,47 @@ class MiddlewareStack:
             if param_count == 1:
                 # Single param = pre-request
                 self._pre_request.append(cast("PreRequestMiddleware", mw))
+                param_names = list(sig.parameters.keys())
+                if param_names[0] not in ("scope", "request", "req"):
+                    mw_name = getattr(
+                        mw, "__name__", getattr(mw, "__class__", type(mw)).__name__
+                    )
+                    logger.warning(
+                        "Middleware %r classified as pre-request (1 param) but parameter "
+                        "name %r does not match expected pattern (e.g. 'scope')",
+                        mw_name,
+                        param_names[0],
+                    )
             elif param_count == 2:
                 # Two params = exception middleware (scope, exc)
                 self._exception_handlers.append(cast("ExceptionMiddleware", mw))
+                param_names = list(sig.parameters.keys())
+                if param_names[1] not in ("exc", "exception", "error", "err"):
+                    mw_name = getattr(
+                        mw, "__name__", getattr(mw, "__class__", type(mw)).__name__
+                    )
+                    logger.warning(
+                        "Middleware %r classified as exception handler (2 params) but "
+                        "parameter names %r do not match expected pattern "
+                        "(e.g. 'scope', 'exc'/'exception'/'error')",
+                        mw_name,
+                        param_names,
+                    )
             elif param_count == 3:
                 # Three params = post-response (scope, status, headers)
                 self._post_response.append(cast("PostResponseMiddleware", mw))
+                param_names = list(sig.parameters.keys())
+                if param_names[1] not in ("status", "response", "code", "status_code"):
+                    mw_name = getattr(
+                        mw, "__name__", getattr(mw, "__class__", type(mw)).__name__
+                    )
+                    logger.warning(
+                        "Middleware %r classified as post-response (3 params) but "
+                        "parameter names %r do not match expected pattern "
+                        "(e.g. 'scope', 'status'/'response', 'headers')",
+                        mw_name,
+                        param_names,
+                    )
             else:
                 name = getattr(mw, "__name__", getattr(mw, "__class__", type(mw)).__name__)
                 msg = (
@@ -351,6 +386,11 @@ class CORSMiddleware:
         allow_headers: str = "*",
         max_age: int = 3600,
     ) -> None:
+        if allow_origin == "*":
+            logger.warning(
+                "CORSMiddleware allow_origin='*' permits requests from any origin"
+                " — restrict to specific origins in production"
+            )
         self._allow_origin = allow_origin.encode("latin1")
         self._allow_methods = allow_methods.encode("latin1")
         self._allow_headers = allow_headers.encode("latin1")
