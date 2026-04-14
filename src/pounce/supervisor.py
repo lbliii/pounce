@@ -919,7 +919,9 @@ class Supervisor:
             except Exception:
                 logger.exception("Subinterpreter worker %d failed", worker_id)
             finally:
-                with contextlib.suppress(Exception):  # silent: best-effort cleanup of subinterpreter
+                with contextlib.suppress(
+                    Exception
+                ):  # silent: best-effort cleanup of subinterpreter
                     interp.close()
 
         target = threading.Thread(
