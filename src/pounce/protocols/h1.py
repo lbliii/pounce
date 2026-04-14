@@ -70,21 +70,22 @@ class H1Protocol:
             if event is h11.NEED_DATA or event is h11.PAUSED:
                 break
 
-            if isinstance(event, h11.Request):
-                events.append(
-                    RequestReceived(
-                        method=event.method,
-                        target=event.target,
-                        headers=tuple((name, value) for name, value in event.headers),
-                        http_version=event.http_version.decode("ascii"),
+            match event:
+                case h11.Request():
+                    events.append(
+                        RequestReceived(
+                            method=event.method,
+                            target=event.target,
+                            headers=tuple((name, value) for name, value in event.headers),
+                            http_version=event.http_version.decode("ascii"),
+                        )
                     )
-                )
-            elif isinstance(event, h11.Data):
-                events.append(BodyReceived(data=event.data, more=True))
-            elif isinstance(event, h11.EndOfMessage):
-                events.append(BodyReceived(data=b"", more=False))
-            elif isinstance(event, h11.ConnectionClosed):
-                events.append(ConnectionClosed(reason="client closed"))
+                case h11.Data():
+                    events.append(BodyReceived(data=event.data, more=True))
+                case h11.EndOfMessage():
+                    events.append(BodyReceived(data=b"", more=False))
+                case h11.ConnectionClosed():
+                    events.append(ConnectionClosed(reason="client closed"))
 
         return events
 

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 # Type for the sendfile extension callable
-SendfileCallable = Callable[[Path, int, int], Coroutine[Any, Any, None]]
+type SendfileCallable = Callable[[Path, int, int], Coroutine[Any, Any, None]]
 
 # sendfile chunk size — avoid holding the GIL too long per call
 _SENDFILE_CHUNK = 1_048_576  # 1 MB

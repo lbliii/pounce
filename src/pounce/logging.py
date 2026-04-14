@@ -17,7 +17,7 @@ import logging
 import sys
 import threading
 from datetime import UTC, datetime
-from typing import Any, Final
+from typing import Final, TypedDict
 
 from pounce.config import ServerConfig
 
@@ -72,11 +72,21 @@ def _duration_str(ms: float) -> str:
     return f"{ms / 1000:.1f}s"
 
 
+class LogEntry(TypedDict, total=False):
+    """Structured log entry for JSON output."""
+
+    ts: str
+    level: str
+    logger: str
+    message: str
+    exception: str
+
+
 class _JSONFormatter(logging.Formatter):
     """Structured JSON log formatter for production observability."""
 
     def format(self, record: logging.LogRecord) -> str:
-        entry: dict[str, Any] = {
+        entry: LogEntry = {
             "ts": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
             "level": record.levelname.lower(),
             "logger": record.name,
@@ -133,12 +143,13 @@ def configure_logging(config: ServerConfig) -> None:
     _json_logging = _resolved_format == "json"
 
     formatter: logging.Formatter
-    if _resolved_format == "json":
-        formatter = _JSONFormatter()
-    elif _resolved_format == "pretty":
-        formatter = _PrettyFormatter()
-    else:
-        formatter = logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT)
+    match _resolved_format:
+        case "json":
+            formatter = _JSONFormatter()
+        case "pretty":
+            formatter = _PrettyFormatter()
+        case _:
+            formatter = logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT)
 
     # Configure root pounce logger
     root = logging.getLogger("pounce")
@@ -202,45 +213,46 @@ def access_log(
         worker_id: Optional worker ID for multi-worker correlation.
 
     """
-    if _resolved_format == "json":
-        entry: dict[str, object] = {
-            "ts": datetime.now(tz=UTC).isoformat(),
-            "level": "warn" if status >= 500 else "info",
-            "method": method,
-            "path": path,
-            "status": status,
-            "bytes": bytes_sent,
-            "duration_ms": round(duration_ms, 1),
-            "client": client,
-        }
-        if request_id is not None:
-            entry["req_id"] = request_id[:8]
-        if worker_id is not None:
-            entry["worker"] = worker_id
-        line = json_module.dumps(entry, default=str)
-        with _stderr_lock:
-            sys.stderr.write(line + "\n")
+    match _resolved_format:
+        case "json":
+            entry: dict[str, object] = {
+                "ts": datetime.now(tz=UTC).isoformat(),
+                "level": "warn" if status >= 500 else "info",
+                "method": method,
+                "path": path,
+                "status": status,
+                "bytes": bytes_sent,
+                "duration_ms": round(duration_ms, 1),
+                "client": client,
+            }
+            if request_id is not None:
+                entry["req_id"] = request_id[:8]
+            if worker_id is not None:
+                entry["worker"] = worker_id
+            line = json_module.dumps(entry, default=str)
+            with _stderr_lock:
+                sys.stderr.write(line + "\n")
 
-    elif _resolved_format == "pretty":
-        from pounce import _output
+        case "pretty":
+            from pounce import _output
 
-        _output.access(method, path, status, bytes_sent, duration_ms, client)
+            _output.access(method, path, status, bytes_sent, duration_ms, client)
 
-    else:
-        # Text mode — classic combined-log via stdlib logging
-        level = logging.WARNING if status >= 500 else logging.INFO
-        rid_suffix = f" [{request_id[:12]}]" if request_id else ""
-        wid_suffix = f" w{worker_id}" if worker_id is not None else ""
-        access_logger.log(
-            level,
-            '%s - "%s %s HTTP/%s" %d %d %.1fms%s%s',
-            client,
-            method,
-            path,
-            http_version,
-            status,
-            bytes_sent,
-            duration_ms,
-            rid_suffix,
-            wid_suffix,
-        )
+        case _:
+            # Text mode — classic combined-log via stdlib logging
+            level = logging.WARNING if status >= 500 else logging.INFO
+            rid_suffix = f" [{request_id[:12]}]" if request_id else ""
+            wid_suffix = f" w{worker_id}" if worker_id is not None else ""
+            access_logger.log(
+                level,
+                '%s - "%s %s HTTP/%s" %d %d %.1fms%s%s',
+                client,
+                method,
+                path,
+                http_version,
+                status,
+                bytes_sent,
+                duration_ms,
+                rid_suffix,
+                wid_suffix,
+            )

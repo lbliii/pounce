@@ -21,7 +21,7 @@ Security:
 import html
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 # Try to import Rosettes for syntax highlighting
 try:
@@ -32,6 +32,16 @@ except ImportError:
     _HAS_ROSETTES = False
 
 _SENSITIVE_HEADERS = frozenset({b"authorization", b"cookie", b"token"})
+
+
+class FrameInfo(TypedDict):
+    """Traceback frame information for debug error pages."""
+
+    filename: str
+    lineno: int
+    name: str
+    source: list[tuple[int, str]]
+    locals: dict[str, str]
 _SENSITIVE_VAR_NAMES = frozenset({"password", "secret", "token", "api_key", "private_key"})
 
 
@@ -81,7 +91,7 @@ def format_exception_html(
     return "\n".join(html_parts)
 
 
-def _extract_frames(tb: Any) -> list[dict[str, Any]]:
+def _extract_frames(tb: Any) -> list[FrameInfo]:
     """Extract frame information from a traceback.
 
     Args:
@@ -327,7 +337,7 @@ def _render_header(
 """
 
 
-def _render_frame(frame_info: dict[str, Any]) -> str:
+def _render_frame(frame_info: FrameInfo) -> str:
     """Render a single traceback frame as HTML."""
     filename = frame_info["filename"]
     lineno = frame_info["lineno"]

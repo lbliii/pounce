@@ -332,15 +332,17 @@ def create_compressor(
             without a dictionary.
 
     """
-    if encoding == "dcz":
-        if dictionary is None:
-            raise ValueError("dcz encoding requires a CompressionDictionary")
-        return DictZstdCompressor(dictionary.zstd_dict)
-    if encoding == "zstd":
-        return ZstdCompressor()
-    if encoding == "gzip":
-        return GzipCompressor()
-    raise ValueError(f"Unsupported encoding: {encoding!r}")
+    match encoding:
+        case "dcz":
+            if dictionary is None:
+                raise ValueError("dcz encoding requires a CompressionDictionary")
+            return DictZstdCompressor(dictionary.zstd_dict)
+        case "zstd":
+            return ZstdCompressor()
+        case "gzip":
+            return GzipCompressor()
+        case _:
+            raise ValueError(f"Unsupported encoding: {encoding!r}")
 
 
 def negotiate_dictionary(

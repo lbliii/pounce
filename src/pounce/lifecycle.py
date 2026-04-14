@@ -300,30 +300,31 @@ class LoggingCollector:
             return
 
         # Determine log level and message based on event type
-        if isinstance(event, ConnectionOpened):
-            level = logging.DEBUG
-            msg = "Connection opened"
-        elif isinstance(event, RequestStarted):
-            level = logging.DEBUG
-            msg = "Request started"
-        elif isinstance(event, ResponseCompleted):
-            # Log slow requests at INFO, fast requests at DEBUG
-            if event.duration_ms >= self._slow_threshold_ms:
-                level = logging.INFO
-                msg = "Slow request completed"
-                event_dict["slow"] = True
-            else:
+        match event:
+            case ConnectionOpened():
                 level = logging.DEBUG
-                msg = "Response completed"
-        elif isinstance(event, ClientDisconnected):
-            level = logging.WARNING
-            msg = "Client disconnected"
-        elif isinstance(event, ConnectionCompleted):
-            level = logging.DEBUG
-            msg = "Connection closed"
-        else:
-            level = logging.DEBUG
-            msg = f"Lifecycle event: {event_type}"
+                msg = "Connection opened"
+            case RequestStarted():
+                level = logging.DEBUG
+                msg = "Request started"
+            case ResponseCompleted():
+                # Log slow requests at INFO, fast requests at DEBUG
+                if event.duration_ms >= self._slow_threshold_ms:
+                    level = logging.INFO
+                    msg = "Slow request completed"
+                    event_dict["slow"] = True
+                else:
+                    level = logging.DEBUG
+                    msg = "Response completed"
+            case ClientDisconnected():
+                level = logging.WARNING
+                msg = "Client disconnected"
+            case ConnectionCompleted():
+                level = logging.DEBUG
+                msg = "Connection closed"
+            case _:
+                level = logging.DEBUG
+                msg = f"Lifecycle event: {event_type}"
 
         # Log as JSON or text
         if self._json_format:

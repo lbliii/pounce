@@ -11,7 +11,7 @@ from typing import Any, Literal, cast
 
 from pounce._types import ASGIApp
 
-LogLevelStr = Literal["fatal", "critical", "error", "warning", "info", "debug"]
+type LogLevelStr = Literal["fatal", "critical", "error", "warning", "info", "debug"]
 
 logger = logging.getLogger("pounce.sentry")
 
