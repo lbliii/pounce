@@ -82,13 +82,14 @@ def resolve_worker_execution_mode(worker_mode: str) -> WorkerExecutionMode:
         "async" otherwise (GIL builds or explicit "async").
 
     """
-    worker_mode = worker_mode.lower()
-    if worker_mode == "subinterpreter":
-        return WorkerExecutionMode.ASYNC
-    if worker_mode == "sync":
-        return WorkerExecutionMode.SYNC
-    if worker_mode == "async":
-        return WorkerExecutionMode.ASYNC
-    if worker_mode == "auto":
-        return WorkerExecutionMode.SYNC if not is_gil_enabled() else WorkerExecutionMode.ASYNC
-    return WorkerExecutionMode.ASYNC  # Unknown value — fall back to safe default
+    match worker_mode.lower():
+        case "subinterpreter":
+            return WorkerExecutionMode.ASYNC
+        case "sync":
+            return WorkerExecutionMode.SYNC
+        case "async":
+            return WorkerExecutionMode.ASYNC
+        case "auto":
+            return WorkerExecutionMode.SYNC if not is_gil_enabled() else WorkerExecutionMode.ASYNC
+        case _:
+            return WorkerExecutionMode.ASYNC  # Unknown value — fall back to safe default

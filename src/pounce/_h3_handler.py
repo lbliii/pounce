@@ -45,7 +45,7 @@ def _make_zero_rtt_policy() -> _PounceZeroRttPolicy:
     return _PounceZeroRttPolicy()
 
 
-@dataclass
+@dataclass(slots=True)
 class _ZoomiesConnection:
     """Per-client QUIC + H3 connection state."""
 
@@ -174,23 +174,24 @@ def _create_zoomies_datagram_protocol(
                     self._cid_to_conn[cid] = conn
 
             for event in events:
-                if isinstance(event, ConnectionClosed):
-                    self._cancel_all_streams(conn)
-                    self._remove_connection(conn)
-                    return
-                if isinstance(event, ConnectionIdIssued):
-                    self._cid_to_conn[event.connection_id] = conn
-                elif isinstance(event, ConnectionIdRetired):
-                    self._cid_to_conn.pop(event.connection_id, None)
-                elif isinstance(event, (StreamReset, StopSendingReceived)):
-                    self._cancel_stream(conn, event.stream_id)
-                elif isinstance(event, ZeroRttAccepted):
-                    self._logger.debug("0-RTT accepted for %s:%d", addr[0], addr[1])
-                elif isinstance(event, ZeroRttRejected):
-                    self._logger.debug("0-RTT rejected for %s:%d", addr[0], addr[1])
-                elif isinstance(event, StreamDataReceived):
-                    for h3_event in conn.h3.handle_event(event):
-                        self._handle_h3_event(conn, h3_event, conn.last_addr)
+                match event:
+                    case ConnectionClosed():
+                        self._cancel_all_streams(conn)
+                        self._remove_connection(conn)
+                        return
+                    case ConnectionIdIssued():
+                        self._cid_to_conn[event.connection_id] = conn
+                    case ConnectionIdRetired():
+                        self._cid_to_conn.pop(event.connection_id, None)
+                    case StreamReset() | StopSendingReceived():
+                        self._cancel_stream(conn, event.stream_id)
+                    case ZeroRttAccepted():
+                        self._logger.debug("0-RTT accepted for %s:%d", addr[0], addr[1])
+                    case ZeroRttRejected():
+                        self._logger.debug("0-RTT rejected for %s:%d", addr[0], addr[1])
+                    case StreamDataReceived():
+                        for h3_event in conn.h3.handle_event(event):
+                            self._handle_h3_event(conn, h3_event, conn.last_addr)
 
             for dg in conn.quic.send_datagrams():
                 self._transport.sendto(dg, conn.last_addr)

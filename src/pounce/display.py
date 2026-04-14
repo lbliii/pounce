@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
-SignageMode = Literal["full", "minimal", "off"]
+type SignageMode = Literal["full", "minimal", "off"]
 _VALID_SIGNAGE: frozenset[str] = frozenset({"full", "minimal", "off"})
 
 

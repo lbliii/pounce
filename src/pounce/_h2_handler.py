@@ -227,72 +227,73 @@ async def handle_h2_connection(
                 writer.write(output)
 
             for event in events:
-                if isinstance(event, H2RequestReceived):
-                    body_queue: asyncio.Queue[dict] = asyncio.Queue()
-                    task = asyncio.create_task(
-                        _run_stream(event.stream_id, event.request, body_queue)
-                    )
-                    stream_tasks[event.stream_id] = (task, body_queue)
-
-                elif isinstance(event, H2WebSocketRequest):
-                    # RFC 8441: WebSocket over HTTP/2 via Extended CONNECT
-                    ws_queue: asyncio.Queue[dict] = asyncio.Queue()
-                    ws_task = asyncio.create_task(
-                        handle_h2_websocket_stream(
-                            app,
-                            config,
-                            logger,
-                            h2_conn,
-                            event.stream_id,
-                            event.request,
-                            ws_queue,
-                            writer,
-                            client,
-                            server,
-                            client_str,
+                match event:
+                    case H2RequestReceived():
+                        body_queue: asyncio.Queue[dict] = asyncio.Queue()
+                        task = asyncio.create_task(
+                            _run_stream(event.stream_id, event.request, body_queue)
                         )
-                    )
-                    stream_tasks[event.stream_id] = (ws_task, ws_queue)
+                        stream_tasks[event.stream_id] = (task, body_queue)
 
-                elif isinstance(event, H2BodyReceived):
-                    pair = stream_tasks.get(event.stream_id)
-                    if pair is not None:
-                        _, bq = pair
-                        # Enforce max_request_size for streaming H2 bodies
-                        sid = event.stream_id
-                        stream_body_bytes[sid] = stream_body_bytes.get(sid, 0) + len(
-                            event.body.data
+                    case H2WebSocketRequest():
+                        # RFC 8441: WebSocket over HTTP/2 via Extended CONNECT
+                        ws_queue: asyncio.Queue[dict] = asyncio.Queue()
+                        ws_task = asyncio.create_task(
+                            handle_h2_websocket_stream(
+                                app,
+                                config,
+                                logger,
+                                h2_conn,
+                                event.stream_id,
+                                event.request,
+                                ws_queue,
+                                writer,
+                                client,
+                                server,
+                                client_str,
+                            )
                         )
-                        if stream_body_bytes[sid] > max_body:
-                            logger.warning(
-                                "H2 stream %d body exceeds max_request_size (%d bytes)",
-                                sid,
-                                max_body,
-                            )
-                            await bq.put(
-                                {
-                                    "type": "http.request",
-                                    "body": b"",
-                                    "more_body": False,
-                                }
-                            )
-                        else:
-                            await bq.put(
-                                {
-                                    "type": "http.request",
-                                    "body": event.body.data,
-                                    "more_body": event.body.more,
-                                }
-                            )
+                        stream_tasks[event.stream_id] = (ws_task, ws_queue)
 
-                elif isinstance(event, H2StreamReset):
-                    stream_body_bytes.pop(event.stream_id, None)
-                    pair = stream_tasks.pop(event.stream_id, None)
-                    if pair is not None:
-                        pair[0].cancel()
+                    case H2BodyReceived():
+                        pair = stream_tasks.get(event.stream_id)
+                        if pair is not None:
+                            _, bq = pair
+                            # Enforce max_request_size for streaming H2 bodies
+                            sid = event.stream_id
+                            stream_body_bytes[sid] = stream_body_bytes.get(sid, 0) + len(
+                                event.body.data
+                            )
+                            if stream_body_bytes[sid] > max_body:
+                                logger.warning(
+                                    "H2 stream %d body exceeds max_request_size (%d bytes)",
+                                    sid,
+                                    max_body,
+                                )
+                                await bq.put(
+                                    {
+                                        "type": "http.request",
+                                        "body": b"",
+                                        "more_body": False,
+                                    }
+                                )
+                            else:
+                                await bq.put(
+                                    {
+                                        "type": "http.request",
+                                        "body": event.body.data,
+                                        "more_body": event.body.more,
+                                    }
+                                )
 
-                elif isinstance(event, H2GoAway):
-                    break  # Stop reading, finish existing streams
+                    case H2StreamReset():
+                        stream_body_bytes.pop(event.stream_id, None)
+                        pair = stream_tasks.pop(event.stream_id, None)
+                        if pair is not None:
+                            pair[0].cancel()
+
+                    case H2GoAway():
+                        break  # Stop reading, finish existing streams
 
             try:
                 await writer.drain()

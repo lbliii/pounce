@@ -35,7 +35,7 @@ def _create_h1_protocol(
     return H1Protocol(max_incomplete_event_size=max_incomplete_event_size)
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class StreamingHandoff:
     """Handoff for HTTP streaming response (more_body=True)."""
 
@@ -45,7 +45,7 @@ class StreamingHandoff:
     request_id: str | None
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class WebSocketHandoff:
     """Handoff for WebSocket upgrade."""
 

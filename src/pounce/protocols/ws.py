@@ -172,21 +172,20 @@ class WSProtocol:
         outbound_parts: list[bytes] = []
 
         for ws_event in self._conn.events():
-            if isinstance(ws_event, wsproto.events.TextMessage):
-                events.append(WebSocketDataReceived(data=ws_event.data))
-            elif isinstance(ws_event, wsproto.events.BytesMessage):
-                events.append(WebSocketDataReceived(data=bytes(ws_event.data)))
-
-            elif isinstance(ws_event, wsproto.events.CloseConnection):
-                code = ws_event.code or 1000
-                reason = ws_event.reason or ""
-                self._closed = True
-                events.append(WebSocketDisconnected(code=code, reason=reason))
-
-            elif isinstance(ws_event, wsproto.events.Ping):
-                # Generate and capture the pong response bytes
-                pong = wsproto.events.Pong(payload=ws_event.payload)
-                outbound_parts.append(self._conn.send(pong))
+            match ws_event:
+                case wsproto.events.TextMessage():
+                    events.append(WebSocketDataReceived(data=ws_event.data))
+                case wsproto.events.BytesMessage():
+                    events.append(WebSocketDataReceived(data=bytes(ws_event.data)))
+                case wsproto.events.CloseConnection():
+                    code = ws_event.code or 1000
+                    reason = ws_event.reason or ""
+                    self._closed = True
+                    events.append(WebSocketDisconnected(code=code, reason=reason))
+                case wsproto.events.Ping():
+                    # Generate and capture the pong response bytes
+                    pong = wsproto.events.Pong(payload=ws_event.payload)
+                    outbound_parts.append(self._conn.send(pong))
 
         outbound = b"".join(outbound_parts) if outbound_parts else b""
         return events, outbound
