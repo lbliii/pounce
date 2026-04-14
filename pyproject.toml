@@ -113,16 +113,15 @@ ignore = [
     "FBT001", # boolean positional arg in function definition — too noisy for config
     "FBT002", # boolean default value in function definition — too noisy for config
     "FBT003", # boolean positional value in function call — too noisy
-    "S110",   # try-except-pass — intentional silent error suppression in cleanup paths
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]                           # Allow unused imports in __init__ files (re-exports)
 "tests/**/*.py" = ["S101", "S104", "S105", "S106", "S108", "S603", "S607"]  # Allow assert, 0.0.0.0, passwords, tmpfiles, subprocess
-"examples/**/*.py" = ["T20", "S104"]                               # Allow print() and binding to 0.0.0.0 in examples
+"examples/**/*.py" = ["T20", "S104", "S110"]                       # Allow print(), 0.0.0.0, and try-except-pass in examples
 "benchmarks/**/*.py" = ["T20", "S101", "S603", "S607"]            # Allow print(), assert, subprocess in benchmarks
 "src/pounce/_cli.py" = ["S603", "S607"]            # Subprocess calls for port diagnostics
-"src/pounce/_bench.py" = ["T20", "S603", "S607"]  # Print output and subprocess for benchmarks
+"src/pounce/_bench.py" = ["T20", "S110", "S603", "S607"]  # Print output, try-except-pass, subprocess for benchmarks
 
 # =============================================================================
 # ty — Type Checker (Rust-based, Astral)
