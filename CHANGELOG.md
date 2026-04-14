@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.0] — 2026-04-13
+
+Subinterpreter workers, RFC 9842 compression dictionaries, sendfile, framework compat tests, and 60+ fixes.
+
+### Added
+
+- Add 48 integration tests proving compatibility with FastAPI, Starlette, Django, and Litestar. All tests run through real Pounce workers — no mocks. Includes shared test infrastructure with proper ASGI lifespan handling.
+- Added subinterpreter worker mode (`--worker-mode subinterpreter`) using Python 3.14's `concurrent.interpreters` (PEP 734). Each worker runs in a dedicated subinterpreter — thread-like performance with process-like isolation, all in one process.
+- Adopt [Towncrier](https://towncrier.readthedocs.io/) for changelog management. Fragments in `changelog.d/` are compiled into `CHANGELOG.md` at release time. CI enforces a fragment for every PR that touches `src/pounce/`.
+- Adopt bengal-zoomies 0.3.1: real QUIC client-mode integration tests, QPACK dynamic table compression (`http3_qpack_max_table_capacity`), and server-side 0-RTT policy control (`http3_zero_rtt_enabled`) with `ZeroRttAccepted`/`ZeroRttRejected` event handling.
+- RFC 9842 Compression Dictionary Transport — shared zstd dictionaries for `dcz` content-encoding, `Available-Dictionary` / `Use-As-Dictionary` header negotiation, and built-in dictionary serving at `/.well-known/compression-dictionary/`.
+- Zero-copy ``os.sendfile()`` for static file serving on non-TLS connections, RFC 7233 multipart range requests, and TOML config file support (``pounce.toml`` / ``[tool.pounce]`` in ``pyproject.toml``).
+
+### Changed
+
+- Bump milo-cli to 0.2.2 and kida-templates to 0.6.0. Picks up `get_env()` singleton cache fix (122 µs → 125 ns), kida for-loop variable binding correctness fix, faster template compilation, and cleaner command dispatch internals.
+- Split `_apply_integrations()` god method into 7 focused private methods and polish hot paths: single-pass H3 header filtering, early-exit WebSocket upgrade detection, module-level debug constants.
+
+### Fixed
+
+- Fixed 28 Python 2 `except A, B:` handlers across 12 files that silently failed to catch the second exception type. Lifespan startup failures are now logged instead of silently swallowed. Worker crashes include full tracebacks. Startup/shutdown hook errors promoted from DEBUG to WARNING. ASGI protocol errors now include request method and path. `max_header_size` config now flows to the fast H1 parser (was hardcoded at 16KB). Config typos suggest similar valid keys. Port-in-use errors suggest diagnostic commands. Added `health_check_path` validation and CORS wildcard startup warning.
+- Fixed 33 Python 2 exception syntax errors across 15 files that would crash on import in Python 3.14t. Fixed H3 bridge losing ``:authority`` header, crashing on SSE+compression, and encoding ``raw_path`` incorrectly. Static file serving now honors the ``cache_control`` config field and includes ``Vary: Accept-Encoding`` for precompressed responses. Aligned ``serve`` and ``check`` CLI defaults. Added ``startup_timeout`` validation, early mutual-exclusion checks, and branding params to config files. Improved error logging for parse errors, connection close reasons, and H3 TLS failures.
+- Fixed CLI config precedence so explicit args always override TOML values even when matching the default. Added exponential backoff to worker restart to prevent tight crash-restart loops. CORS and security header middleware now skip headers already set by the app. Static file serving now allows ``.well-known/`` paths per RFC 8615. Fixed incorrect middleware docstring example.
+- Fixed worker threads/processes hanging indefinitely on shutdown when keep-alive, WebSocket, or SSE connections were still open. The worker now applies `shutdown_timeout` to `server.wait_closed()` and calls `abort_clients()` to force-close lingering transports.
+- Hardened subinterpreter workers: fixed socket FD leak on bootstrap failure, upgraded silent lifespan state drops to warnings, improved factory app error messages with chained exceptions. Added 16 new tests covering memory isolation, IIC protocol edge cases, race conditions (shutdown during reload, rapid reloads, crash during drain), and config round-trip validation.
+- Safe HSTS default (opt-in instead of always-on), middleware signature validation with clear errors, post-header exception logging, ASGI bridge rejection of invalid message types, distinct ETags for compressed variants per RFC 7232, deprecated config alias support (``reload_dir`` → ``reload_dirs``), CLI ``request_timeout``/``startup_timeout`` passthrough, ``check`` command signage validation, and fair ``max_connections`` remainder distribution across workers.
+
+### Security
+
+- Fix 12 security issues: broken exception syntax in 3 files, CRLF injection in proxy headers and request IDs, unenforced `max_headers` and `websocket_max_message_size` limits, weak TLS cipher suite, world-writable UDS socket, and incomplete security middleware headers.
+
+---
+
 ## [0.5.1] — 2026-04-06
 
 Patch release: fork-context fix for process workers and dependency updates.

@@ -1,1 +1,0 @@
-RFC 9842 Compression Dictionary Transport — shared zstd dictionaries for `dcz` content-encoding, `Available-Dictionary` / `Use-As-Dictionary` header negotiation, and built-in dictionary serving at `/.well-known/compression-dictionary/`.
