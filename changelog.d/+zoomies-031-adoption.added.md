@@ -1,1 +1,0 @@
-Adopt bengal-zoomies 0.3.1: real QUIC client-mode integration tests, QPACK dynamic table compression (`http3_qpack_max_table_capacity`), and server-side 0-RTT policy control (`http3_zero_rtt_enabled`) with `ZeroRttAccepted`/`ZeroRttRejected` event handling.

@@ -1,1 +1,0 @@
-Hardened subinterpreter workers: fixed socket FD leak on bootstrap failure, upgraded silent lifespan state drops to warnings, improved factory app error messages with chained exceptions. Added 16 new tests covering memory isolation, IIC protocol edge cases, race conditions (shutdown during reload, rapid reloads, crash during drain), and config round-trip validation.
