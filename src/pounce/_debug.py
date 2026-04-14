@@ -42,6 +42,8 @@ class FrameInfo(TypedDict):
     name: str
     source: list[tuple[int, str]]
     locals: dict[str, str]
+
+
 _SENSITIVE_VAR_NAMES = frozenset({"password", "secret", "token", "api_key", "private_key"})
 
 
