@@ -37,7 +37,7 @@ classifiers = [
 ]
 dependencies = [
     "h11>=0.16.0",      # HTTP/1.1 parser (pure Python, well-tested, ~2k LOC)
-    "milo-cli>=0.1.1",  # CLI framework (type-driven parsing, MCP, llms.txt)
+    "milo-cli>=0.2.2",  # CLI framework (type-driven parsing, MCP, llms.txt)
 ]
 
 [project.optional-dependencies]
@@ -228,7 +228,7 @@ dev = [
     "opentelemetry-exporter-otlp-proto-http>=1.40.0",
     "sentry-sdk>=2.57.0",
     # CLI framework
-    "milo-cli>=0.1.1",
+    "milo-cli>=0.2.2",
     # Test utilities
     "pytest-mock>=3.15.1",
     "httpx>=0.28.1",

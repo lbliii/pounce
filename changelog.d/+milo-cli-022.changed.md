@@ -1,0 +1,1 @@
+Bump milo-cli to 0.2.2 and kida-templates to 0.6.0. Picks up `get_env()` singleton cache fix (122 µs → 125 ns), kida for-loop variable binding correctness fix, faster template compilation, and cleaner command dispatch internals.
