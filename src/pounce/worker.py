@@ -1295,7 +1295,7 @@ class Worker:
             writer.write(raw)
             writer.write(proto.send_body(body, more=False))
             await writer.drain()
-        except Exception:
+        except Exception:  # noqa: S110 — best-effort error response on already-failing connection
             pass
 
     async def _send_debug_error(

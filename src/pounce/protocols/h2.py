@@ -209,8 +209,7 @@ class H2Connection:
                     h2.settings.SettingCodes.ENABLE_CONNECT_PROTOCOL: 1,
                 }
             )
-        except (AttributeError, Exception):  # fmt: skip
-            # Older h2 versions may not support this setting
+        except (AttributeError, Exception):  # noqa: S110 — older h2 versions may not support this setting
             pass
 
     def receive_data(self, data: bytes) -> list[H2Event]:

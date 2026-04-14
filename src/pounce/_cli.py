@@ -956,7 +956,7 @@ def main(args: list[str] | None = None) -> None:
                 from pounce._output import _render, _write
 
                 _write(_render("version_notice.kida", current=info.current, latest=info.latest))
-        except Exception:
+        except Exception:  # noqa: S110 — best-effort version notice; must never block startup
             pass
 
     cli.run(args)

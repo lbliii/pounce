@@ -32,6 +32,9 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format . --check
 
+      - name: Check silent exceptions
+        run: bash scripts/check_silent_exceptions.sh src/pounce
+
   typecheck:
     name: Type Check
     runs-on: ubuntu-latest
