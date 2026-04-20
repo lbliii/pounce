@@ -162,7 +162,19 @@ class TestErrorCodes:
         assert err.status_code == 400
         assert err.code == "POUNCE_PARSE_E"
         assert err.hint is None
-        assert err.doc is None
+        # doc auto-derives from code — the catalog coverage test enforces the
+        # invariant that every code has a `### POUNCE_X` heading at that anchor.
+        assert err.doc == "docs/troubleshooting.md#POUNCE_PARSE_E"
+
+    def test_doc_auto_derives_from_code(self):
+        # Explicit code + no doc → doc is derived from the provided code.
+        err = TLSError("cert missing", code="POUNCE_TLS_CERT_MISSING")
+        assert err.doc == "docs/troubleshooting.md#POUNCE_TLS_CERT_MISSING"
+
+    def test_doc_explicit_override_wins(self):
+        # If a caller passes doc=, that wins over the derived default.
+        err = TLSError("x", code="POUNCE_TLS_CERT_MISSING", doc="https://example.com/tls")
+        assert err.doc == "https://example.com/tls"
 
 
 class TestErrorPickle:

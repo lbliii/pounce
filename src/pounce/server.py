@@ -57,6 +57,23 @@ from pounce.worker import Worker, _worker_lifecycle_receive, _worker_lifecycle_s
 logger = logging.getLogger("pounce")
 
 
+def _is_loopback_bind(host: str) -> bool:
+    """Return True if *host* refers to a loopback address.
+
+    Recognises ``localhost``, IPv4 ``127.0.0.0/8``, and IPv6 ``::1``. An
+    unparseable host (a name we can't resolve here) is treated as
+    non-loopback so the public-bind warning errs on the loud side.
+    """
+    import ipaddress
+
+    if host.lower() in ("localhost", ""):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 class Server:
     """Top-level server that orchestrates the full lifecycle.
 
@@ -635,6 +652,7 @@ class Server:
         self._apply_rate_limiter()
         self._apply_request_queue()
         self._apply_sentry()
+        self._warn_if_introspection_public()
 
     def _apply_otel(self) -> None:
         """Configure OpenTelemetry tracing if endpoint is set."""
@@ -775,6 +793,32 @@ class Server:
                 "Sentry DSN configured but sentry-sdk not installed. "
                 "Install with: pip install sentry-sdk"
             )
+
+    def _warn_if_introspection_public(self) -> None:
+        """Warn at startup if the introspection endpoint is publicly reachable.
+
+        The ``/_pounce/info`` endpoint exposes a redacted view of the running
+        config. The redaction allowlist is fail-closed, but a misconfigured
+        deploy that binds pounce to a public interface still hands strangers
+        a free runtime probe. Surface the risk loudly with a code agents can
+        catalog-link to.
+        """
+        if not self._config.introspection_enabled:
+            return
+        if _is_loopback_bind(self._config.host) and _is_loopback_bind(
+            self._config.introspection_bind
+        ):
+            return
+        logger.warning(
+            "POUNCE_CONFIG_INTROSPECTION_PUBLIC: introspection endpoint enabled "
+            "with non-loopback bind (host=%r, introspection_bind=%r). The "
+            "%s response includes a redacted config view; verify INFO_ALLOWLIST "
+            "before exposing publicly. See "
+            "docs/troubleshooting.md#POUNCE_CONFIG_INTROSPECTION_PUBLIC",
+            self._config.host,
+            self._config.introspection_bind,
+            self._config.introspection_path,
+        )
 
     def _create_udp_listener_if_h3(self, actual_addr: tuple[str, int]) -> socket.socket | None:
         """Create a single UDP listener for HTTP/3 if configured and available."""

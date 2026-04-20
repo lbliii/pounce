@@ -241,3 +241,91 @@ class TestCheckTemplate:
         )
         assert "pounce check" in result
         assert "Fix the issues" in result
+
+
+class TestCheckResultsNonPretty:
+    """``_output.check_results`` must produce stderr output in non-pretty mode.
+
+    Sprint 2.2 fix: previously the non-pretty branch routed through
+    ``logger.info`` before ``configure_logging`` had run, so ``pounce check``
+    in any pipe/CI/subprocess context exited 0 with zero output — agents could
+    not distinguish "validated" from "did nothing." The fix writes directly
+    via ``_write`` (the shared stderr-locked writer) so output appears whether
+    or not logging has been configured.
+    """
+
+    def _run(
+        self,
+        monkeypatch,
+        *,
+        checks: list[dict],
+        all_passed: bool,
+    ) -> str:
+        import io
+        import sys
+
+        from pounce import _output
+
+        buf = io.StringIO()
+        monkeypatch.setattr(sys, "stderr", buf)
+        monkeypatch.setattr(buf, "isatty", lambda: False, raising=False)
+        monkeypatch.setattr(_output, "_is_pretty", lambda: False)
+        monkeypatch.delenv("FORCE_COLOR", raising=False)
+        _output.check_results(version="0.6.0", checks=checks, all_passed=all_passed)
+        return buf.getvalue()
+
+    def test_all_pass_prints_per_check_and_summary(self, monkeypatch):
+        out = self._run(
+            monkeypatch,
+            checks=[
+                {"name": "App import", "status": "success", "detail": "myapp:app", "hint": ""},
+                {
+                    "name": "Port available",
+                    "status": "success",
+                    "detail": "127.0.0.1:8000",
+                    "hint": "",
+                },
+            ],
+            all_passed=True,
+        )
+        assert out, "non-pretty check_results produced no output when all_passed=True"
+        assert "App import" in out
+        assert "Port available" in out
+        assert "PASS" in out
+        # Final summary line mirrors the pretty template's status line so
+        # agents reading stderr see an unambiguous "done" signal.
+        assert "All checks passed" in out
+
+    def test_failure_prints_fail_icon(self, monkeypatch):
+        out = self._run(
+            monkeypatch,
+            checks=[
+                {
+                    "name": "App import",
+                    "status": "error",
+                    "detail": "module not found",
+                    "hint": "Check path",
+                },
+            ],
+            all_passed=False,
+        )
+        assert "FAIL" in out
+        assert "App import" in out
+        # On failure we do not emit the success summary line.
+        assert "All checks passed" not in out
+
+    def test_warning_check_prints_warn_icon(self, monkeypatch):
+        out = self._run(
+            monkeypatch,
+            checks=[
+                {
+                    "name": "Deps",
+                    "status": "warning",
+                    "detail": "h3 not installed",
+                    "hint": "",
+                },
+            ],
+            all_passed=True,
+        )
+        assert "WARN" in out
+        assert "Deps" in out

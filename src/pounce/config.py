@@ -133,6 +133,14 @@ class ServerConfig:
     # Built-in health check endpoint (None = disabled)
     health_check_path: str | None = None
 
+    # Built-in /_pounce/info introspection endpoint (Sprint 5).
+    # Disabled by default; loopback-bound; allowlist-driven exposure via
+    # INFO_ALLOWLIST in _config_schema.py. See docs/troubleshooting.md
+    # #POUNCE_CONFIG_INTROSPECTION_PUBLIC for the public-bind warning.
+    introspection_enabled: bool = False
+    introspection_bind: str = "127.0.0.1"
+    introspection_path: str = "/_pounce/info"
+
     # Unix domain socket (mutually exclusive with host/port)
     uds: str | None = None
     uds_permissions: int = 0o660  # File mode for UDS socket (default: owner+group rw)
@@ -322,6 +330,12 @@ class ServerConfig:
             raise ValueError(msg)
         if self.health_check_path and not self.health_check_path.startswith("/"):
             msg = f"health_check_path must start with / (got {self.health_check_path!r})"
+            raise ValueError(msg)
+        if not self.introspection_path.startswith("/"):
+            msg = f"introspection_path must start with / (got {self.introspection_path!r})"
+            raise ValueError(msg)
+        if not self.introspection_bind:
+            msg = "introspection_bind must be a non-empty string"
             raise ValueError(msg)
         if self.rate_limit_requests_per_second <= 0:
             msg = (

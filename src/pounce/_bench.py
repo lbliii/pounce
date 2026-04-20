@@ -497,7 +497,11 @@ _BENCH_HELP = {
 def register_bench_command(cli: Any) -> None:
     """Register the ``bench`` subcommand on the CLI."""
 
-    @cli.command("bench", description="Run standardized performance benchmarks")  # type: ignore[attr-defined]
+    @cli.command(  # type: ignore[attr-defined]
+        "bench",
+        description="Run standardized performance benchmarks",
+        display_result=False,
+    )
     def bench(
         workers: int = 1,
         duration: int = 10,

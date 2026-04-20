@@ -18,13 +18,27 @@ from pathlib import Path
 from pounce._config_schema import build_toml_template
 
 #: The vanilla ASGI app template — pure ASGI, no framework. The leading
-#: comment is deliberately short: users should feel comfortable replacing
-#: the whole file.
+#: docstring is a tour guide: a fresh agent reading this file finds every
+#: other command pounce ships without leaving the file. Signpost budget
+#: (enforced by ``tests/unit/test_init.py::TestAppTemplateSignposts``): ≤15
+#: non-blank docstring lines.
 APP_TEMPLATE = '''\
 """Minimal ASGI app. Replace me with your real app.
 
-Run:
-    pounce serve --app app:app
+Run it:
+    pounce serve --app app:app      # start the server
+    pounce check --app app:app      # pre-flight validation (same flags as serve)
+    pounce info                     # Python, GIL, deps, installed frameworks
+
+Inspect config:
+    pounce config schema            # every setting (JSON or TOML template)
+    pounce config show              # print the resolved merged config
+
+Talk to agents:
+    pounce --mcp                    # run pounce as an MCP server on stdin/stdout
+
+Troubleshoot:
+    docs/troubleshooting.md — every POUNCE_* error code, with context + remedy
 """
 
 

@@ -31,11 +31,14 @@
 {%- let actions = [] -%}
 {%- let subcommands = [] -%}
 {%- for action in group.actions -%}
-{%- if action.dest == "_command" and action.choices -%}
+{#- Accept ``_command`` (top-level pounce) and ``_command_<group>`` (nested
+    groups like ``pounce config``). Argparse names the dest after the group.
+    The Python-side renderer uses the same rule. -#}
+{%- if (action.dest == "_command" or action.dest.startswith("_command_")) and action.choices -%}
 {%- for name in action.choices -%}
 {%- export subcommands = subcommands + [{"name": name, "help": action.choices[name] | default("")}] -%}
 {%- endfor -%}
-{%- elif action.dest != "_command" -%}
+{%- elif action.dest != "_command" and not action.dest.startswith("_command_") -%}
 {%- export actions = actions + [action] -%}
 {%- endif -%}
 {%- endfor -%}

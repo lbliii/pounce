@@ -33,10 +33,16 @@ def _render_branded_help(parser: argparse.ArgumentParser) -> str:
     from milo.help import HelpState
 
     # Build subcommand help text from parser choices.
+    # Argparse names the subparser dest based on the parser group: the top-level
+    # pounce parser uses ``_command``, while ``cli.group("config", ...)`` builds
+    # a nested parser whose dest is ``_command_config``. Accept both shapes so
+    # nested command groups render their subcommands instead of leaking the
+    # internal dest as a positional.
     _sub_help = {}
     for action_group in parser._action_groups:
         for action in action_group._group_actions:
-            if action.dest == "_command" and isinstance(action.choices, dict):
+            is_subcommand = action.dest == "_command" or action.dest.startswith("_command_")
+            if is_subcommand and isinstance(action.choices, dict):
                 for name, sp in action.choices.items():
                     if isinstance(sp, argparse.ArgumentParser):
                         # Use the 'help' kwarg from add_parser(), stored on the action
@@ -50,7 +56,8 @@ def _render_branded_help(parser: argparse.ArgumentParser) -> str:
         actions = []
         for action in action_group._group_actions:
             choices = action.choices
-            if action.dest == "_command" and isinstance(choices, dict):
+            is_subcommand = action.dest == "_command" or action.dest.startswith("_command_")
+            if is_subcommand and isinstance(choices, dict):
                 choices = {name: _sub_help.get(name, "") for name in choices}
             actions.append(
                 {
@@ -177,7 +184,7 @@ cli = _PounceCLI(
 register_bench_command(cli)
 
 
-@cli.command("serve", description="Start the ASGI server")
+@cli.command("serve", description="Start the ASGI server", display_result=False)
 def serve(
     app: str,
     config: str | None = None,
@@ -275,7 +282,12 @@ def serve(
         from pounce._errors import PounceError
 
         if isinstance(exc, PounceError):
-            _die(str(exc), hint=_hint_for_pounce_error(exc))
+            _die(
+                str(exc),
+                hint=exc.hint or _hint_for_pounce_error(exc),
+                code=exc.code,
+                doc=exc.doc,
+            )
         else:
             from pounce import _output
 
@@ -424,12 +436,23 @@ def _die(
     message: str,
     *,
     hint: str | None = None,
+    code: str | None = None,
+    doc: str | None = None,
     diagnostics: list[dict[str, str]] | None = None,
 ) -> None:
-    """Render a branded error and exit."""
+    """Render a branded error and exit.
+
+    ``code`` is a semantic ``POUNCE_<CATEGORY>_<SPECIFIC>`` identifier; ``doc``
+    is the troubleshooting anchor (e.g. ``docs/troubleshooting.md#POUNCE_X_Y``).
+    Both are surfaced through ``_output.error`` to ``error.kida`` for rendering
+    and let an agent reading stderr navigate from a failure to its catalog
+    entry without grepping.
+    """
     from pounce import _output
 
-    _output.error(message, hint=hint, diagnostics=diagnostics)
+    _output.error(
+        message, hint=hint, code=code, docs_url=doc, diagnostics=diagnostics
+    )
     sys.exit(1)
 
 
@@ -569,7 +592,11 @@ def parse_dirs(raw: list[str] | None) -> tuple[str, ...]:
     return tuple(d.strip() for d in raw if d.strip())
 
 
-@cli.command("info", description="Show system diagnostics and dependency status")
+@cli.command(
+    "info",
+    description="Show system diagnostics and dependency status",
+    display_result=False,
+)
 def info() -> None:
     """Display system info, dependency status, and environment diagnostics."""
     import os
@@ -598,9 +625,14 @@ def info() -> None:
     )
 
 
-@cli.command("check", description="Validate configuration before starting")
+@cli.command(
+    "check",
+    description="Validate configuration before starting",
+    display_result=False,
+)
 def check(
     app: str,
+    config: str | None = None,
     host: str | None = None,
     port: int | None = None,
     workers: int | None = None,
@@ -695,8 +727,9 @@ def check(
     if health_check_path is not None:
         cli_overrides["health_check_path"] = health_check_path
 
+    config_path = Path(config) if config else None
     try:
-        merged = load_config_with_overrides(cli_overrides)
+        merged = load_config_with_overrides(cli_overrides, config_path=config_path)
     except ValueError as exc:
         _output.error(str(exc))
         sys.exit(1)
@@ -945,7 +978,11 @@ def _check_signage(signage: str) -> dict[str, str]:
 # Sprint 3: two-command zero-to-running. See docs/design/init-scope.md.
 
 
-@cli.command("init", description="Scaffold a minimal pounce project in CWD")
+@cli.command(
+    "init",
+    description="Scaffold a minimal pounce project in CWD",
+    display_result=False,
+)
 def init(directory: str | None = None, force: bool = False) -> None:
     """Write ``app.py``, ``pounce.toml``, and ``.gitignore`` into *directory*
     (current working directory by default).
@@ -985,7 +1022,11 @@ def init(directory: str | None = None, force: bool = False) -> None:
 config_group = cli.group("config", description="Inspect pounce configuration")
 
 
-@config_group.command("schema", description="Emit the ServerConfig schema")
+@config_group.command(
+    "schema",
+    description="Emit the ServerConfig schema",
+    display_result=False,
+)
 def config_schema(output_format: str = "json") -> None:
     """Print a machine-readable description of every ServerConfig field.
 
@@ -1010,7 +1051,11 @@ def config_schema(output_format: str = "json") -> None:
         )
 
 
-@config_group.command("show", description="Print the resolved merged config")
+@config_group.command(
+    "show",
+    description="Print the resolved merged config",
+    display_result=False,
+)
 def config_show(
     config: str | None = None,
     output_format: str = "toml",

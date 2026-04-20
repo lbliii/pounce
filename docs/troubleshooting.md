@@ -250,6 +250,27 @@ the cert/key pair.
 
 ---
 
+## CONFIG — Server configuration (warning, not raise)
+
+### POUNCE_CONFIG_INTROSPECTION_PUBLIC
+`introspection_enabled=True` was set while the server (or
+`introspection_bind`) is bound to a non-loopback interface. The
+`/_pounce/info` endpoint will be reachable from outside the local host.
+**Cause:** deploying with `host="0.0.0.0"` (or any public address) without
+moving the introspection endpoint behind a private bind / reverse-proxy
+ACL.
+**Do:** either keep `host` on `127.0.0.1`, set `introspection_enabled=False`
+in production, or front pounce with a proxy that strips the
+`introspection_path` (`/_pounce/info` by default) from external traffic.
+The endpoint's payload is filtered through `INFO_ALLOWLIST` in
+`src/pounce/_config_schema.py` (every `ServerConfig` field is either
+`EXPOSE` or `REDACT_TO_BOOL`), so secrets like `ssl_certfile` and
+`sentry_dsn` never appear verbatim — but the runtime fingerprint
+(version, GIL state, worker count, uptime) is still informative to an
+attacker probing your stack.
+
+---
+
 ## Reporting new codes
 
 If you raise a new `PounceError` anywhere in `src/pounce/`, add an entry
