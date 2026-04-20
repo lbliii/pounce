@@ -15,24 +15,69 @@ Error categories:
 - TLSError: TLS configuration or handshake failure (500)
 - ReloadError: file-watcher or worker-restart failure during reload (500)
 
+Every error carries a semantic ``code`` of the form ``POUNCE_<CATEGORY>_<SPECIFIC>``
+and an optional ``hint`` with actionable remediation. See
+docs/design/error-codes.md for the naming scheme.
+
 """
 
 
 class PounceError(Exception):
-    """Base exception for all pounce server errors."""
+    """Base exception for all pounce server errors.
+
+    Args:
+        message: Human-readable error message.
+        status_code: HTTP status code override. Defaults to the class attribute.
+        code: Semantic error code ``POUNCE_<CATEGORY>_<SPECIFIC>``. Defaults to
+            the class's ``default_code``. Stable identifier safe for log keying
+            and response headers.
+        hint: Optional actionable remediation ("Pass --ssl-certfile=PATH ...").
+        doc: Optional docs anchor ("docs/troubleshooting.md#POUNCE_TLS_...").
+    """
 
     status_code: int = 500
+    default_code: str = "POUNCE_E_UNKNOWN"
 
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        code: str | None = None,
+        hint: str | None = None,
+        doc: str | None = None,
+    ) -> None:
         super().__init__(message)
         if status_code is not None:
             self.status_code = status_code
+        self.code = code if code is not None else self.default_code
+        self.hint = hint
+        self.doc = doc
+
+    def __reduce__(self) -> tuple[object, ...]:
+        # Preserve code/hint/doc across pickle (process-worker mode).
+        return (
+            _reconstruct_pounce_error,
+            (type(self), str(self), self.status_code, self.code, self.hint, self.doc),
+        )
+
+
+def _reconstruct_pounce_error(
+    cls: type[PounceError],
+    message: str,
+    status_code: int,
+    code: str,
+    hint: str | None,
+    doc: str | None,
+) -> PounceError:
+    return cls(message, status_code=status_code, code=code, hint=hint, doc=doc)
 
 
 class ParseError(PounceError):
     """Malformed HTTP request — h11 could not parse the input."""
 
     status_code: int = 400
+    default_code: str = "POUNCE_PARSE_E"
 
 
 class RequestTimeoutError(PounceError):
@@ -43,6 +88,7 @@ class RequestTimeoutError(PounceError):
     """
 
     status_code: int = 408
+    default_code: str = "POUNCE_TIMEOUT_E"
 
 
 class LimitError(PounceError):
@@ -53,39 +99,46 @@ class LimitError(PounceError):
     """
 
     status_code: int = 413
+    default_code: str = "POUNCE_LIMIT_E"
 
 
 class AppError(PounceError):
     """The ASGI application raised an unhandled exception."""
 
     status_code: int = 500
+    default_code: str = "POUNCE_APP_E"
 
 
 class LifespanError(PounceError):
     """ASGI lifespan startup or shutdown failed."""
 
     status_code: int = 500
+    default_code: str = "POUNCE_LIFESPAN_E"
 
 
 class SupervisorError(PounceError):
     """Worker spawn failure or crash-restart exhaustion."""
 
     status_code: int = 500
+    default_code: str = "POUNCE_SUPERVISOR_E"
 
 
 class WorkerError(PounceError):
     """Worker-level failure that bubbles to the supervisor."""
 
     status_code: int = 500
+    default_code: str = "POUNCE_WORKER_E"
 
 
 class TLSError(PounceError):
     """TLS configuration or handshake failure."""
 
     status_code: int = 500
+    default_code: str = "POUNCE_TLS_E"
 
 
 class ReloadError(PounceError):
     """File-watcher or worker-restart failure during reload."""
 
     status_code: int = 500
+    default_code: str = "POUNCE_RELOAD_E"

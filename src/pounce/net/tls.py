@@ -43,7 +43,11 @@ def create_tls_context(config: ServerConfig) -> ssl.SSLContext:
 
     """
     if not config.ssl_certfile:
-        raise TLSError("ssl_certfile is required for TLS")
+        raise TLSError(
+            "ssl_certfile is required for TLS",
+            code="POUNCE_TLS_CERT_MISSING",
+            hint="Pass --ssl-certfile=PATH or set ssl_certfile in pounce.toml.",
+        )
 
     try:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -73,11 +77,22 @@ def create_tls_context(config: ServerConfig) -> ssl.SSLContext:
             logger.debug("Using system trust store via truststore")
 
     except ssl.SSLError as exc:
-        raise TLSError(f"Failed to configure TLS: {exc}") from exc
+        raise TLSError(
+            f"Failed to configure TLS: {exc}",
+            code="POUNCE_TLS_CONFIGURE_FAILED",
+        ) from exc
     except FileNotFoundError as exc:
-        raise TLSError(f"TLS certificate/key not found: {exc}") from exc
+        raise TLSError(
+            f"TLS certificate/key not found: {exc}",
+            code="POUNCE_TLS_CERT_FILE_NOT_FOUND",
+            hint="Verify ssl_certfile and ssl_keyfile paths exist and are readable.",
+        ) from exc
     except PermissionError as exc:
-        raise TLSError(f"Permission denied reading TLS files: {exc}") from exc
+        raise TLSError(
+            f"Permission denied reading TLS files: {exc}",
+            code="POUNCE_TLS_CERT_PERMISSION_DENIED",
+            hint="Check file ownership and mode (e.g. 0600) on cert/key files.",
+        ) from exc
 
     return ctx
 

@@ -117,3 +117,81 @@ class TestErrorMessages:
         with pytest.raises(PounceError) as exc_info:
             raise ParseError("test")
         assert exc_info.value.status_code == 400
+
+
+class TestErrorCodes:
+    """Errors carry a semantic code (POUNCE_<CATEGORY>_<SPECIFIC>)."""
+
+    def test_default_code_on_base(self):
+        assert PounceError("x").code == "POUNCE_E_UNKNOWN"
+
+    def test_default_code_per_subclass(self):
+        assert ParseError("x").code == "POUNCE_PARSE_E"
+        assert LimitError("x").code == "POUNCE_LIMIT_E"
+        assert TLSError("x").code == "POUNCE_TLS_E"
+        assert RequestTimeoutError("x").code == "POUNCE_TIMEOUT_E"
+        assert AppError("x").code == "POUNCE_APP_E"
+        assert LifespanError("x").code == "POUNCE_LIFESPAN_E"
+        assert SupervisorError("x").code == "POUNCE_SUPERVISOR_E"
+        assert WorkerError("x").code == "POUNCE_WORKER_E"
+        assert ReloadError("x").code == "POUNCE_RELOAD_E"
+
+    def test_explicit_code_override(self):
+        err = TLSError("cert gone", code="POUNCE_TLS_CERT_MISSING")
+        assert err.code == "POUNCE_TLS_CERT_MISSING"
+
+    def test_hint_defaults_to_none(self):
+        assert ParseError("x").hint is None
+
+    def test_hint_set(self):
+        err = TLSError(
+            "cert gone",
+            code="POUNCE_TLS_CERT_MISSING",
+            hint="Pass --ssl-certfile=PATH or set [tool.pounce] ssl_certfile.",
+        )
+        assert err.hint == "Pass --ssl-certfile=PATH or set [tool.pounce] ssl_certfile."
+
+    def test_doc_anchor(self):
+        err = TLSError("x", doc="docs/troubleshooting.md#POUNCE_TLS_CERT_MISSING")
+        assert err.doc == "docs/troubleshooting.md#POUNCE_TLS_CERT_MISSING"
+
+    def test_backward_compat_positional_message(self):
+        # Existing code: `raise ParseError("msg")` must continue to work.
+        err = ParseError("bad header")
+        assert str(err) == "bad header"
+        assert err.status_code == 400
+        assert err.code == "POUNCE_PARSE_E"
+        assert err.hint is None
+        assert err.doc is None
+
+
+class TestErrorPickle:
+    """Process-worker mode pickles exceptions across boundaries — all fields must survive."""
+
+    def test_pickle_roundtrip_preserves_all_fields(self):
+        import pickle
+
+        original = TLSError(
+            "cert gone",
+            status_code=500,
+            code="POUNCE_TLS_CERT_MISSING",
+            hint="Pass --ssl-certfile",
+            doc="docs/troubleshooting.md#POUNCE_TLS_CERT_MISSING",
+        )
+        restored = pickle.loads(pickle.dumps(original))  # noqa: S301
+        assert type(restored) is TLSError
+        assert str(restored) == "cert gone"
+        assert restored.status_code == 500
+        assert restored.code == "POUNCE_TLS_CERT_MISSING"
+        assert restored.hint == "Pass --ssl-certfile"
+        assert restored.doc == "docs/troubleshooting.md#POUNCE_TLS_CERT_MISSING"
+
+    def test_pickle_roundtrip_defaults(self):
+        import pickle
+
+        original = ParseError("bad")
+        restored = pickle.loads(pickle.dumps(original))  # noqa: S301
+        assert type(restored) is ParseError
+        assert str(restored) == "bad"
+        assert restored.code == "POUNCE_PARSE_E"
+        assert restored.hint is None

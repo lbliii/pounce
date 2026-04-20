@@ -65,7 +65,7 @@ class H1Protocol:
             try:
                 event = self._conn.next_event()
             except h11.RemoteProtocolError as exc:
-                raise ParseError(str(exc)) from exc
+                raise ParseError(str(exc), code="POUNCE_PARSE_H11_REJECTED") from exc
 
             if event is h11.NEED_DATA or event is h11.PAUSED:
                 break

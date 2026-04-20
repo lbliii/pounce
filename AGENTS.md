@@ -101,3 +101,11 @@ A change is done when all of these hold:
 ## When this file is wrong
 
 It will be. Tell me. The worst outcome is that it sits here for a year contradicting how the project actually works. Updates to AGENTS.md are a first-class PR — short, focused, and welcome.
+
+---
+
+## See also
+
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — setup, feedback loops, and recipes (add a test, add a config field, add an error).
+- **[docs/troubleshooting.md](docs/troubleshooting.md)** — error-code catalog, indexed by `POUNCE_*` code.
+- **[docs/design/](docs/design/)** — ADRs for the load-bearing decisions (error codes, redaction allowlist, introspection auth, init scope).

@@ -707,7 +707,7 @@ def check(
 
     if config_check["status"] != "error":
         # Config is valid — construct typed config for pre-flight checks.
-        cfg = ServerConfig(**merged)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        cfg = ServerConfig(**merged)  # type: ignore[arg-type]
         if not cfg.uds:
             checks.append(_check_port_available(cfg.host, cfg.port))
         if cfg.ssl_certfile:
@@ -938,6 +938,128 @@ def _check_signage(signage: str) -> dict[str, str]:
         "detail": f"Invalid signage: {signage!r}",
         "hint": f"Must be one of: {', '.join(sorted(_VALID_SIGNAGE))}",
     }
+
+
+# ── `pounce init` scaffold ───────────────────────────────
+#
+# Sprint 3: two-command zero-to-running. See docs/design/init-scope.md.
+
+
+@cli.command("init", description="Scaffold a minimal pounce project in CWD")
+def init(directory: str | None = None, force: bool = False) -> None:
+    """Write ``app.py``, ``pounce.toml``, and ``.gitignore`` into *directory*
+    (current working directory by default).
+
+    Refuses to overwrite existing scaffold files unless ``--force`` is set.
+    Intended for fresh directories — real projects already have their own
+    app and config.
+    """
+    from pounce._init import InitError, run_init
+
+    target = Path(directory) if directory else Path.cwd()
+    try:
+        written = run_init(target, force=force)
+    except InitError as exc:
+        hint = (
+            "Pass --force to overwrite, or move the existing files first."
+            if exc.colliding
+            else None
+        )
+        _die(str(exc), hint=hint)
+        return
+
+    rel = [str(p.relative_to(target)) if p.is_relative_to(target) else str(p) for p in written]
+    print(f"Scaffolded {len(rel)} files in {target}:")
+    for name in rel:
+        print(f"  {name}")
+    print("\nNext: pounce serve --app app:app")
+
+
+# ── `pounce config` group ────────────────────────────────
+#
+# Sprint 2: config discovery without reading source. ``config schema`` emits
+# a JSON Schema / TOML template from dataclasses.fields(ServerConfig);
+# ``config show`` prints the resolved merged config through the Sprint 0.3
+# fail-closed redaction allowlist.
+
+config_group = cli.group("config", description="Inspect pounce configuration")
+
+
+@config_group.command("schema", description="Emit the ServerConfig schema")
+def config_schema(output_format: str = "json") -> None:
+    """Print a machine-readable description of every ServerConfig field.
+
+    ``--output-format json`` (default) emits a JSON Schema Draft 2020-12
+    document with types, defaults, and enum constraints.
+    ``--output-format toml-template`` emits a commented ``pounce.toml``
+    skeleton ready to uncomment and edit.
+    """
+    import json as _json
+
+    from pounce._config_schema import build_schema, build_toml_template
+
+    fmt = output_format.strip().lower()
+    if fmt == "json":
+        print(_json.dumps(build_schema(), indent=2, sort_keys=False, default=str))
+    elif fmt == "toml-template":
+        print(build_toml_template(), end="")
+    else:
+        _die(
+            f"Unknown --output-format {output_format!r}",
+            hint="Supported formats: json, toml-template.",
+        )
+
+
+@config_group.command("show", description="Print the resolved merged config")
+def config_show(
+    config: str | None = None,
+    output_format: str = "toml",
+    host: str | None = None,
+    port: int | None = None,
+    workers: int | None = None,
+) -> None:
+    """Print the active ServerConfig (TOML + CLI + defaults) through the
+    Sprint 0.3 redaction allowlist.
+
+    Secrets and filesystem paths are never printed — fields classified as
+    ``REDACT_TO_BOOL`` appear as ``<name>_set = true|false``, and fields
+    outside the allowlist are omitted entirely.
+    """
+    import json as _json
+
+    from pounce._config_file import load_config_with_overrides
+    from pounce._config_schema import _toml_value, redacted_config_view
+
+    cli_overrides: dict[str, object] = {}
+    if host is not None:
+        cli_overrides["host"] = host
+    if port is not None:
+        cli_overrides["port"] = port
+    if workers is not None:
+        cli_overrides["workers"] = workers
+
+    config_path = Path(config) if config else None
+    try:
+        merged = load_config_with_overrides(cli_overrides, config_path=config_path)
+        server_config = ServerConfig(**merged)
+    except (ValueError, TypeError) as exc:
+        _die(str(exc))
+        return
+
+    view = redacted_config_view(server_config)
+
+    fmt = output_format.strip().lower()
+    if fmt == "json":
+        print(_json.dumps(view, indent=2, sort_keys=False, default=str))
+    elif fmt == "toml":
+        print("[pounce]")
+        for key, value in view.items():
+            print(f"{key} = {_toml_value(value)}")
+    else:
+        _die(
+            f"Unknown --output-format {output_format!r}",
+            hint="Supported formats: toml, json.",
+        )
 
 
 def main(args: list[str] | None = None) -> None:

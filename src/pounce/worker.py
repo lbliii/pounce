@@ -649,7 +649,14 @@ class Worker:
                     events = proto.receive_data(data)
                 except ParseError as exc:
                     close_reason = "error"
-                    await self._send_error(writer, proto, 400, str(exc))
+                    await self._send_error(
+                        writer,
+                        proto,
+                        400,
+                        str(exc),
+                        code=exc.code,
+                        hint=exc.hint,
+                    )
                     break
 
                 parse_ms = elapsed_ms(parse_start) if should_sample else 0.0
@@ -965,7 +972,14 @@ class Worker:
         if not send_state.response_started:
             status = 500
             with contextlib.suppress(OSError, ConnectionError, h11.LocalProtocolError):
-                await self._send_error(writer, proto, status, "Internal Server Error")
+                await self._send_error(
+                    writer,
+                    proto,
+                    status,
+                    "Internal Server Error",
+                    code="POUNCE_APP_NO_RESPONSE",
+                    hint="The ASGI app returned without sending http.response.start.",
+                )
             send_state.status = status
 
         # Record response lifecycle event
@@ -1032,7 +1046,14 @@ class Worker:
                         request_headers=scope.get("headers"),
                     )
                 else:
-                    await self._send_error(writer, proto, 500, "Internal Server Error")
+                    await self._send_error(
+                        writer,
+                        proto,
+                        500,
+                        "Internal Server Error",
+                        code="POUNCE_APP_E",
+                        hint="Check worker logs for the application traceback.",
+                    )
             if send_state.status == 0:
                 send_state.status = 500
 
@@ -1280,18 +1301,33 @@ class Worker:
         proto: H1Protocol,
         status: int,
         message: str,
+        *,
+        code: str | None = None,
+        hint: str | None = None,
     ) -> None:
-        """Send a plain-text error response."""
-        body = message.encode("utf-8")
+        """Send a plain-text error response.
+
+        When *code* is set, adds the ``X-Pounce-Error-Code`` response header so
+        callers can disambiguate identical-status failures. When
+        ``config.debug`` is True, ``hint`` (and the code) are appended to the
+        response body for easier debugging.
+        """
+        if self._config.debug and code is not None:
+            parts = [message, "", f"Pounce error code: {code}"]
+            if hint:
+                parts.append(f"Hint: {hint}")
+            body = "\n".join(parts).encode("utf-8")
+        else:
+            body = message.encode("utf-8")
+        headers: list[tuple[bytes, bytes]] = [
+            (b"content-type", b"text/plain; charset=utf-8"),
+            (b"content-length", str(len(body)).encode("ascii")),
+            (b"connection", b"close"),
+        ]
+        if code is not None:
+            headers.append((b"x-pounce-error-code", code.encode("ascii")))
         try:
-            raw = proto.send_response(
-                status,
-                [
-                    (b"content-type", b"text/plain; charset=utf-8"),
-                    (b"content-length", str(len(body)).encode("ascii")),
-                    (b"connection", b"close"),
-                ],
-            )
+            raw = proto.send_response(status, headers)
             writer.write(raw)
             writer.write(proto.send_body(body, more=False))
             await writer.drain()
@@ -1335,7 +1371,14 @@ class Worker:
             await writer.drain()
         except Exception:
             # Fallback to simple error if debug page fails
-            await self._send_error(writer, proto, 500, "Internal Server Error")
+            await self._send_error(
+                writer,
+                proto,
+                500,
+                "Internal Server Error",
+                code="POUNCE_APP_DEBUG_PAGE_FAILED",
+                hint="Debug error page rendering failed; see worker logs.",
+            )
 
 
 # ---------------------------------------------------------------------------

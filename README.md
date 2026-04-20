@@ -266,6 +266,10 @@ uv sync --group dev
 pytest
 ```
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, feedback loops, and recipes
+(how to add a test, a config field, or an error). Read [AGENTS.md](AGENTS.md)
+for the project's design philosophy and stop-and-ask escape hatches.
+
 ---
 
 ## The Bengal Ecosystem
