@@ -450,9 +450,7 @@ def _die(
     """
     from pounce import _output
 
-    _output.error(
-        message, hint=hint, code=code, docs_url=doc, diagnostics=diagnostics
-    )
+    _output.error(message, hint=hint, code=code, docs_url=doc, diagnostics=diagnostics)
     sys.exit(1)
 
 

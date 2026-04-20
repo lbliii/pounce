@@ -53,9 +53,7 @@ class TestInitNoNonePrint:
 
     def test_init_no_none_in_stderr(self, tmp_path: Path) -> None:
         result = _run("init", cwd=tmp_path)
-        assert "None" not in result.stderr, (
-            "pounce init leaked 'None' in stderr:\n" + result.stderr
-        )
+        assert "None" not in result.stderr, "pounce init leaked 'None' in stderr:\n" + result.stderr
 
 
 class TestCheckNoNonePrint:
@@ -80,9 +78,7 @@ class TestCheckNoNonePrint:
         # check_results renders on the pretty path when stderr is a TTY, and on
         # the plain path when piped. Subprocess-captured stderr is non-TTY, so
         # we exercise the branch agents actually hit.
-        result = _run(
-            "check", "--app", "app:app", "--port", str(free_port), cwd=tmp_path
-        )
+        result = _run("check", "--app", "app:app", "--port", str(free_port), cwd=tmp_path)
         assert result.returncode == 0, result.stderr
         # Output of check_results goes to stderr (via _write) — assert the
         # summary is there *and* no bogus None anywhere.
@@ -101,9 +97,7 @@ class TestInfoNoNonePrint:
     def test_info_no_none_in_output(self) -> None:
         result = _run("info")
         assert result.returncode == 0, result.stderr
-        assert "None" not in result.stdout, (
-            "pounce info leaked 'None' in stdout:\n" + result.stdout
-        )
+        assert "None" not in result.stdout, "pounce info leaked 'None' in stdout:\n" + result.stdout
 
 
 class TestCheckConfigParity:
@@ -128,9 +122,7 @@ class TestCheckConfigParity:
         toml = tmp_path / "pounce.toml"
         toml.write_text(f'host = "127.0.0.1"\nport = {self._free_port()}\n', encoding="utf-8")
 
-        result = _run(
-            "check", "--app", "app:app", "--config", str(toml), cwd=tmp_path
-        )
+        result = _run("check", "--app", "app:app", "--config", str(toml), cwd=tmp_path)
         assert result.returncode == 0, (
             "pounce check --config rejected the flag or the scaffolded TOML:\n"
             f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
@@ -151,17 +143,11 @@ class TestCheckConfigParity:
         occupant.listen(1)
         busy_port = occupant.getsockname()[1]
         try:
-            (tmp_path / "app.py").write_text(
-                "async def app(s,r,sd): pass\n", encoding="utf-8"
-            )
+            (tmp_path / "app.py").write_text("async def app(s,r,sd): pass\n", encoding="utf-8")
             toml = tmp_path / "pounce.toml"
-            toml.write_text(
-                f'host = "127.0.0.1"\nport = {busy_port}\n', encoding="utf-8"
-            )
+            toml.write_text(f'host = "127.0.0.1"\nport = {busy_port}\n', encoding="utf-8")
 
-            result = _run(
-                "check", "--app", "app:app", "--config", str(toml), cwd=tmp_path
-            )
+            result = _run("check", "--app", "app:app", "--config", str(toml), cwd=tmp_path)
             # Port in use → check fails with exit 1.
             assert result.returncode == 1, (
                 "check should fail on busy TOML port — proving --config is "
@@ -187,8 +173,7 @@ class TestCheckConfigParity:
         next_idx = stdout.find("- **", check_idx + len("- **check**:"))
         check_section = stdout[check_idx:next_idx] if next_idx != -1 else stdout[check_idx:]
         assert "--config" in check_section, (
-            "check command should list --config in llms.txt; got section:\n"
-            + check_section
+            "check command should list --config in llms.txt; got section:\n" + check_section
         )
 
     def test_init_then_check_roundtrip(self, tmp_path: Path) -> None:

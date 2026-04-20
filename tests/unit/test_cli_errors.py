@@ -18,9 +18,7 @@ from pounce import _cli, _output
 from pounce._errors import TLSError
 
 
-def _capture_die(
-    monkeypatch: pytest.MonkeyPatch, **kwargs: object
-) -> tuple[int, str]:
+def _capture_die(monkeypatch: pytest.MonkeyPatch, **kwargs: object) -> tuple[int, str]:
     """Invoke ``_die`` and return ``(exit_code, stderr_text)``.
 
     Forces non-pretty mode so the test captures plain-text output rather
@@ -78,9 +76,7 @@ class TestDieAcceptsCodeAndDoc:
         assert "cert missing" in stderr
         assert "Pass --ssl-certfile=PATH" in stderr
 
-    def test_die_backward_compatible_message_only(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_die_backward_compatible_message_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Existing call sites without code/doc continue to work.
         exit_code, stderr = _capture_die(monkeypatch, message="oops")
         assert exit_code == 1
@@ -90,9 +86,7 @@ class TestDieAcceptsCodeAndDoc:
 class TestDieForwardsToOutputError:
     """``_die`` passes ``code`` and ``doc`` through to ``_output.error``."""
 
-    def test_code_forwarded_as_code_kwarg(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_code_forwarded_as_code_kwarg(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
 
         def fake_error(message: str, **kwargs: object) -> None:

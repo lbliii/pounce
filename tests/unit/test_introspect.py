@@ -51,37 +51,27 @@ class TestBuildIntrospectResponse:
         assert status == 200
 
     def test_content_type_json(self, cfg: ServerConfig) -> None:
-        _, headers, _ = build_introspect_response(
-            config=cfg, worker_id=0, active_connections=0
-        )
+        _, headers, _ = build_introspect_response(config=cfg, worker_id=0, active_connections=0)
         header_dict = dict(headers)
         assert header_dict[b"content-type"] == b"application/json"
 
     def test_content_length_matches_body(self, cfg: ServerConfig) -> None:
-        _, headers, body = build_introspect_response(
-            config=cfg, worker_id=0, active_connections=0
-        )
+        _, headers, body = build_introspect_response(config=cfg, worker_id=0, active_connections=0)
         header_dict = dict(headers)
         assert int(header_dict[b"content-length"]) == len(body)
 
     def test_no_cache_header(self, cfg: ServerConfig) -> None:
-        _, headers, _ = build_introspect_response(
-            config=cfg, worker_id=0, active_connections=0
-        )
+        _, headers, _ = build_introspect_response(config=cfg, worker_id=0, active_connections=0)
         header_dict = dict(headers)
         assert b"no-cache" in header_dict[b"cache-control"]
 
     def test_body_has_three_top_level_sections(self, cfg: ServerConfig) -> None:
-        _, _, body = build_introspect_response(
-            config=cfg, worker_id=2, active_connections=7
-        )
+        _, _, body = build_introspect_response(config=cfg, worker_id=2, active_connections=7)
         payload = json.loads(body)
         assert set(payload.keys()) == {"runtime", "worker", "config"}
 
     def test_runtime_section_exposes_python_and_gil(self, cfg: ServerConfig) -> None:
-        _, _, body = build_introspect_response(
-            config=cfg, worker_id=0, active_connections=0
-        )
+        _, _, body = build_introspect_response(config=cfg, worker_id=0, active_connections=0)
         payload = json.loads(body)
         runtime = payload["runtime"]
         assert "python_version" in runtime
@@ -91,9 +81,7 @@ class TestBuildIntrospectResponse:
         assert runtime["uptime_seconds"] >= 0
 
     def test_worker_section_threads_identity(self, cfg: ServerConfig) -> None:
-        _, _, body = build_introspect_response(
-            config=cfg, worker_id=3, active_connections=11
-        )
+        _, _, body = build_introspect_response(config=cfg, worker_id=3, active_connections=11)
         payload = json.loads(body)
         assert payload["worker"] == {"worker_id": 3, "active_connections": 11}
 
@@ -102,9 +90,7 @@ class TestRedactionInvariants:
     """Fail-closed: secret-bearing fields are never echoed verbatim."""
 
     def test_redact_to_bool_fields_appear_as_suffix_set(self, cfg: ServerConfig) -> None:
-        _, _, body = build_introspect_response(
-            config=cfg, worker_id=0, active_connections=0
-        )
+        _, _, body = build_introspect_response(config=cfg, worker_id=0, active_connections=0)
         payload = json.loads(body)
         config_view = payload["config"]
         for name, classification in INFO_ALLOWLIST.items():
@@ -113,14 +99,10 @@ class TestRedactionInvariants:
                 assert f"{name}_set" in config_view, (
                     f"REDACT_TO_BOOL field {name!r} missing from response"
                 )
-                assert name not in config_view, (
-                    f"REDACT_TO_BOOL field {name!r} leaked its raw key"
-                )
+                assert name not in config_view, f"REDACT_TO_BOOL field {name!r} leaked its raw key"
 
     def test_secret_values_never_appear_in_body(self, cfg: ServerConfig) -> None:
-        _, _, body = build_introspect_response(
-            config=cfg, worker_id=0, active_connections=0
-        )
+        _, _, body = build_introspect_response(config=cfg, worker_id=0, active_connections=0)
         text = body.decode("utf-8")
         # Any secret-bearing value set on the fixture must not surface.
         for needle in (
@@ -131,9 +113,7 @@ class TestRedactionInvariants:
             "upstream.local",  # trusted_hosts entry
         ):
             assert needle is not None
-            assert needle not in text, (
-                f"secret-bearing value {needle!r} leaked in introspect body"
-            )
+            assert needle not in text, f"secret-bearing value {needle!r} leaked in introspect body"
 
     def test_no_omitted_field_appears(self, cfg: ServerConfig) -> None:
         # Any ServerConfig field that's neither EXPOSE nor REDACT_TO_BOOL must
@@ -143,9 +123,7 @@ class TestRedactionInvariants:
 
         from pounce.config import _IIC_SKIP_FIELDS
 
-        _, _, body = build_introspect_response(
-            config=cfg, worker_id=0, active_connections=0
-        )
+        _, _, body = build_introspect_response(config=cfg, worker_id=0, active_connections=0)
         config_view = json.loads(body)["config"]
         for f in dataclasses.fields(cfg):
             if f.name.startswith("_") or f.name in _IIC_SKIP_FIELDS:
@@ -189,9 +167,7 @@ class TestPublicBindWarning:
             srv._warn_if_introspection_public()  # type: ignore[attr-defined]
         assert "POUNCE_CONFIG_INTROSPECTION_PUBLIC" in caplog.text
 
-    def test_warns_on_public_introspection_bind(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_warns_on_public_introspection_bind(self, caplog: pytest.LogCaptureFixture) -> None:
         srv = self._server_with(
             introspection_enabled=True, host="127.0.0.1", introspection_bind="0.0.0.0"
         )

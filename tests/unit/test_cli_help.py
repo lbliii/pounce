@@ -38,9 +38,7 @@ class TestConfigGroupHelp:
 
     def test_config_help_lists_show_subcommand(self) -> None:
         out = _run_help("config")
-        assert "show" in out, (
-            "pounce config --help should list the 'show' subcommand; got:\n" + out
-        )
+        assert "show" in out, "pounce config --help should list the 'show' subcommand; got:\n" + out
 
     def test_config_help_does_not_leak_subparser_dest(self) -> None:
         # The internal argparse dest name must never appear in user-facing help.
