@@ -54,7 +54,7 @@ def test_serialize_raw_response_status_reasons() -> None:
 
 
 @pytest.mark.parametrize(
-    "name,value",
+    ("name", "value"),
     [
         (b"x-evil\r\nx-injected", b"ok"),
         (b"x-evil\nx-injected", b"ok"),

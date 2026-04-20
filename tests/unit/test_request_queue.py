@@ -535,7 +535,7 @@ class TestPerWorkerQueueWiring:
 
             try:
                 asyncio.run(main())
-            except BaseException as exc:  # noqa: BLE001
+            except BaseException as exc:
                 errors.append(exc)
                 return
             with queue_ids_lock:
