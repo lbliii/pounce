@@ -535,4 +535,6 @@ class TestPriorityGating:
         data_frames = [(sid, data) for sid, data, _ in h2.sent_data if data]
         assert data_frames  # sanity
         first_stream = data_frames[0][0]
-        assert first_stream == 3, f"expected urgency-1 stream 3 to write first, got stream {first_stream}"
+        assert first_stream == 3, (
+            f"expected urgency-1 stream 3 to write first, got stream {first_stream}"
+        )

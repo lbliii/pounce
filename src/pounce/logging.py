@@ -46,6 +46,7 @@ def is_json() -> bool:
     """Return True if JSON output mode is active."""
     return _resolved_format == "json"
 
+
 # ANSI color constants for pretty mode
 _RESET: Final = "\033[0m"
 _GREEN: Final = "\033[32m"
