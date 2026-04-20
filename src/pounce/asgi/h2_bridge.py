@@ -17,6 +17,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from pounce._compression import Compressor
+from pounce._priority import PriorityScheduler
 from pounce._timing import ServerTiming
 from pounce._types import Receive, Send
 from pounce.asgi._scope import build_base_scope
@@ -84,6 +85,7 @@ def create_h2_send(
     request_id: str | None = None,
     config: ServerConfig | None = None,
     server: tuple[str, int] | None = None,
+    scheduler: PriorityScheduler | None = None,
 ) -> Send:
     """Create an ASGI send callable for an HTTP/2 stream.
 
@@ -202,32 +204,45 @@ def create_h2_send(
 
             # Respect H2 flow control: split large bodies into
             # window-sized chunks to avoid FlowControlError.
+            # RFC 9218: gate each chunk through the priority scheduler so
+            # higher-urgency streams preempt lower-urgency ones and
+            # incremental streams interleave fairly.
+            if scheduler is not None and body:
+                scheduler.schedule(stream_id)
             remaining = body
             deadline = asyncio.get_event_loop().time() + 30.0
-            while remaining:
-                window = h2_conn.local_flow_control_window(stream_id)
-                if window <= 0:
-                    # Window exhausted — flush and wait for WINDOW_UPDATE
-                    _flush(h2_conn, writer)
-                    await writer.drain()
-                    if asyncio.get_event_loop().time() > deadline:
-                        logger.warning(
-                            "H2 flow control window timeout on stream %d — resetting stream",
-                            stream_id,
-                        )
-                        h2_conn.reset_stream(stream_id)
+            try:
+                while remaining:
+                    window = h2_conn.local_flow_control_window(stream_id)
+                    if window <= 0:
+                        # Window exhausted — flush and wait for WINDOW_UPDATE
                         _flush(h2_conn, writer)
-                        return
-                    continue
-                chunk_size = min(len(remaining), window)
-                is_last = end_stream and chunk_size == len(remaining)
-                h2_conn.send_data(
-                    stream_id,
-                    remaining[:chunk_size],
-                    end_stream=is_last,
-                )
-                remaining = remaining[chunk_size:]
-                _flush(h2_conn, writer)
+                        await writer.drain()
+                        if asyncio.get_event_loop().time() > deadline:
+                            logger.warning(
+                                "H2 flow control window timeout on stream %d — resetting stream",
+                                stream_id,
+                            )
+                            h2_conn.reset_stream(stream_id)
+                            _flush(h2_conn, writer)
+                            return
+                        continue
+                    if scheduler is not None:
+                        await scheduler.await_turn(stream_id)
+                    chunk_size = min(len(remaining), window)
+                    is_last = end_stream and chunk_size == len(remaining)
+                    h2_conn.send_data(
+                        stream_id,
+                        remaining[:chunk_size],
+                        end_stream=is_last,
+                    )
+                    remaining = remaining[chunk_size:]
+                    _flush(h2_conn, writer)
+                    if scheduler is not None:
+                        scheduler.mark_wrote(stream_id)
+            finally:
+                if scheduler is not None and (end_stream or not body):
+                    scheduler.unschedule(stream_id)
 
             if not body and end_stream:
                 # Empty body with end_stream — send zero-length DATA

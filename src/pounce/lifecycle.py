@@ -19,11 +19,14 @@ monotonic ordering that is not affected by system clock adjustments.
 import json
 import logging
 import threading
-import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Protocol
+
+# Re-exported from _timing so callers can keep importing from lifecycle
+# without each adding a dependency edge to _timing directly.
+from pounce._timing import monotonic_ns as monotonic_ns
 
 # ---------------------------------------------------------------------------
 # Event types — frozen, slotted, serializable
@@ -214,11 +217,6 @@ def next_connection_id() -> int:
     with _id_lock:
         _id_counter += 1
         return _id_counter
-
-
-def monotonic_ns() -> int:
-    """Return the current monotonic clock value in nanoseconds."""
-    return time.monotonic_ns()
 
 
 # ---------------------------------------------------------------------------

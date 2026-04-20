@@ -883,8 +883,12 @@ class Supervisor:
             if not p.startswith("__editable__")
         )
 
-        # Dup the socket FD so the subinterpreter gets its own copy
-        sock_fd = os.dup(self._sockets[worker_id % len(self._sockets)].fileno())
+        # Dup the socket FD so the subinterpreter gets its own copy.
+        # Also pass the address family so the bootstrap can rebuild the
+        # socket correctly (AF_INET vs AF_INET6 vs AF_UNIX).
+        parent_sock = self._sockets[worker_id % len(self._sockets)]
+        sock_fd = os.dup(parent_sock.fileno())
+        sock_family = int(parent_sock.family)
 
         try:
             # Create subinterpreter and inject IIC-safe values
@@ -896,6 +900,7 @@ class Supervisor:
                 lifespan_state_json=lifespan_state_json,
                 app_import_path=self._app_path,
                 sock_fd=sock_fd,
+                sock_family=sock_family,
                 worker_id=worker_id,
                 parent_sys_path=parent_sys_path,
             )
@@ -910,7 +915,7 @@ class Supervisor:
             "sys.path[:] = list(parent_sys_path)\n"
             "from pounce._subinterpreter_bootstrap import bootstrap\n"
             "bootstrap(ctrl_queue, status_queue, config_json, lifespan_state_json,\n"
-            "          app_import_path, sock_fd, worker_id, parent_sys_path)\n"
+            "          app_import_path, sock_fd, sock_family, worker_id, parent_sys_path)\n"
         )
 
         def _run_subinterpreter() -> None:

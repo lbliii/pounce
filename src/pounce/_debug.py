@@ -347,8 +347,8 @@ def _render_frame(frame_info: FrameInfo) -> str:
     source = frame_info["source"]
     local_vars = frame_info["locals"]
 
-    # Render frame header
-    frame_html = f"""    <div class="frame">
+    parts: list[str] = [
+        f"""    <div class="frame">
         <div class="frame-header">
             <span class="filename">{html.escape(filename)}</span>
             in <strong>{html.escape(name)}</strong>
@@ -356,13 +356,10 @@ def _render_frame(frame_info: FrameInfo) -> str:
         </div>
         <div class="source">
 """
+    ]
 
-    # Render source lines
     for line_num, line_text in source:
-        is_error_line = line_num == lineno
-        highlight_class = " highlight" if is_error_line else ""
-
-        # Syntax highlight if Rosettes available
+        highlight_class = " highlight" if line_num == lineno else ""
         if _HAS_ROSETTES and line_text.strip():
             try:
                 highlighted = cast("Callable[..., str]", highlight_python)(line_text, inline=True)
@@ -370,22 +367,26 @@ def _render_frame(frame_info: FrameInfo) -> str:
                 highlighted = html.escape(line_text)
         else:
             highlighted = html.escape(line_text)
+        parts.append(
+            f'<div class="source-line{highlight_class}">'
+            f'<span class="line-number">{line_num}</span>{highlighted}</div>\n'
+        )
 
-        frame_html += f'<div class="source-line{highlight_class}"><span class="line-number">{line_num}</span>{highlighted}</div>\n'
+    parts.append("        </div>\n")
 
-    frame_html += "        </div>\n"
-
-    # Render local variables if any
     if local_vars:
-        frame_html += '        <div class="locals">\n'
-        frame_html += '            <div class="locals-title">Local Variables</div>\n'
+        parts.append('        <div class="locals">\n')
+        parts.append('            <div class="locals-title">Local Variables</div>\n')
         for var_name, var_value in local_vars.items():
-            frame_html += f'            <div class="local-var"><span class="local-name">{html.escape(var_name)}</span> = <span class="local-value">{html.escape(var_value)}</span></div>\n'
-        frame_html += "        </div>\n"
+            parts.append(
+                f'            <div class="local-var">'
+                f'<span class="local-name">{html.escape(var_name)}</span> = '
+                f'<span class="local-value">{html.escape(var_value)}</span></div>\n'
+            )
+        parts.append("        </div>\n")
 
-    frame_html += "    </div>\n"
-
-    return frame_html
+    parts.append("    </div>\n")
+    return "".join(parts)
 
 
 def _render_request_details(

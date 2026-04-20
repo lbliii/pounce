@@ -1,6 +1,9 @@
 """Tests for pounce._response_frame — pre-built HTTP response serialization."""
 
+import pytest
+
 from pounce._response_frame import (
+    HeaderInjectionError,
     get_date_header_bytes,
     serialize_raw_response,
     serialize_raw_response_parts,
@@ -48,6 +51,22 @@ def test_serialize_raw_response_status_reasons() -> None:
     for status, reason in [(404, b"Not Found"), (500, b"Internal Server Error")]:
         raw = serialize_raw_response(status, (), b"", date_header=None)
         assert reason in raw
+
+
+@pytest.mark.parametrize(
+    "name,value",
+    [
+        (b"x-evil\r\nx-injected", b"ok"),
+        (b"x-evil\nx-injected", b"ok"),
+        (b"x-evil:colon", b"ok"),
+        (b"x-ok", b"value\r\nset-cookie: evil=1"),
+        (b"x-ok", b"value\nset-cookie: evil=1"),
+    ],
+)
+def test_serialize_raw_response_rejects_crlf_injection(name: bytes, value: bytes) -> None:
+    """CRLF or colons in headers must raise HeaderInjectionError (RFC 9110 §5.5)."""
+    with pytest.raises(HeaderInjectionError):
+        serialize_raw_response(200, ((name, value),), b"", date_header=None)
 
 
 def test_serialize_raw_response_parts() -> None:

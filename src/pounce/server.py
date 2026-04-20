@@ -714,19 +714,36 @@ class Server:
         )
 
     def _apply_request_queue(self) -> None:
-        """Configure request queueing (load shedding) if enabled."""
+        """Configure request queueing (load shedding) if enabled.
+
+        Each worker thread gets its own RequestQueue/QueueMetrics on first
+        use — asyncio.Lock and asyncio.Semaphore are single-event-loop
+        primitives, so a shared instance would break under free-threading
+        where multiple workers run independent loops.
+        """
         if not self._config.request_queue_enabled:
             return
         from pounce._request_queue import QueueMetrics, RequestQueue, create_queue_wrapper
 
-        request_queue = RequestQueue(max_depth=self._config.request_queue_max_depth)
-        queue_metrics = QueueMetrics()
-        self._app = cast("ASGIApp", create_queue_wrapper(self._app, request_queue, queue_metrics))
+        max_depth = self._config.request_queue_max_depth
+        inner_app = self._app
+        tls = threading.local()
+
+        async def per_worker_wrapper(scope: dict, receive: object, send: object) -> None:
+            wrapped = getattr(tls, "wrapped", None)
+            if wrapped is None:
+                queue = RequestQueue(max_depth=max_depth)
+                metrics = QueueMetrics()
+                wrapped = create_queue_wrapper(inner_app, queue, metrics)
+                tls.queue = queue
+                tls.metrics = metrics
+                tls.wrapped = wrapped
+            await wrapped(scope, receive, send)
+
+        self._app = cast("ASGIApp", per_worker_wrapper)
         logger.info(
             "Request queueing enabled: max depth %d",
-            self._config.request_queue_max_depth
-            if self._config.request_queue_max_depth > 0
-            else -1,
+            max_depth if max_depth > 0 else -1,
         )
 
     def _apply_sentry(self) -> None:
@@ -828,7 +845,7 @@ class Server:
         gil_status = "nogil" if not is_gil_enabled() else "GIL"
         mode_label = f"{mode}s" if effective_workers > 1 else "single"
 
-        if pounce_logging._resolved_format == "json":
+        if pounce_logging.is_json():
             import json as json_module
             from datetime import UTC, datetime
 

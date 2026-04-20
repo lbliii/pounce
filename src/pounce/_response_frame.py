@@ -8,6 +8,22 @@ to avoid protocol state machine overhead. Date header cached per-second
 from email.utils import formatdate
 
 
+class HeaderInjectionError(ValueError):
+    """Raised when a header name or value contains CR/LF characters.
+
+    Prevents response-splitting attacks when callers forward untrusted
+    data into response headers.
+    """
+
+
+def _validate_header_bytes(name: bytes, value: bytes) -> None:
+    """Reject CR/LF in header names or values (RFC 9110 §5.5)."""
+    if b"\r" in name or b"\n" in name or b":" in name:
+        raise HeaderInjectionError(f"invalid header name: {name!r}")
+    if b"\r" in value or b"\n" in value:
+        raise HeaderInjectionError(f"invalid header value for {name!r}: {value!r}")
+
+
 def serialize_raw_response(
     status: int,
     headers: tuple[tuple[bytes, bytes], ...],
@@ -54,6 +70,7 @@ def serialize_raw_response_parts(
     if date_header is not None:
         parts.append(date_header)
     for name, value in headers:
+        _validate_header_bytes(name, value)
         parts.append(name + b": " + value + b"\r\n")
     parts.append(b"\r\n")
     head = b"".join(parts)

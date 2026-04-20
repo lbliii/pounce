@@ -57,13 +57,16 @@ def bootstrap(
     lifespan_state_json: str,
     app_import_path: str,
     sock_fd: int,
+    sock_family: int,
     worker_id: int,
     parent_sys_path: tuple[str, ...],
 ) -> None:
     """Bootstrap a Worker inside a subinterpreter.
 
     All arguments are IIC-safe types injected by the supervisor via
-    ``interp.prepare_main()``.
+    ``interp.prepare_main()``. ``sock_family`` is the parent socket's
+    address family (AF_INET / AF_INET6 / AF_UNIX, as an int) so the
+    reconstructed socket matches the bound listener.
     """
     import json
 
@@ -86,7 +89,7 @@ def bootstrap(
 
         # --- Reconstruct socket from dup'd FD ---
         server_sock = socket.socket(
-            socket.AF_INET,
+            socket.AddressFamily(sock_family),
             socket.SOCK_STREAM,
             fileno=sock_fd,
         )
@@ -155,7 +158,7 @@ async def _run_worker_with_iic(
                 _noop_receive,
                 _noop_send,
             ),
-            timeout=30.0,
+            timeout=worker._config.startup_timeout,
         )
     except Exception:
         logger.debug("Worker startup hook raised (expected for most apps)")
@@ -201,7 +204,7 @@ async def _run_worker_with_iic(
                     _noop_receive,
                     _noop_send,
                 ),
-                timeout=10.0,
+                timeout=worker._config.shutdown_timeout,
             )
         except Exception:
             logger.debug("Worker shutdown hook raised (expected for most apps)")
