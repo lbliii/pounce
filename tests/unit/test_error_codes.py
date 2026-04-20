@@ -99,7 +99,7 @@ def test_every_raise_has_code(path: Path, line: int, cls: str, code: str | None)
 
 @pytest.mark.parametrize(
     ("path", "line", "cls", "code"),
-    [(p, l, c, k) for (p, l, c, k) in ALL_SITES if k is not None],
+    [(p, ln, c, k) for (p, ln, c, k) in ALL_SITES if k is not None],
     ids=[
         f"{p.relative_to(POUNCE_SRC)}:{ln}"
         for (p, ln, _, k) in ALL_SITES
@@ -115,7 +115,7 @@ def test_code_regex(path: Path, line: int, cls: str, code: str) -> None:
 
 @pytest.mark.parametrize(
     ("path", "line", "cls", "code"),
-    [(p, l, c, k) for (p, l, c, k) in ALL_SITES if k is not None],
+    [(p, ln, c, k) for (p, ln, c, k) in ALL_SITES if k is not None],
     ids=[
         f"{p.relative_to(POUNCE_SRC)}:{ln}"
         for (p, ln, _, k) in ALL_SITES
