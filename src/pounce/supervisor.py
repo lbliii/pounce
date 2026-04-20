@@ -80,7 +80,9 @@ def _get_fork_context() -> multiprocessing.context.BaseContext:
         raise SupervisorError(
             "Process workers require the 'fork' multiprocessing start method, "
             "which is not available on this platform.  Use thread workers "
-            "(free-threaded Python 3.14t) or set worker_mode='thread'."
+            "(free-threaded Python 3.14t) or set worker_mode='thread'.",
+            code="POUNCE_SUPERVISOR_FORK_UNAVAILABLE",
+            hint="Run on Linux, or set worker_mode='thread' with Python 3.14t.",
         ) from None
 
 
@@ -310,7 +312,7 @@ class Supervisor:
         """
         if len(sockets) != self._effective_workers:
             msg = f"Expected {self._effective_workers} sockets, got {len(sockets)}"
-            raise SupervisorError(msg)
+            raise SupervisorError(msg, code="POUNCE_SUPERVISOR_SOCKET_COUNT_MISMATCH")
 
         self._sockets = sockets
         self._udp_sockets = udp_sockets or []
@@ -323,7 +325,11 @@ class Supervisor:
                     f"workers ({self._effective_workers}); cannot assign fewer than "
                     f"1 connection per worker"
                 )
-                raise SupervisorError(msg)
+                raise SupervisorError(
+                    msg,
+                    code="POUNCE_SUPERVISOR_MAX_CONNECTIONS_TOO_LOW",
+                    hint="Raise max_connections, or reduce workers.",
+                )
             base, remainder = divmod(self._config.max_connections, self._effective_workers)
             self._per_worker_max_base = base
             self._per_worker_max_remainder = remainder
@@ -364,7 +370,9 @@ class Supervisor:
                 msg = (
                     f"Expected {self._effective_workers} UDP sockets, got {len(self._udp_sockets)}"
                 )
-                raise SupervisorError(msg)
+                raise SupervisorError(
+                    msg, code="POUNCE_SUPERVISOR_UDP_SOCKET_COUNT_MISMATCH"
+                )
             for i in range(self._effective_workers):
                 self._spawn_h3_worker(i)
 
@@ -861,7 +869,9 @@ class Supervisor:
         if not self._app_path:
             raise SupervisorError(
                 "Subinterpreter workers require an app import path "
-                "(e.g., 'myapp:app'). Pass app_path to Server or use the CLI."
+                "(e.g., 'myapp:app'). Pass app_path to Server or use the CLI.",
+                code="POUNCE_SUPERVISOR_SUBINTERPRETER_NO_APP_PATH",
+                hint="Pass --app myapp:app at the CLI or app_path= to Server().",
             )
 
         # Create IIC queues for this worker

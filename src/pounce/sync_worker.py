@@ -337,7 +337,13 @@ class SyncWorker:
                             )
                         )
                         return True
-                    self._send_error(conn, 501, "WebSocket requires worker_mode=async")
+                    self._send_error(
+                        conn,
+                        501,
+                        "WebSocket requires worker_mode=async",
+                        code="POUNCE_WORKER_WEBSOCKET_NEEDS_ASYNC",
+                        hint="Set worker_mode='async' or enable the async handoff pool.",
+                    )
                     break
 
                 # Connection header: close only when client asks or max_requests hit
@@ -557,12 +563,22 @@ class SyncWorker:
                         )
                         return True
                     self._send_error(
-                        conn, 501, "Streaming responses require worker_mode=async or handoff"
+                        conn,
+                        501,
+                        "Streaming responses require worker_mode=async or handoff",
+                        code="POUNCE_WORKER_STREAMING_NEEDS_ASYNC",
+                        hint="Set worker_mode='async' or enable the async handoff pool.",
                     )
                     break
                 except Exception:
                     self._logger.exception("ASGI app error")
-                    self._send_error(conn, 500, "Internal Server Error")
+                    self._send_error(
+                        conn,
+                        500,
+                        "Internal Server Error",
+                        code="POUNCE_APP_E",
+                        hint="Check worker logs for the application traceback.",
+                    )
                     break
                 if response.needs_async:
                     if self._async_pool:
@@ -576,7 +592,11 @@ class SyncWorker:
                         )
                         return True
                     self._send_error(
-                        conn, 501, "Streaming responses require worker_mode=async or handoff"
+                        conn,
+                        501,
+                        "Streaming responses require worker_mode=async or handoff",
+                        code="POUNCE_WORKER_STREAMING_NEEDS_ASYNC",
+                        hint="Set worker_mode='async' or enable the async handoff pool.",
                     )
                     break
 
@@ -743,13 +763,21 @@ class SyncWorker:
             except ParseError as exc:
                 self._logger.debug("Malformed request from client: %s", exc)
                 self._recv_buf_len = 0
-                self._send_error(conn, 400, "Bad Request")
+                self._send_error(
+                    conn, 400, "Bad Request", code=exc.code, hint=exc.hint
+                )
                 return (None, b"")
 
             if request is not None:
                 if chunked:
                     self._recv_buf_len = 0
-                    self._send_error(conn, 501, "Chunked Transfer-Encoding not supported")
+                    self._send_error(
+                        conn,
+                        501,
+                        "Chunked Transfer-Encoding not supported",
+                        code="POUNCE_PARSE_CHUNKED_UNSUPPORTED",
+                        hint="The sync worker does not decode chunked bodies; use worker_mode='async'.",
+                    )
                     return (None, b"")
                 # Persist any unconsumed bytes for the next call (pipelining)
                 leftover = total - consumed
@@ -761,7 +789,13 @@ class SyncWorker:
             # Buffer full but still no complete request — reject
             if total >= len(buf):
                 self._recv_buf_len = 0
-                self._send_error(conn, 413, "Request Too Large")
+                self._send_error(
+                    conn,
+                    413,
+                    "Request Too Large",
+                    code="POUNCE_LIMIT_REQUEST_TOO_LARGE",
+                    hint="Increase max_header_size or buffer capacity if clients legitimately need it.",
+                )
                 return (None, b"")
 
     def _cached_date_header(self) -> bytes | None:
@@ -774,16 +808,39 @@ class SyncWorker:
             self._date_header_bytes = get_date_header_bytes()
         return self._date_header_bytes
 
-    def _send_error(self, conn: socket.socket, status: int, message: str) -> None:
-        """Send a plain-text error response (raw bytes, no h11)."""
-        body = message.encode("utf-8")
+    def _send_error(
+        self,
+        conn: socket.socket,
+        status: int,
+        message: str,
+        *,
+        code: str | None = None,
+        hint: str | None = None,
+    ) -> None:
+        """Send a plain-text error response (raw bytes, no h11).
+
+        When *code* is set, adds the ``X-Pounce-Error-Code`` response header.
+        When ``config.debug`` is True, the code and hint are appended to the
+        body to aid debugging.
+        """
+        if self._config.debug and code is not None:
+            parts = [message, "", f"Pounce error code: {code}"]
+            if hint:
+                parts.append(f"Hint: {hint}")
+            body = "\n".join(parts).encode("utf-8")
+        else:
+            body = message.encode("utf-8")
         reason = _STATUS_REASONS.get(status, b"Error")
         status_line = str(status).encode("ascii") + b" " + reason
+        code_header = (
+            b"x-pounce-error-code: " + code.encode("ascii") + b"\r\n" if code else b""
+        )
         with contextlib.suppress(OSError, ConnectionError):
             conn.sendall(
                 b"HTTP/1.1 " + status_line + b"\r\n"
                 b"content-type: text/plain; charset=utf-8\r\n"
                 b"content-length: " + str(len(body)).encode("ascii") + b"\r\n"
                 b"connection: close\r\n"
-                b"\r\n" + body
+                + code_header
+                + b"\r\n" + body
             )

@@ -1,5 +1,13 @@
 """Integration tests for pounce._cli — command-line interface."""
 
+from __future__ import annotations
+
+import contextlib
+import importlib.util
+import sys
+import threading
+from pathlib import Path
+
 import pytest
 
 from pounce._cli import cli, main, parse_dirs, parse_extensions
@@ -229,3 +237,156 @@ class TestPublicAPI:
 
         assert isinstance(__version__, str)
         assert __version__.count(".") >= 2  # Semver (e.g. 0.2.0)
+
+
+class TestCLIConfigGroup:
+    """`pounce config schema` and `pounce config show` subcommands."""
+
+    def test_schema_json_is_valid_jsonschema(self, capsys: pytest.CaptureFixture[str]) -> None:
+        import json
+
+        cli.call("config.schema", output_format="json")
+        out = capsys.readouterr().out
+        doc = json.loads(out)
+        assert doc["type"] == "object"
+        assert doc["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+        # Spot-check a few known properties
+        assert doc["properties"]["port"]["default"] == 8000
+        assert doc["properties"]["log_level"]["enum"] == [
+            "critical",
+            "debug",
+            "error",
+            "info",
+            "warning",
+        ]
+
+    def test_schema_toml_template_has_commented_fields(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        cli.call("config.schema", output_format="toml-template")
+        out = capsys.readouterr().out
+        # pounce.toml uses top-level keys — no [pounce] section header.
+        assert "[pounce]" not in out
+        assert "# port = 8000" in out
+        assert "# host = " in out
+        # enum hint
+        assert "# log_level = " in out
+        assert "one of:" in out
+
+    def test_show_toml_redacts_secrets(self, capsys: pytest.CaptureFixture[str]) -> None:
+        cli.call("config.show", output_format="toml")
+        out = capsys.readouterr().out
+        assert out.startswith("[pounce]\n")
+        # REDACT_TO_BOOL: raw field name never appears
+        assert "\nssl_certfile =" not in out
+        assert "\nssl_certfile_set =" in out
+        # EXPOSE passes through
+        assert "port = 8000" in out
+
+    def test_show_json_redacts_secrets(self, capsys: pytest.CaptureFixture[str]) -> None:
+        import json
+
+        cli.call("config.show", output_format="json")
+        doc = json.loads(capsys.readouterr().out)
+        assert "ssl_certfile" not in doc
+        assert doc["ssl_certfile_set"] is False
+        assert doc["port"] == 8000
+
+
+class TestCLIInitCommand:
+    """The 'init' command scaffolds a fresh pounce project."""
+
+    def test_scaffolds_three_files(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        cli.call("init", directory=str(tmp_path))
+        out = capsys.readouterr().out
+        assert "Scaffolded 3 files" in out
+        assert (tmp_path / "app.py").exists()
+        assert (tmp_path / "pounce.toml").exists()
+        assert (tmp_path / ".gitignore").exists()
+
+    def test_collision_without_force_exits(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (tmp_path / "app.py").write_text("existing", encoding="utf-8")
+        with pytest.raises(SystemExit) as ei:
+            cli.call("init", directory=str(tmp_path))
+        assert ei.value.code == 1
+        # Original file must survive.
+        assert (tmp_path / "app.py").read_text(encoding="utf-8") == "existing"
+        err = capsys.readouterr().err
+        assert "app.py" in err
+
+    def test_force_overwrites(self, tmp_path: Path) -> None:
+        (tmp_path / "app.py").write_text("old", encoding="utf-8")
+        cli.call("init", directory=str(tmp_path), force=True)
+        # Overwritten with the template.
+        content = (tmp_path / "app.py").read_text(encoding="utf-8")
+        assert "async def app" in content
+        assert "hello from pounce" in content
+
+
+def _load_module_from_path(module_name: str, file_path: Path):
+    """Import a module from an explicit file path (no sys.path mutation)."""
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestCLIInitEndToEnd:
+    """``pounce init`` output actually serves the advertised response."""
+
+    def test_scaffolded_app_serves_hello(self, tmp_path: Path) -> None:
+        """The generated app.py, run through the real worker pipeline, returns
+        ``hello from pounce\\n`` — the acceptance criterion in the epic plan.
+        """
+        from pounce._init import run_init
+        from pounce.config import ServerConfig
+        from pounce.net.listener import create_listeners
+        from pounce.supervisor import Supervisor
+        from tests.conftest import _wait_for_ready, send_raw_request
+
+        run_init(tmp_path)
+        module = _load_module_from_path("pounce_init_scaffold_app", tmp_path / "app.py")
+        asgi_app = module.app
+
+        config = ServerConfig(host="127.0.0.1", port=0, workers=1, access_log=False)
+        sockets = create_listeners(config, 1)
+        addr = sockets[0].getsockname()
+        sup = Supervisor(config, asgi_app, mode="thread")
+
+        t = threading.Thread(target=sup.run, args=(sockets,), daemon=True)
+        t.start()
+        try:
+            _wait_for_ready(addr)
+            response = send_raw_request(
+                addr,
+                b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )
+            assert b"200" in response
+            assert b"hello from pounce\n" in response
+        finally:
+            sup.shutdown()
+            t.join(timeout=5.0)
+            for s in set(sockets):
+                with contextlib.suppress(Exception):
+                    s.close()
+            # Clean up the one-shot module so future imports are unaffected.
+            sys.modules.pop("pounce_init_scaffold_app", None)
+
+    def test_scaffolded_config_passes_check(self, tmp_path: Path) -> None:
+        """``pounce check`` on the generated pounce.toml must succeed —
+        i.e. every field (all commented) parses cleanly into ServerConfig.
+        """
+        from pounce._config_file import load_config_with_overrides
+        from pounce._init import run_init
+        from pounce.config import ServerConfig
+
+        run_init(tmp_path)
+        merged = load_config_with_overrides({}, config_path=tmp_path / "pounce.toml")
+        # No unknown keys, no bad types — the generated template is loadable.
+        ServerConfig(**merged)

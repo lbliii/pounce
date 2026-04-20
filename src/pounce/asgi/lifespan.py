@@ -137,7 +137,9 @@ async def run_lifespan(
             raise LifespanError(
                 f"Lifespan startup failed: {failure_message}"
                 if failure_message
-                else "Lifespan startup failed"
+                else "Lifespan startup failed",
+                code="POUNCE_LIFESPAN_STARTUP_FAILED",
+                hint="Check your ASGI app's lifespan handler for exceptions at startup.",
             )
 
         if not startup_timed_out:
