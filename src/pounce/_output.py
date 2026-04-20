@@ -98,10 +98,14 @@ def error(
         )
     else:
         parts = [f"Error: {message}"]
+        if code:
+            parts.append(f"Code: {code}")
         if diagnostics:
             parts.extend(f"{d['label']}: {d['value']}" for d in diagnostics)
         if hint:
             parts.append(f"Hint: {hint}")
+        if docs_url:
+            parts.append(f"See: {docs_url}")
         _write("  ".join(parts))
 
 
@@ -290,6 +294,10 @@ def check_results(
             )
         )
     else:
+        # Write directly via _write (same stderr-locked writer the pretty branch
+        # uses) instead of logger.info — ``pounce check`` runs before
+        # ``configure_logging`` installs handlers, so logger.info is silently
+        # dropped. Agents piping stderr get real output in either branch.
         for check in checks:
             icon = (
                 "PASS"
@@ -298,7 +306,9 @@ def check_results(
                 if check["status"] == "error"
                 else "WARN"
             )
-            logger.info("[%s] %s: %s", icon, check["name"], check.get("detail", ""))
+            _write(f"[{icon}] {check['name']}: {check.get('detail', '')}")
+        if all_passed:
+            _write("All checks passed.")
 
 
 # ── Branded tracebacks ───────────────────────────────

@@ -37,6 +37,7 @@ from pounce._errors import ParseError
 from pounce._h2_handler import handle_h2_connection
 from pounce._headers import is_websocket_upgrade as _is_websocket_upgrade
 from pounce._health import build_health_response
+from pounce._introspect import build_introspect_response
 from pounce._profile import ProfileCollector, RequestProfile
 from pounce._request_pipeline import (
     log_request,
@@ -768,6 +769,45 @@ class Worker:
             with self._conn_lock:
                 active = self._active_connections
             status, resp_headers, body = build_health_response(
+                worker_id=self._worker_id,
+                active_connections=active,
+            )
+            send_state = SendState()
+            send_state.status = status
+            send_fn = create_send(
+                proto,
+                writer,
+                send_state,
+                request_id=request_id,
+                config=self._config,
+                server=server,
+            )
+            await send_fn(
+                {
+                    "type": "http.response.start",
+                    "status": status,
+                    "headers": resp_headers,
+                }
+            )
+            await send_fn(
+                {
+                    "type": "http.response.body",
+                    "body": body,
+                }
+            )
+            return
+
+        # Built-in /_pounce/info introspection — opt-in via
+        # ``introspection_enabled``. Allowlist-redacted config + live counters.
+        if (
+            self._config.introspection_enabled
+            and scope["path"] == self._config.introspection_path
+            and request.method == b"GET"
+        ):
+            with self._conn_lock:
+                active = self._active_connections
+            status, resp_headers, body = build_introspect_response(
+                config=self._config,
                 worker_id=self._worker_id,
                 active_connections=active,
             )

@@ -9,6 +9,10 @@ entry. The sources are:
    emit codes without raising. AST-walked.
 3. ``default_code`` class attributes on each ``PounceError`` subclass — the
    fallback codes emitted when a raise site omits an explicit ``code=``.
+4. ``logger.warning/error/critical("POUNCE_X: ...")`` calls whose first
+   string argument starts with a ``POUNCE_`` code followed by ``:`` — the
+   pattern Sprint 5 introduced for non-raising warnings (e.g.
+   ``POUNCE_CONFIG_INTROSPECTION_PUBLIC``).
 
 Each collected code must appear as a ``### POUNCE_...`` markdown heading in
 ``docs/troubleshooting.md``. If you add a new code, add an entry there too.
@@ -26,6 +30,8 @@ CATALOG = REPO_ROOT / "docs" / "troubleshooting.md"
 
 CODE_REGEX = re.compile(r"^POUNCE_[A-Z]+_[A-Z0-9_]+$")
 HEADING_REGEX = re.compile(r"^###\s+(POUNCE_[A-Z0-9_]+)\s*$", re.MULTILINE)
+WARNING_PREFIX_REGEX = re.compile(r"^(POUNCE_[A-Z0-9_]+):")
+_LOGGER_WARNING_LEVELS: frozenset[str] = frozenset({"warning", "error", "critical"})
 
 
 def _collect_emitted_codes() -> set[str]:
@@ -41,6 +47,10 @@ def _collect_emitted_codes() -> set[str]:
             elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 if node.func.attr == "_send_error":
                     codes.update(_codes_from_keywords(node.keywords))
+                elif node.func.attr in _LOGGER_WARNING_LEVELS and node.args:
+                    code = _code_from_warning_string(node.args[0])
+                    if code is not None:
+                        codes.add(code)
             # class Foo(PounceError): default_code: str = "POUNCE_..."
             elif (
                 isinstance(node, ast.AnnAssign)
@@ -52,6 +62,14 @@ def _collect_emitted_codes() -> set[str]:
             ):
                 codes.add(node.value.value)
     return codes
+
+
+def _code_from_warning_string(node: ast.expr) -> str | None:
+    """Extract a POUNCE_* code from a ``logger.warning('POUNCE_X: ...')`` first arg."""
+    if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+        return None
+    match = WARNING_PREFIX_REGEX.match(node.value)
+    return match.group(1) if match else None
 
 
 def _codes_from_keywords(keywords: list[ast.keyword]) -> set[str]:

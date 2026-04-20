@@ -32,7 +32,9 @@ class PounceError(Exception):
             the class's ``default_code``. Stable identifier safe for log keying
             and response headers.
         hint: Optional actionable remediation ("Pass --ssl-certfile=PATH ...").
-        doc: Optional docs anchor ("docs/troubleshooting.md#POUNCE_TLS_...").
+        doc: Docs anchor. Defaults to ``docs/troubleshooting.md#<code>`` — the
+            catalog coverage test guarantees every code has a heading at that
+            anchor. Pass explicitly only to override.
     """
 
     status_code: int = 500
@@ -52,7 +54,7 @@ class PounceError(Exception):
             self.status_code = status_code
         self.code = code if code is not None else self.default_code
         self.hint = hint
-        self.doc = doc
+        self.doc = doc if doc is not None else f"docs/troubleshooting.md#{self.code}"
 
     def __reduce__(self) -> tuple[object, ...]:
         # Preserve code/hint/doc across pickle (process-worker mode).
