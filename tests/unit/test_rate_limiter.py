@@ -142,6 +142,52 @@ class TestRateLimiter:
         # All buckets should be cleaned up (full = stale)
         assert len(limiter._buckets) == 0
 
+    def test_cleanup_concurrent_with_consume(self):
+        """Cleanup must not race with consume() on bucket fields.
+
+        Under free-threaded 3.14t, _maybe_cleanup used to read bucket fields
+        without holding the bucket's lock. This exercise confirms the fix:
+        one thread hammers consume() while another forces cleanup repeatedly,
+        and the rate limiter stays consistent (no crash, bucket accounting
+        stays within the burst bound).
+
+        """
+        import threading
+
+        limiter = RateLimiter(rate=1000.0, burst=100)
+        stop = threading.Event()
+        errors: list[BaseException] = []
+
+        def consumer(ip: str) -> None:
+            try:
+                while not stop.is_set():
+                    limiter.check_rate_limit(ip)
+            except BaseException as exc:  # pragma: no cover
+                errors.append(exc)
+
+        def cleaner() -> None:
+            try:
+                while not stop.is_set():
+                    limiter._last_cleanup = time.monotonic() - limiter._cleanup_interval - 1
+                    limiter._maybe_cleanup()
+            except BaseException as exc:  # pragma: no cover
+                errors.append(exc)
+
+        ips = [f"10.0.0.{i}" for i in range(20)]
+        threads = [threading.Thread(target=consumer, args=(ip,)) for ip in ips]
+        threads.append(threading.Thread(target=cleaner))
+        for t in threads:
+            t.start()
+        time.sleep(0.3)
+        stop.set()
+        for t in threads:
+            t.join(timeout=2.0)
+
+        assert not errors, f"unexpected errors: {errors}"
+        # Every surviving bucket's token count must still obey the burst cap.
+        for bucket in limiter._buckets.values():
+            assert 0.0 <= bucket._tokens <= bucket._capacity
+
     def test_cleanup_keeps_active_buckets(self):
         """Test that cleanup keeps recently used buckets."""
         limiter = RateLimiter(rate=10.0, burst=10)

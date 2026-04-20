@@ -63,6 +63,18 @@ class TokenBucket:
 
             return False
 
+    def is_full_at(self, now: float) -> bool:
+        """Return True if the bucket would be at capacity after refill at ``now``.
+
+        Used by :class:`RateLimiter` cleanup to identify inactive buckets
+        without reaching into private fields from outside the lock.
+
+        """
+        with self._lock:
+            elapsed = now - self._last_refill
+            tokens_after_refill = min(self._capacity, self._tokens + elapsed * self._rate)
+            return tokens_after_refill >= self._capacity
+
 
 class RateLimiter:
     """Per-IP rate limiter with token buckets.
@@ -129,20 +141,20 @@ class RateLimiter:
             return
 
         with self._lock:
-            # Remove buckets that would be at full capacity if refilled now
-            stale = []
-            for ip, bucket in self._buckets.items():
-                # Calculate what tokens would be after refill
-                elapsed = now - bucket._last_refill
-                refill = elapsed * bucket._rate
-                tokens_after_refill = min(bucket._capacity, bucket._tokens + refill)
+            # Snapshot bucket references under the outer lock so concurrent
+            # insertions in check_rate_limit don't race with iteration, then
+            # probe each bucket under its own lock via is_full_at.
+            snapshot = list(self._buckets.items())
 
-                # If bucket would be full, it's stale
-                if tokens_after_refill >= bucket._capacity:
-                    stale.append(ip)
+        stale = [ip for ip, bucket in snapshot if bucket.is_full_at(now)]
 
+        with self._lock:
             for ip in stale:
-                del self._buckets[ip]
+                # A bucket may have been touched between probe and delete;
+                # only evict if it is still stale at deletion time.
+                bucket = self._buckets.get(ip)
+                if bucket is not None and bucket.is_full_at(now):
+                    del self._buckets[ip]
 
             self._last_cleanup = now
 

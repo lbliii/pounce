@@ -477,3 +477,64 @@ class TestCreateH2Send:
         _, _, headers = h2.sent_headers[0]
         header_dict = dict(headers)
         assert header_dict.get(b"x-custom") == b"value"
+
+
+class TestPriorityGating:
+    """create_h2_send respects a PriorityScheduler when one is passed.
+
+    RFC 9218: higher-urgency streams preempt lower-urgency ones, and
+    incremental streams interleave via mark_wrote() in the scheduler.
+    """
+
+    async def test_higher_urgency_writes_before_lower(self) -> None:
+        from pounce._priority import PriorityScheduler, StreamPriority
+
+        h2 = _MockH2Connection()
+        writer = _MockWriter()
+        scheduler = PriorityScheduler()
+
+        scheduler.set_priority(1, StreamPriority(urgency=5))
+        scheduler.set_priority(3, StreamPriority(urgency=1))
+
+        state1 = SendState()
+        state3 = SendState()
+        send1 = create_h2_send(h2, 1, writer, state1, scheduler=scheduler)
+        send3 = create_h2_send(h2, 3, writer, state3, scheduler=scheduler)
+
+        # start both responses
+        await send1(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
+        await send3(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
+
+        # Pre-schedule both streams so they compete from the start.
+        # Without this, task1 would `await_turn(1)` alone-at-head and race
+        # through its synchronous write before task3 ever ran.
+        scheduler.schedule(1)
+        scheduler.schedule(3)
+
+        async def write_body(send_fn, body: bytes) -> None:
+            await send_fn({"type": "http.response.body", "body": body})
+
+        task1 = asyncio.create_task(write_body(send1, b"low-prio"))
+        task3 = asyncio.create_task(write_body(send3, b"high-prio"))
+
+        await asyncio.gather(task1, task3)
+
+        # Find first non-empty DATA frame
+        data_frames = [(sid, data) for sid, data, _ in h2.sent_data if data]
+        assert data_frames  # sanity
+        first_stream = data_frames[0][0]
+        assert first_stream == 3, (
+            f"expected urgency-1 stream 3 to write first, got stream {first_stream}"
+        )

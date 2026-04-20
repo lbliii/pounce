@@ -5,6 +5,7 @@ for bottleneck analysis. See docs/benchmark-pounce-chirp-deep-dive.md.
 """
 
 import os
+import statistics
 import sys
 from dataclasses import dataclass
 
@@ -63,11 +64,8 @@ class ProfileCollector:
         parse_avg = sum(s.parse_ms for s in self._samples) / n
         app_avg = sum(s.app_ms for s in self._samples) / n
         drain_avg = sum(s.drain_ms for s in self._samples) / n
-        p99_idx = min(int(n * 0.99), n - 1)
-        sorted_read = sorted(s.read_ms for s in self._samples)
-        sorted_drain = sorted(s.drain_ms for s in self._samples)
-        read_p99 = sorted_read[p99_idx]
-        drain_p99 = sorted_drain[p99_idx]
+        read_p99 = _p99([s.read_ms for s in self._samples])
+        drain_p99 = _p99([s.drain_ms for s in self._samples])
         msg = (
             f"POUNCE_PROFILE worker={self._worker_id} n={n} "
             f"read_avg={read_avg:.2f}ms read_p99={read_p99:.2f}ms "
@@ -77,3 +75,13 @@ class ProfileCollector:
         sys.stderr.write(msg)
         sys.stderr.flush()
         self._samples.clear()
+
+
+def _p99(values: list[float]) -> float:
+    """Return the 99th percentile of ``values`` using linear interpolation."""
+    if not values:
+        return 0.0
+    if len(values) == 1:
+        return values[0]
+    # quantiles(n=100) returns 99 cut points; index 98 is the p99 boundary.
+    return statistics.quantiles(values, n=100, method="inclusive")[98]

@@ -476,3 +476,77 @@ class TestQueueWrapper:
         # Check metrics
         stats = metrics.get_stats()
         assert stats["total_queued"] + stats["total_rejected"] == 10
+
+
+class TestPerWorkerQueueWiring:
+    """Tests the server._apply_request_queue per-worker wiring.
+
+    asyncio.Lock and asyncio.Semaphore bind to the first event loop that
+    awaits them — sharing a single RequestQueue across worker threads
+    breaks. The per-worker shim must give each thread its own instance.
+    """
+
+    def test_shim_gives_each_thread_its_own_queue(self) -> None:
+        """Each worker thread running its own event loop must get a fresh
+        RequestQueue/QueueMetrics — no cross-loop asyncio primitives."""
+        import threading as _threading
+
+        from pounce.config import ServerConfig
+        from pounce.server import Server
+
+        async def mock_app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        config = ServerConfig(
+            request_queue_enabled=True,
+            request_queue_max_depth=4,
+        )
+        server = Server(config, mock_app)
+        server._apply_request_queue()
+        wrapped = server._app
+
+        scope = {"type": "http", "method": "GET", "path": "/", "headers": []}
+
+        errors: list[BaseException] = []
+        queue_ids: list[int] = []
+        queue_ids_lock = _threading.Lock()
+
+        def find_tls() -> _threading.local | None:
+            for cell in wrapped.__closure__ or ():
+                val = cell.cell_contents
+                if isinstance(val, _threading.local):
+                    return val
+            return None
+
+        tls = find_tls()
+        assert tls is not None, "per-worker shim should close over a threading.local"
+
+        def run_worker() -> None:
+            async def receive():
+                return {"type": "http.request", "body": b""}
+
+            async def send(_msg):
+                pass
+
+            async def main():
+                for _ in range(3):
+                    await wrapped(scope, receive, send)
+
+            try:
+                asyncio.run(main())
+            except BaseException as exc:
+                errors.append(exc)
+                return
+            with queue_ids_lock:
+                queue_ids.append(id(tls.queue))
+
+        threads = [_threading.Thread(target=run_worker) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == [], f"worker threads raised: {errors}"
+        assert len(queue_ids) == 4
+        assert len(set(queue_ids)) == 4, "per-worker queues were shared across threads"

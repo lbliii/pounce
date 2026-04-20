@@ -22,6 +22,7 @@ from typing import Any
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._headers import get_header as _get_header_from_tuple
 from pounce._health import build_health_response
+from pounce._priority import PriorityScheduler, parse_priority
 from pounce._request_id import extract_or_generate
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
@@ -85,6 +86,11 @@ async def handle_h2_connection(
     writer.write(h2_conn.data_to_send())
     await writer.drain()
 
+    # Per-connection RFC 9218 priority scheduler — gates DATA frame writes
+    # so higher-urgency streams preempt lower ones and incremental streams
+    # interleave fairly across concurrent requests.
+    scheduler = PriorityScheduler()
+
     # Per-stream state: {stream_id: (task, body_queue)}
     stream_tasks: dict[int, tuple[asyncio.Task[None], asyncio.Queue[dict]]] = {}
     # Per-stream accumulated body bytes for max_request_size enforcement
@@ -107,6 +113,11 @@ async def handle_h2_connection(
         )
         request_id = extract_or_generate(request.headers, trusted=is_trusted_peer)
         scope.setdefault("extensions", {})["request_id"] = request_id
+
+        # RFC 9218: register stream priority from Priority header (u=N, i)
+        priority_header = _get_header_from_tuple(request.headers, b"priority")
+        if priority_header is not None:
+            scheduler.set_priority(stream_id, parse_priority(priority_header))
 
         # Built-in health check — respond before ASGI dispatch
         health_path = config.health_check_path
@@ -149,6 +160,7 @@ async def handle_h2_connection(
             request_id=request_id,
             config=config,
             server=server,
+            scheduler=scheduler,
         )
 
         try:
@@ -178,6 +190,7 @@ async def handle_h2_connection(
                 send_state.status = 500
         finally:
             h2_conn.remove_stream(stream_id)
+            scheduler.remove_stream(stream_id)
             stream_tasks.pop(stream_id, None)
             stream_body_bytes.pop(stream_id, None)
 

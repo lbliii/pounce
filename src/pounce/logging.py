@@ -34,7 +34,18 @@ _resolved_format: str = "text"  # "text", "json", or "pretty"
 
 # Thread-safe lock for direct stderr writes (JSON and pretty modes).
 # Essential for free-threaded Python 3.14t where the GIL is disabled.
-_stderr_lock = threading.Lock()
+stderr_lock = threading.Lock()
+
+
+def is_pretty() -> bool:
+    """Return True if pretty (TTY) output mode is active."""
+    return _resolved_format == "pretty"
+
+
+def is_json() -> bool:
+    """Return True if JSON output mode is active."""
+    return _resolved_format == "json"
+
 
 # ANSI color constants for pretty mode
 _RESET: Final = "\033[0m"
@@ -230,7 +241,7 @@ def access_log(
             if worker_id is not None:
                 entry["worker"] = worker_id
             line = json_module.dumps(entry, default=str)
-            with _stderr_lock:
+            with stderr_lock:
                 sys.stderr.write(line + "\n")
 
         case "pretty":

@@ -41,9 +41,9 @@ def _get_env():
 
 def _is_pretty() -> bool:
     """Check if we're in pretty (TTY) output mode."""
-    from pounce import logging as pounce_logging
+    from pounce.logging import is_pretty
 
-    return pounce_logging._resolved_format == "pretty"
+    return is_pretty()
 
 
 def _render(name: str, **ctx) -> str:
@@ -58,9 +58,9 @@ def _write(text: str) -> None:
     direct stderr writes (JSON mode, etc.) never interleave under
     free-threaded Python.
     """
-    from pounce.logging import _stderr_lock
+    from pounce.logging import stderr_lock
 
-    with _stderr_lock:
+    with stderr_lock:
         sys.stderr.write(text + "\n")
 
 
