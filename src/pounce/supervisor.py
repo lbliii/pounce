@@ -370,9 +370,7 @@ class Supervisor:
                 msg = (
                     f"Expected {self._effective_workers} UDP sockets, got {len(self._udp_sockets)}"
                 )
-                raise SupervisorError(
-                    msg, code="POUNCE_SUPERVISOR_UDP_SOCKET_COUNT_MISMATCH"
-                )
+                raise SupervisorError(msg, code="POUNCE_SUPERVISOR_UDP_SOCKET_COUNT_MISMATCH")
             for i in range(self._effective_workers):
                 self._spawn_h3_worker(i)
 

@@ -79,8 +79,7 @@ def test_every_emitted_code_has_catalog_entry() -> None:
     missing = sorted(emitted - documented)
     assert not missing, (
         "The following POUNCE_* codes are emitted but missing from "
-        "docs/troubleshooting.md. Add a `### <code>` heading for each:\n  "
-        + "\n  ".join(missing)
+        "docs/troubleshooting.md. Add a `### <code>` heading for each:\n  " + "\n  ".join(missing)
     )
 
 

@@ -100,11 +100,7 @@ def test_every_raise_has_code(path: Path, line: int, cls: str, code: str | None)
 @pytest.mark.parametrize(
     ("path", "line", "cls", "code"),
     [(p, ln, c, k) for (p, ln, c, k) in ALL_SITES if k is not None],
-    ids=[
-        f"{p.relative_to(POUNCE_SRC)}:{ln}"
-        for (p, ln, _, k) in ALL_SITES
-        if k is not None
-    ],
+    ids=[f"{p.relative_to(POUNCE_SRC)}:{ln}" for (p, ln, _, k) in ALL_SITES if k is not None],
 )
 def test_code_regex(path: Path, line: int, cls: str, code: str) -> None:
     assert CODE_REGEX.match(code), (
@@ -116,15 +112,9 @@ def test_code_regex(path: Path, line: int, cls: str, code: str) -> None:
 @pytest.mark.parametrize(
     ("path", "line", "cls", "code"),
     [(p, ln, c, k) for (p, ln, c, k) in ALL_SITES if k is not None],
-    ids=[
-        f"{p.relative_to(POUNCE_SRC)}:{ln}"
-        for (p, ln, _, k) in ALL_SITES
-        if k is not None
-    ],
+    ids=[f"{p.relative_to(POUNCE_SRC)}:{ln}" for (p, ln, _, k) in ALL_SITES if k is not None],
 )
-def test_code_category_matches_class(
-    path: Path, line: int, cls: str, code: str
-) -> None:
+def test_code_category_matches_class(path: Path, line: int, cls: str, code: str) -> None:
     expected = CLASS_TO_CATEGORY[cls]
     # Code segment after POUNCE_ up to next _
     segment = code.split("_", 2)[1]
@@ -158,10 +148,6 @@ def test_codes_unique_per_class() -> None:
     for cls, codes in per_class.items():
         for code, occurrences in codes.items():
             if len(occurrences) > 1 and (cls, code) not in allowed_shares:
-                locs = ", ".join(
-                    f"{p.relative_to(POUNCE_SRC)}:{ln}" for p, ln in occurrences
-                )
+                locs = ", ".join(f"{p.relative_to(POUNCE_SRC)}:{ln}" for p, ln in occurrences)
                 violations.append(f"{cls}.{code} reused at: {locs}")
-    assert not violations, "Duplicate codes (not in allowed_shares):\n" + "\n".join(
-        violations
-    )
+    assert not violations, "Duplicate codes (not in allowed_shares):\n" + "\n".join(violations)

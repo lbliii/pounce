@@ -63,9 +63,7 @@ class TestErrorCodeHeader:
     @pytest.mark.parametrize("debug", [False, True])
     def test_debug_mode_body_shape(self, debug: bool) -> None:
         """In debug mode the body appends the code; otherwise it stays terse."""
-        config = ServerConfig(
-            host="127.0.0.1", port=0, access_log=False, debug=debug
-        )
+        config = ServerConfig(host="127.0.0.1", port=0, access_log=False, debug=debug)
         worker, sock, thread = start_worker(_ok_app, config=config)
         addr = sock.getsockname()
         try:

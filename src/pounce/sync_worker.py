@@ -763,9 +763,7 @@ class SyncWorker:
             except ParseError as exc:
                 self._logger.debug("Malformed request from client: %s", exc)
                 self._recv_buf_len = 0
-                self._send_error(
-                    conn, 400, "Bad Request", code=exc.code, hint=exc.hint
-                )
+                self._send_error(conn, 400, "Bad Request", code=exc.code, hint=exc.hint)
                 return (None, b"")
 
             if request is not None:
@@ -832,15 +830,11 @@ class SyncWorker:
             body = message.encode("utf-8")
         reason = _STATUS_REASONS.get(status, b"Error")
         status_line = str(status).encode("ascii") + b" " + reason
-        code_header = (
-            b"x-pounce-error-code: " + code.encode("ascii") + b"\r\n" if code else b""
-        )
+        code_header = b"x-pounce-error-code: " + code.encode("ascii") + b"\r\n" if code else b""
         with contextlib.suppress(OSError, ConnectionError):
             conn.sendall(
                 b"HTTP/1.1 " + status_line + b"\r\n"
                 b"content-type: text/plain; charset=utf-8\r\n"
                 b"content-length: " + str(len(body)).encode("ascii") + b"\r\n"
-                b"connection: close\r\n"
-                + code_header
-                + b"\r\n" + body
+                b"connection: close\r\n" + code_header + b"\r\n" + body
             )

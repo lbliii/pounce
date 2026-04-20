@@ -97,15 +97,11 @@ def parse_request(
 
     sp1 = first_line.find(_SPACE)
     if sp1 == -1:
-        raise ParseError(
-            "Malformed request line", code="POUNCE_PARSE_MALFORMED_REQUEST_LINE"
-        )
+        raise ParseError("Malformed request line", code="POUNCE_PARSE_MALFORMED_REQUEST_LINE")
     sp2 = first_line.find(_SPACE, sp1 + 1)
     if sp2 == -1:
         # Same semantic (request line has fewer than two spaces); shared code is intentional.
-        raise ParseError(
-            "Malformed request line", code="POUNCE_PARSE_MALFORMED_REQUEST_LINE"
-        )
+        raise ParseError("Malformed request line", code="POUNCE_PARSE_MALFORMED_REQUEST_LINE")
 
     method = first_line[:sp1]
     if not _METHOD_RE.match(method):
@@ -163,9 +159,7 @@ def parse_request(
 
         # Reject header names with spaces or null bytes
         if b" " in name or b"\x00" in name:
-            raise ParseError(
-                "Invalid header name", code="POUNCE_PARSE_BAD_HEADER_NAME"
-            )
+            raise ParseError("Invalid header name", code="POUNCE_PARSE_BAD_HEADER_NAME")
 
         name_lower = name.lower()
         headers.append((name_lower, value))
