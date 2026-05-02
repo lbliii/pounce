@@ -1,111 +1,113 @@
-# AGENTS.md
+# Pounce Agent Constitution
 
-Pounce sits on the request path for every app that runs on it. Bugs you introduce here reach the end users of those apps — people who can't see Pounce, can't audit it, and can't defend themselves from what it does. Treat the rules below as safety rules, not style rules.
+## North Star
 
----
+Pounce exists to make free-threaded Python worth deploying: a pure-Python ASGI
+server for Python 3.14t with measurable performance, boring compatibility, and
+correctness under true parallelism. Every change should protect the request path
+for users who cannot see or audit the server beneath their app.
 
-## North star
+## Non-Negotiables
 
-**Make free-threaded Python worth deploying.** Pounce exists to give 3.14t a production-grade ASGI server. Every decision routes back to that: performance you can measure, compatibility you can trust, correctness under true parallelism. If a change doesn't serve that goal, it isn't worth shipping.
+- Keep the runtime pure Python. No C extensions, Cython, or native hot-path dependencies.
+- Treat `ServerConfig` as frozen shared state. Runtime changes are lifecycle events, not mutation.
+- Keep parsers and state machines sans-I/O unless a scoped steward says otherwise.
+- No silent `except`, new `type: ignore`, speculative config, or vague diagnostics.
+- Sync worker and `_fast_h1.py` are latency-critical. Benchmark before/after if touched.
+- Validate at public boundaries; internal code should trust typed, normalized inputs.
 
----
+## Architecture Boundaries
 
-## Design philosophy
-
-- **Pure Python is a constraint.** No C extensions. If the fast path needs to get faster, the answer is better Python — not Cython, not a native dep. "Faster than h11 in pure Python" dies the moment we compile something.
-- **Frozen config > locks.** `ServerConfig` is immutable and shared. Runtime changes are lifecycle events, not mutations.
-- **Sans-I/O protocols.** Parsers and state machines don't touch sockets. Load-bearing for testability.
-- **Sharp edges are bugs.** Silent `except`, `type: ignore`, ambiguous flags, unhelpful errors — not taste, bugs. CI catches some (S110); the rest is on you.
-- **The sync worker is sync for a reason.** The fast H1 parser lives where latency lives. Don't async-ify it without benchmarks.
-
----
+- Public API: `pounce.run`, `ServerConfig`, CLI flags, package exports, pytest plugin, and documented config files.
+- Runtime lifecycle: `server.py`, `supervisor.py`, workers, reload, GIL detection, subinterpreters, shutdown, and connection draining.
+- Protocol boundary: wire bytes become typed protocol events before ASGI sees them.
+- ASGI boundary: bridges own scope construction, receive/send semantics, streaming, disconnects, and lifespan state.
+- Transport boundary: listeners, UDS, TLS, ALPN, UDP/H3 sockets, and socket cleanup.
+- Operator boundary: error codes, troubleshooting docs, logs, metrics, health, info, and CLI output.
 
 ## Stakes
 
-When you change something in Pounce, the blast radius is:
+- Protocol regressions can cause request smuggling, wire corruption, crossed sessions, or silent data loss.
+- Worker lifecycle bugs drop requests mid-reload, leak processes or threads, and break shutdown guarantees.
+- Free-threaded races make Python 3.14t look unsafe for production.
+- Performance regressions erase the reason to choose Pounce over existing ASGI servers.
+- Bad config, CLI, docs, or errors waste operator time during incidents and migrations.
 
-- **Protocol bugs** (H1/H2/WS/H3) → wire-level corruption, silent data loss, request smuggling. Debuggable only with packet captures. Harm: an end user's session gets crossed with someone else's.
-- **Worker lifecycle bugs** → dropped requests mid-reload, zombies, workers that don't drain. Harm: someone's checkout or upload vanishes, and the app dev has to explain why.
-- **Free-threaded races** → no GIL safety net. Pounce is the ecosystem's canary for 3.14t — a race we ship normalizes "free-threading is flaky" for everyone.
-- **Performance regressions** → the README numbers are load-bearing. A 20% regression in the sync worker makes the project pointless. CI doesn't catch this — you do.
+## Stop And Ask
 
-Pounce is beta but shipped. Calibrate accordingly.
+- Public API, CLI, `ServerConfig`, config-file schema, pytest plugin, or documented behavior changes.
+- New runtime dependency, optional protocol dependency, build/release pipeline change, or packaging metadata change.
+- Worker model, GIL detection, subinterpreter behavior, lifecycle state machine, reload, or shutdown semantics.
+- Sync worker hot path, `_fast_h1.py`, parser safety behavior, or performance target changes.
+- Security/auth, TLS, proxy trust, introspection exposure, redaction, or operator-facing diagnostics.
+- Data model or compatibility contract changes for metrics, lifecycle events, logs, error codes, or config schema.
+- Test/code disagreement, unreproduced bugs, suspected dead code, or adjacent issues found mid-task.
 
----
+## Anti-Patterns
 
-## Who reads your output
+- Adding native speedups "just for the hot path."
+- Async-ifying the sync worker because it looks cleaner.
+- Adding config for future flexibility before a user need exists.
+- Catching broad exceptions without one-line logging that says what and why.
+- Hiding parser failures behind generic 400s when a `POUNCE_*` code and hint can guide the operator.
+- Folding unrelated refactors into a bug fix; flag adjacent issues in the PR instead.
+- Inventing abstractions for hypothetical protocols. H3 is real; H4 is not.
 
-- **Ops** — tired, on-call. They read error messages, config docs, logs.
-- **App devs migrating from uvicorn** — want to be done in five minutes. They read tracebacks and `--help`.
-- **Contributors** — know ASGI, not our internals. They read protocol code and worker lifecycle.
-- **Me (Lawrence)** — read diffs. Put the what in code, the why in the PR.
+## Steward System
 
----
+Read this root file plus the closest scoped `AGENTS.md` before changing code or docs. Root is the constitution and routing guide; scoped files are domain stewards. Scoped stewards own local invariants, refusal patterns, docs, tests, examples, fixtures, and checks. Cross-boundary work needs `Steward Notes` in the PR description naming consulted stewards, decisions, risks, and follow-ups.
 
-## Escape hatches — stop and ask
+Each steward uses this operating model:
 
-Forks where I want a check-in, not a judgment call:
+- Point of View: who or what the domain represents.
+- Protect: invariants, contracts, quality bars, and failure modes.
+- Advocate: features, fixes, and investments the domain should push for.
+- Serve Peers: upstream/downstream domains that need clearer contracts, diagnostics, docs, tests, or ergonomics.
+- Do Not: local anti-patterns.
+- Own: tests, docs, examples, fixtures, and maintenance checks.
 
-- **New runtime dependency.** "It already does what we need" is the default. Ask.
-- **Touching the sync worker hot path** (`_fast_h1.py` and adjacent). Show before/after benchmarks. Can't measure → don't change.
-- **Worker-model behavior** (GIL detection, thread vs process, lifecycle state machine). Sketch the change and ask before implementing.
-- **Public API change** (`pounce.run`, CLI, `ServerConfig` field names/types). Ask whether the break is worth it.
-- **New config option.** Reshape an existing one first. The surface is already 50+ and growing is a smell.
-- **Dead code you found.** Flag in the PR, let me decide — it might be load-bearing for a transport or example.
-- **Test disagrees with code.** Ask which is authoritative before "fixing" either.
-- **Can't reproduce a reported bug.** Stop. Ask for a minimal repro or env dump. Don't guess.
-- **Adjacent issues found mid-task.** List in the PR description. Don't fold them in — exception: refactors, where I prefer one bundled PR.
+## When To Consult
 
----
+- Proactively consult stewards for cross-boundary, public-facing, hard-to-reverse, performance-sensitive, concurrency-sensitive, security-sensitive, or contract-affecting work.
+- Use the nearest steward for local work.
+- Use multiple stewards when ownership lines cross.
+- Parallelize steward consultation only when questions are independent.
+- Keep final synthesis with the implementing agent.
 
-## Anti-patterns
+## Ask Stewards
 
-Things that look reasonable and are wrong here:
+Trigger phrase: `ask stewards`.
 
-- **C extensions "just for the hot path."** No. The whole point is pure Python.
-- **`try: ... except Exception: pass`.** S110 is re-enabled in CI for a reason. If you must swallow, log what and why in one line.
-- **`# type: ignore`.** Target is zero. Narrow the type or fix the code. If you have to, own it in the PR.
-- **Speculative config options** for "future flexibility." If no one's asking for it, don't add it. Configs are easier to add than to remove.
-- **Defensive validation inside internal code.** Validate at the boundary; internal code trusts its callers.
-- **Abstractions for hypothetical protocols.** H3 is real; H4 is not.
-- **Refactoring during a bug fix.** Separate PR. Exception: the refactor *is* the fix.
+For implementation work, consult affected scoped stewards and synthesize the result before editing. For backlog, roadmap, or prioritization work, consult all scoped stewards and produce a rollup with raw steward signals, confidence, dependencies, risks, convergence, minority reports, ranked backlog, and not-now items.
 
----
+## Extension Routing
 
-## Done criteria
+- HTTP protocol logic: `src/pounce/protocols/`, `_fast_h1.py`, `_h2_handler.py`, `_h3_handler.py`, `_ws_handler.py`.
+- ASGI adaptation: `src/pounce/asgi/`.
+- Transports and TLS: `src/pounce/net/`, `h3_worker.py`.
+- Public config and CLI: `src/pounce/config.py`, `_config_file.py`, `_config_schema.py`, `_cli.py`.
+- Observability and operator endpoints: `_errors.py`, `logging.py`, `metrics.py`, `_health.py`, `_introspect.py`, `_metrics_handler.py`.
+- Public docs and release notes: `docs/`, `site/`, `README.md`, `CHANGELOG.md`, `changelog.d/`.
 
-A change is done when all of these hold:
+## Done Criteria
 
-- [ ] `make lint` and `make ty` clean. No new `type: ignore` or S110 suppressions.
-- [ ] Tests exercise the *interesting* path: both values for a config flag, the failure path for lifecycle changes, malformed input for protocols.
-- [ ] Hot-path changes include a benchmark in the PR. "Didn't benchmark" is OK only if you say why.
-- [ ] GIL-sensitive? Note what you thought about on 3.14t — shared-mutable state first.
-- [ ] Public API changed → CHANGELOG entry, migration note if breaking.
-- [ ] Error messages tell the reader what to do next, not just what went wrong.
-- [ ] PR description explains *why*. The diff explains what.
+- `make lint` and `make ty` clean; no new `type: ignore` or S110 suppressions.
+- Tests exercise the interesting path: both values for config flags, failure paths for lifecycle changes, malformed input for protocols, and framework compatibility when ASGI behavior moves.
+- Hot-path changes include a benchmark in the PR, or explicitly say why no benchmark was run.
+- GIL-sensitive changes note shared mutable state and Python 3.14t implications.
+- Public API/config/doc behavior changes include changelog and migration notes when needed.
+- Error messages tell the reader what to do next, not only what went wrong.
+- PR description explains why; diff explains what.
 
-"Tests pass" is not "done." Tests pass on broken code all the time.
+## Review Notes
 
----
+- Commit style follows `git log`: `fix:`, `refactor:`, `deps:`, `release:` prefixes, imperative subject, body for motivation.
+- One concern per PR unless the refactor is the change.
+- Flag surprises: weird tests, unused config, unreachable paths, dead-looking code, benchmark variance, or docs that contradict implementation.
+- When this constitution is wrong, update it in a short focused PR.
 
-## Review and assimilation
+## See Also
 
-- **I read diff-first, description-second.** Tight diff + clear why merges fast; sprawling diff gets questions.
-- **One concern per PR.** If the diff needs section headers, it's two PRs. Exception: refactors renaming a concept across many files — one bundled PR beats review churn.
-- **Commit style:** see `git log`. `fix:`/`refactor:`/`deps:`/`release:` prefixes, imperative, body = motivation.
-- **Don't trailing-summary me.** If the diff is readable, I can read it.
-- **Flag surprises.** Weird test, unused config, unreachable code path — put it in the PR description. Don't fix silently, don't ignore.
-
----
-
-## When this file is wrong
-
-It will be. Tell me. The worst outcome is that it sits here for a year contradicting how the project actually works. Updates to AGENTS.md are a first-class PR — short, focused, and welcome.
-
----
-
-## See also
-
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** — setup, feedback loops, and recipes (add a test, add a config field, add an error).
-- **[docs/troubleshooting.md](docs/troubleshooting.md)** — error-code catalog, indexed by `POUNCE_*` code.
-- **[docs/design/](docs/design/)** — ADRs for the load-bearing decisions (error codes, redaction allowlist, introspection auth, init scope).
+- [CONTRIBUTING.md](CONTRIBUTING.md) - setup, feedback loops, and recipes.
+- [docs/troubleshooting.md](docs/troubleshooting.md) - `POUNCE_*` error catalog.
+- [docs/design/](docs/design/) - ADRs for load-bearing decisions.
