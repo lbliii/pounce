@@ -21,6 +21,15 @@ Represent ASGI applications and framework authors who expect spec-correct scopes
 - Compression, Server-Timing, metrics, and logging wrappers must not change ASGI message semantics.
 - Sync and async bridges should remain behaviorally equivalent unless the difference is documented and tested.
 
+## Contract Checklist
+
+- Scope contract: type, path/raw_path/query_string, root_path, scheme, headers, client/server, state, HTTP version, extensions, and proxy-derived values.
+- Message flow: request body streaming, empty body, disconnects, response start/body ordering, trailers/extensions if present, WebSocket accept/send/close, and lifespan events.
+- Wrapper behavior: compression, static files, metrics, Server-Timing, request IDs, error pages, and middleware must preserve ASGI semantics.
+- Tests: bridge/sync bridge/H2/H3/WS bridge tests, lifespan and disconnect tests, malformed-app tests, and framework compatibility when behavior changes.
+- Docs/examples: ASGI bridge docs, streaming/WebSocket/lifespan examples, testing API docs, migration notes, and changelog fragments for visible behavior.
+- Parity proof: sync/async, H1/H2/H3, and framework entrypoints should agree, or the PR records a parity matrix and reasoned exception.
+
 ## Advocate
 
 - Framework compatibility tests before claiming new ASGI behavior.

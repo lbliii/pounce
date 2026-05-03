@@ -23,6 +23,16 @@ Represent app developers, operators, and downstream frameworks that need a stabl
 - Lifecycle and metrics events should remain structured enough for operators and integrations to parse.
 - Error paths should raise `PounceError` subclasses with literal `POUNCE_*` codes and actionable hints.
 
+## Contract Checklist
+
+- Public API: `pounce.run`, top-level exports, `py.typed`, `TestServer`, pytest fixture, and lifecycle event names.
+- CLI/config: `src/pounce/_cli.py`, `config.py`, `_config_file.py`, `_config_schema.py`, TOML schema output, defaults, aliases, and precedence.
+- Operator surfaces: logs, metrics, health/info/introspection endpoints, redaction rules, error codes, and kida output templates.
+- Runtime behavior: worker mode selection, GIL/subinterpreter behavior, reload, shutdown, drain, queue/backpressure, and signal handling.
+- Tests: config/schema/redaction, CLI, runtime, supervisor, worker-mode parity, lifecycle failure paths, and framework compatibility when app behavior moves.
+- Docs/collateral: README, site configuration/API/deployment pages, troubleshooting entries, changelog fragments, and migration notes for public changes.
+- Performance/concurrency: benchmark or explicit no-impact note for sync worker, `_fast_h1.py`, worker scheduling, shared state, or lifecycle hot paths.
+
 ## Advocate
 
 - Smaller config surface, clearer defaults, and better diagnostics before adding new knobs.

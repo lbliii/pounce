@@ -21,6 +21,15 @@ Represent operators deploying Pounce on real hosts, containers, and local dev ma
 - Socket lifecycle remains idempotent across startup failure, reload, shutdown, and tests.
 - Platform-specific behavior is isolated and covered by tests or explicit skips.
 
+## Contract Checklist
+
+- Listener contract: TCP host/port, UDS paths and permissions, backlog, shared sockets, reuse flags, ephemeral port reporting, and cleanup on failure.
+- TLS/ALPN: cert/key validation, truststore behavior, cipher defaults, H2/H3 negotiation, HTTP/3 TLS requirements, and actionable `POUNCE_TLS_*` errors.
+- Security exposure: public bind warnings, introspection binding, proxy/TLS docs, redaction implications, and safe examples.
+- Tests: listener, multi-listener, UDS, TLS, H3 transport, platform skip, port conflict, and cleanup/failure-path tests.
+- Docs/collateral: deployment/TLS/HTTP3 docs, troubleshooting entries, CLI/config docs, examples with safe bind defaults, and changelog fragments.
+- Operations proof: note platform assumptions, privileged ports, filesystem side effects, socket leakage risk, and no-impact rationale when behavior is internal only.
+
 ## Advocate
 
 - Better bind/TLS diagnostics before adding deployment flags.

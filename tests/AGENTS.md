@@ -20,6 +20,15 @@ Represent future maintainers who need fast feedback, operators whose incidents b
 - Framework compatibility tests prove plain ASGI behavior rather than adding framework branches.
 - Benchmark-marked tests stay opt-in and do not slow normal `make test`.
 
+## Contract Checklist
+
+- Unit coverage: local state machines, config validation, parser edge cases, ASGI message handling, transport helpers, error construction, and utility behavior.
+- Integration coverage: real server startup, CLI, worker modes, lifecycle, load/backpressure, examples, framework compatibility, and protocol extras.
+- Failure coverage: malformed input, app misbehavior, startup/shutdown failures, timeouts, reload races, socket cleanup, redaction gaps, and missing optional deps.
+- Test hygiene: no broad sleeps when probes/events work, no hidden external services, benchmark tests remain marked, and fixtures clean up ports/files/tasks.
+- Collateral checks: docs snippets, examples, troubleshooting catalog, error-code literals, config allowlists, changelog fragments, and package exports when contracts move.
+- Validation commands: targeted `uv run pytest ... -x --timeout=10` while iterating, then `make lint`, `make ty`, and relevant integration or benchmark runs.
+
 ## Advocate
 
 - Minimal repro tests for every fixed bug.

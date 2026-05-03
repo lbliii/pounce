@@ -22,6 +22,15 @@ Represent the wire protocol, the ASGI bridge that consumes protocol events, and 
 - Malformed input raises specific `POUNCE_PARSE_*` or protocol-appropriate errors with troubleshooting coverage.
 - Per-connection state stays per instance; no shared mutable parser state in free-threaded workers.
 
+## Contract Checklist
+
+- Wire contract: parser event types in `_base.py`, request/response serialization, close/reset events, upgrade paths, and stream identifiers.
+- Safety behavior: request smuggling checks, duplicate/invalid headers, chunked framing, size limits, H2/H3 resets, WS close frames, and malformed input diagnostics.
+- Optional deps: h2, wsproto, and bengal-zoomies availability, install extras, graceful unsupported-protocol errors, and docs for extras.
+- Tests: unit parser tests, fuzz/table cases, protocol integration tests, malicious input, H3/QUIC paths, and compatibility cases that rely on protocol metadata.
+- Docs/collateral: protocol site pages, troubleshooting `POUNCE_PARSE_*` entries, README feature tables, changelog fragments, and design notes for RFC/security tradeoffs.
+- Performance: parser microbenchmarks or explicit no-impact note for `_fast_h1.py`, sync protocol classification, header scanning, or byte accounting.
+
 ## Advocate
 
 - Fuzz and edge-case tests for malformed requests, chunked bodies, duplicate headers, oversized input, close frames, stream resets, and protocol upgrades.
