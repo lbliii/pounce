@@ -20,6 +20,15 @@ Represent product direction, sequencing, and contributor focus while keeping pla
 - Implemented plans should link to the tests/docs that now guard the behavior.
 - Adoption docs for downstream Bengal projects should not create hidden requirements for Pounce.
 
+## Contract Checklist
+
+- Status labels: proposal, active, implemented, deferred, historical, and not-now are explicit.
+- Alignment: roadmap items match current code, tests, docs, site, changelog, package metadata, and steward ownership.
+- Dependencies/risks: cross-boundary work names affected stewards, blockers, validation plan, collateral, and rollback or migration concerns.
+- Implemented records: link to shipped code, tests, docs, release notes, and ADRs when a plan becomes reality.
+- Downstream adoption: Bengal ecosystem notes stay separate from Pounce requirements and do not imply hidden public contracts.
+- Prioritization swarms: include raw steward signals, confidence, dependencies, risks, convergence, minority reports, ranked backlog, and not-now items.
+
 ## Advocate
 
 - Ranked work that strengthens free-threaded production readiness.

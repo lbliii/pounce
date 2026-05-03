@@ -20,6 +20,15 @@ Represent contributors and operators reading after something broke, plus future 
 - Planning docs stay clearly labeled as plans, implemented records, or historical context.
 - Docs do not promise features, benchmarks, or compatibility that tests and code do not support.
 
+## Contract Checklist
+
+- Error catalog: every literal `POUNCE_*` code has troubleshooting coverage, a next action, and tests that enforce the catalog.
+- Design records: ADRs and design docs match current implementation, tradeoffs, security posture, and known limitations.
+- Public behavior: docs align with CLI/API/config/schema/types, site pages, README, examples, tests, and changelog entries.
+- Security/operator content: redaction, auth, TLS, proxy trust, public binds, secrets, and diagnostic examples stay conservative.
+- Planning status: proposal, active, implemented, and historical docs are labeled and linked to code/tests/docs when implemented.
+- Proof: docs-only changes still identify source of truth; behavior changes include relevant tests or explicit no-collateral rationale.
+
 ## Advocate
 
 - Short ADR updates when a load-bearing decision changes.

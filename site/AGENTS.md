@@ -20,6 +20,15 @@ Represent app developers evaluating Pounce, operators deploying it, and contribu
 - Public docs distinguish stable features, beta behavior, prototypes, and roadmap items.
 - Examples, commands, and snippets should be copy-pasteable from a clean environment.
 
+## Contract Checklist
+
+- Public pages: get-started, configuration, deployment, protocols, features, reference, troubleshooting, tutorials, releases, and about pages stay aligned with code.
+- Navigation/config: `site/config/`, menu, search, external refs, autodoc, production/local environment config, and generated URLs remain intentional.
+- Release flow: `site/content/releases/<version>.md`, changelog fragments, `CHANGELOG.md`, `make gh-release`, and PyPI metadata agree.
+- Snippets: commands, config fields, optional extras, example imports, endpoint paths, and framework claims are copy-pasteable and tested or traceable.
+- Performance claims: benchmark numbers include environment, command, workload, comparison target, and caveats.
+- Validation: run available site/docs build checks for structural changes, or record why only Markdown text changed.
+
 ## Advocate
 
 - Migration-first docs for users coming from Uvicorn and framework-specific deployments.

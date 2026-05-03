@@ -20,6 +20,15 @@ Represent app developers who want a working starting point in five minutes and c
 - Examples should exercise public APIs, not private internals, unless the file is explicitly a prototype.
 - Snippets in `examples/README.md` should match the code.
 
+## Contract Checklist
+
+- Runnable surface: imports, optional extras, ports, app object names, CLI commands, shutdown behavior, and expected endpoints.
+- Safety defaults: bind addresses, debug/error pages, TLS, metrics/introspection exposure, rate limiting, Sentry, and secrets.
+- Public API use: examples rely on `pounce.run`, `ServerConfig`, documented middleware/static/testing APIs, or are clearly labeled prototypes.
+- Tests/docs: `tests/integration/test_examples.py`, README snippets, site snippets, troubleshooting links, and feature docs update together.
+- Prototype status: experimental H3, integration, or downstream examples link to current design/roadmap and do not imply stable contracts.
+- Changelog: user-facing example additions or changed recipes get a fragment when they affect published behavior.
+
 ## Advocate
 
 - Small examples for each public feature that is hard to understand from config alone.

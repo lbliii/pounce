@@ -19,6 +19,15 @@ Represent users choosing Pounce for latency, throughput, memory, streaming behav
 - Benchmark tests remain marked and opt-in for normal pytest runs.
 - Results should not be published to README/site without reproducible commands and caveats.
 
+## Contract Checklist
+
+- Workload definition: app, protocol, worker mode/count, concurrency, duration, client tool, platform, Python build, and optional extras.
+- Hot-path proof: parser, sync worker, request pipeline, scheduler, compression, static/sendfile, and queue/backpressure changes include before/after data or no-impact rationale.
+- Benchmark hygiene: benchmark deps stay out of runtime, benchmark tests are marked, apps remain minimal, and output is reproducible.
+- Public claims: README/site/release numbers cite commands, environment, variance, comparison target, and caveats.
+- Tests/collateral: benchmark importability, `pounce bench` CLI behavior, changelog fragments for user-visible benchmark tooling, and docs updates.
+- Regression handling: note variance, sample count, confidence, and whether a finding is blocker or follow-up.
+
 ## Advocate
 
 - Repeatable runner output that can be attached to PRs.
