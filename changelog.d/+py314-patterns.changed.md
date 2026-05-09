@@ -1,1 +1,0 @@
-Adopt modern Python 3.14+ patterns: freeze cross-thread handoff dataclasses for thread safety, convert 10 if/elif chains to match/case, migrate remaining type aliases to PEP 695 syntax, and add TypedDicts for stable dict shapes.

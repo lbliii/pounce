@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.0] — 2026-05-09
+
+Release-readiness hardening for protocol correctness, operator UX, config discovery, and
+production-shaped benchmark coverage.
+
+### Added
+
+- Added `pounce config schema`, `pounce config show`, and `pounce init` for discoverable configuration, redacted resolved-config inspection, and project scaffolding.
+- Added the opt-in `/_pounce/info` introspection endpoint with allowlist redaction and public-bind warnings.
+- Added Bengal-shaped static-site and Chirp/LB Sonic-shaped forum benchmark workloads for representative static, tenant, form POST, SSE, middleware-style header, and lifespan-state coverage.
+- Added real-server middleware coverage for pre-request short-circuiting, post-response headers, exception handling, and non-HTTP scope bypass.
+- Added Railway deployment guidance for platform TLS, `$PORT`, health checks, proxy trust, and drain-window alignment.
+
+### Changed
+
+- Re-enabled the ruff S110 lint gate and added CI coverage for unannotated broad exception suppression.
+- Adopted modern Python 3.14+ patterns across leaf modules, including frozen handoff dataclasses, PEP 695 aliases, match/case conversions, and stable-shape TypedDicts.
+- Updated the introspection auth ADR to match the shipped `/_pounce/info` implementation and warning policy.
+- Fixed sync-worker graceful reload proof and clarified lifecycle docs around reload signaling.
+
+### Fixed
+
+- Reject oversized HTTP/2 and HTTP/3 request bodies with 413 behavior instead of delivering empty or truncated bodies to ASGI apps.
+- Validate required HTTP/2 and HTTP/3 pseudo-headers, duplicate pseudo-headers, and Host/`:authority` conflicts before building tenant-facing scopes.
+- Keep single-worker startup hook exceptions nonfatal, matching Worker-based paths for strict ASGI apps that reject unknown Pounce scopes.
+- Avoid acquiring a process `fork` context for thread workers and remove invalid `worker_mode='thread'` remediation from troubleshooting.
+- Skip response compression when HTTP/2, HTTP/3, sync ASGI, or sync-app responses already include `Content-Encoding`.
+- Rewrite trusted proxy authority consistently across HTTP/1.1, HTTP/2, HTTP/3, and WebSocket ASGI scopes.
+- Negotiate WebSocket `permessage-deflate` only when the client offers it.
+- Harden free-threaded leaf-module behavior: per-worker request queues, RFC 9218 H2 priority scheduling, CRLF response-framer guard, rate-limiter snapshot cleanup, IPv6/UNIX socket support, subinterpreter timeout wiring, and lower-impact correctness/performance cleanups.
+
+---
+
 ## [0.6.0] — 2026-04-13
 
 Subinterpreter workers, RFC 9842 compression dictionaries, sendfile, framework compat tests, and 60+ fixes.

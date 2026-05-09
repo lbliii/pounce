@@ -1,1 +1,0 @@
-Added a Chirp/LB Sonic-shaped forum workload (`benchmarks.apps.chirp_forum:app`, `--workload chirp`) covering host tenants, lifespan state, middleware-style headers, HTML form POSTs, static assets, and SSE output.
