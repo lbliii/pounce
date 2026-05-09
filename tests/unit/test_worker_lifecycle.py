@@ -285,3 +285,32 @@ class TestSingleWorkerLifecycle:
         thread.join(timeout=3)
 
         assert events == ["startup", "shutdown"]
+
+    @pytest.mark.asyncio
+    async def test_single_worker_ignores_unknown_startup_scope_exception(self):
+        """Strict ASGI apps still start when they reject pounce.worker.startup."""
+
+        async def strict_app(scope: Scope, receive: Receive, send: Send) -> None:
+            if scope["type"] == "lifespan":
+                while True:
+                    msg = await receive()
+                    if msg["type"] == "lifespan.startup":
+                        await send({"type": "lifespan.startup.complete"})
+                    elif msg["type"] == "lifespan.shutdown":
+                        await send({"type": "lifespan.shutdown.complete"})
+                        return
+            if scope["type"] == "http":
+                return
+            msg = f"Unknown scope type: {scope['type']}"
+            raise TypeError(msg)
+
+        config = ServerConfig(host="127.0.0.1", port=0, access_log=False)
+        server = Server(config, strict_app)
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+
+        assert server._started_event.wait(timeout=3.0)
+
+        server.shutdown()
+        thread.join(timeout=3)
+        assert not thread.is_alive()

@@ -373,8 +373,10 @@ class Server:
                     self._config.startup_timeout,
                 )
             except Exception:
-                logger.exception("Worker startup hook failed")
-                return
+                logger.warning(
+                    "Worker startup hook raised — if this is unexpected, check your app",
+                    exc_info=True,
+                )
 
             server = await asyncio.start_server(
                 worker._handle_connection,
