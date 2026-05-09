@@ -126,7 +126,7 @@ ignore = [
 # =============================================================================
 # ty — Type Checker (Rust-based, Astral)
 # =============================================================================
-# Strict by default. pounce targets zero type: ignore comments.
+# Strict by default. pounce targets no new type suppressions without review.
 
 [tool.ty.environment]
 python-version = "3.14"

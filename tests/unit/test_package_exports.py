@@ -1,5 +1,7 @@
 """Tests for package re-exports — verify all __init__.py wiring is correct."""
 
+from dataclasses import fields
+
 
 class TestTopLevelExports:
     """pounce.* exports are importable."""
@@ -18,6 +20,16 @@ class TestTopLevelExports:
         from pounce import run
 
         assert callable(run)
+
+    def test_server_config_kwargs_mirror_server_config(self):
+        from pounce import ServerConfig, ServerConfigKwargs
+
+        expected = {
+            field.name for field in fields(ServerConfig) if field.init and not field.name.startswith("_")
+        }
+        actual = set(ServerConfigKwargs.__annotations__)
+
+        assert actual == expected
 
     def test_version(self):
         from pounce import __version__
