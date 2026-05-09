@@ -97,6 +97,74 @@ class TestH2Connection:
         assert len(body_events) == 1
         assert not body_events[0].body.more
 
+    def test_missing_required_pseudo_header_resets_stream(self) -> None:
+        import h2.events
+
+        from pounce.protocols.h2 import H2Connection, H2StreamReset
+
+        class FakeConn:
+            def __init__(self) -> None:
+                self.reset_calls: list[tuple[int, int]] = []
+
+            def receive_data(self, data: bytes) -> list[object]:
+                return [
+                    h2.events.RequestReceived(
+                        stream_id=1,
+                        headers=[
+                            (":method", "GET"),
+                            (":path", "/"),
+                            (":authority", "example.test"),
+                        ],
+                    )
+                ]
+
+            def reset_stream(self, stream_id: int, error_code: int = 0) -> None:
+                self.reset_calls.append((stream_id, error_code))
+
+        conn = H2Connection()
+        fake = FakeConn()
+        conn._conn = fake
+
+        events = conn.receive_data(b"headers")
+
+        assert [type(event) for event in events] == [H2StreamReset]
+        assert fake.reset_calls == [(1, 1)]
+
+    def test_authority_host_conflict_resets_stream(self) -> None:
+        import h2.events
+
+        from pounce.protocols.h2 import H2Connection, H2StreamReset
+
+        class FakeConn:
+            def __init__(self) -> None:
+                self.reset_calls: list[tuple[int, int]] = []
+
+            def receive_data(self, data: bytes) -> list[object]:
+                return [
+                    h2.events.RequestReceived(
+                        stream_id=1,
+                        headers=[
+                            (":method", "GET"),
+                            (":path", "/"),
+                            (":scheme", "https"),
+                            (":authority", "tenant-a.test"),
+                            ("host", "tenant-b.test"),
+                        ],
+                    )
+                ]
+
+            def reset_stream(self, stream_id: int, error_code: int = 0) -> None:
+                self.reset_calls.append((stream_id, error_code))
+
+        conn = H2Connection()
+        fake = FakeConn()
+        conn._conn = fake
+
+        events = conn.receive_data(b"headers")
+
+        assert [type(event) for event in events] == [H2StreamReset]
+        assert fake.reset_calls == [(1, 1)]
+
     def test_post_request_with_body(self) -> None:
         from pounce.protocols.h2 import H2BodyReceived, H2RequestReceived
 

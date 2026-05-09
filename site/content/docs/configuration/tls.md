@@ -55,7 +55,7 @@ Your browser will warn about the self-signed certificate — this is expected in
 
 ## ALPN and HTTP/2
 
-When TLS is enabled and `pounce[h2]` is installed, Pounce advertises both `h2` and `http/1.1` via ALPN (Application-Layer Protocol Negotiation). Clients that support HTTP/2 will automatically use it.
+When TLS is enabled and `bengal-pounce[h2]` is installed, Pounce advertises both `h2` and `http/1.1` via ALPN (Application-Layer Protocol Negotiation). Clients that support HTTP/2 will automatically use it.
 
 ## Truststore Integration
 

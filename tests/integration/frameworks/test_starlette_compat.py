@@ -295,14 +295,21 @@ class TestStarletteBackgroundTask:
         assert resp.status_code == 200
         assert resp.text == "accepted"
 
-        # Wait for background task to complete
+        # Wait for background task to complete. ``Path.write_text`` creates
+        # the file before writing, so existence alone can observe a partial
+        # marker on free-threaded Python.
+        marker_text = ""
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
-            if Path(marker_path).exists():
+            try:
+                marker_text = Path(marker_path).read_text()
+            except FileNotFoundError:
+                marker_text = ""
+            if marker_text == "done":
                 break
             time.sleep(0.05)
 
-        assert Path(marker_path).read_text() == "done"
+        assert marker_text == "done"
         Path(marker_path).unlink(missing_ok=True)
 
 

@@ -36,13 +36,14 @@ config = ServerConfig(
 | `host` | `str` | `"127.0.0.1"` | Bind address |
 | `port` | `int` | `8000` | Bind port (0-65535) |
 | `uds` | `str \| None` | `None` | Unix domain socket path. Mutually exclusive with `host`/`port`. |
+| `uds_permissions` | `int` | `0o660` | File mode applied to created Unix domain sockets. |
 
 ### Workers
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `workers` | `int` | `1` | Worker count. 0 = auto-detect from CPU cores. 1 = single-worker (no supervisor). 2+ = multi-worker with supervisor. |
-| `worker_mode` | `str` | `"auto"` | Worker execution model: `auto` (sync on 3.14t, async on GIL), `sync` (blocking I/O fast path), `async` (event loop). |
+| `worker_mode` | `str` | `"auto"` | Worker execution model: `auto` (sync on 3.14t, async on GIL), `sync` (blocking I/O fast path), `async` (event loop), or `subinterpreter`. |
 | `backlog` | `int` | `2048` | Socket listen backlog |
 | `cpu_affinity` | `bool` | `False` | Pin each worker to a CPU core (Linux only, reduces cache thrashing) |
 | `executor_threads_per_worker` | `int` | `0` | Per-worker thread pool size for `asyncio.to_thread()`. 0 = auto-size. |
@@ -74,6 +75,11 @@ config = ServerConfig(
 | `access_log` | `bool` | `True` | Enable access logging |
 | `log_level` | `str` | `"info"` | Log level: debug, info, warning, error, critical |
 | `log_format` | `str` | `"auto"` | Log output format: `auto` (pretty on TTY, JSON when piped), `text`, or `json` |
+| `display` | `DisplayConfig \| None` | `None` | Optional startup display configuration. |
+| `app_name` | `str \| None` | `None` | App name merged into startup display configuration. |
+| `app_tagline` | `str \| None` | `None` | App tagline merged into startup display configuration. |
+| `app_version` | `str \| None` | `None` | App version merged into startup display configuration. |
+| `signage` | `str \| None` | `None` | Startup signage style override. |
 | `access_log_filter` | `Callable[[str, str, int], bool] \| None` | `None` | Optional filter: `(method, path, status) -> bool`. True = log, False = skip. |
 
 ### HTTP
@@ -97,6 +103,9 @@ config = ServerConfig(
 |-------|------|---------|-------------|
 | `server_timing` | `bool` | `False` | Inject `Server-Timing` header with parse/app/encode durations |
 | `health_check_path` | `str \| None` | `None` | Path for built-in health endpoint (e.g. `"/health"`). Disabled by default. |
+| `introspection_enabled` | `bool` | `False` | Enable the built-in `/_pounce/info` endpoint. |
+| `introspection_bind` | `str` | `"127.0.0.1"` | Warning-policy bind value for introspection exposure. |
+| `introspection_path` | `str` | `"/_pounce/info"` | Path for the built-in introspection endpoint. |
 
 ::::{note}
 Request IDs are always generated (or extracted from trusted proxies). Every response includes an `X-Request-ID` header for tracing, and requests from trusted proxies that send `X-Request-ID` have their IDs honoured.
@@ -171,6 +180,8 @@ These fields control optional features. Most have sensible defaults and don't ne
 | `http3_enabled` | `bool` | `False` | Enable HTTP/3 (requires `ssl_certfile` and `ssl_keyfile`) |
 | `http3_max_connections` | `int` | `10,000` | Max concurrent QUIC connections |
 | `http3_idle_timeout` | `float` | `30.0` | QUIC idle timeout (seconds) |
+| `http3_qpack_max_table_capacity` | `int` | `0` | QPACK dynamic table size. 0 uses static-table-only compression. |
+| `http3_zero_rtt_enabled` | `bool` | `False` | Accept TLS 0-RTT at the transport layer; unsafe methods receive 425. |
 ::::
 
 ::::{dropdown} Reload

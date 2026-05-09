@@ -4,7 +4,7 @@ TLS context creation for pounce.
 Creates and configures ``ssl.SSLContext`` from ``ServerConfig`` fields.
 Uses stdlib ``ssl`` with secure defaults (TLSv1.2+, no compression,
 cipher order honoured).  Optionally uses ``truststore`` (via
-``pounce[tls]``) for system certificate store integration.
+``bengal-pounce[tls]``) for system certificate store integration.
 
 ALPN protocols are advertised so HTTP/2 negotiation works when the h2
 protocol handler is available.
@@ -19,7 +19,7 @@ from pounce.config import ServerConfig
 
 logger = logging.getLogger("pounce.net.tls")
 
-# Optional truststore support (pounce[tls] extra)
+# Optional truststore support (bengal-pounce[tls] extra)
 try:
     import truststore  # type: ignore[import-untyped]
 

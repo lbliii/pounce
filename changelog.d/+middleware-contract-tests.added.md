@@ -1,1 +1,0 @@
-Added real-server middleware coverage for pre-request short-circuiting, post-response headers, and exception handling. Middleware now bypasses non-HTTP scopes so request hooks cannot break lifespan or worker lifecycle startup, and docs now match the HTTP-only parameter-count dispatch contract.

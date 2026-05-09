@@ -14,7 +14,7 @@ cascade:
   type: doc
 ---
 
-Pounce supports multiple protocols through a modular handler system. The core ships with HTTP/1.1 via h11. HTTP/2 and WebSocket are optional extras.
+Pounce supports multiple protocols through a modular handler system. The core ships with HTTP/1.1 via h11. HTTP/2, HTTP/3, and WebSocket are optional extras.
 
 :::{cards}
 :columns: 2
@@ -31,14 +31,21 @@ The foundation of Pounce's request handling.
 :icon: layers
 :link: ./http2
 :description: Stream multiplexing, header compression, priority signals
-Install with `pounce[h2]`.
+Install with `bengal-pounce[h2]`.
+:::{/card}
+
+:::{card} HTTP/3
+:icon: radio
+:link: ./http3
+:description: QUIC/UDP transport, QPACK, 0-RTT policy, TLS required
+Install with `bengal-pounce[h3]`.
 :::{/card}
 
 :::{card} WebSocket
 :icon: message-circle
 :link: ./websocket
 :description: Full-duplex communication, including WebSocket over HTTP/2
-Install with `pounce[ws]`.
+Install with `bengal-pounce[ws]`.
 :::{/card}
 
 :::{/cards}
@@ -46,5 +53,7 @@ Install with `pounce[ws]`.
 ## Protocol Detection
 
 For TLS connections, Pounce uses ALPN (Application-Layer Protocol Negotiation) to select between HTTP/1.1 and HTTP/2. For plain connections, HTTP/1.1 is used by default.
+
+HTTP/3 uses QUIC over UDP and runs on its own UDP listener when enabled with TLS.
 
 WebSocket connections start as HTTP/1.1 (or HTTP/2) and upgrade via the standard upgrade mechanism.

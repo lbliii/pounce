@@ -1,1 +1,0 @@
-Updated the introspection auth ADR to match the shipped `/_pounce/info` implementation: the endpoint is dispatched on the main worker path, `introspection_bind` drives warning policy rather than a second listener, and public exposure emits `POUNCE_CONFIG_INTROSPECTION_PUBLIC`.

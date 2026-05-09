@@ -189,10 +189,11 @@ Async workers use h11; sync workers use a fast built-in parser for lower latency
 | Protocol | Backend | Install |
 |----------|---------|---------|
 | HTTP/1.1 | h11 (async) / fast built-in parser (sync) | built-in |
-| HTTP/2 | h2 (stream multiplexing, priority signals) | `pounce[h2]` |
-| WebSocket | wsproto (including WS over H2) | `pounce[ws]` |
-| TLS | stdlib ssl + truststore | `pounce[tls]` |
-| All | Everything above | `pounce[full]` |
+| HTTP/2 | h2 (stream multiplexing, priority signals) | `bengal-pounce[h2]` |
+| WebSocket | wsproto (including WS over H2) | `bengal-pounce[ws]` |
+| TLS | stdlib ssl + truststore | `bengal-pounce[tls]` |
+| HTTP/3 | bengal-zoomies (QUIC/UDP) | `bengal-pounce[h3]` |
+| All | Everything above | `bengal-pounce[full]` |
 
 Compression uses Python 3.14's stdlib `compression.zstd` — zero external dependencies.
 

@@ -373,8 +373,10 @@ class Server:
                     self._config.startup_timeout,
                 )
             except Exception:
-                logger.exception("Worker startup hook failed")
-                return
+                logger.warning(
+                    "Worker startup hook raised — if this is unexpected, check your app",
+                    exc_info=True,
+                )
 
             server = await asyncio.start_server(
                 worker._handle_connection,
@@ -870,7 +872,7 @@ class Server:
 
         logger.warning(
             "http3_enabled but HTTP/3 stack unavailable (zoomies not installed) — "
-            "install with: pip install pounce[h3]"
+            "install with: pip install bengal-pounce[h3]"
         )
         self._config = replace(self._config, http3_enabled=False)
         return None
@@ -902,7 +904,7 @@ class Server:
 
         logger.warning(
             "http3_enabled but HTTP/3 stack unavailable (zoomies not installed) — "
-            "install with: pip install pounce[h3]; disabling HTTP/3"
+            "install with: pip install bengal-pounce[h3]; disabling HTTP/3"
         )
         self._config = replace(self._config, http3_enabled=False)
         return []

@@ -5,7 +5,7 @@ Every pounce error carries a semantic code of the form
 
 - The `X-Pounce-Error-Code` response header on pounce-generated 4xx/5xx.
 - Log lines written by workers and the supervisor.
-- Response bodies when `log_level=debug` is set.
+- Response bodies when `ServerConfig.debug=True` is set.
 
 This file is the catalog. Each entry is grouped by category and includes what
 the code means, what typically causes it, and what to do.
@@ -115,7 +115,7 @@ RFC 7230 §3.3.3 and a classic request-smuggling vector.
 **Do:** pounce always rejects. Investigate the upstream.
 
 ### POUNCE_PARSE_HEADERS_TOO_LARGE
-Combined header bytes exceeded `max_header_size` (default 8 KiB).
+Combined header bytes exceeded `max_header_size` (default 64 KiB).
 **Cause:** legitimate large cookies, or an attacker.
 **Do:** raise `max_header_size` if legitimate; otherwise block upstream.
 
@@ -179,9 +179,10 @@ a slow dependency is legitimate.
 ### POUNCE_SUPERVISOR_FORK_UNAVAILABLE
 Process workers were requested but the `fork` start method isn't available
 (e.g. on Windows).
-**Cause:** `worker_mode='process'` on a non-Linux platform.
-**Do:** run on Linux, or use `worker_mode='thread'` with free-threaded
-Python 3.14t.
+**Cause:** Pounce selected process workers on a platform without `fork`.
+**Do:** run process workers on a platform with `fork` support, use a single
+worker, or use a free-threaded Python build so `worker_mode='auto'` can select
+thread workers.
 
 ### POUNCE_SUPERVISOR_SOCKET_COUNT_MISMATCH
 The supervisor received a different number of listening sockets than workers.

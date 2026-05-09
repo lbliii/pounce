@@ -8,8 +8,15 @@ import asyncio
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from pounce.asgi.bridge import SendState
-from pounce.asgi.h3_bridge import build_h3_scope, create_h3_receive, create_h3_send
+from pounce.asgi.h3_bridge import (
+    H3PseudoHeaderError,
+    build_h3_scope,
+    create_h3_receive,
+    create_h3_send,
+)
 from pounce.config import ServerConfig
 
 # ---------------------------------------------------------------------------
@@ -132,6 +139,26 @@ class TestBuildH3Scope:
         assert b":path" not in header_names
         assert b":scheme" not in header_names
         assert b":authority" not in header_names
+
+    def test_missing_required_pseudo_header_rejected(self) -> None:
+        headers = [
+            (b":method", b"GET"),
+            (b":path", b"/"),
+            (b":authority", b"example.com"),
+        ]
+        with pytest.raises(H3PseudoHeaderError, match="missing required"):
+            build_h3_scope(headers, ServerConfig(), _CLIENT, _SERVER)
+
+    def test_duplicate_pseudo_header_rejected(self) -> None:
+        headers = _h3_headers()
+        headers.append((b":path", b"/other"))
+        with pytest.raises(H3PseudoHeaderError, match="duplicate"):
+            build_h3_scope(headers, ServerConfig(), _CLIENT, _SERVER)
+
+    def test_authority_host_conflict_rejected(self) -> None:
+        headers = _h3_headers(extra=[(b"host", b"other.example")])
+        with pytest.raises(H3PseudoHeaderError, match="host does not match"):
+            build_h3_scope(headers, ServerConfig(), _CLIENT, _SERVER)
 
     def test_stream_id_in_extensions(self) -> None:
         scope = build_h3_scope(_h3_headers(), ServerConfig(), _CLIENT, _SERVER, stream_id=4)
@@ -417,6 +444,39 @@ class TestCreateH3Send:
         _, headers = h3.sent_headers[0]
         header_dict = dict(headers)
         assert header_dict.get(b"content-encoding") == b"gzip"
+
+    async def test_compression_skipped_for_already_encoded_response(self) -> None:
+        """Responses with Content-Encoding are not double-compressed."""
+        h3 = _MockH3Connection()
+        transmit = MagicMock()
+        state = SendState()
+
+        compressor = MagicMock()
+        compressor.encoding = "gzip"
+
+        send = create_h3_send(
+            h3, stream_id=0, transmit=transmit, state=state, compressor=compressor
+        )
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-encoding", b"br"),
+                    (b"content-length", b"5"),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"hello", "more_body": False})
+
+        _, data, _ = h3.sent_data[0]
+        assert data == b"hello"
+        compressor.compress.assert_not_called()
+        _, headers = h3.sent_headers[0]
+        header_dict = dict(headers)
+        assert header_dict[b"content-encoding"] == b"br"
+        assert header_dict[b"content-length"] == b"5"
 
     async def test_compression_disabled_for_204(self) -> None:
         """Compressor disabled for 204 No Content."""

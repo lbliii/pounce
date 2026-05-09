@@ -79,10 +79,12 @@ def _get_fork_context() -> multiprocessing.context.BaseContext:
     except ValueError:
         raise SupervisorError(
             "Process workers require the 'fork' multiprocessing start method, "
-            "which is not available on this platform.  Use thread workers "
-            "(free-threaded Python 3.14t) or set worker_mode='thread'.",
+            "which is not available on this platform.",
             code="POUNCE_SUPERVISOR_FORK_UNAVAILABLE",
-            hint="Run on Linux, or set worker_mode='thread' with Python 3.14t.",
+            hint=(
+                "Run process workers on a platform with fork support, use one worker, "
+                "or use a free-threaded Python build so auto mode can select thread workers."
+            ),
         ) from None
 
 
@@ -240,7 +242,7 @@ class Supervisor:
         self._sync_app = sync_app
         self._mode: WorkerMode = mode or detect_worker_mode()
         self._fork_ctx: multiprocessing.context.BaseContext | None = (
-            None if self._mode == "subinterpreter" else _get_fork_context()
+            _get_fork_context() if self._mode == "process" else None
         )
         self._execution_mode = resolve_worker_execution_mode(config.worker_mode)
         # Sync workers only supported in thread mode (3.14t). On GIL/process, fall back to async.

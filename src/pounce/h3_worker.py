@@ -5,7 +5,7 @@ Uses asyncio.create_datagram_endpoint with a pre-bound UDP socket.
 Shares app, config, lifecycle with the TCP Worker model but serves
 HTTP/3 over QUIC instead of HTTP/1.1 and HTTP/2 over TCP.
 
-Requires the ``h3`` optional dependency (``pip install pounce[h3]``).
+Requires the ``h3`` optional dependency (``pip install bengal-pounce[h3]``).
 
 """
 

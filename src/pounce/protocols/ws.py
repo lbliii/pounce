@@ -5,7 +5,7 @@ Translates between raw bytes and typed WebSocket events. The worker feeds
 bytes in via receive_data() and reads serialized bytes out via
 send_message() and close().
 
-Requires the ``wsproto`` optional dependency (``pip install pounce[ws]``).
+Requires the ``wsproto`` optional dependency (``pip install bengal-pounce[ws]``).
 
 Architecture: The HTTP upgrade handshake (101 Switching Protocols) is
 handled by the H1 layer. WSProtocol only handles WebSocket framing
@@ -131,7 +131,7 @@ class WSProtocol:
     ) -> None:
         if not _HAS_WSPROTO:
             raise RuntimeError(
-                "WebSocket support requires wsproto. Install with: pip install pounce[ws]"
+                "WebSocket support requires wsproto. Install with: pip install bengal-pounce[ws]"
             )
 
         # Configure extensions if compression is enabled

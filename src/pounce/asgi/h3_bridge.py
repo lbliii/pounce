@@ -19,6 +19,10 @@ if TYPE_CHECKING:
     from zoomies.h3 import H3Connection
 
 
+class H3PseudoHeaderError(ValueError):
+    """HTTP/3 request pseudo-headers are missing, duplicated, or contradictory."""
+
+
 def build_h3_scope(
     headers: list[tuple[bytes, bytes]],
     config: ServerConfig,
@@ -47,13 +51,21 @@ def build_h3_scope(
 
     from pounce._proxy import apply_proxy_headers
 
-    method = "GET"
-    raw_path_value = b"/"
-    scheme = "https"  # QUIC mandates TLS
+    method: str | None = None
+    raw_path_value: bytes | None = None
+    scheme: str | None = None
+    authority: bytes | None = None
+    host: bytes | None = None
     header_list: list[tuple[bytes, bytes]] = []
+    seen_pseudo_headers: set[bytes] = set()
 
     for name, value in headers:
         name_lower = name.lower()
+        if name_lower.startswith(b":"):
+            if name_lower in seen_pseudo_headers:
+                raise H3PseudoHeaderError("duplicate HTTP/3 pseudo-header")
+            seen_pseudo_headers.add(name_lower)
+
         if name_lower == b":method":
             method = value.decode("ascii", errors="replace")
         elif name_lower == b":path":
@@ -61,9 +73,21 @@ def build_h3_scope(
         elif name_lower == b":scheme":
             scheme = value.decode("ascii", errors="replace")
         elif name_lower == b":authority":
-            header_list.append((b"host", value))
+            authority = value
+        elif name_lower.startswith(b":"):
+            raise H3PseudoHeaderError("unknown HTTP/3 pseudo-header")
         else:
             header_list.append((name_lower, value))
+            if name_lower == b"host":
+                host = value
+
+    if authority is not None and host is not None and authority != host:
+        raise H3PseudoHeaderError("HTTP/3 host does not match :authority")
+    effective_authority = authority or host
+    if method is None or raw_path_value is None or scheme is None or effective_authority is None:
+        raise H3PseudoHeaderError("missing required HTTP/3 pseudo-header")
+    if host is None:
+        header_list.insert(0, (b"host", effective_authority))
 
     # Parse path and query_string from raw bytes — split before decoding
     if b"?" in raw_path_value:
@@ -170,19 +194,22 @@ def create_h3_send(
                 compressor = None
             if compressor is not None:
                 filtered: list[tuple[bytes, bytes]] = []
+                has_content_encoding = False
                 is_sse = False
                 for name, value in headers:
                     nl = name.lower()
-                    if nl == b"content-type" and b"text/event-stream" in value:
+                    if nl == b"content-type" and b"text/event-stream" in value.lower():
                         is_sse = True
+                    elif nl == b"content-encoding":
+                        has_content_encoding = True
                     if nl == b"content-length":
                         continue
                     filtered.append((name, value))
-                if is_sse:
+                if is_sse or has_content_encoding:
                     compressor = None
                 else:
                     filtered.append((b"content-encoding", compressor.encoding.encode("ascii")))
-                headers = filtered
+                    headers = filtered
 
             if timing is not None:
                 rendered = timing.render_bytes()
@@ -225,5 +252,6 @@ def create_h3_send(
             state.bytes_sent += original_len
             if not more_body:
                 response_complete = True
+                state.response_complete = True
 
     return send

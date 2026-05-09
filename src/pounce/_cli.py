@@ -869,7 +869,7 @@ def _check_deps_for_config(*, http3: bool, ssl_certfile: str | None) -> list[dic
                     "name": "HTTP/3 dependency",
                     "status": "error",
                     "detail": "bengal-zoomies not installed",
-                    "hint": "pip install pounce[h3]",
+                    "hint": "pip install bengal-pounce[h3]",
                 }
             )
     return checks

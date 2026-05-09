@@ -399,18 +399,28 @@ class SyncWorker:
                                 if enc:
                                     compressor = create_compressor(enc)
 
+                        should_compress = (
+                            compressor is not None
+                            and len(raw_resp.body) >= self._config.compression_min_size
+                        )
                         # Single pass: strip CL only when compressing, track presence
                         has_cl = False
+                        content_length_header: tuple[bytes, bytes] | None = None
                         headers_list: list[tuple[bytes, bytes]] = []
                         for n, v in raw_resp.headers:
-                            if n.lower() == b"content-length":
+                            nl = n.lower()
+                            if nl == b"content-encoding":
+                                should_compress = False
+                                headers_list.append((n, v))
+                            elif nl == b"content-length":
                                 has_cl = True
-                                if not compressor:
+                                content_length_header = (n, v)
+                                if not should_compress:
                                     headers_list.append((n, v))
                             else:
                                 headers_list.append((n, v))
 
-                        if compressor and len(raw_resp.body) >= self._config.compression_min_size:
+                        if compressor is not None and should_compress:
                             body_out = compressor.compress(raw_resp.body) + compressor.flush()
                             headers_list.append(
                                 (b"content-encoding", compressor.encoding.encode("ascii"))
@@ -428,6 +438,11 @@ class SyncWorker:
                                 headers_list.append(
                                     (b"content-length", str(len(body_out)).encode("ascii"))
                                 )
+                            elif (
+                                content_length_header is not None
+                                and content_length_header not in headers_list
+                            ):
+                                headers_list.append(content_length_header)
                         # Advertise dictionaries for matching paths (RFC 9842)
                         if self._config.compression_dictionaries:
                             target_str = request.target.decode("ascii", errors="replace")
@@ -634,10 +649,16 @@ class SyncWorker:
 
                 # Single pass: strip CL only when compressing, track presence
                 has_cl = False
+                content_length_header: tuple[bytes, bytes] | None = None
                 headers: list[tuple[bytes, bytes]] = []
                 for n, v in response.headers:
-                    if n.lower() == b"content-length":
+                    nl = n.lower()
+                    if nl == b"content-encoding":
+                        asgi_compressor = None
+                        headers.append((n, v))
+                    elif nl == b"content-length":
                         has_cl = True
+                        content_length_header = (n, v)
                         if not asgi_compressor:
                             headers.append((n, v))
                     else:
@@ -655,6 +676,8 @@ class SyncWorker:
                     body_out = response.body
                     if not has_cl:
                         headers.append((b"content-length", str(len(body_out)).encode("ascii")))
+                    elif content_length_header is not None and content_length_header not in headers:
+                        headers.append(content_length_header)
                 if request_id:
                     headers.append((b"x-request-id", request_id.encode("latin-1")))
                 # Advertise dictionaries for matching paths (RFC 9842)
