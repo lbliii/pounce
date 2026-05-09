@@ -93,6 +93,12 @@ WORKLOADS: dict[str, dict[str, str]] = {
         "method": "GET",
         "path": "/",
     },
+    "chirp": {
+        "app": "benchmarks.apps.chirp_forum:app",
+        "description": "Chirp/LB Sonic-shaped multi-tenant forum thread",
+        "method": "GET",
+        "path": "/threads/1",
+    },
 }
 
 
