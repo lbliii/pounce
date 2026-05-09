@@ -1,0 +1,1 @@
+Added Railway deployment guidance for Pounce apps: bind `0.0.0.0:$PORT`, configure `/health`, rely on platform TLS for public HTTP, keep proxy trust conservative until ingress headers are confirmed, and align Railway's deploy drain window with Pounce shutdown timeout.

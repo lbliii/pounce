@@ -15,6 +15,7 @@ Connection flow:
 import asyncio
 import contextlib
 import logging
+from typing import Any
 
 from pounce._headers import get_header as _get_header_from_tuple
 from pounce._timing import elapsed_ms, monotonic_ns
@@ -29,6 +30,18 @@ from pounce.protocols._base import (
 )
 
 
+def _client_requested_permessage_deflate(headers: tuple[tuple[bytes, bytes], ...]) -> bool:
+    """Return True when the client offered permessage-deflate."""
+    for name, value in headers:
+        if name.lower() != b"sec-websocket-extensions":
+            continue
+        for extension in value.lower().split(b","):
+            token = extension.split(b";", 1)[0].strip()
+            if token == b"permessage-deflate":
+                return True
+    return False
+
+
 async def handle_websocket(
     app: ASGIApp,
     config: ServerConfig,
@@ -41,6 +54,7 @@ async def handle_websocket(
     client_str: str,
     *,
     worker_id: int | None = None,
+    lifespan_state: dict[str, Any] | None = None,
 ) -> None:
     """Handle a WebSocket connection after HTTP/1.1 upgrade detection.
 
@@ -73,7 +87,7 @@ async def handle_websocket(
     request_start = monotonic_ns()
 
     # Build WebSocket ASGI scope
-    scope = build_ws_scope(request, config, client, server)
+    scope = build_ws_scope(request, config, client, server, state=lifespan_state)
 
     # Extract Sec-WebSocket-Key for the 101 handshake
     ws_key = _get_header_from_tuple(request.headers, b"sec-websocket-key")
@@ -81,8 +95,12 @@ async def handle_websocket(
         logger.warning("WebSocket upgrade missing Sec-WebSocket-Key")
         return
 
-    # Create protocol and ASGI bridge (with compression if enabled)
-    ws_proto = WSProtocol(enable_compression=config.websocket_compression)
+    # Create protocol and ASGI bridge. Compression is negotiated only when
+    # both config allows it and the client explicitly offers permessage-deflate.
+    compression_enabled = config.websocket_compression and _client_requested_permessage_deflate(
+        request.headers
+    )
+    ws_proto = WSProtocol(enable_compression=compression_enabled)
     accept_event = asyncio.Event()
     close_event = asyncio.Event()
 

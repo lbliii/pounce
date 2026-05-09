@@ -1,136 +1,191 @@
 # Pounce Roadmap
 
-**Current version:** 0.5.1 (April 2026)
-**Horizon:** April – September 2026
+**Current version:** 0.6.0
+**Updated:** May 2026
+**Active horizon:** May - September 2026
 
----
+## Current Read
+
+Pounce has moved past the original Phase 5b feature-build plan. Static files,
+middleware, lifecycle logging, OpenTelemetry hooks, rich error pages, WebSocket
+compression, HTTP/3, config files, schema export, init scaffolding, health,
+metrics, and introspection are present in the codebase.
+
+The next phase is not another feature grab. The next phase is proof and contract
+hardening for two concrete use cases:
+
+1. **Bengal static-site development:** a local dev server that is fast,
+   cache-correct, reload-friendly, and boring to use from a generated site.
+2. **Chirp/LB Sonic production:** HTML-over-the-wire apps behind a platform load
+   balancer, with multi-tenant host routing, streamed responses, middleware,
+   backpressure, observability, and graceful deploy behavior.
+
+The active planning record is
+[docs/plans/ironclad-bengal-chirp.md](docs/plans/ironclad-bengal-chirp.md).
+Older Phase 5b and vibe-readiness plans are historical implementation records.
 
 ## Where We Are
 
-Pounce is the only pure-Python ASGI server with full protocol coverage — HTTP/1.1, HTTP/2, HTTP/3, and WebSocket — built from the ground up for free-threaded Python 3.14t.
+| Surface | Current State | Confidence |
+|---|---|---|
+| HTTP/1.1 | Implemented, including fast sync parser | High |
+| HTTP/2 | Implemented, but parity gaps need focused proof | Medium |
+| HTTP/3 | Implemented via zoomies, but lifecycle/reload parity needs proof | Medium |
+| WebSocket | Implemented, compression negotiation needs review | Medium |
+| Static files | Static handler exists; public config wiring needs proof/fix | Medium |
+| Middleware | Implemented; docs and real-server Chirp integration need proof | Medium |
+| Lifespan state | H1 path covered; H2/H3/WS parity needs proof/fix | Medium |
+| Reload/drain | Implemented; signal-path load tests are the next gate | Medium |
+| Observability | Metrics, health, OTel, lifecycle logs, introspection present | Medium |
+| Benchmarks | Basic runner exists; canonical workload matrix is missing | Low |
 
-No C extensions. No Rust toolchain. `pip install` and go.
+## Priority 0: Contract Gaps
 
-| Capability | Pounce | Uvicorn 0.42 | Granian 2.7 | Hypercorn |
-|---|---|---|---|---|
-| HTTP/1.1 | Yes | Yes | Yes | Yes |
-| HTTP/2 | Yes | No | Yes | Yes |
-| HTTP/3 (QUIC) | Yes | No | No | Yes (aioquic) |
-| WebSocket | Yes | Yes | Yes | Yes |
-| Free-threaded workers | Yes (native) | Untested | Yes (v2.0+) | No |
-| Pure Python | Yes | Yes (uvloop optional) | No (Rust) | Yes |
-| Built-in compression | zstd + gzip | No | No | No |
-| Static file serving | Yes | No | No | No |
+These items block any claim that Bengal and Chirp/LB Sonic are ironclad.
 
-**Current performance:** ~30k req/s on the sync H1 path (parity with Uvicorn), fast built-in parser (~3 µs/req). Granian's Rust I/O layer is ~3x faster on raw throughput — but Granian can't serve HTTP/3, can't compress responses, and requires a Rust compiler to install.
+### 1. Public Static Config Must Serve Files
 
-**The opening:** Uvicorn has had HTTP/2 "on the roadmap" since 2017. It still ships HTTP/1.1 only. Python 3.14 has been GA for 5 months. Free-threading is supported, not experimental. The ecosystem is catching up — major libraries are adding 3.14t compatibility. Pounce is positioned to be the default ASGI server for the free-threaded era.
+`ServerConfig.static_files` and TOML static config are documented, but steward
+review found the current tests mostly wrap apps manually with `StaticFiles` or
+`create_static_handler`. The public server path must either wire that config into
+dispatch or explicitly demote the config surface.
 
----
+Required proof:
 
-## Q2 2026 (April – June) — Make the Case
+- Real-worker test using only `ServerConfig(static_files={"/": tmpdir})`.
+- TOML `[static_files]` test through public config loading.
+- Bengal-shaped fixture: root index, nested indexes, CSS/JS, SVG/ICO, fonts,
+  search index, `.well-known`, `.gz`, `.zst`, and missing-file behavior.
+- Static-only Bengal mode and mixed Chirp app-plus-assets mode documented.
 
-### Subinterpreter Workers
+### 2. Protocol Limits Must Fail Closed
 
-First ASGI server to ship a subinterpreter worker mode via `concurrent.interpreters` (PEP 734, shipped in 3.14 stdlib). A third worker mode alongside threads and processes — thread-like performance with process-like memory isolation. This is the headline feature for Q2.
+Oversized request bodies must not be truncated and delivered to ASGI as if they
+were valid. H1, H2, and H3 should reject or reset deterministically with
+operator-visible `POUNCE_LIMIT_*` diagnostics.
 
-### Framework Compatibility
+Required proof:
 
-~~Test and certify compatibility with every major ASGI framework.~~ **Testing complete.** 48 integration tests across 4 frameworks, all green in CI:
+- H1 content-length and chunked tests.
+- H2 DATA and H3 DATA over-limit tests.
+- App-not-called or explicit disconnect/reset assertions.
+- Troubleshooting and limits documentation aligned with behavior.
 
-- **FastAPI** — ✅ Full compatibility (routing, DI, Pydantic, middleware, lifespan, WebSocket, streaming, OpenAPI)
-- **Starlette** — ✅ Full compatibility (routing, middleware, lifespan, streaming, WebSocket, background tasks)
-- **Django** (ASGI mode) — ✅ Full compatibility (async views, URL routing, middleware, error handling)
-- **Litestar** — ✅ Core compatibility (routing, DI, middleware, lifespan, streaming). WebSocket: known routing issue with scope method lookup
-- **chirp** — ✅ Bengal ecosystem integration (existing `test_bengal_compat.py`)
+### 3. Tenant Authority Must Be Validated Across Protocols
 
-**Remaining:** Framework outreach — PRs to FastAPI, Litestar, and Django docs adding Pounce as a deployment option. Published compatibility matrix on docs site.
+LB Sonic will likely derive tenant identity from host, authority, scheme, and
+trusted proxy headers. Pounce cannot default malformed H2/H3 pseudo-headers into
+valid-looking `GET /` requests or allow host/authority conflicts to cross tenant
+boundaries.
 
-### Published Benchmarks
+Required proof:
 
-Reproducible, public benchmarks across realistic workloads:
+- H1/H2/H3/WS scope matrix for `Host`, `:authority`, `X-Forwarded-Host`,
+  `X-Forwarded-Proto`, trusted and untrusted proxy cases, and `root_path`.
+- Malformed H2/H3 pseudo-header rejection tests.
+- Chirp-style tenant fixture returning the resolved tenant from ASGI scope.
 
-- **HTTP/1.1 JSON API** — Pounce vs Uvicorn vs Granian (level playing field)
-- **HTTP/2 multiplexed** — Pounce vs Granian vs Hypercorn (Uvicorn can't participate)
-- **HTTP/3 QUIC** — Pounce vs Hypercorn (Granian can't participate)
-- **WebSocket echo** — All servers
-- **Static files** — Pounce vs Nginx (demonstrate built-in serving is viable)
-- **SSE streaming** — Pounce vs Uvicorn
+### 4. Lifespan State Parity
 
-Publish as a dedicated site section with methodology, reproduction scripts, and hardware specs.
+Chirp production apps need startup-created state for pools, caches, tenant
+registries, and shared services. H1 must not be the only path that sees
+`scope["state"]`.
 
-### ~~Configuration File Support~~ — Done
+Required proof:
 
-Shipped in v0.5.x. `pounce.toml` or `[tool.pounce]` in `pyproject.toml`. CLI arguments always take precedence over file values.
+- Scope state tests for H1, H2, H3, and WebSocket.
+- Integration tests proving documented per-worker state behavior.
+- ASGI bridge docs updated with parity or explicit exceptions.
 
----
+## Priority 1: Use-Case Proof
 
-## Q3 2026 (July – September) — Production Confidence
+### Bengal Ironclad Local Dev
 
-### io_uring Backend (Linux)
+Goal: `bengal build` output can be previewed with Pounce without guessing,
+without Nginx, and without surprising browser behavior.
 
-Batched I/O via io_uring for accept, read, and write operations. Third-party Python io_uring libraries are showing 36% throughput gains over standard asyncio. Ship as an opt-in backend (`--io-backend uring`) — standard asyncio remains the default.
+Work:
 
-### ~~Compression Dictionary Transport (RFC 9842)~~ — Done
+- Add a Bengal-like fixture or generated output artifact.
+- Add local-dev static benchmark profile: warm small files, nested indexes,
+  304s, range requests, precompressed assets, and cold first-hit numbers.
+- Validate reload includes for `.md`, `.html`, `.css`, `.js`, templates, and
+  static assets.
+- Document the exact `pounce.toml`, `pounce check`, and run command.
 
-Shipped. Delta compression using shared zstd dictionaries for API endpoints with repetitive JSON payloads. Chrome 123+ compatible. `DictZstdCompressor` with `Available-Dictionary` header negotiation.
+Initial target envelope:
 
-### Memory Profiling & Leak Detection
+- Warm p50 <= 2 ms and p99 <= 10 ms for files under 10 KB on a local dev
+  machine.
+- 304 p99 <= 5 ms.
+- No RSS growth above 10 MB over a 100k-request static soak.
 
-Establish baseline memory profiles for all three worker modes (thread, process, subinterpreter) under sustained load. Identify and fix any leaks in long-running deployments. Publish results.
+### Chirp/LB Sonic Production
 
-### Cloud Deployment Guides
+Goal: confidently deploy a multi-tenant HTML-over-the-wire forum stack on
+Pounce behind a managed platform load balancer.
 
-- **Docker** — Optimized Dockerfile, multi-stage build, health check configuration
-- **AWS Lambda** — Mangum-style adapter or native integration
-- **Cloud Run / Fly.io** — Container-first deployment with HTTP/2 and graceful shutdown
-- **Kubernetes** — Readiness/liveness probes, graceful termination
+Work:
 
-### Python 3.15 Beta Compatibility
+- Add a representative Chirp/LB Sonic fixture: host-based tenants, middleware,
+  lifespan state, forms, streamed HTML or SSE, static assets, and optional
+  WebSocket route if the product needs it.
+- Add Railway-style deployment recipe: bind `0.0.0.0:$PORT`, rely on platform
+  TLS termination, configure health path, use JSON logs, and set proxy trust
+  deliberately.
+- Add load profiles for sustained browsing, burst posting, streamed updates,
+  queue saturation, rate limiting, and SIGTERM drain.
+- Add operator workflow: health for deploy readiness, metrics for dashboards,
+  introspection for live debugging, lifecycle logs for deploy analysis.
 
-3.15.0b1 expected mid-2026. Validate Pounce against each beta. Stay ahead of the release cycle — don't be the server that breaks on new Python.
+Initial target envelope:
 
-### Stretch Goals
+- Pounce >= 0.9x Uvicorn throughput on agreed H1 Chirp workload.
+- p99 <= 25 ms at the agreed target request rate.
+- Error rate < 0.1% under sustained load.
+- SSE first-event p99 <= 100 ms, if SSE is in scope.
+- No unexpected drops during reload/drain tests.
 
-- **WebTransport** (HTTP/3 datagrams) — Bidirectional unreliable messaging over QUIC. Ship if spec and browser support mature enough.
-- **sendfile()** — Zero-copy file transfer for static files. Nice optimization, not a headline.
-- **Graceful reload improvements** — Smoother zero-downtime SIGHUP under high concurrency.
+## Priority 2: Evidence Tooling
 
----
+The benchmark system needs to produce attachable evidence instead of one-off
+numbers.
 
-## Adoption & Community
+Work:
 
-This is not optional. A server nobody knows about is a server nobody uses.
+- Add profiles: `local-dev`, `bengal-static`, `chirp-prod`, `streaming`,
+  `reload`, and `worker-modes`.
+- Add repeat counts, variance, raw JSON artifacts, CPU/RSS capture, Python build
+  metadata, GIL/free-threaded status, and competitor versions.
+- Separate product claims from local observations. README and site numbers must
+  cite the exact command, environment, sample count, and caveats.
 
-- **PyCon US 2026** — Talk proposal: "ASGI Beyond HTTP/1.1: Serving HTTP/2, HTTP/3, and WebSocket in Pure Python"
-- **Blog series** — "Why your ASGI server can't speak HTTP/2" (targeting Uvicorn users), "Free-threaded Python in production" (targeting early adopters)
-- **Framework outreach** — PRs to FastAPI, Litestar, and Django docs adding Pounce as a deployment option
-- **Migration guides** — Uvicorn (done), Hypercorn, Daphne, Gunicorn+Uvicorn workers
+## Priority 3: Documentation Alignment
 
----
+Work:
 
-## Non-Goals
+- Mark Phase 5b documents as historical implementation records.
+- Collapse the HTTP/3 design doc into current zoomies state, remaining parity
+  gaps, and release confidence gates.
+- Align worker-mode docs with `ServerConfig`, CLI, schema, README, and tests.
+- Fix middleware examples or implementation so docs match callable signatures.
+- Clarify introspection exposure: same listener with warning versus separate
+  loopback listener. The ADR, config fields, docs, and tests must agree.
 
-Pounce deliberately does not:
+## Not Now
 
-- **Include application-level logic.** No routing, no templates. Server-level middleware (CORS, security headers) and static file serving are opt-in server features.
-- **Include a process manager.** Pounce manages its own workers but doesn't replace systemd or container orchestration.
-- **Support Python < 3.14.** Free-threading is the reason Pounce exists.
-- **Support WSGI.** ASGI only. WSGI apps can use an ASGI adapter.
-- **Replace Nginx.** Pounce is an application server, not a reverse proxy.
-- **Chase Rust on raw throughput.** Granian will always be faster at moving bytes. Pounce wins on protocol coverage, zero dependencies, and Python-native deployment.
+These should not outrank the contract and use-case gates above:
 
----
+- io_uring backend.
+- WebTransport.
+- Custom static transforms or image resizing.
+- More framework scaffolds for `pounce init`.
+- HTTP/3 performance marketing.
+- Rust-throughput parity as a product claim.
+- Tenant-aware routing or auth inside Pounce core.
 
-## The Bengal Ecosystem
+## Historical Notes
 
-```
-pounce      ASGI server       (serves apps)
-chirp       Web framework     (builds apps)
-kida        Template engine   (renders HTML)
-patitas     Markdown parser   (parses content)
-rosettes    Syntax highlighter (highlights code)
-bengal      Static site gen   (builds sites)
-```
-
-Each tool is independent. Together they form a complete web platform for Python 3.14t.
+Phase 5b established the core production feature set. The older plan files remain
+useful as implementation history, but current work is governed by the ironclad
+Bengal/Chirp plan and by steward findings attached there.

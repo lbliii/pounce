@@ -13,6 +13,7 @@ import asyncio
 import logging
 import socket
 import threading
+from typing import Any
 
 from pounce._cpu_affinity import maybe_pin_worker
 from pounce._types import ASGIApp
@@ -43,6 +44,7 @@ class H3Worker:
         "_async_shutdown",
         "_config",
         "_ext_shutdown",
+        "_lifespan_state",
         "_logger",
         "_loop",
         "_sock",
@@ -65,9 +67,14 @@ class H3Worker:
         self._sock = sock
         self._worker_id = worker_id
         self._ext_shutdown = shutdown_event
+        self._lifespan_state: dict[str, Any] = {}
         self._async_shutdown: asyncio.Event | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._logger = logging.getLogger(f"pounce.h3_worker.{worker_id}")
+
+    def set_lifespan_state(self, state: dict[str, Any]) -> None:
+        """Set the lifespan state dict injected into H3 request scopes."""
+        self._lifespan_state = state
 
     def run(self) -> None:
         """Start the H3 worker's event loop (blocking)."""
@@ -132,6 +139,7 @@ class H3Worker:
             self._logger,
             server,
             quic_config,
+            lifespan_state=self._lifespan_state,
         )
 
         transport, _protocol = await self._loop.create_datagram_endpoint(

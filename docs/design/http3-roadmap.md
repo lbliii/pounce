@@ -6,9 +6,19 @@
 
 **Implementation note:** HTTP/3 is implemented using [zoomies](https://github.com/lbliii/zoomies), a free-threading-native sans-I/O QUIC/HTTP/3 library. aioquic was replaced because it uses Limited API C extensions incompatible with Python 3.14 free-threaded.
 
+**Current-state note:** Sections below preserve the February 2026 aioquic
+research and original deferral recommendation. They are historical context, not
+the active implementation plan. Current HTTP/3 work should focus on zoomies
+parity gates: lifecycle state, reload/drain behavior, transport documentation,
+and reproducible benchmarks before broad production claims.
+
 ## Executive Summary
 
-This document evaluates HTTP/3/QUIC support for pounce and provides an architectural design and implementation roadmap. After comprehensive research and analysis, we recommend **deferring full HTTP/3 implementation to Phase 5c** while laying groundwork in Phase 5b.
+This document originally evaluated HTTP/3/QUIC support for pounce and provided
+an architectural design and implementation roadmap. The original recommendation
+was to defer full HTTP/3 implementation to Phase 5c while laying groundwork in
+Phase 5b. That recommendation is now historical because HTTP/3 has been
+implemented with zoomies.
 
 **Key Findings:**
 
@@ -19,7 +29,9 @@ This document evaluates HTTP/3/QUIC support for pounce and provides an architect
 - ⚠️ **Adoption priority** is lower than completing Phase 5b core features
 - ✅ **Integration path** is clear via aioquic's asyncio protocol
 
-**Recommendation:** Complete Phase 5b first, then implement HTTP/3 in Phase 5c (Q2 2026) with `protocols/h3.py` and UDP worker support.
+**Historical recommendation:** Complete Phase 5b first, then implement HTTP/3 in
+Phase 5c with `protocols/h3.py` and UDP worker support. Current work should use
+the current-state note above instead.
 
 ## Technical Background
 

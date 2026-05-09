@@ -35,7 +35,11 @@ When a trusted proxy sends `X-Forwarded-For`, Pounce updates:
 
 - `scope["client"]` — Set to the real client IP from `X-Forwarded-For`
 - `scope["scheme"]` — Set from `X-Forwarded-Proto` (e.g. `"https"`)
-- `scope["headers"]` — Proxy headers stripped to prevent downstream leakage
+- `scope["server"]` and the ASGI `Host` header — Set from `X-Forwarded-Host`,
+  including a forwarded port when one is present
+
+This applies consistently to HTTP/1.1, HTTP/2, HTTP/3, and WebSocket scopes so
+host-routed applications see the same tenant authority on every protocol path.
 
 When an **untrusted** peer sends these headers, they are silently stripped.
 

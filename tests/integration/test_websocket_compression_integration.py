@@ -181,6 +181,51 @@ class TestWebSocketCompressionIntegration:
         assert b"HTTP/1.1 101 Switching Protocols" in written
         assert b"Sec-WebSocket-Extensions:" not in written
 
+    @pytest.mark.asyncio
+    async def test_compression_enabled_but_not_offered_excludes_extensions_header(self):
+        """Config alone is not negotiation; the client must offer the extension."""
+        config = ServerConfig(websocket_compression=True)
+
+        async def simple_app(scope, receive, send):
+            await send({"type": "websocket.accept"})
+            await send({"type": "websocket.close"})
+
+        request = RequestReceived(
+            method=b"GET",
+            target=b"/ws",
+            http_version="1.1",
+            headers=(
+                (b"host", b"localhost"),
+                (b"connection", b"upgrade"),
+                (b"upgrade", b"websocket"),
+                (b"sec-websocket-version", b"13"),
+                (b"sec-websocket-key", b"dGhlIHNhbXBsZSBub25jZQ=="),
+            ),
+        )
+
+        reader = MockStreamReader()
+        writer = MockStreamWriter()
+
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(
+                handle_websocket(
+                    simple_app,
+                    config,
+                    logger=None,  # type: ignore
+                    request=request,
+                    reader=reader,
+                    writer=writer,
+                    client=("127.0.0.1", 12345),
+                    server=("127.0.0.1", 8000),
+                    client_str="127.0.0.1:12345",
+                ),
+                timeout=1.0,
+            )
+
+        written = writer.get_written()
+        assert b"HTTP/1.1 101 Switching Protocols" in written
+        assert b"Sec-WebSocket-Extensions:" not in written
+
 
 class TestCompressionRatio:
     """Tests for actual compression effectiveness."""

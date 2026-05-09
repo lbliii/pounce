@@ -1,0 +1,1 @@
+WebSocket compression now advertises `permessage-deflate` only when the client offered it in `Sec-WebSocket-Extensions`; enabling `ServerConfig.websocket_compression` no longer sends an extension the client did not negotiate.

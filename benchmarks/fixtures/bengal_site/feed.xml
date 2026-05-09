@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Bengal Fixture</title>
+  <id>urn:pounce:bengal-fixture</id>
+  <updated>2026-05-09T00:00:00Z</updated>
+  <entry>
+    <title>Launch Notes</title>
+    <id>urn:pounce:bengal-fixture:launch</id>
+    <updated>2026-05-09T00:00:00Z</updated>
+    <link href="/posts/launch/"/>
+  </entry>
+</feed>

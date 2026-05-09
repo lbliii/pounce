@@ -1,8 +1,18 @@
 # Phase 5b Implementation Plan: Production Competitiveness
 
+**Status:** Historical implementation plan. Phase 5b feature work is no longer
+the active roadmap. Use [ROADMAP.md](ROADMAP.md) and
+[docs/plans/ironclad-bengal-chirp.md](docs/plans/ironclad-bengal-chirp.md) for
+current priorities.
+
+**Historical note:** This file is retained to explain the original production
+competitiveness plan. Some acceptance criteria and release targets below were
+superseded by shipped 0.3.0-0.6.0 work and by the current steward synthesis.
+
 **Goal:** Make pounce a competitive alternative to Uvicorn/Hypercorn/Granian for production use in 2026, optimized for Bengal (SSG) and Chirp (hypermedia/HTMX) workloads.
 
-**Status:** Phase 5a (Production Grade security/observability) completed. Phase 5b focuses on feature parity and DX.
+**Original status:** Phase 5a (Production Grade security/observability)
+completed. Phase 5b focused on feature parity and DX.
 
 ---
 

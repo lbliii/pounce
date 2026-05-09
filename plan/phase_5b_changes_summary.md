@@ -1,5 +1,14 @@
 # Phase 5b: File Changes Summary
 
+**Status:** Historical implementation record. This file is not the active work
+queue. Current priorities are in
+[../ROADMAP.md](../ROADMAP.md) and
+[../docs/plans/ironclad-bengal-chirp.md](../docs/plans/ironclad-bengal-chirp.md).
+
+**Historical note:** Sections below describe the intended Phase 5b file layout at
+planning time. They are useful for archaeology, but they should not override
+current code, tests, or steward findings.
+
 Quick reference for all modules that need changes during Phase 5b implementation.
 
 ---

@@ -129,6 +129,7 @@ class SyncWorker:
         "_conn_queue",
         "_date_cache_sec",
         "_date_header_bytes",
+        "_drain_event",
         "_ext_shutdown",
         "_lifecycle",
         "_lifespan_state",
@@ -163,6 +164,7 @@ class SyncWorker:
         self._sock = sock
         self._worker_id = worker_id
         self._ext_shutdown = shutdown_event
+        self._drain_event = threading.Event()
         self._ssl_context = ssl_context
         self._lifecycle: LifecycleCollector = lifecycle_collector or NoopCollector()
         self._lifespan_state: dict[str, Any] = {}
@@ -180,8 +182,7 @@ class SyncWorker:
 
     def start_draining(self) -> None:
         """Mark this worker as draining (stop accepting new connections)."""
-        if self._ext_shutdown:
-            self._ext_shutdown.set()
+        self._drain_event.set()
 
     def is_idle(self) -> bool:
         """True if no connection is currently being handled."""
@@ -205,7 +206,7 @@ class SyncWorker:
     def _run_from_queue(self, poll_interval: float, runner: asyncio.Runner) -> None:
         """Get connections from distributor queue (no thundering herd)."""
         assert self._conn_queue is not None
-        while not (self._ext_shutdown and self._ext_shutdown.is_set()):
+        while not self._should_stop():
             try:
                 conn, addr = self._conn_queue.get(timeout=poll_interval)
             except queue.Empty:
@@ -216,14 +217,14 @@ class SyncWorker:
         """Accept directly from socket (SO_REUSEPORT or single worker)."""
         assert self._sock is not None
         self._sock.setblocking(True)
-        while not (self._ext_shutdown and self._ext_shutdown.is_set()):
+        while not self._should_stop():
             self._sock.settimeout(poll_interval)
             try:
                 conn, addr = self._sock.accept()
             except TimeoutError:
                 continue
             except OSError:
-                if self._ext_shutdown and self._ext_shutdown.is_set():
+                if self._should_stop():
                     break
                 raise
             conn.setblocking(True)
@@ -236,6 +237,11 @@ class SyncWorker:
                     conn.close()
                     continue
             self._handle_connection(conn, addr, runner)
+
+    def _should_stop(self) -> bool:
+        return self._drain_event.is_set() or bool(
+            self._ext_shutdown and self._ext_shutdown.is_set()
+        )
 
     def _handle_connection(
         self, conn: socket.socket, addr: tuple[str, int], runner: asyncio.Runner

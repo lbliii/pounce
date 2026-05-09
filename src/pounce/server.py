@@ -21,7 +21,7 @@ import socket
 import sys
 import threading
 from dataclasses import replace
-from typing import cast
+from typing import Any, cast
 
 import pounce.logging as pounce_logging
 from pounce._runtime import WorkerMode, detect_worker_mode, is_gil_enabled
@@ -384,7 +384,7 @@ class Server:
 
             h3_task: asyncio.Task[None] | None = None
             if udp_sock is not None:
-                h3_task = asyncio.create_task(self._run_single_h3(udp_sock))
+                h3_task = asyncio.create_task(self._run_single_h3(udp_sock, lifespan_state))
 
             dispatch(READY, host=self._config.host, port=self._config.port, uds=self._config.uds)
             self._started_event.set()
@@ -564,7 +564,11 @@ class Server:
                 udp_sockets,
             )
 
-    async def _run_single_h3(self, udp_sock: socket.socket) -> None:
+    async def _run_single_h3(
+        self,
+        udp_sock: socket.socket,
+        lifespan_state: dict[str, Any],
+    ) -> None:
         """Run HTTP/3 datagram endpoint in single-worker mode."""
         try:
             from pounce.protocols.h3 import is_h3_available
@@ -617,6 +621,7 @@ class Server:
             logger_h3,
             server,
             quic_config,
+            lifespan_state=lifespan_state,
         )
 
         transport, _protocol = await loop.create_datagram_endpoint(
@@ -641,13 +646,16 @@ class Server:
         1. Sentry (catches exceptions from all inner layers)
         2. Request queue (load shedding)
         3. Rate limiter (per-IP throttling)
-        4. Metrics endpoint (intercepts /metrics)
-        5. App (innermost)
+        4. User middleware
+        5. Static files
+        6. Metrics endpoint (intercepts /metrics)
+        7. App (innermost)
 
         """
         self._apply_otel()
         self._apply_lifecycle_logging()
         self._apply_metrics()
+        self._apply_static_files()
         self._apply_middleware()
         self._apply_rate_limiter()
         self._apply_request_queue()
@@ -705,6 +713,28 @@ class Server:
             ),
         )
         logger.info("Prometheus metrics enabled at %s", self._config.metrics_path)
+
+    def _apply_static_files(self) -> None:
+        """Wrap app with configured static file mounts."""
+        if not self._config.static_files:
+            return
+        from pathlib import Path
+
+        from pounce._static import StaticFiles, StaticMount
+
+        mounts = [
+            StaticMount(
+                url_path=url_path,
+                directory=Path(directory),
+                cache_control=self._config.static_cache_control,
+                precompressed=self._config.static_precompressed,
+                follow_symlinks=self._config.static_follow_symlinks,
+                index_file=self._config.static_index_file,
+            )
+            for url_path, directory in self._config.static_files.items()
+        ]
+        self._app = cast("ASGIApp", StaticFiles(self._app, mounts=mounts))
+        logger.info("Static file serving enabled for %d mount(s)", len(mounts))
 
     def _apply_middleware(self) -> None:
         """Wrap app with middleware stack if configured."""

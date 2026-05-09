@@ -124,7 +124,7 @@ Request IDs are always generated (or extracted from trusted proxies). Every resp
 | `trusted_hosts` | `frozenset[str]` | `frozenset()` | Trusted proxy hosts for X-Forwarded-* header validation (empty = strip all proxy headers). Accepts any iterable; normalized to frozenset internally. |
 
 ::::{note}
-When `trusted_hosts` is empty, Pounce strips `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` from all requests. Set it to your reverse proxy's IP (e.g. `frozenset({"10.0.0.1"})`) or `frozenset({"*"})` to trust all peers. Tuples and lists are also accepted and converted automatically.
+When `trusted_hosts` is empty, Pounce strips `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` from all requests. Set it to your reverse proxy's IP (e.g. `frozenset({"10.0.0.1"})`) or `frozenset({"*"})` to trust all peers. Trusted `X-Forwarded-Host` rewrites both `scope["server"]` and the ASGI `Host` header, including a forwarded port when present. Tuples and lists are also accepted and converted automatically.
 ::::
 
 ### TLS

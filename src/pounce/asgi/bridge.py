@@ -369,6 +369,7 @@ def create_send(
             if compressor is not None:
                 filtered: list[tuple[bytes, bytes]] = []
                 has_transfer_encoding = False
+                has_content_encoding = False
                 is_sse = False
                 for n, v in headers:
                     nl = n.lower()
@@ -376,12 +377,16 @@ def create_send(
                         continue
                     if nl == b"transfer-encoding":
                         has_transfer_encoding = True
+                    elif nl == b"content-encoding":
+                        has_content_encoding = True
                     elif nl == b"content-type" and b"text/event-stream" in v:
                         is_sse = True
                     filtered.append((n, v))
-                if is_sse:
+                if is_sse or has_content_encoding:
                     # SSE must not be compressed — EventSource API
-                    # doesn't support it.  Restore original headers.
+                    # doesn't support it. Responses with Content-Encoding are
+                    # already encoded, e.g. precompressed static assets.
+                    # Restore original headers.
                     compressor = None
                 else:
                     headers = filtered

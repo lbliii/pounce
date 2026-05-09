@@ -80,7 +80,7 @@ class TestApplyProxyHeaders:
         assert result["scheme"] == "https"
 
     def test_trusted_peer_rewrites_host(self):
-        """Trusted peer: X-Forwarded-Host rewrites server host."""
+        """Trusted peer: X-Forwarded-Host rewrites server host and Host."""
         scope = _scope(
             client=("10.0.0.1", 5000),
             headers=[[b"x-forwarded-host", b"public.example.com"]],
@@ -88,6 +88,33 @@ class TestApplyProxyHeaders:
         result = apply_proxy_headers(scope, trusted_hosts=("10.0.0.1",))
 
         assert result["server"] == ("public.example.com", 8000)
+        assert (b"host", b"public.example.com") in result["headers"]
+
+    def test_trusted_peer_rewrites_host_with_port(self):
+        """Trusted X-Forwarded-Host port becomes the ASGI server port."""
+        scope = _scope(
+            client=("10.0.0.1", 5000),
+            headers=[
+                [b"host", b"internal:8000"],
+                [b"x-forwarded-host", b"public.example.com:443"],
+            ],
+        )
+        result = apply_proxy_headers(scope, trusted_hosts=("10.0.0.1",))
+
+        assert result["server"] == ("public.example.com", 443)
+        assert (b"host", b"public.example.com:443") in result["headers"]
+        assert (b"host", b"internal:8000") not in result["headers"]
+
+    def test_trusted_peer_rewrites_bracketed_ipv6_host_with_port(self):
+        """Trusted X-Forwarded-Host supports bracketed IPv6 authorities."""
+        scope = _scope(
+            client=("10.0.0.1", 5000),
+            headers=[[b"x-forwarded-host", b"[2001:db8::1]:8443"]],
+        )
+        result = apply_proxy_headers(scope, trusted_hosts=("10.0.0.1",))
+
+        assert result["server"] == ("2001:db8::1", 8443)
+        assert (b"host", b"[2001:db8::1]:8443") in result["headers"]
 
     def test_wildcard_trusts_all_peers(self):
         """trusted_hosts=("*",) trusts any peer."""

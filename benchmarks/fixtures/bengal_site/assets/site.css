@@ -1,0 +1,21 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 3rem;
+  background: canvas;
+  color: canvastext;
+}
+
+main,
+article {
+  max-width: 64rem;
+}
+
+a {
+  color: #0f766e;
+  margin-right: 1rem;
+}

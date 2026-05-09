@@ -87,6 +87,18 @@ WORKLOADS: dict[str, dict[str, str]] = {
         "path": "/",
         "body_size": "1024",
     },
+    "bengal": {
+        "app": "benchmarks.apps.bengal_static:app",
+        "description": "Bengal-shaped generated static site",
+        "method": "GET",
+        "path": "/",
+    },
+    "chirp": {
+        "app": "benchmarks.apps.chirp_forum:app",
+        "description": "Chirp/LB Sonic-shaped multi-tenant forum thread",
+        "method": "GET",
+        "path": "/threads/1",
+    },
 }
 
 

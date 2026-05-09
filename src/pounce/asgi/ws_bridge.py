@@ -30,6 +30,8 @@ def build_ws_scope(
     config: ServerConfig,
     client: tuple[str, int],
     server: tuple[str, int],
+    *,
+    state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an ASGI WebSocket scope dict from the upgrade request.
 
@@ -43,6 +45,8 @@ def build_ws_scope(
         ASGI scope dict with ``type: "websocket"``.
 
     """
+    from pounce._proxy import apply_proxy_headers
+
     # Extract requested subprotocols from Sec-WebSocket-Protocol header
     subprotocols: list[str] = []
     for name, value in request.headers:
@@ -60,7 +64,10 @@ def build_ws_scope(
         client=client,
         root_path=config.root_path,
     )
+    scope = apply_proxy_headers(scope, trusted_hosts=config.trusted_hosts)
     scope["subprotocols"] = subprotocols
+    if state is not None:
+        scope["state"] = state
     return scope
 
 

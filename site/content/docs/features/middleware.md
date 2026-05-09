@@ -6,7 +6,10 @@ weight: 2
 
 # Middleware System
 
-Pounce supports server-level middleware for transforming requests and responses across your entire application. Middleware runs inside pounce's request pipeline, before and after your ASGI app.
+Pounce supports server-level middleware for transforming HTTP requests and
+responses across your entire application. Middleware runs inside pounce's HTTP
+request pipeline, before and after your ASGI app. Lifespan, worker lifecycle,
+and WebSocket scopes bypass this middleware stack.
 
 ## Configuration
 
@@ -18,9 +21,9 @@ from pounce import ServerConfig, CORSMiddleware, SecurityHeadersMiddleware
 config = ServerConfig(
     middleware=[
         CORSMiddleware(
-            allow_origins=["https://example.com"],
-            allow_methods=["GET", "POST"],
-            allow_headers=["Authorization"],
+            allow_origin="https://example.com",
+            allow_methods="GET, POST",
+            allow_headers="Authorization",
         ),
         SecurityHeadersMiddleware(),
     ],
@@ -37,10 +40,9 @@ Handles Cross-Origin Resource Sharing headers and preflight requests:
 from pounce import CORSMiddleware
 
 cors = CORSMiddleware(
-    allow_origins=["https://example.com"],
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["Authorization", "Content-Type"],
-    allow_credentials=True,
+    allow_origin="https://example.com",
+    allow_methods="GET, POST, PUT, DELETE",
+    allow_headers="Authorization, Content-Type",
     max_age=3600,
 )
 ```
@@ -58,22 +60,33 @@ security = SecurityHeadersMiddleware()
 
 ## Custom Middleware
 
-Implement the `PreRequestMiddleware` or `PostResponseMiddleware` protocol:
+Middleware is classified by callable parameter count:
+
+- 1 parameter: pre-request hook, `scope -> scope | Response`
+- 2 parameters: exception hook, `(scope, exc) -> Response | None`
+- 3 parameters: post-response hook, `(scope, status, headers) -> (status, headers)`
 
 ```python
 from pounce import Response
 
 # Pre-request: inspect scope, optionally short-circuit
-async def auth_middleware(scope, receive):
+async def auth_middleware(scope):
     token = dict(scope["headers"]).get(b"authorization")
     if not token:
         return Response(status=401, body=b"Unauthorized")
-    return None  # continue to app
+    scope["user"] = "authenticated"
+    return scope  # continue to app
 
 # Post-response: modify status or headers
 async def timing_middleware(scope, status, headers):
     headers.append((b"x-custom-header", b"value"))
     return status, headers
+
+# Exception: convert selected app errors into responses
+async def exception_middleware(scope, exc):
+    if isinstance(exc, ValueError):
+        return Response(status=400, body=b"Bad Request")
+    return None  # re-raise unhandled exceptions
 ```
 
 ## Common Patterns
