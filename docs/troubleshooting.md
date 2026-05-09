@@ -5,7 +5,7 @@ Every pounce error carries a semantic code of the form
 
 - The `X-Pounce-Error-Code` response header on pounce-generated 4xx/5xx.
 - Log lines written by workers and the supervisor.
-- Response bodies when `log_level=debug` is set.
+- Response bodies when `ServerConfig.debug=True` is set.
 
 This file is the catalog. Each entry is grouped by category and includes what
 the code means, what typically causes it, and what to do.
@@ -115,7 +115,7 @@ RFC 7230 §3.3.3 and a classic request-smuggling vector.
 **Do:** pounce always rejects. Investigate the upstream.
 
 ### POUNCE_PARSE_HEADERS_TOO_LARGE
-Combined header bytes exceeded `max_header_size` (default 8 KiB).
+Combined header bytes exceeded `max_header_size` (default 64 KiB).
 **Cause:** legitimate large cookies, or an attacker.
 **Do:** raise `max_header_size` if legitimate; otherwise block upstream.
 

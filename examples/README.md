@@ -97,11 +97,11 @@ scrape_configs:
 - `/api/slow` - Slow response (~500ms)
 - `/api/error` - Returns 500 error
 
-## Prototypes
+## Protocol Examples
 
-## HTTP/3 Prototype
+## HTTP/3
 
-**Status:** Conceptual prototype for Phase 5c (Q2 2026)
+**Status:** Supported optional protocol path. Requires TLS and the `h3` extra.
 
 **File:** `http3_prototype.py`
 
@@ -110,7 +110,7 @@ This example runs a minimal HTTP/3 server using pounce's [zoomies](https://githu
 ### Requirements
 
 ```bash
-pip install pounce[h3]
+pip install bengal-pounce[h3]
 ```
 
 ### Generate TLS Certificate

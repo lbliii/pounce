@@ -4,7 +4,7 @@ HTTP/3 (QUIC) protocol support — availability check for zoomies.
 HTTP/3 uses QUIC (UDP) transport. The actual protocol handling lives in
 ``_h3_handler.py`` which integrates zoomies' sans-I/O QuicConnection.
 
-Requires the ``h3`` optional dependency (``pip install pounce[h3]``).
+Requires the ``h3`` optional dependency (``pip install bengal-pounce[h3]``).
 
 """
 

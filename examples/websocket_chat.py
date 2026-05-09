@@ -18,7 +18,7 @@ This is expected — shared mutable state across processes requires
 IPC, which is outside pounce's scope.
 
 Prerequisites:
-    pip install pounce[ws]   # installs wsproto
+    pip install bengal-pounce[ws]   # installs wsproto
 
 Run it:
     pounce examples.websocket_chat:app --workers 4

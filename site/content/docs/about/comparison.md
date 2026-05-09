@@ -24,7 +24,7 @@ automatic process fallback on GIL builds.
 - **7x faster parsing** — Built-in HTTP/1.1 parser (~3 us/req) on sync worker hot path
 - **Zero-downtime reload** — Rolling restart with generational worker swap (3.14t only)
 - **Pure Python** — One dependency (h11). Debuggable, hackable, readable
-- **Optional extras** — HTTP/2, WebSocket, TLS, HTTP/3 via `pounce[h2]`, `pounce[ws]`, `pounce[tls]`, `pounce[h3]`
+- **Optional extras** — HTTP/2, WebSocket, TLS, HTTP/3 via `bengal-pounce[h2]`, `bengal-pounce[ws]`, `bengal-pounce[tls]`, `bengal-pounce[h3]`
 
 ## When Pounce Fits
 

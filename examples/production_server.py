@@ -154,7 +154,7 @@ if __name__ == "__main__":
     print("  ✅ Rate limiting:       10 req/s per IP")
     print("  ✅ Request queueing:    Max 100 queued")
     print("  ✅ Health check:        http://localhost:8000/health")
-    print("  ✅ Hot reload:          Send SIGUSR1 for zero-downtime reload")
+    print("  ✅ Hot reload:          Send SIGHUP for zero-downtime reload")
     print()
     print("Test endpoints:")
     print("  GET  /           - Normal API response")
@@ -164,7 +164,7 @@ if __name__ == "__main__":
     print("  GET  /metrics    - Prometheus metrics")
     print()
     print("Trigger hot reload:")
-    print(f"  kill -SIGUSR1 {os.getpid()}")
+    print(f"  kill -SIGHUP {os.getpid()}")
     print()
 
     run(app, config=config)

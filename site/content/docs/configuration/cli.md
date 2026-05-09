@@ -28,7 +28,7 @@ The `APP` argument is a Python module path with an attribute, e.g. `myapp:app`. 
 | `--port INT` | `8000` | Bind port |
 | `--uds PATH` | — | Unix domain socket path (mutually exclusive with `--host`/`--port`) |
 | `--workers INT` | `1` | Number of workers (0 = auto-detect from CPU cores) |
-| `--worker-mode TEXT` | `auto` | Worker execution model: `auto` (sync on 3.14t, async on GIL), `sync` (blocking I/O), `async` (event loop) |
+| `--worker-mode TEXT` | `auto` | Worker execution model: `auto` (sync on 3.14t, async on GIL), `sync` (blocking I/O), `async` (event loop), or `subinterpreter` |
 | `--cpu-affinity` | `disabled` | Pin each worker to a CPU core (Linux only, reduces cache thrashing) |
 
 ### Timeouts
@@ -37,10 +37,11 @@ The `APP` argument is a Python module path with an attribute, e.g. `myapp:app`. 
 |------|---------|-------------|
 | `--keep-alive-timeout FLOAT` | `5.0` | Keep-alive timeout (seconds) |
 | `--header-timeout FLOAT` | `10.0` | Max seconds to receive complete request headers (slowloris protection) |
+| `--request-timeout FLOAT` | `30.0` | Max seconds to receive a complete request body |
 | `--shutdown-timeout FLOAT` | `10.0` | Shutdown grace period per worker (seconds, parallel joins) |
 
 ::::{note}
-`request_timeout`, `max_request_size`, `max_connections`, and `backlog` are available only via `ServerConfig` — they are not exposed as CLI flags.
+`max_request_size`, `max_connections`, and `backlog` are available only via `ServerConfig` — they are not exposed as CLI flags.
 ::::
 
 ### Logging

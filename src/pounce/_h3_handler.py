@@ -5,7 +5,7 @@ HTTP/3 uses QUIC (UDP) transport. Zoomies is sans-I/O: pounce owns the
 UDP loop and maintains a connection map. Each QUIC connection has an
 H3Connection; each HTTP/3 stream maps to one ASGI invocation.
 
-Requires the ``h3`` optional dependency (``pip install pounce[h3]``).
+Requires the ``h3`` optional dependency (``pip install bengal-pounce[h3]``).
 
 """
 
@@ -595,7 +595,7 @@ def create_zoomies_datagram_protocol_factory(
     Returns a no-arg callable suitable for create_datagram_endpoint().
     """
     if not is_h3_available():
-        msg = "zoomies not installed; install with pip install pounce[h3]"
+        msg = "zoomies not installed; install with pip install bengal-pounce[h3]"
         raise RuntimeError(msg)
 
     protocol_cls = _create_zoomies_datagram_protocol(

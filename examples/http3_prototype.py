@@ -4,7 +4,7 @@ HTTP/3 example using pounce with zoomies.
 Runs a minimal HTTP/3 server using pounce's zoomies integration.
 
 Requirements:
-    pip install pounce[h3]
+    pip install bengal-pounce[h3]
 
 Usage:
     python examples/http3_prototype.py
@@ -58,7 +58,7 @@ async def main() -> None:
     logger = logging.getLogger("h3.example")
 
     if not ZOOMIES_AVAILABLE:
-        logger.error("zoomies not installed. Install with: pip install pounce[h3]")
+        logger.error("zoomies not installed. Install with: pip install bengal-pounce[h3]")
         return
 
     try:

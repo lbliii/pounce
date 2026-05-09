@@ -40,7 +40,7 @@ pounce myapp:app --host 0.0.0.0 --port 8000 --workers 4 --reload
 | `--factory` | *(automatic)* | Use `myapp:create_app()` syntax |
 | `--http h11` | *(default)* | h11 is the default backend |
 | `--http httptools` | *(not needed)* | Built-in fast parser handles this |
-| `--ws websockets` | `pounce[ws]` | Uses wsproto instead |
+| `--ws websockets` | `bengal-pounce[ws]` | Uses wsproto instead |
 | `--h11-max-incomplete-event-size` | `ServerConfig(h11_max_incomplete_event_size=...)` | Programmatic only (no CLI flag) |
 
 ## Programmatic Comparison
@@ -82,7 +82,7 @@ Pounce can inject `Server-Timing` headers automatically (`--server-timing`). Uvi
 :::{dropdown} HTTP/2
 :icon: globe
 
-Pounce supports HTTP/2 via `pounce[h2]`. Uvicorn does not support HTTP/2.
+Pounce supports HTTP/2 via `bengal-pounce[h2]`. Uvicorn does not support HTTP/2.
 :::
 
 ## Migration Steps

@@ -169,10 +169,10 @@ def detect_gil_status() -> str:
 
 
 _OPTIONAL_DEPS = [
-    {"module": "h2", "name": "HTTP/2 (h2)", "hint": "pip install pounce[h2]"},
-    {"module": "wsproto", "name": "WebSocket (wsproto)", "hint": "pip install pounce[ws]"},
-    {"module": "truststore", "name": "TLS (truststore)", "hint": "pip install pounce[tls]"},
-    {"module": "zoomies", "name": "HTTP/3 (bengal-zoomies)", "hint": "pip install pounce[h3]"},
+    {"module": "h2", "name": "HTTP/2 (h2)", "hint": "pip install bengal-pounce[h2]"},
+    {"module": "wsproto", "name": "WebSocket (wsproto)", "hint": "pip install bengal-pounce[ws]"},
+    {"module": "truststore", "name": "TLS (truststore)", "hint": "pip install bengal-pounce[tls]"},
+    {"module": "zoomies", "name": "HTTP/3 (bengal-zoomies)", "hint": "pip install bengal-pounce[h3]"},
 ]
 
 _KNOWN_FRAMEWORKS = [

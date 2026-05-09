@@ -872,7 +872,7 @@ class Server:
 
         logger.warning(
             "http3_enabled but HTTP/3 stack unavailable (zoomies not installed) — "
-            "install with: pip install pounce[h3]"
+            "install with: pip install bengal-pounce[h3]"
         )
         self._config = replace(self._config, http3_enabled=False)
         return None
@@ -904,7 +904,7 @@ class Server:
 
         logger.warning(
             "http3_enabled but HTTP/3 stack unavailable (zoomies not installed) — "
-            "install with: pip install pounce[h3]; disabling HTTP/3"
+            "install with: pip install bengal-pounce[h3]; disabling HTTP/3"
         )
         self._config = replace(self._config, http3_enabled=False)
         return []

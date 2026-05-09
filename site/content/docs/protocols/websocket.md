@@ -70,7 +70,7 @@ async def websocket_app(scope, receive, send):
 
 ## WebSocket over HTTP/2
 
-When both `pounce[h2]` and `pounce[ws]` are installed, WebSocket connections can be established over HTTP/2 using the extended CONNECT method (RFC 8441). This allows WebSocket streams to be multiplexed with regular HTTP/2 requests on the same connection.
+When both `bengal-pounce[h2]` and `bengal-pounce[ws]` are installed, WebSocket connections can be established over HTTP/2 using the extended CONNECT method (RFC 8441). This allows WebSocket streams to be multiplexed with regular HTTP/2 requests on the same connection.
 
 ## Configuration
 

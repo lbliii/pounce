@@ -9,7 +9,7 @@ The h2 library is a sans-I/O state machine: we feed it bytes and it
 produces events and output bytes. H2Connection translates between h2's
 internal events and pounce's typed ProtocolEvent system.
 
-Requires the ``h2`` optional dependency (``pip install pounce[h2]``).
+Requires the ``h2`` optional dependency (``pip install bengal-pounce[h2]``).
 
 All state is per-connection. No shared mutable state.
 
@@ -181,7 +181,7 @@ class H2Connection:
 
     def __init__(self, *, client_side: bool = False) -> None:
         if not _HAS_H2:
-            raise RuntimeError("HTTP/2 support requires h2. Install with: pip install pounce[h2]")
+            raise RuntimeError("HTTP/2 support requires h2. Install with: pip install bengal-pounce[h2]")
         config = h2.config.H2Configuration(
             client_side=client_side,
             header_encoding="utf-8",

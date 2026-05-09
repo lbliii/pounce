@@ -7,7 +7,7 @@ just receives ``scope["type"] == "websocket"`` and interacts via
 ``receive()`` / ``send()`` messages.
 
 Prerequisites:
-    pip install pounce[ws]   # installs wsproto
+    pip install bengal-pounce[ws]   # installs wsproto
 
 Run it:
     pounce examples.websocket_echo:app
