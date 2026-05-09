@@ -96,7 +96,33 @@ async def handle_h2_connection(
     stream_tasks: dict[int, tuple[asyncio.Task[None], asyncio.Queue[dict]]] = {}
     # Per-stream accumulated body bytes for max_request_size enforcement
     stream_body_bytes: dict[int, int] = {}
+    stream_body_rejected: set[int] = set()
     max_body = config.max_request_size
+
+    def _content_length_exceeds_limit(request: RequestReceived) -> bool:
+        value = _get_header_from_tuple(request.headers, b"content-length")
+        if value is None:
+            return False
+        try:
+            return int(value) > max_body
+        except ValueError:
+            return False
+
+    def _send_request_too_large(stream_id: int) -> None:
+        h2_conn.send_response_headers(
+            stream_id,
+            413,
+            [
+                (b"content-type", b"text/plain"),
+                (b"x-pounce-error-code", b"POUNCE_LIMIT_REQUEST_TOO_LARGE"),
+            ],
+            end_stream=True,
+        )
+        writer.write(h2_conn.data_to_send())
+        h2_conn.remove_stream(stream_id)
+        scheduler.remove_stream(stream_id)
+        stream_body_bytes.pop(stream_id, None)
+        stream_body_rejected.add(stream_id)
 
     async def _run_stream(
         stream_id: int,
@@ -194,6 +220,7 @@ async def handle_h2_connection(
             scheduler.remove_stream(stream_id)
             stream_tasks.pop(stream_id, None)
             stream_body_bytes.pop(stream_id, None)
+            stream_body_rejected.discard(stream_id)
 
         if timing:
             timing.add("app", elapsed_ms(app_start))
@@ -243,6 +270,14 @@ async def handle_h2_connection(
             for event in events:
                 match event:
                     case H2RequestReceived():
+                        if _content_length_exceeds_limit(event.request):
+                            logger.warning(
+                                "H2 stream %d Content-Length exceeds max_request_size (%d bytes)",
+                                event.stream_id,
+                                max_body,
+                            )
+                            _send_request_too_large(event.stream_id)
+                            continue
                         body_queue: asyncio.Queue[dict] = asyncio.Queue()
                         task = asyncio.create_task(
                             _run_stream(event.stream_id, event.request, body_queue)
@@ -271,6 +306,8 @@ async def handle_h2_connection(
                         stream_tasks[event.stream_id] = (ws_task, ws_queue)
 
                     case H2BodyReceived():
+                        if event.stream_id in stream_body_rejected:
+                            continue
                         pair = stream_tasks.get(event.stream_id)
                         if pair is not None:
                             _, bq = pair
@@ -285,13 +322,9 @@ async def handle_h2_connection(
                                     sid,
                                     max_body,
                                 )
-                                await bq.put(
-                                    {
-                                        "type": "http.request",
-                                        "body": b"",
-                                        "more_body": False,
-                                    }
-                                )
+                                pair[0].cancel()
+                                stream_tasks.pop(sid, None)
+                                _send_request_too_large(sid)
                             else:
                                 await bq.put(
                                     {
@@ -303,6 +336,7 @@ async def handle_h2_connection(
 
                     case H2StreamReset():
                         stream_body_bytes.pop(event.stream_id, None)
+                        stream_body_rejected.discard(event.stream_id)
                         pair = stream_tasks.pop(event.stream_id, None)
                         if pair is not None:
                             pair[0].cancel()

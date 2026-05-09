@@ -244,6 +244,22 @@ def _create_zoomies_datagram_protocol(
                 self._flush(conn, addr)
                 return
 
+            content_length = _get_header_from_list(scope["headers"], b"content-length")
+            if content_length is not None:
+                try:
+                    content_length_value = int(content_length)
+                except ValueError:
+                    content_length_value = 0
+                if content_length_value > self._config.max_request_size:
+                    self._logger.warning(
+                        "H3 stream %d Content-Length exceeds max_request_size (%d bytes)",
+                        stream_id,
+                        self._config.max_request_size,
+                    )
+                    self._send_request_too_large(conn, stream_id, addr)
+                    conn.stream_body_ended.add(stream_id)
+                    return
+
             body_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
             task = asyncio.create_task(
                 self._run_stream(conn, stream_id, scope, body_queue, addr),
@@ -285,13 +301,11 @@ def _create_zoomies_datagram_protocol(
                     self._config.max_request_size,
                 )
                 conn.stream_body_ended.add(stream_id)
-                body_queue.put_nowait(
-                    {
-                        "type": "http.request",
-                        "body": b"",
-                        "more_body": False,
-                    }
-                )
+                task, _ = pair
+                task.cancel()
+                conn.stream_tasks.pop(stream_id, None)
+                conn.stream_body_bytes.pop(stream_id, None)
+                self._send_request_too_large(conn, stream_id, addr)
             else:
                 body_queue.put_nowait(
                     {
@@ -461,6 +475,28 @@ def _create_zoomies_datagram_protocol(
             conn.stream_body_bytes.pop(stream_id, None)
             return True
 
+        def _send_request_too_large(
+            self,
+            conn: _ZoomiesConnection,
+            stream_id: int,
+            addr: tuple[str, int],
+        ) -> None:
+            """Send a 413 response for a request body that exceeded configured limits."""
+            conn.h3.send_headers(
+                stream_id=stream_id,
+                headers=[
+                    (b":status", b"413"),
+                    (b"content-type", b"text/plain"),
+                    (b"x-pounce-error-code", b"POUNCE_LIMIT_REQUEST_TOO_LARGE"),
+                ],
+            )
+            conn.h3.send_data(
+                stream_id=stream_id,
+                data=b"Content Too Large",
+                end_stream=True,
+            )
+            self._flush(conn, addr)
+
         async def _run_stream(
             self,
             conn: _ZoomiesConnection,
@@ -505,6 +541,7 @@ def _create_zoomies_datagram_protocol(
             finally:
                 conn.stream_tasks.pop(stream_id, None)
                 conn.stream_body_bytes.pop(stream_id, None)
+                conn.stream_body_ended.discard(stream_id)
 
             if timing:
                 timing.add("app", elapsed_ms(app_start))

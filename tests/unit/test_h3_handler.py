@@ -359,8 +359,43 @@ class TestErrorPaths:
         # _handle_data should return without error
         protocol._handle_data(conn, FakeH3DataReceived(), _ADDR_A)
 
-    def test_handle_data_body_exceeded_truncates(self) -> None:
-        """Body exceeding max_request_size is truncated."""
+    def test_handle_headers_content_length_over_limit_rejected_before_task(self) -> None:
+        """Known oversized content-length receives 413 before app dispatch."""
+        from zoomies.core import QuicConfiguration
+
+        from pounce._h3_handler import _create_zoomies_datagram_protocol
+
+        config = _make_config(max_request_size=100)
+        quic_config = QuicConfiguration(certificate=b"cert", private_key=b"key")
+        cls = _create_zoomies_datagram_protocol(
+            _dummy_app, config, logging.getLogger("test"), _SERVER, quic_config
+        )
+        protocol = cls()
+        transport = MagicMock(spec=asyncio.DatagramTransport)
+        protocol.connection_made(transport)
+        conn = _make_connection(addr=_ADDR_A)
+
+        @dataclass(frozen=True)
+        class FakeH3HeadersReceived:
+            stream_id: int = 0
+            headers: tuple[tuple[bytes, bytes], ...] = (
+                (b":method", b"POST"),
+                (b":path", b"/upload"),
+                (b":scheme", b"https"),
+                (b":authority", b"example.test"),
+                (b"content-length", b"200"),
+            )
+            end_stream: bool = False
+            is_0rtt: bool = False
+
+        protocol._handle_headers(conn, FakeH3HeadersReceived(), _ADDR_A)
+
+        assert 0 not in conn.stream_tasks
+        assert conn.h3.sent_headers[0][1][0] == (b":status", b"413")
+        assert conn.h3.sent_data[0] == (0, b"Content Too Large", True)
+
+    def test_handle_data_body_exceeded_cancels_stream_and_returns_413(self) -> None:
+        """Body exceeding max_request_size cancels the stream and returns 413."""
         from zoomies.core import QuicConfiguration
 
         from pounce._h3_handler import _create_zoomies_datagram_protocol
@@ -388,8 +423,11 @@ class TestErrorPaths:
         protocol._handle_data(conn, FakeH3DataReceived(), _ADDR_A)
 
         assert 0 in conn.stream_body_ended
-        msg = body_queue.get_nowait()
-        assert msg["more_body"] is False
+        task.cancel.assert_called_once()
+        assert 0 not in conn.stream_tasks
+        assert body_queue.empty()
+        assert conn.h3.sent_headers[0][1][0] == (b":status", b"413")
+        assert conn.h3.sent_data[0] == (0, b"Content Too Large", True)
 
     def test_handle_data_after_truncation_ignored(self) -> None:
         """Further data after body truncation is silently dropped."""
