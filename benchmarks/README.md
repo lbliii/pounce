@@ -19,6 +19,9 @@ python benchmarks/run_benchmark.py
 # Full suite, all workloads, 4 workers
 python benchmarks/run_benchmark.py --workload all --workers 4 --duration 30
 
+# Bengal static-site workload
+python benchmarks/run_benchmark.py --workload bengal --workers 1 --duration 10
+
 # Compare against uvicorn
 python benchmarks/run_benchmark.py --compare --workers 4
 
@@ -33,6 +36,7 @@ python benchmarks/run_benchmark.py --workload all --output results.json
 | `hello` | `benchmarks.apps.hello:app` | Minimal hello-world (measures server overhead) |
 | `json` | `benchmarks.apps.json_app:app` | JSON response (pre-serialized) |
 | `echo` | `benchmarks.apps.echo:app` | POST body echo (1KB payload) |
+| `bengal` | `benchmarks.apps.bengal_static:app` | Bengal-shaped generated static site |
 
 ### Runner Options
 

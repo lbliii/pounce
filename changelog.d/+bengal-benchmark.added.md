@@ -1,0 +1,1 @@
+Added a checked-in Bengal-shaped static-site fixture and benchmark workload (`benchmarks.apps.bengal_static:app`, `--workload bengal`) so static-site performance and compatibility can be measured against representative generated output.
