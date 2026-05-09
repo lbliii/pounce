@@ -123,7 +123,7 @@ async def _forum_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
         form = parse_qs((await _read_body(receive)).decode("utf-8"))
         reply = html.escape(form.get("body", [""])[0])
         status, headers, body = _html_response(
-            f"<main><h1>{html.escape(tenant)}</h1><p class=\"thread\">{reply}</p></main>"
+            f'<main><h1>{html.escape(tenant)}</h1><p class="thread">{reply}</p></main>'
         )
     elif path == "/":
         await receive()
@@ -132,7 +132,7 @@ async def _forum_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
             for thread_id, thread in _THREADS.items()
         )
         status, headers, body = _html_response(
-            f'<main><h1>{html.escape(tenant)}</h1><ul>{items}</ul></main>'
+            f"<main><h1>{html.escape(tenant)}</h1><ul>{items}</ul></main>"
         )
     elif path.startswith("/threads/"):
         await receive()
@@ -145,7 +145,7 @@ async def _forum_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
                 f'<article class="thread">{html.escape(post)}</article>' for post in thread["posts"]
             )
             status, headers, body = _html_response(
-                f'<main><h1>{html.escape(thread["title"])}</h1>{posts}</main>'
+                f"<main><h1>{html.escape(thread['title'])}</h1>{posts}</main>"
             )
     else:
         await receive()

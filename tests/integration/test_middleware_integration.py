@@ -67,7 +67,9 @@ def test_post_response_middleware_runs_on_real_server() -> None:
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "https://tenant.example"
     assert response.headers["x-frame-options"] == "DENY"
-    assert response.headers["content-security-policy"] == "default-src 'self'; frame-ancestors 'none'"
+    assert (
+        response.headers["content-security-policy"] == "default-src 'self'; frame-ancestors 'none'"
+    )
 
 
 def test_exception_middleware_handles_real_server_app_error() -> None:

@@ -46,7 +46,12 @@ def _host(scope: dict[str, Any]) -> bytes:
 @pytest.mark.parametrize(
     ("name", "builder", "expected_version", "expected_scheme"),
     [
-        ("h1", lambda config, extra: build_scope(_request(headers=extra), config, _CLIENT, _SERVER), "1.1", "https"),
+        (
+            "h1",
+            lambda config, extra: build_scope(_request(headers=extra), config, _CLIENT, _SERVER),
+            "1.1",
+            "https",
+        ),
         (
             "h2",
             lambda config, extra: build_h2_scope(
