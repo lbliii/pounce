@@ -1,0 +1,1 @@
+Fixed sync-worker graceful reload so draining an old generation no longer trips the supervisor-wide shutdown event, added integration proof that an in-flight request completes during `graceful_reload()`, and corrected lifecycle docs to remove the unsupported SIGUSR1 hot-deploy claim.

@@ -1,18 +1,20 @@
 ---
 title: Server Lifecycle
-description: Graceful reload, hot deploy, and shutdown with connection draining
+description: Graceful reload and shutdown with connection draining
 draft: false
 weight: 60
 lang: en
 type: doc
 tags: [deployment, reload, shutdown, zero-downtime]
-keywords: [graceful reload, hot reload, graceful shutdown, SIGHUP, SIGTERM, connection draining]
+keywords: [graceful reload, graceful shutdown, SIGHUP, SIGTERM, connection draining]
 category: how-to
 ---
 
 # Server Lifecycle
 
-Pounce handles three lifecycle signals for zero-downtime operations: **SIGHUP** (reload), **SIGUSR1** (hot deploy), and **SIGTERM** (shutdown). All three use the same drain-then-replace pattern.
+Pounce handles **SIGHUP** for graceful reload and **SIGTERM** / **SIGINT** for
+graceful shutdown. Both paths use connection draining: active requests get time
+to finish, while workers that are leaving service reject new connections.
 
 ## Graceful Reload (SIGHUP)
 
@@ -57,16 +59,6 @@ Type=notify
 ExecStart=/usr/bin/pounce serve myapp:app --workers=4
 ExecReload=/bin/kill -HUP $MAINPID
 ```
-
-## Hot Deploy (SIGUSR1)
-
-SIGUSR1 triggers the same rolling restart as SIGHUP. Use whichever signal fits your deployment tooling.
-
-```bash
-kill -SIGUSR1 <pid>
-```
-
-On Linux with `SO_REUSEPORT`, old and new workers bind to the same port simultaneously. On macOS/Windows (no `SO_REUSEPORT`), the AcceptDistributor handles the handoff via a shared queue.
 
 ### File Watching (Development)
 

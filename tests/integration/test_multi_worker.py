@@ -10,6 +10,7 @@ supervisor unit tests.
 
 """
 
+import asyncio
 import contextlib
 import socket
 import threading
@@ -58,6 +59,37 @@ async def _hello_app(scope: Scope, receive: Receive, send: Send) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
+def _make_slow_app(started: threading.Event) -> ASGIApp:
+    async def _app(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "lifespan":
+            while True:
+                message = await receive()
+                if message["type"] == "lifespan.startup":
+                    await send({"type": "lifespan.startup.complete"})
+                elif message["type"] == "lifespan.shutdown":
+                    await send({"type": "lifespan.shutdown.complete"})
+                    return
+            return
+
+        await receive()
+        if scope["path"] == "/slow":
+            started.set()
+            await asyncio.sleep(0.3)
+            body = b"slow ok"
+        else:
+            body = b"ok"
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", str(len(body)).encode())],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+    return _app
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -69,6 +101,25 @@ def _send_request(addr: tuple[str, int]) -> bytes:
         addr,
         b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
+
+
+def _send_path(addr: tuple[str, int], path: bytes) -> bytes:
+    return send_raw_request(
+        addr,
+        b"GET " + path + b" HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        timeout=5.0,
+    )
+
+
+def _wait_for_ok(addr: tuple[str, int], path: bytes, timeout: float = 5.0) -> bytes:
+    deadline = time.monotonic() + timeout
+    last_response = b""
+    while time.monotonic() < deadline:
+        last_response = _send_path(addr, path)
+        if b"HTTP/1.1 200" in last_response:
+            return last_response
+        time.sleep(0.05)
+    return last_response
 
 
 def _start_supervisor(
@@ -216,6 +267,32 @@ class TestSIGHUPRollingRestart:
 
             # Reload completed; supervisor has new worker generation
             assert len(sup._handles) == 2
+        finally:
+            sup.shutdown()
+            thread.join(timeout=5.0)
+            for s in set(sockets):
+                with contextlib.suppress(Exception):
+                    s.close()
+
+    def test_graceful_reload_waits_for_inflight_request(self):
+        """In-flight requests finish while old workers drain during reload."""
+        started = threading.Event()
+        sup, sockets, thread, addr = _start_supervisor(_make_slow_app(started), 2)
+
+        try:
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                slow = ex.submit(_send_path, addr, b"/slow")
+                assert started.wait(timeout=3.0)
+
+                sup.graceful_reload()
+
+                slow_response = slow.result(timeout=5.0)
+                assert b"HTTP/1.1 200" in slow_response
+                assert b"slow ok" in slow_response
+
+            fresh_response = _wait_for_ok(addr, b"/")
+            assert b"HTTP/1.1 200" in fresh_response
+            assert b"ok" in fresh_response
         finally:
             sup.shutdown()
             thread.join(timeout=5.0)

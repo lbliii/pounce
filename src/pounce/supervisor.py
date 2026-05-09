@@ -768,7 +768,7 @@ class Supervisor:
         """Create a Worker or SyncWorker based on the execution mode."""
         use_sync = self._mode == "thread" and self._execution_mode == "sync"
         if use_sync:
-            worker_sock: socket.socket | None = self._sockets[socket_index]
+            worker_sock: socket.socket | None = self._worker_socket(socket_index)
             if self._conn_queue is not None:
                 worker_sock = None
             worker: Worker | SyncWorker = SyncWorker(
@@ -787,7 +787,7 @@ class Supervisor:
             worker = Worker(
                 self._config,
                 self._app,
-                self._sockets[socket_index],
+                self._worker_socket(socket_index),
                 worker_id=worker_id,
                 shutdown_event=self._shutdown_event,
                 max_connections=self._per_worker_max_base
@@ -797,6 +797,19 @@ class Supervisor:
             )
         worker.set_lifespan_state(self._lifespan_state)
         return worker
+
+    def _worker_socket(self, socket_index: int) -> socket.socket:
+        """Return a worker-owned socket handle.
+
+        Thread workers often share one listener object in ``self._sockets``.
+        Each worker receives a duplicated handle so one generation can close
+        its asyncio server without invalidating the listener used by the next
+        generation during graceful reload.
+        """
+        sock = self._sockets[socket_index]
+        if self._mode == "thread" and self._sockets.count(sock) > 1:
+            return sock.dup()
+        return sock
 
     def _spawn_worker(self, worker_id: int) -> None:
         """Create and start a single worker."""
