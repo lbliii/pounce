@@ -97,6 +97,18 @@ def _declared_content_length(headers: Sequence[tuple[bytes, bytes]]) -> int | No
     return None
 
 
+def _request_body_expected(headers: Sequence[tuple[bytes, bytes]]) -> bool:
+    """Return True when headers indicate a request body may still arrive."""
+    content_length = _declared_content_length(headers)
+    if content_length is not None:
+        return content_length > 0
+
+    for name, value in headers:
+        if name.lower() == b"transfer-encoding" and value.strip().lower() != b"identity":
+            return True
+    return False
+
+
 class Worker:
     """Single-threaded async worker that serves HTTP requests.
 
@@ -920,6 +932,11 @@ class Worker:
                 if not body_event.more:
                     body_complete = True
             receive = create_receive_with_disconnect(body_queue, disconnect)
+        elif _request_body_expected(request.headers):
+            # Headers can arrive before body bytes. Keep reading from the
+            # connection instead of presenting a bodyless request to ASGI.
+            body_queue = asyncio.Queue()
+            receive = create_receive_with_disconnect(body_queue, disconnect)
         else:
             # No body events — bodyless request (GET/HEAD).
             receive = create_disconnect_receive(disconnect)
@@ -1294,25 +1311,28 @@ class Worker:
                 {app_task, reader_task},
                 return_when=asyncio.FIRST_COMPLETED,
             )
-            for task in pending:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
 
-            # If the reader finished first, wait for the app to complete
-            if app_task not in done:
+            if reader_task in done and app_task not in done:
+                # The request body is complete; let the ASGI app finish
+                # generating its response.
                 try:
                     await app_task
                 except Exception:
                     if send_state.status == 0:
                         send_state.status = 500
             else:
+                for task in pending:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
+
                 # Propagate any exception from the app task
-                try:
-                    app_task.result()
-                except Exception:
-                    if send_state.status == 0:
-                        send_state.status = 500
+                if app_task in done:
+                    try:
+                        app_task.result()
+                    except Exception:
+                        if send_state.status == 0:
+                            send_state.status = 500
         except Exception:
             self._logger.exception(
                 "Unhandled error during body reading for %s",

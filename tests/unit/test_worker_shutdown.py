@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import socket
 import threading
+import time
 
 from pounce._types import ASGIApp, Receive, Scope, Send
 from pounce.config import ServerConfig
@@ -236,6 +237,64 @@ class TestWorkerDisconnectMonitor:
 
             assert b"200" in response
             assert post_response_done.wait(timeout=2.0)
+        finally:
+            with contextlib.suppress(OSError):
+                client.close()
+            worker.shutdown()
+            thread.join(timeout=3.0)
+            sock.close()
+
+
+class TestWorkerRequestBody:
+    """Request body delivery handles split header/body reads."""
+
+    def test_delivers_body_when_headers_arrive_first(self):
+        expected_body = b'{"name":"split"}'
+
+        async def app(scope: Scope, receive: Receive, send: Send) -> None:
+            if scope["type"].startswith("pounce.worker."):
+                return
+
+            chunks = []
+            while True:
+                message = await receive()
+                chunks.append(message.get("body", b""))
+                if not message.get("more_body", False):
+                    break
+
+            body = b"".join(chunks)
+            status = 200 if body == expected_body else 400
+            await asyncio.sleep(0.05)
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": status,
+                    "headers": [(b"content-length", b"0")],
+                }
+            )
+            await send({"type": "http.response.body", "body": b""})
+
+        worker, sock, thread = _start_worker(app)
+        addr = sock.getsockname()
+
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(2.0)
+        try:
+            client.connect(addr)
+            client.sendall(
+                b"POST / HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Content-Type: application/json\r\n"
+                + f"Content-Length: {len(expected_body)}\r\n\r\n".encode()
+            )
+            time.sleep(0.05)
+            client.sendall(expected_body)
+
+            response = b""
+            while b"\r\n\r\n" not in response:
+                response += client.recv(4096)
+
+            assert b"200" in response
         finally:
             with contextlib.suppress(OSError):
                 client.close()
