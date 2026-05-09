@@ -8,8 +8,15 @@ import asyncio
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from pounce.asgi.bridge import SendState
-from pounce.asgi.h3_bridge import build_h3_scope, create_h3_receive, create_h3_send
+from pounce.asgi.h3_bridge import (
+    H3PseudoHeaderError,
+    build_h3_scope,
+    create_h3_receive,
+    create_h3_send,
+)
 from pounce.config import ServerConfig
 
 # ---------------------------------------------------------------------------
@@ -132,6 +139,26 @@ class TestBuildH3Scope:
         assert b":path" not in header_names
         assert b":scheme" not in header_names
         assert b":authority" not in header_names
+
+    def test_missing_required_pseudo_header_rejected(self) -> None:
+        headers = [
+            (b":method", b"GET"),
+            (b":path", b"/"),
+            (b":authority", b"example.com"),
+        ]
+        with pytest.raises(H3PseudoHeaderError, match="missing required"):
+            build_h3_scope(headers, ServerConfig(), _CLIENT, _SERVER)
+
+    def test_duplicate_pseudo_header_rejected(self) -> None:
+        headers = _h3_headers()
+        headers.append((b":path", b"/other"))
+        with pytest.raises(H3PseudoHeaderError, match="duplicate"):
+            build_h3_scope(headers, ServerConfig(), _CLIENT, _SERVER)
+
+    def test_authority_host_conflict_rejected(self) -> None:
+        headers = _h3_headers(extra=[(b"host", b"other.example")])
+        with pytest.raises(H3PseudoHeaderError, match="host does not match"):
+            build_h3_scope(headers, ServerConfig(), _CLIENT, _SERVER)
 
     def test_stream_id_in_extensions(self) -> None:
         scope = build_h3_scope(_h3_headers(), ServerConfig(), _CLIENT, _SERVER, stream_id=4)

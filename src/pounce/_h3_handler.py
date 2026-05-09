@@ -23,7 +23,12 @@ from pounce._request_id import extract_or_generate
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
 from pounce.asgi.bridge import SendState
-from pounce.asgi.h3_bridge import build_h3_scope, create_h3_receive, create_h3_send
+from pounce.asgi.h3_bridge import (
+    H3PseudoHeaderError,
+    build_h3_scope,
+    create_h3_receive,
+    create_h3_send,
+)
 from pounce.config import ServerConfig
 from pounce.logging import access_log
 from pounce.protocols.h3 import is_h3_available
@@ -224,15 +229,20 @@ def _create_zoomies_datagram_protocol(
             client = addr
             is_0rtt = event.is_0rtt
 
-            scope = build_h3_scope(
-                list(event.headers),
-                self._config,
-                client,
-                self._server,
-                stream_id=stream_id,
-                is_0rtt=is_0rtt,
-                state=self._lifespan_state,
-            )
+            try:
+                scope = build_h3_scope(
+                    list(event.headers),
+                    self._config,
+                    client,
+                    self._server,
+                    stream_id=stream_id,
+                    is_0rtt=is_0rtt,
+                    state=self._lifespan_state,
+                )
+            except H3PseudoHeaderError as exc:
+                self._logger.warning("Rejecting malformed H3 request pseudo-headers: %s", exc)
+                self._send_bad_request(conn, stream_id, addr)
+                return
 
             method = scope["method"]
 
@@ -493,6 +503,27 @@ def _create_zoomies_datagram_protocol(
             conn.h3.send_data(
                 stream_id=stream_id,
                 data=b"Content Too Large",
+                end_stream=True,
+            )
+            self._flush(conn, addr)
+
+        def _send_bad_request(
+            self,
+            conn: _ZoomiesConnection,
+            stream_id: int,
+            addr: tuple[str, int],
+        ) -> None:
+            """Send a 400 response for malformed HTTP/3 request metadata."""
+            conn.h3.send_headers(
+                stream_id=stream_id,
+                headers=[
+                    (b":status", b"400"),
+                    (b"content-type", b"text/plain"),
+                ],
+            )
+            conn.h3.send_data(
+                stream_id=stream_id,
+                data=b"Bad Request",
                 end_stream=True,
             )
             self._flush(conn, addr)

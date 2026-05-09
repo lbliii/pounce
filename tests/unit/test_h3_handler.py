@@ -394,6 +394,28 @@ class TestErrorPaths:
         assert conn.h3.sent_headers[0][1][0] == (b":status", b"413")
         assert conn.h3.sent_data[0] == (0, b"Content Too Large", True)
 
+    def test_handle_headers_malformed_pseudo_headers_return_400(self) -> None:
+        """Malformed H3 pseudo-headers receive 400 before app dispatch."""
+        protocol, _ = _build_protocol()
+        conn = _make_connection(addr=_ADDR_A)
+
+        @dataclass(frozen=True)
+        class FakeH3HeadersReceived:
+            stream_id: int = 0
+            headers: tuple[tuple[bytes, bytes], ...] = (
+                (b":method", b"GET"),
+                (b":path", b"/"),
+                (b":authority", b"example.test"),
+            )
+            end_stream: bool = True
+            is_0rtt: bool = False
+
+        protocol._handle_headers(conn, FakeH3HeadersReceived(), _ADDR_A)
+
+        assert 0 not in conn.stream_tasks
+        assert conn.h3.sent_headers[0][1][0] == (b":status", b"400")
+        assert conn.h3.sent_data[0] == (0, b"Bad Request", True)
+
     def test_handle_data_body_exceeded_cancels_stream_and_returns_413(self) -> None:
         """Body exceeding max_request_size cancels the stream and returns 413."""
         from zoomies.core import QuicConfiguration
