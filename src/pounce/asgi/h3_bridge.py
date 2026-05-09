@@ -194,19 +194,22 @@ def create_h3_send(
                 compressor = None
             if compressor is not None:
                 filtered: list[tuple[bytes, bytes]] = []
+                has_content_encoding = False
                 is_sse = False
                 for name, value in headers:
                     nl = name.lower()
-                    if nl == b"content-type" and b"text/event-stream" in value:
+                    if nl == b"content-type" and b"text/event-stream" in value.lower():
                         is_sse = True
+                    elif nl == b"content-encoding":
+                        has_content_encoding = True
                     if nl == b"content-length":
                         continue
                     filtered.append((name, value))
-                if is_sse:
+                if is_sse or has_content_encoding:
                     compressor = None
                 else:
                     filtered.append((b"content-encoding", compressor.encoding.encode("ascii")))
-                headers = filtered
+                    headers = filtered
 
             if timing is not None:
                 rendered = timing.render_bytes()

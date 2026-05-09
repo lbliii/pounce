@@ -336,6 +336,35 @@ class TestCreateH2Send:
         header_dict = dict(headers)
         assert header_dict.get(b"content-encoding") == b"gzip"
 
+    async def test_compression_skipped_for_already_encoded_response(self) -> None:
+        h2 = _MockH2Connection()
+        writer = _MockWriter()
+        state = SendState()
+        compressor = MagicMock()
+        compressor.encoding = "gzip"
+
+        send = create_h2_send(h2, stream_id=1, writer=writer, state=state, compressor=compressor)
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-encoding", b"br"),
+                    (b"content-length", b"5"),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"hello", "more_body": False})
+
+        _, data, _ = h2.sent_data[0]
+        assert data == b"hello"
+        compressor.compress.assert_not_called()
+        _, _, headers = h2.sent_headers[0]
+        header_dict = dict(headers)
+        assert header_dict[b"content-encoding"] == b"br"
+        assert header_dict[b"content-length"] == b"5"
+
     async def test_compression_disabled_for_304(self) -> None:
         h2 = _MockH2Connection()
         writer = _MockWriter()

@@ -445,6 +445,39 @@ class TestCreateH3Send:
         header_dict = dict(headers)
         assert header_dict.get(b"content-encoding") == b"gzip"
 
+    async def test_compression_skipped_for_already_encoded_response(self) -> None:
+        """Responses with Content-Encoding are not double-compressed."""
+        h3 = _MockH3Connection()
+        transmit = MagicMock()
+        state = SendState()
+
+        compressor = MagicMock()
+        compressor.encoding = "gzip"
+
+        send = create_h3_send(
+            h3, stream_id=0, transmit=transmit, state=state, compressor=compressor
+        )
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-encoding", b"br"),
+                    (b"content-length", b"5"),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"hello", "more_body": False})
+
+        _, data, _ = h3.sent_data[0]
+        assert data == b"hello"
+        compressor.compress.assert_not_called()
+        _, headers = h3.sent_headers[0]
+        header_dict = dict(headers)
+        assert header_dict[b"content-encoding"] == b"br"
+        assert header_dict[b"content-length"] == b"5"
+
     async def test_compression_disabled_for_204(self) -> None:
         """Compressor disabled for 204 No Content."""
         h3 = _MockH3Connection()

@@ -151,18 +151,22 @@ def create_h2_send(
             # Single pass: detect SSE and strip content-length when compressing
             if compressor is not None:
                 filtered: list[tuple[bytes, bytes]] = []
+                has_content_encoding = False
+                is_sse = False
                 for name, value in headers:
                     nl = name.lower()
                     if nl == b"content-type" and b"text/event-stream" in value.lower():
-                        compressor = None
-                        filtered.append((name, value))
-                    elif nl == b"content-length":
-                        continue  # drop; compressed size differs
-                    else:
-                        filtered.append((name, value))
-                if compressor is not None:
+                        is_sse = True
+                    elif nl == b"content-encoding":
+                        has_content_encoding = True
+                    if nl == b"content-length":
+                        continue
+                    filtered.append((name, value))
+                if is_sse or has_content_encoding:
+                    compressor = None
+                else:
                     filtered.append((b"content-encoding", compressor.encoding.encode("ascii")))
-                headers = filtered
+                    headers = filtered
 
             # Inject Server-Timing header
             if timing is not None:

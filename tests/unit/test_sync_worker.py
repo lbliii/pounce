@@ -693,6 +693,39 @@ class TestSyncWorkerCompression:
         response = bytes(mock_sock.sent_data)
         assert b"content-encoding" not in response.lower()
 
+    def test_already_encoded_asgi_response_not_compressed(self) -> None:
+        """ASGI responses with Content-Encoding are not double-compressed."""
+
+        async def encoded_app(scope: Scope, receive: Receive, send: Send) -> None:
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-encoding", b"br"),
+                        (b"content-length", b"5"),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": b"hello", "more_body": False})
+
+        request_bytes = _build_http_request(
+            headers={"Accept-Encoding": "gzip", "Connection": "close"}
+        )
+        mock_sock = MockSocket(request_bytes)
+        config = _make_config(compression=True, compression_min_size=1)
+        worker = _make_worker(config=config, app=encoded_app)
+        runner = asyncio.Runner()
+        try:
+            worker._handle_connection(mock_sock, ("127.0.0.1", 54321), runner)
+        finally:
+            runner.close()
+
+        response = bytes(mock_sock.sent_data)
+        assert b"content-encoding: br" in response.lower()
+        assert b"content-encoding: gzip" not in response.lower()
+        assert response.endswith(b"\r\n\r\nhello")
+
 
 # ---------------------------------------------------------------------------
 # Sprint 2: SyncApp fast path
@@ -775,6 +808,31 @@ class TestSyncAppPath:
 
         response = bytes(mock_sock.sent_data)
         assert b"content-encoding: gzip" in response.lower()
+
+    def test_sync_app_already_encoded_response_not_compressed(self) -> None:
+        """SyncApp responses with Content-Encoding are not double-compressed."""
+        raw_resp = RawResponse(
+            status=200,
+            headers=((b"content-encoding", b"br"), (b"content-length", b"5")),
+            body=b"hello",
+        )
+        sync_app = _StubSyncApp(raw_resp)
+        request_bytes = _build_http_request(
+            headers={"Accept-Encoding": "gzip", "Connection": "close"}
+        )
+        mock_sock = MockSocket(request_bytes)
+        config = _make_config(compression=True, compression_min_size=1)
+        worker = _make_worker(config=config, sync_app=sync_app)
+        runner = asyncio.Runner()
+        try:
+            worker._handle_connection(mock_sock, ("127.0.0.1", 54321), runner)
+        finally:
+            runner.close()
+
+        response = bytes(mock_sock.sent_data)
+        assert b"content-encoding: br" in response.lower()
+        assert b"content-encoding: gzip" not in response.lower()
+        assert response.endswith(b"\r\n\r\nhello")
 
 
 # ---------------------------------------------------------------------------
