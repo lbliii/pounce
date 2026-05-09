@@ -16,9 +16,8 @@ from pounce import ServerConfig
 config = ServerConfig(debug=True, workers=1)
 ```
 
-```bash
-pounce serve myapp:app --debug --workers=1
-```
+Use a config file or programmatic `ServerConfig` for `debug=True`; the current
+CLI does not expose a debug-mode flag.
 
 ## What You See
 

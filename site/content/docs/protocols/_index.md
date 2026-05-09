@@ -23,7 +23,7 @@ Pounce supports multiple protocols through a modular handler system. The core sh
 :::{card} HTTP/1.1
 :icon: arrow-right
 :link: ./http1
-:description: Default protocol — h11 (pure Python) + fast built-in parser (~3 µs/req)
+:description: Default protocol - h11 (pure Python) plus sync-worker fast parser
 The foundation of Pounce's request handling.
 :::{/card}
 
@@ -44,8 +44,8 @@ Install with `bengal-pounce[h3]`.
 :::{card} WebSocket
 :icon: message-circle
 :link: ./websocket
-:description: Full-duplex communication, including WebSocket over HTTP/2
-Install with `bengal-pounce[ws]`.
+:description: Full-duplex communication via wsproto
+Install with `bengal-pounce[ws]`; WebSocket over HTTP/2 also requires `h2`.
 :::{/card}
 
 :::{/cards}

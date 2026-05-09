@@ -73,5 +73,5 @@ HTTP/2 requests produce a standard ASGI HTTP scope. The `http_version` field is 
 ## See Also
 
 - [[docs/protocols/http1|HTTP/1.1]] — Default protocol
-- [[docs/protocols/websocket|WebSocket]] — Including WebSocket over HTTP/2
+- [[docs/protocols/websocket|WebSocket]] — HTTP/2 WebSocket support when both extras are installed
 - [[docs/configuration/tls|TLS]] — Setting up TLS for HTTP/2

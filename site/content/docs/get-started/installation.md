@@ -55,7 +55,7 @@ Pounce ships with one dependency (`h11` for HTTP/1.1). Additional protocols are 
 | Extra | Provides | Install |
 |-------|----------|---------|
 | `h2` | HTTP/2 support (stream multiplexing, priority signals) | `pip install bengal-pounce[h2]` |
-| `ws` | WebSocket support (including WS over H2) | `pip install bengal-pounce[ws]` |
+| `ws` | WebSocket support (HTTP/1 WebSocket; WS-over-H2 also requires `h2`) | `pip install bengal-pounce[ws]` |
 | `tls` | TLS termination via truststore | `pip install bengal-pounce[tls]` |
 | `h3` | HTTP/3 support (QUIC/UDP via bengal-zoomies) | `pip install bengal-pounce[h3]` |
 | `full` | All protocol extras (h2 + ws + tls + h3) | `pip install bengal-pounce[full]` |

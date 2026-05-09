@@ -12,10 +12,15 @@ category: explanation
 
 ## The Fast Path
 
-Pounce's sync workers use a built-in HTTP/1.1 parser that runs at **~3 us per request** — 7x faster than h11's ~22 us. This isn't a C extension; it's pure Python using direct `bytes.find()` and `bytes.split()` operations on a `memoryview` buffer.
+Pounce's sync workers use a built-in HTTP/1.1 parser optimized for the common
+request-head path. Local benchmark snapshots have measured it around **~3 us per
+request** versus h11 around **~22 us** on the same parser microbenchmark, but
+public performance claims should always include the command, hardware, Python
+build, workload, and variance. This isn't a C extension; it's pure Python using
+direct `bytes.find()` operations on a `memoryview` buffer.
 
-The fast parser enforces the same safety checks as h11:
-- Method validation (9 HTTP methods only)
+The fast parser has explicit tests for:
+- Method token validation
 - Header size limit (16 KB, matching nginx default)
 - Null byte and control character injection detection
 - Duplicate Content-Length rejection (request smuggling vector)
@@ -82,7 +87,10 @@ This appears directly in browser DevTools (Network tab → Timing), enabling zer
 
 ## HTTP Parsing
 
-Pounce uses two HTTP/1.1 parsers: `_fast_h1` (~3 us/req, sync workers) and h11 (~22 us/req, async workers). Both are pure Python and free-threading safe. The fast parser handles the hot path; chunked body decoding, obs-fold, and trailer headers fall through to h11 or the async pool.
+Pounce uses two HTTP/1.1 parser paths: `_fast_h1` for sync workers and h11 for
+async workers. Both are pure Python and free-threading safe. The fast parser
+handles the common request-head path; chunked body decoding, obs-fold, and
+trailer headers fall through to h11 or the async pool.
 
 ## CPU Affinity (Linux)
 

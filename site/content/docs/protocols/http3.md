@@ -14,6 +14,12 @@ HTTP/3 support is optional and uses the pure-Python `bengal-zoomies` QUIC stack.
 It requires TLS certificate configuration because QUIC includes TLS 1.3 in the
 transport handshake.
 
+:::{note}
+HTTP/3 has its own support boundary from HTTP/1.1 and HTTP/2 because it uses a
+UDP listener and QUIC transport state. Check lifecycle, reload, 0-RTT, limit, and
+benchmark notes before treating it as production-equivalent to the TCP paths.
+:::
+
 ## Install
 
 ```bash

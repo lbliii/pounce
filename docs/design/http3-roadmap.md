@@ -8,9 +8,11 @@
 
 **Current-state note:** Sections below preserve the February 2026 aioquic
 research and original deferral recommendation. They are historical context, not
-the active implementation plan. Current HTTP/3 work should focus on zoomies
-parity gates: lifecycle state, reload/drain behavior, transport documentation,
-and reproducible benchmarks before broad production claims.
+the active implementation plan or a Pounce production-readiness claim. Current
+HTTP/3 work should focus on zoomies parity gates: lifecycle state, reload/drain
+behavior, transport documentation, and reproducible benchmarks before broad
+production claims. See [core-contract.md](core-contract.md) for the active
+support boundary.
 
 ## Executive Summary
 
@@ -22,7 +24,8 @@ implemented with zoomies.
 
 **Key Findings:**
 
-- ✅ **aioquic** is mature, standards-compliant (RFC 9000, RFC 9114), and production-ready
+- Historical aioquic research found a mature standards-compliant library, but
+  Pounce no longer uses aioquic and this is not a Pounce support guarantee.
 - ✅ **Browser support** is universal (Chrome, Firefox, Safari, Edge all support HTTP/3 by default)
 - ✅ **Performance gains** are significant on mobile/high-latency networks (12-52% improvement)
 - ⚠️ **Architectural complexity** is high (UDP vs TCP, different worker model, ALPN negotiation)
@@ -723,7 +726,10 @@ curl --http3 https://localhost:4433
 
 ## Conclusion
 
-HTTP/3 represents a significant evolution in web protocols with clear performance benefits for mobile and high-latency networks. The aioquic library provides a production-ready foundation for implementation, and browser support is universal.
+HTTP/3 represents a significant evolution in web protocols with performance
+benefits for mobile and high-latency networks. The aioquic foundation described
+above is historical research; Pounce's current HTTP/3 support boundary is the
+zoomies implementation and the parity gates named at the top of this document.
 
 **For pounce:**
 - **Phase 5b:** Focus on core features, defer HTTP/3

@@ -26,9 +26,11 @@ show_recent_posts: false
 
 ## Python ASGI Server for Free-Threaded Python
 
-**Pure Python. 7x faster parsing. True parallelism.**
+**Pure Python. Frozen config. True parallelism.**
 
-Pounce is a pure-Python ASGI server that parses HTTP requests in 3 microseconds, runs true parallel worker threads on Python 3.14t, and reloads with zero dropped requests. No C extensions. No GIL.
+Pounce is a pure-Python ASGI server for Python 3.14t with a low-overhead
+HTTP/1.1 fast path, immutable shared server config, and thread-worker reload
+draining. No C extensions in the server core.
 
 ```python
 import pounce
@@ -46,17 +48,21 @@ pounce.run("myapp:app")
 
 :::{card} Free-Threading Native
 :icon: cpu
-True OS thread parallelism on Python 3.14t. N workers share one interpreter with frozen immutable configuration — zero locks, zero contention.
+True OS thread parallelism on Python 3.14t. N workers share one interpreter with
+frozen immutable server configuration.
 :::{/card}
 
-:::{card} 7x Faster Parsing
+:::{card} Fast-Path Parsing
 :icon: zap
-Built-in HTTP/1.1 parser runs at ~3 us/request vs h11's ~22 us. Full safety checks: method validation, request smuggling detection, header size limits. Pure Python.
+Built-in HTTP/1.1 parser for sync workers covers method validation, header size
+limits, duplicate Content-Length, and Content-Length/Transfer-Encoding
+ambiguity. Pure Python.
 :::{/card}
 
-:::{card} Zero-Downtime Reload
+:::{card} Thread-Worker Reload
 :icon: refresh-cw
-Rolling restart spawns a new worker generation while draining the old. No dropped requests, no connection errors. Kubernetes-grade reliability without a sidecar.
+Rolling restart in thread-worker mode spawns a new worker generation while
+draining the old. Other worker modes document their own lifecycle limits.
 :::{/card}
 
 :::{card} Observable by Default
@@ -83,7 +89,7 @@ Typed lifecycle events, Prometheus /metrics, OpenTelemetry tracing, and Server-T
 |----------|---------|---------|
 | HTTP/1.1 | h11 (pure Python) | built-in |
 | HTTP/2 | h2 (stream multiplexing, priority) | `bengal-pounce[h2]` |
-| WebSocket | wsproto (including WS over H2) | `bengal-pounce[ws]` |
+| WebSocket | wsproto (HTTP/1 WebSocket; WS-over-H2 also requires h2) | `bengal-pounce[ws]` |
 | TLS | stdlib ssl + truststore | `bengal-pounce[tls]` |
 | HTTP/3 | bengal-zoomies (QUIC/UDP) | `bengal-pounce[h3]` |
 | All | Everything above | `bengal-pounce[full]` |

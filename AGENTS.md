@@ -74,6 +74,19 @@ Each steward uses this operating model:
 - Docs, examples, templates, and release notes move in the same PR as user-facing behavior unless synthesis records why they are unaffected.
 - Contract-affecting PRs include a parity matrix when behavior spans multiple entrypoints.
 
+## Feature Admission
+
+New or expanded public features must pass the core-contract gate in
+[docs/design/core-contract.md](docs/design/core-contract.md). Before implementation,
+classify the feature as core, optional protocol, helper, developer tooling, or
+external integration. The PR must explain why Pounce should own the behavior,
+which public surfaces change, what proof is required, what collateral moves with
+the change, and which limitations remain.
+
+Do not promote optional protocol support, helper APIs, observability integrations,
+or performance numbers into top-level public claims unless the proof named in the
+core contract is present or the docs explicitly scope the limitation.
+
 ## Steward Signal Format
 
 Steward findings should be contract-oriented, evidence-backed, and collateral-aware.
