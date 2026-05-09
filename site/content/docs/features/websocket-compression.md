@@ -10,7 +10,8 @@ Pounce supports **permessage-deflate** compression ([RFC 7692](https://datatrack
 
 ## Configuration
 
-Enabled by default. Requires `wsproto`:
+Enabled by default, but only negotiated when the client offers
+`permessage-deflate` in `Sec-WebSocket-Extensions`. Requires `wsproto`:
 
 ```bash
 pip install bengal-pounce[ws]
@@ -34,7 +35,7 @@ config = ServerConfig(websocket_compression=False)
 ## How It Works
 
 1. Client sends `Sec-WebSocket-Extensions: permessage-deflate` during handshake
-2. Pounce negotiates and includes the extension in the 101 response
+2. Pounce includes the extension in the 101 response only when the offer is present
 3. Compression/decompression is handled transparently at the protocol layer
 
 Your ASGI app sends and receives uncompressed data -- no code changes needed.
