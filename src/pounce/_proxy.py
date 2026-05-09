@@ -15,6 +15,8 @@ from typing import Any
 
 from pounce._headers import strip_crlf
 
+_FORWARDED_PREFIXES = (b"x-forwarded-",)
+
 
 def apply_proxy_headers(
     scope: dict[str, Any],
@@ -26,7 +28,8 @@ def apply_proxy_headers(
     When the direct peer is trusted:
     - ``client`` is overwritten with the leftmost IP from ``X-Forwarded-For``
     - ``scheme`` is overwritten from ``X-Forwarded-Proto``
-    - ``server`` host is overwritten from ``X-Forwarded-Host`` (port preserved)
+    - ``server`` host is overwritten from ``X-Forwarded-Host``
+    - ``Host`` is rewritten from ``X-Forwarded-Host`` for downstream routing
 
     When the direct peer is *not* trusted (or ``trusted_hosts`` is empty),
     all ``X-Forwarded-*`` headers are stripped from the scope to prevent
@@ -83,9 +86,50 @@ def apply_proxy_headers(
         host = strip_crlf(forwarded_host.strip().decode("latin-1"))
         if host:
             original_port = scope.get("server", ("", 0))[1]
-            scope["server"] = (host, original_port)
+            server_host, server_port = _split_host_port(host, original_port)
+            scope["server"] = (server_host, server_port)
+            scope["headers"] = _replace_header(headers, b"host", host.encode("latin-1"))
 
     return scope
+
+
+def _split_host_port(host: str, default_port: int) -> tuple[str, int]:
+    """Split a Host-style value into an ASGI server tuple."""
+    if host.startswith("["):
+        end = host.find("]")
+        if end > 0:
+            address = host[1:end]
+            remainder = host[end + 1 :]
+            if remainder.startswith(":") and remainder[1:].isdigit():
+                return address, int(remainder[1:])
+            return address, default_port
+
+    if host.count(":") == 1:
+        name, port = host.rsplit(":", 1)
+        if name and port.isdigit():
+            return name, int(port)
+
+    return host, default_port
+
+
+def _replace_header(
+    headers: list[list[bytes]],
+    name: bytes,
+    value: bytes,
+) -> list[tuple[bytes, bytes] | list[bytes]]:
+    """Replace the first header named *name*, or append it if missing."""
+    replaced = False
+    updated: list[tuple[bytes, bytes] | list[bytes]] = []
+    for pair in headers:
+        if pair[0] == name:
+            if not replaced:
+                updated.append((name, value))
+                replaced = True
+            continue
+        updated.append(pair)
+    if not replaced:
+        updated.append((name, value))
+    return updated
 
 
 def _strip_forwarded_headers(scope: dict[str, Any]) -> None:
@@ -96,7 +140,5 @@ def _strip_forwarded_headers(scope: dict[str, Any]) -> None:
 
     """
     headers: list[list[bytes]] = scope.get("headers", [])
-    _forwarded_prefixes = (b"x-forwarded-",)
-
     # scope headers are pre-lowered by build_base_scope
-    scope["headers"] = [pair for pair in headers if not pair[0].startswith(_forwarded_prefixes)]
+    scope["headers"] = [pair for pair in headers if not pair[0].startswith(_FORWARDED_PREFIXES)]

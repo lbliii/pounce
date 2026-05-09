@@ -1,0 +1,1 @@
+Trusted proxy authority now rewrites tenant-facing ASGI scope consistently across HTTP/1.1, HTTP/2, HTTP/3, and WebSocket paths. `X-Forwarded-Host` from a trusted peer updates both `scope["server"]` and the ASGI `Host` header, including a forwarded port when present; untrusted forwarded authority is still stripped before app dispatch.

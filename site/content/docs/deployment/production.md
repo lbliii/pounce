@@ -107,7 +107,7 @@ Caddy handles TLS automatically via Let's Encrypt.
 
 ### Proxy Header Trust
 
-When behind a reverse proxy, configure `trusted_hosts` so Pounce honours `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` from trusted peers. Without this, proxy headers are stripped for security.
+When behind a reverse proxy, configure `trusted_hosts` so Pounce honours `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` from trusted peers. Without this, proxy headers are stripped for security. Trusted `X-Forwarded-Host` updates both `scope["server"]` and the ASGI `Host` header, so host-routed multi-tenant apps see the public tenant authority instead of the internal proxy target.
 
 ```python
 import pounce
