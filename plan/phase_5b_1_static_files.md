@@ -1,5 +1,13 @@
 # Task 1.1: Static File Serving Implementation
 
+**Status:** Historical implementation plan. Static serving exists, but the active
+roadmap now treats Bengal static serving as a public-contract proof and hardening
+effort. See
+[../docs/plans/ironclad-bengal-chirp.md](../docs/plans/ironclad-bengal-chirp.md).
+
+**Historical note:** This file preserves the original design intent. Current
+work should be driven by code, tests, docs, and the active steward synthesis.
+
 **Priority:** P0 — Blocks Bengal SSG deployments
 **Complexity:** Medium
 **Estimated Time:** 3-5 days

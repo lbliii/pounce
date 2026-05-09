@@ -1,4 +1,13 @@
-# Phase 5b: Production Competitiveness — Executive Summary
+# Phase 5b: Production Competitiveness - Executive Summary
+
+**Status:** Historical implementation record. Phase 5b is no longer the active
+roadmap. Current work is tracked in
+[../ROADMAP.md](../ROADMAP.md) and
+[../docs/plans/ironclad-bengal-chirp.md](../docs/plans/ironclad-bengal-chirp.md).
+
+**Historical note:** This file records the plan that produced much of the
+current 0.6.0 feature set. Treat future-tense sections below as preserved
+context, not current sequencing.
 
 **Date:** February 12, 2026
 **Status:** Complete (all features shipped in v0.3.0–v0.5.1)

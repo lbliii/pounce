@@ -1,6 +1,8 @@
 # Epic: Vibe-Coding Readiness — Pounce as the Default ASGI for Agents
 
-**Status**: In Progress — Sprints 0, 1, 2 complete
+**Status**: Implemented / Historical — see changelog below for shipped sprints.
+Current roadmap work is tracked in
+[ironclad-bengal-chirp.md](ironclad-bengal-chirp.md).
 **Created**: 2026-04-20
 **Target**: 0.7.0
 **Estimated Effort**: 28–40 hours
