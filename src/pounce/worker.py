@@ -26,6 +26,7 @@ import socket
 import ssl
 import sys
 import threading
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
 
@@ -84,7 +85,7 @@ def _create_h1_protocol(
     return H1Protocol(max_incomplete_event_size=max_incomplete_event_size)
 
 
-def _declared_content_length(headers: list[tuple[bytes, bytes]]) -> int | None:
+def _declared_content_length(headers: Sequence[tuple[bytes, bytes]]) -> int | None:
     """Return the declared Content-Length, if present and parseable."""
     for name, value in headers:
         if name.lower() != b"content-length":
