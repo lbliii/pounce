@@ -1,7 +1,8 @@
 # ADR: `/_pounce/info` — Auth and Bind Model
 
-**Status**: Accepted
+**Status**: Accepted, amended to match shipped implementation
 **Date**: 2026-04-20
+**Amended**: 2026-05-09
 **Epic**: [vibe-coding-epic.md](../plans/vibe-coding-epic.md) — Sprint 0.5
 **Decider**: Sprint 0 design task
 
@@ -21,17 +22,16 @@ Constraints:
 Four layered defaults, each fail-closed:
 
 1. **Introspection is disabled by default.** `introspection_enabled: bool = False` in `ServerConfig`. No endpoint is registered when off.
-2. **When enabled, the endpoint binds to loopback only by default.** A *separate* listener on `introspection_bind: str = "127.0.0.1"` and `introspection_port: int = <configured_port>` — the endpoint does **not** share the main application listener.
-3. **Binding to anything non-loopback emits a startup `WARNING` log line** pointing at this ADR.
+2. **When enabled, the endpoint is served by the main application listener at `introspection_path`.** The shipped implementation reuses the worker dispatch path next to health checks instead of opening a second listener.
+3. **Public reachability emits a startup `WARNING` log line** pointing at the troubleshooting entry. Public reachability means either the main `host` or `introspection_bind` is non-loopback while introspection is enabled.
 4. **No token auth is added.** If you need auth, put the endpoint behind your reverse proxy.
 
 ### Resulting config surface
 
 ```python
-# ServerConfig additions (Sprint 4.1)
+# ServerConfig additions
 introspection_enabled: bool = False
-introspection_bind: str = "127.0.0.1"     # loopback by default
-introspection_port: int = 0                # 0 = same as main port on separate listener; user may override
+introspection_bind: str = "127.0.0.1"     # warning policy input, not a listener
 introspection_path: str = "/_pounce/info"
 ```
 
@@ -46,7 +46,7 @@ introspection_enabled = true
 
 ```bash
 # Agent on the same host
-curl http://127.0.0.1:8001/_pounce/info
+curl http://127.0.0.1:8000/_pounce/info
 ```
 
 ```toml
@@ -66,23 +66,26 @@ Feature flags for observability endpoints must default off. The cost of a leak i
 
 Most debugging use cases are local: the agent running `curl` is on the same host as pounce, or is port-forwarded in. Loopback is enough. For remote access users can either SSH-tunnel or explicitly bind publicly — both are deliberate actions.
 
-A separate listener (not shared with the main application port) means:
+The original ADR selected a separate listener, but the shipped implementation
+uses the main worker dispatch path. The operational consequence is simpler
+deployment: no second port, no firewall exception, and no startup race for a
+side listener. The security consequence is that the endpoint can be reachable
+on the public application port when enabled, so Pounce warns if either the main
+application bind or `introspection_bind` is non-loopback.
 
-- The endpoint does not appear on the user's public port even if they forget the loopback setting.
-- The endpoint path (`/_pounce/info`) does not collide with user routes.
-- Firewall rules can isolate it cleanly.
+`introspection_bind` remains in the config surface as the explicit policy input
+for public exposure warnings, but it does not create a separate socket.
 
 ### Layer 3: startup warning on public bind
 
-If a user knowingly sets `introspection_bind = "0.0.0.0"`, they accept the risk. But we should make sure they *know* they did it — config files get copied, templated, generated. A visible `WARNING` at startup with a link to the redaction ADR makes accidental public exposure impossible-to-miss.
+If a user knowingly enables introspection on a public bind, they accept the risk. But we should make sure they *know* they did it — config files get copied, templated, generated. A visible `WARNING` at startup with a troubleshooting code makes accidental public exposure hard to miss.
 
 Draft warning text:
 
 ```
-WARNING: /_pounce/info is bound to 0.0.0.0 and reachable from any network
-         interface. The endpoint exposes runtime state per docs/design/
-         info-endpoint-redaction.md. Place it behind a reverse proxy or
-         set introspection_bind="127.0.0.1" to restrict to local access.
+POUNCE_CONFIG_INTROSPECTION_PUBLIC: introspection endpoint enabled with
+non-loopback bind. The endpoint exposes runtime state; keep it loopback-only,
+disable introspection, or block the path at your reverse proxy.
 ```
 
 ### Layer 4: no token auth
@@ -91,7 +94,7 @@ Explicit non-features:
 
 - No `introspection_token` or `introspection_auth_header`.
 - No HTTP Basic.
-- No rate limiting on the endpoint (the main `rate_limit_*` settings are enough if the endpoint shares the public listener, which it doesn't by default).
+- No endpoint-specific rate limiting. If the endpoint shares a public listener, use the main rate limiter and reverse-proxy controls.
 
 Rationale:
 
@@ -120,7 +123,7 @@ Emit on the same port; require `Authorization: Bearer <token>` to reach the `/_p
 
 **Pros**: One listener to manage.
 **Cons**: Couples introspection to pounce's middleware chain (auth bugs become endpoint-exposure bugs); path collision with user routes becomes more likely.
-**Rejected.**
+**Partially accepted, without middleware auth.** The endpoint now shares the main listener, but it is dispatched before user routes and before user middleware. Token auth remains rejected.
 
 ### Unix socket only
 
@@ -139,29 +142,29 @@ Bind `/_pounce/info` to a Unix domain socket by default.
 - **Threat model in scope:** an attacker on a neighboring network process/container/VM, or accidentally public binding.
 - **Out of scope:** a root-level attacker on the same host (already game over), and authenticated reverse-proxy bypass (user's responsibility).
 - **Data at risk:** even with the redaction allowlist, an attacker who reaches `/_pounce/info` learns pounce version, Python version, feature flags, timeout values, and live connection counts. This is operational info that aids fingerprinting but contains no credentials or user data.
-- **Log hygiene:** access logs for the introspection listener are off by default — we don't need every `curl /_pounce/info` in `nginx`-style logs. `log_level=debug` turns them on.
+- **Log hygiene:** the endpoint is served on the main listener, so access-log behavior follows the main `access_log` setting.
 
-## Implementation Notes for Sprint 4.1
+## Implementation Notes
 
-- The introspection listener is a separate `HTTPServer` / accept loop from the application listener. Do not multiplex via routing on the main listener.
-- When `introspection_enabled=False`, no listener is created and the config fields `introspection_bind`/`introspection_port`/`introspection_path` are ignored (test that setting them without `introspection_enabled=True` is a no-op, not an error — backward compat).
-- When `introspection_bind` is a loopback literal (`127.0.0.1`, `::1`, `localhost`), no warning. For anything else, emit the warning.
+- The endpoint is dispatched from `worker.py` next to the built-in health check before the request reaches the ASGI app.
+- When `introspection_enabled=False`, no endpoint is registered and `introspection_bind`/`introspection_path` are ignored.
+- When the main `host` and `introspection_bind` are loopback literals (`127.0.0.1`, `::1`, `localhost`), no warning. For anything else, emit the warning.
 - The warning goes through the standard pounce logger at `WARNING` level. It is a startup emission, not a per-request one.
 
 ## Consequences
 
 ### Positive
 
-- Safe by default: a user who types `introspection_enabled = true` and nothing else gets a working, local-only endpoint with zero risk of public exposure.
+- Off by default: users must opt in before the endpoint exists.
 - Deliberate escalation: going public is a conscious act that logs loudly.
-- Minimal config surface: 4 new fields, all with sensible defaults.
+- Minimal config surface: 3 fields, all with sensible defaults.
 - No auth system to maintain.
 
 ### Negative
 
-- Users wanting remote access without a proxy must bind publicly and warn themselves. Acceptable — if you can't put a proxy in front, you can SSH-tunnel.
-- Two listeners when enabled (main + introspection). Small extra resource cost; negligible compared to workers.
+- Users who enable introspection while binding the main app publicly expose the path unless a reverse proxy blocks or authenticates it. Pounce emits `POUNCE_CONFIG_INTROSPECTION_PUBLIC` for that configuration.
+- `introspection_bind` is now a warning-policy field, not a socket bind. The name is historical and should not be expanded without a focused migration plan.
 
 ### Neutral
 
-- `introspection_port: int = 0` semantics — we interpret 0 as "pick main port + 1" so users who just flip the flag get a sensible port without configuring. Unit test covers collision fallback.
+- `introspection_path` may collide with user routing. Built-in dispatch wins while introspection is enabled; users can move the path if needed.
