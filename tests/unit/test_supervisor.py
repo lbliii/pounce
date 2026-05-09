@@ -67,13 +67,25 @@ class TestSupervisorInit:
 
     def test_explicit_thread_mode(self):
         config = ServerConfig(workers=2)
-        sup = Supervisor(config, _noop_app, mode="thread")
+        with patch("pounce.supervisor._get_fork_context") as get_fork_context:
+            sup = Supervisor(config, _noop_app, mode="thread")
         assert sup.mode == "thread"
+        get_fork_context.assert_not_called()
 
     def test_explicit_process_mode(self):
         config = ServerConfig(workers=2)
-        sup = Supervisor(config, _noop_app, mode="process")
+        with patch("pounce.supervisor._get_fork_context") as get_fork_context:
+            sup = Supervisor(config, _noop_app, mode="process")
         assert sup.mode == "process"
+        get_fork_context.assert_called_once()
+
+    def test_process_mode_requires_fork_context(self):
+        config = ServerConfig(workers=2)
+        with (
+            patch("pounce.supervisor._get_fork_context", side_effect=SupervisorError("no fork")),
+            pytest.raises(SupervisorError),
+        ):
+            Supervisor(config, _noop_app, mode="process")
 
     def test_worker_count_from_config(self):
         config = ServerConfig(workers=4)

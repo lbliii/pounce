@@ -179,9 +179,10 @@ a slow dependency is legitimate.
 ### POUNCE_SUPERVISOR_FORK_UNAVAILABLE
 Process workers were requested but the `fork` start method isn't available
 (e.g. on Windows).
-**Cause:** `worker_mode='process'` on a non-Linux platform.
-**Do:** run on Linux, or use `worker_mode='thread'` with free-threaded
-Python 3.14t.
+**Cause:** Pounce selected process workers on a platform without `fork`.
+**Do:** run process workers on a platform with `fork` support, use a single
+worker, or use a free-threaded Python build so `worker_mode='auto'` can select
+thread workers.
 
 ### POUNCE_SUPERVISOR_SOCKET_COUNT_MISMATCH
 The supervisor received a different number of listening sockets than workers.
