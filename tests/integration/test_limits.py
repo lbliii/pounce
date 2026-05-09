@@ -261,15 +261,18 @@ class TestOversizedHeaders:
 
 
 class TestMaxRequestSize:
-    """Request body exceeding max_request_size is truncated."""
+    """Request body exceeding max_request_size is rejected."""
 
-    def test_content_length_body_exceeding_limit_truncated(self):
-        """POST with Content-Length body > max_request_size is truncated."""
+    def test_content_length_body_exceeding_limit_rejected(self):
+        """POST with Content-Length body > max_request_size returns 413."""
         limit = 1024  # 1 KB
         oversized = 2048  # 2 KB
+        app_called = False
 
         @with_lifespan
         async def echo_length_app(scope: Scope, receive: Receive, send: Send) -> None:
+            nonlocal app_called
+            app_called = True
             body = b""
             while True:
                 msg = await receive()
@@ -305,22 +308,23 @@ class TestMaxRequestSize:
                 b"\r\n" + payload
             )
             response = send_raw_request(addr, request, timeout=5.0)
-            assert b"200" in response
-            # App receives truncated body — at most limit bytes
-            body = response.split(b"\r\n\r\n", 1)[-1]
-            received_len = int(body.decode())
-            assert received_len <= limit
+            assert b"413" in response
+            assert b"x-pounce-error-code: pounce_limit_request_too_large" in response.lower()
+            assert app_called is False
         finally:
             worker.shutdown()
             thread.join(timeout=2)
             sock.close()
 
-    def test_chunked_body_exceeding_limit_truncated(self):
-        """Chunked body exceeding max_request_size is truncated."""
+    def test_chunked_body_exceeding_limit_rejected(self):
+        """Chunked body exceeding max_request_size returns 413 when known before dispatch."""
         limit = 1024
+        app_called = False
 
         @with_lifespan
         async def echo_length_app(scope: Scope, receive: Receive, send: Send) -> None:
+            nonlocal app_called
+            app_called = True
             body = b""
             while True:
                 msg = await receive()
@@ -359,10 +363,9 @@ class TestMaxRequestSize:
                 b"\r\n" + chunked_body
             )
             response = send_raw_request(addr, request, timeout=5.0)
-            assert b"200" in response
-            body = response.split(b"\r\n\r\n", 1)[-1]
-            received_len = int(body.decode())
-            assert received_len <= limit
+            assert b"413" in response
+            assert b"x-pounce-error-code: pounce_limit_request_too_large" in response.lower()
+            assert app_called is False
         finally:
             worker.shutdown()
             thread.join(timeout=2)

@@ -84,6 +84,18 @@ def _create_h1_protocol(
     return H1Protocol(max_incomplete_event_size=max_incomplete_event_size)
 
 
+def _declared_content_length(headers: list[tuple[bytes, bytes]]) -> int | None:
+    """Return the declared Content-Length, if present and parseable."""
+    for name, value in headers:
+        if name.lower() != b"content-length":
+            continue
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
 class Worker:
     """Single-threaded async worker that serves HTTP requests.
 
@@ -763,6 +775,20 @@ class Worker:
             request_target=request.target.decode("ascii", errors="replace"),
         )
 
+        if self._body_exceeds_limit(request, initial_body):
+            await self._send_error(
+                writer,
+                proto,
+                413,
+                "Request body exceeds max_request_size",
+                code="POUNCE_LIMIT_REQUEST_TOO_LARGE",
+                hint=(
+                    "Reduce the request body size or raise ServerConfig.max_request_size "
+                    "for this deployment."
+                ),
+            )
+            return
+
         # Inject zero-copy sendfile extension for static file serving.
         # Only available on non-TLS connections when dynamic compression will
         # not transform the response body. Precompressed static variants still
@@ -885,25 +911,8 @@ class Worker:
 
         if initial_body:
             # Body events arrived with the request head.
-            # Enforce max_request_size (same as _read_body).
             body_queue = asyncio.Queue()
-            max_body = self._config.max_request_size
-            total_bytes = 0
             for body_event in initial_body:
-                total_bytes += len(body_event.data)
-                if total_bytes > max_body:
-                    self._logger.warning(
-                        "Request body exceeds max_request_size (%d bytes)",
-                        max_body,
-                    )
-                    # Put truncated final chunk so app sees at most max_body bytes
-                    keep = max_body - (total_bytes - len(body_event.data))
-                    if keep > 0:
-                        await body_queue.put(BodyReceived(data=body_event.data[:keep], more=False))
-                    else:
-                        await body_queue.put(BodyReceived(data=b"", more=False))
-                    body_complete = True
-                    break
                 await body_queue.put(body_event)
                 if not body_event.more:
                     body_complete = True
@@ -1301,6 +1310,32 @@ class Worker:
             )
             if send_state.status == 0:
                 send_state.status = 500
+
+    def _body_exceeds_limit(
+        self,
+        request: RequestReceived,
+        initial_body: list[BodyReceived] | None,
+    ) -> bool:
+        """Return True when a request body is known to exceed max_request_size."""
+        max_body = self._config.max_request_size
+        declared = _declared_content_length(request.headers)
+        if declared is not None and declared > max_body:
+            self._logger.warning(
+                "Request Content-Length %d exceeds max_request_size (%d bytes)",
+                declared,
+                max_body,
+            )
+            return True
+
+        if initial_body:
+            total = sum(len(event.data) for event in initial_body)
+            if total > max_body:
+                self._logger.warning(
+                    "Request body exceeds max_request_size (%d bytes)",
+                    max_body,
+                )
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # Client disconnect monitoring
