@@ -39,7 +39,7 @@ install:
 	@bash -c 'source "$(VENV_DIR)/bin/activate" && uv sync --active --group dev --frozen'
 
 test:
-	uv run pytest -q --tb=short
+	uv run python -m pytest -q --tb=short
 
 lint:
 	uv run ruff check src/ tests/
