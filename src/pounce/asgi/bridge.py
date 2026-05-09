@@ -40,6 +40,7 @@ class SendState:
     status: int = 0
     bytes_sent: int = 0
     response_started: bool = False  # True when http.response.start was sent
+    response_complete: bool = False  # True after final http.response.body
 
 
 # ---------------------------------------------------------------------------
@@ -488,6 +489,7 @@ def create_send(
             state.bytes_sent += original_len
             if not more_body:
                 response_complete = True
+                state.response_complete = True
 
         else:
             raise RuntimeError(

@@ -1161,6 +1161,13 @@ class Worker:
                         timestamp_ns=lifecycle_ns(),
                     )
                 )
+                if send_state.response_complete:
+                    try:
+                        await app_task
+                    except Exception:
+                        if send_state.status == 0:
+                            send_state.status = 500
+                    return
 
             for task in pending:
                 task.cancel()

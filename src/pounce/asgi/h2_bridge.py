@@ -266,6 +266,7 @@ def create_h2_send(
             state.bytes_sent += original_len
             if not more_body:
                 response_complete = True
+                state.response_complete = True
 
     return send
 
