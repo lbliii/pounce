@@ -36,6 +36,33 @@ class TestResponse:
 class TestPreRequestMiddleware:
     """Tests for pre-request middleware."""
 
+    async def test_non_http_scope_bypasses_middleware(self):
+        """Middleware should not run on lifespan or worker lifecycle scopes."""
+        middleware_called = False
+        app_called = False
+
+        async def request_middleware(scope):
+            nonlocal middleware_called
+            middleware_called = True
+            return scope
+
+        async def app(scope, receive, send):
+            nonlocal app_called
+            app_called = True
+
+        stack = MiddlewareStack([request_middleware], app)
+
+        async def receive():
+            return {"type": "lifespan.startup"}
+
+        async def send(message):
+            pass
+
+        await stack({"type": "lifespan", "state": {}}, receive, send)
+
+        assert middleware_called is False
+        assert app_called is True
+
     async def test_pre_request_modifies_scope(self):
         """Test pre-request middleware can modify scope."""
 

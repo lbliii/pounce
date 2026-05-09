@@ -237,6 +237,10 @@ class MiddlewareStack:
         4. Run exception middleware if app raises
 
         """
+        if scope.get("type") != "http":
+            await self._app(scope, receive, send)
+            return
+
         pre_request = self._pre_request
         post_response = self._post_response
         exception_handlers = self._exception_handlers
