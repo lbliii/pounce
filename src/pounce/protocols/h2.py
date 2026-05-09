@@ -181,7 +181,9 @@ class H2Connection:
 
     def __init__(self, *, client_side: bool = False) -> None:
         if not _HAS_H2:
-            raise RuntimeError("HTTP/2 support requires h2. Install with: pip install bengal-pounce[h2]")
+            raise RuntimeError(
+                "HTTP/2 support requires h2. Install with: pip install bengal-pounce[h2]"
+            )
         config = h2.config.H2Configuration(
             client_side=client_side,
             header_encoding="utf-8",

@@ -438,7 +438,10 @@ class SyncWorker:
                                 headers_list.append(
                                     (b"content-length", str(len(body_out)).encode("ascii"))
                                 )
-                            elif content_length_header is not None and content_length_header not in headers_list:
+                            elif (
+                                content_length_header is not None
+                                and content_length_header not in headers_list
+                            ):
                                 headers_list.append(content_length_header)
                         # Advertise dictionaries for matching paths (RFC 9842)
                         if self._config.compression_dictionaries:
