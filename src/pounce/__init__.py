@@ -105,6 +105,11 @@ class ServerConfigKwargs(TypedDict, total=False):
     uds: str | None
     ssl_certfile: str | None
     ssl_keyfile: str | None
+    static_files: dict[str, str]
+    static_cache_control: str
+    static_precompressed: bool
+    static_follow_symlinks: bool
+    static_index_file: str | None
 
 
 def run(app: str | ASGIApp, **kwargs: Unpack[ServerConfigKwargs]) -> None:

@@ -757,9 +757,17 @@ class Worker:
             request, self._config, client, server, self._lifespan_state
         )
 
+        compressor, dictionary = negotiate_compressor(
+            self._config,
+            request.headers,
+            request_target=request.target.decode("ascii", errors="replace"),
+        )
+
         # Inject zero-copy sendfile extension for static file serving.
-        # Only available on non-TLS connections (SSL wraps the socket).
-        if can_use_sendfile(writer):
+        # Only available on non-TLS connections when dynamic compression will
+        # not transform the response body. Precompressed static variants still
+        # use sendfile when the client did not negotiate runtime compression.
+        if compressor is None and can_use_sendfile(writer):
             scope.setdefault("extensions", {})["pounce.sendfile"] = create_sendfile_callable(writer)
 
         # Built-in health check — respond before ASGI dispatch.
@@ -866,12 +874,6 @@ class Worker:
         if self._config.server_timing:
             timing = ServerTiming()
             timing.add("parse", elapsed_ms(request_start))
-
-        compressor, dictionary = negotiate_compressor(
-            self._config,
-            request.headers,
-            request_target=request.target.decode("ascii", errors="replace"),
-        )
 
         # Determine body status and create receive callable.
         # All paths now create a disconnect event so the ASGI app can
