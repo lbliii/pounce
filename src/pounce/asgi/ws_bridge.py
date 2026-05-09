@@ -30,6 +30,8 @@ def build_ws_scope(
     config: ServerConfig,
     client: tuple[str, int],
     server: tuple[str, int],
+    *,
+    state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an ASGI WebSocket scope dict from the upgrade request.
 
@@ -61,6 +63,8 @@ def build_ws_scope(
         root_path=config.root_path,
     )
     scope["subprotocols"] = subprotocols
+    if state is not None:
+        scope["state"] = state
     return scope
 
 

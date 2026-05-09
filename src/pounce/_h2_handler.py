@@ -49,6 +49,7 @@ async def handle_h2_connection(
     client_str: str,
     *,
     worker_id: int | None = None,
+    lifespan_state: dict[str, Any] | None = None,
 ) -> None:
     """Handle a full HTTP/2 connection with multiplexed streams.
 
@@ -104,7 +105,7 @@ async def handle_h2_connection(
     ) -> None:
         """Run the ASGI app for a single HTTP/2 stream."""
         request_start = monotonic_ns()
-        scope = build_h2_scope(request, config, client, server)
+        scope = build_h2_scope(request, config, client, server, state=lifespan_state)
 
         # Generate or extract request ID for tracing
         is_trusted_peer = bool(
@@ -264,6 +265,7 @@ async def handle_h2_connection(
                                 client,
                                 server,
                                 client_str,
+                                lifespan_state=lifespan_state,
                             )
                         )
                         stream_tasks[event.stream_id] = (ws_task, ws_queue)
@@ -344,6 +346,8 @@ async def handle_h2_websocket_stream(
     client: tuple[str, int],
     server: tuple[str, int],
     client_str: str,
+    *,
+    lifespan_state: dict[str, Any] | None = None,
 ) -> None:
     """Handle a WebSocket-over-HTTP/2 stream (RFC 8441).
 
@@ -378,7 +382,7 @@ async def handle_h2_websocket_stream(
     writer.write(h2_conn.data_to_send())  # type: ignore[union-attr]
 
     # Build WebSocket ASGI scope
-    scope = build_ws_scope(request, config, client, server)
+    scope = build_ws_scope(request, config, client, server, state=lifespan_state)
 
     receive_queue: asyncio.Queue[dict] = asyncio.Queue()
     close_event = asyncio.Event()

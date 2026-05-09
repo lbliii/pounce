@@ -27,6 +27,7 @@ def build_h3_scope(
     *,
     stream_id: int = 0,
     is_0rtt: bool = False,
+    state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an ASGI HTTP scope from HTTP/3 HeadersReceived.
 
@@ -93,7 +94,10 @@ def build_h3_scope(
             "pounce.h3.is_0rtt": is_0rtt,
         },
     }
-    return apply_proxy_headers(scope, trusted_hosts=config.trusted_hosts)
+    scope = apply_proxy_headers(scope, trusted_hosts=config.trusted_hosts)
+    if state is not None:
+        scope["state"] = state
+    return scope
 
 
 def create_h3_receive(

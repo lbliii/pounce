@@ -174,6 +174,11 @@ class TestBuildH3Scope:
         assert b"content-type" in header_names
         assert b"Content-Type" not in header_names
 
+    def test_state_injected(self) -> None:
+        state = {"tenant_registry": object()}
+        scope = build_h3_scope(_h3_headers(), ServerConfig(), _CLIENT, _SERVER, state=state)
+        assert scope["state"] is state
+
 
 # ---------------------------------------------------------------------------
 # create_h3_receive

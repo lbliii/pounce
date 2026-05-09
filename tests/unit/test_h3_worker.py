@@ -89,6 +89,22 @@ class TestH3WorkerConstruction:
         finally:
             sock.close()
 
+    def test_set_lifespan_state(self) -> None:
+        sock = _make_udp_socket()
+        try:
+            worker = H3Worker(
+                _make_config(),
+                _noop_app,
+                sock,
+                ssl_certfile="/tmp/cert.pem",
+                ssl_keyfile="/tmp/key.pem",
+            )
+            state = {"tenant_registry": object()}
+            worker.set_lifespan_state(state)
+            assert worker._lifespan_state is state
+        finally:
+            sock.close()
+
 
 class TestH3WorkerShutdown:
     """Tests for H3Worker shutdown mechanisms."""

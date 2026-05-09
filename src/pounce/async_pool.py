@@ -258,6 +258,7 @@ class AsyncPool:
                 handoff.client,
                 handoff.server,
                 client_str,
+                lifespan_state=self._lifespan_state,
             )
         except Exception:
             self._logger.exception("WebSocket handoff error")

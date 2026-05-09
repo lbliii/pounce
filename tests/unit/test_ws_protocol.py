@@ -336,6 +336,21 @@ class TestWSBridge:
 
         assert scope["scheme"] == "wss"
 
+    def test_build_ws_scope_injects_state(self) -> None:
+        from pounce.asgi.ws_bridge import build_ws_scope
+        from pounce.config import ServerConfig
+
+        state = {"tenant_registry": object()}
+        scope = build_ws_scope(
+            _ws_upgrade_request(),
+            ServerConfig(),
+            client=("127.0.0.1", 54321),
+            server=("127.0.0.1", 8000),
+            state=state,
+        )
+
+        assert scope["state"] is state
+
 
 class TestIsWebSocketUpgrade:
     """Tests for _is_websocket_upgrade() header detection."""

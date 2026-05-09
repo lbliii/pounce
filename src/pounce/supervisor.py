@@ -975,6 +975,7 @@ class Supervisor:
             ssl_certfile=self._config.ssl_certfile,
             ssl_keyfile=self._config.ssl_keyfile,
         )
+        worker.set_lifespan_state(self._lifespan_state)
 
         target = threading.Thread(
             target=worker.run,

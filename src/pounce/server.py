@@ -21,7 +21,7 @@ import socket
 import sys
 import threading
 from dataclasses import replace
-from typing import cast
+from typing import Any, cast
 
 import pounce.logging as pounce_logging
 from pounce._runtime import WorkerMode, detect_worker_mode, is_gil_enabled
@@ -384,7 +384,7 @@ class Server:
 
             h3_task: asyncio.Task[None] | None = None
             if udp_sock is not None:
-                h3_task = asyncio.create_task(self._run_single_h3(udp_sock))
+                h3_task = asyncio.create_task(self._run_single_h3(udp_sock, lifespan_state))
 
             dispatch(READY, host=self._config.host, port=self._config.port, uds=self._config.uds)
             self._started_event.set()
@@ -564,7 +564,11 @@ class Server:
                 udp_sockets,
             )
 
-    async def _run_single_h3(self, udp_sock: socket.socket) -> None:
+    async def _run_single_h3(
+        self,
+        udp_sock: socket.socket,
+        lifespan_state: dict[str, Any],
+    ) -> None:
         """Run HTTP/3 datagram endpoint in single-worker mode."""
         try:
             from pounce.protocols.h3 import is_h3_available
@@ -617,6 +621,7 @@ class Server:
             logger_h3,
             server,
             quic_config,
+            lifespan_state=lifespan_state,
         )
 
         transport, _protocol = await loop.create_datagram_endpoint(

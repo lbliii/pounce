@@ -36,6 +36,8 @@ def build_h2_scope(
     config: ServerConfig,
     client: tuple[str, int],
     server: tuple[str, int],
+    *,
+    state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an ASGI HTTP scope from an HTTP/2 request.
 
@@ -55,7 +57,10 @@ def build_h2_scope(
         client=client,
         root_path=config.root_path,
     )
-    return apply_proxy_headers(scope, trusted_hosts=config.trusted_hosts)
+    scope = apply_proxy_headers(scope, trusted_hosts=config.trusted_hosts)
+    if state is not None:
+        scope["state"] = state
+    return scope
 
 
 def create_h2_receive(

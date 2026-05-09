@@ -516,6 +516,7 @@ class Worker:
                         server,
                         client_str,
                         worker_id=self._worker_id,
+                        lifespan_state=self._lifespan_state,
                     )
                 except Exception:
                     self._logger.exception(
@@ -607,6 +608,7 @@ class Worker:
                                 server,
                                 client_str,
                                 worker_id=self._worker_id,
+                                lifespan_state=self._lifespan_state,
                             )
                             return True  # WS takes over
                         await self._handle_request(

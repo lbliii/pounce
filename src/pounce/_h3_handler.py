@@ -66,6 +66,7 @@ def _create_zoomies_datagram_protocol(
     logger: logging.Logger,
     server: tuple[str, int],
     quic_config: Any,  # zoomies.core.configuration.QuicConfiguration
+    lifespan_state: dict[str, Any] | None = None,
 ) -> type:
     """Factory that returns a ZoomiesDatagramProtocol class bound to app/config/logger/server."""
 
@@ -92,6 +93,7 @@ def _create_zoomies_datagram_protocol(
             self._logger = logger
             self._server = server
             self._quic_config = quic_config
+            self._lifespan_state = lifespan_state
             self._connections: dict[tuple[str, int], _ZoomiesConnection] = {}
             self._cid_to_conn: dict[bytes, _ZoomiesConnection] = {}
             self._transport: asyncio.DatagramTransport | None = None
@@ -229,6 +231,7 @@ def _create_zoomies_datagram_protocol(
                 self._server,
                 stream_id=stream_id,
                 is_0rtt=is_0rtt,
+                state=self._lifespan_state,
             )
 
             method = scope["method"]
@@ -517,6 +520,7 @@ def create_zoomies_datagram_protocol_factory(
     logger: logging.Logger,
     server: tuple[str, int],
     quic_config: Any,
+    lifespan_state: dict[str, Any] | None = None,
 ) -> Callable[[], asyncio.DatagramProtocol]:
     """Create a factory for ZoomiesDatagramProtocol.
 
@@ -526,7 +530,14 @@ def create_zoomies_datagram_protocol_factory(
         msg = "zoomies not installed; install with pip install pounce[h3]"
         raise RuntimeError(msg)
 
-    protocol_cls = _create_zoomies_datagram_protocol(app, config, logger, server, quic_config)
+    protocol_cls = _create_zoomies_datagram_protocol(
+        app,
+        config,
+        logger,
+        server,
+        quic_config,
+        lifespan_state=lifespan_state,
+    )
 
     def factory() -> asyncio.DatagramProtocol:
         return protocol_cls()

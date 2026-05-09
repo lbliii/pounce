@@ -154,6 +154,11 @@ class TestBuildH2Scope:
         header_names = [h[0] for h in scope["headers"]]
         assert b"content-type" in header_names
 
+    def test_state_injected(self) -> None:
+        state = {"tenant_registry": object()}
+        scope = build_h2_scope(_request(), ServerConfig(), _CLIENT, _SERVER, state=state)
+        assert scope["state"] is state
+
 
 # ---------------------------------------------------------------------------
 # create_h2_receive
