@@ -23,6 +23,7 @@ from pounce.config import _IIC_SKIP_FIELDS, ServerConfig
 
 ROOT = Path(__file__).resolve().parents[2]
 CLAIM_LEDGER = ROOT / "docs/design/public-claims.json"
+PROTOCOL_LEDGER = ROOT / "docs/design/protocol-proof-ledger.json"
 
 
 def _server_config_field_names() -> set[str]:
@@ -176,3 +177,31 @@ class TestPublicClaimLedger:
                 failures.append(f"{path.relative_to(ROOT)}:{lineno}: {line.strip()}")
 
         assert failures == []
+
+
+class TestProtocolProofLedger:
+    def _ledger(self) -> dict[str, object]:
+        return json.loads(PROTOCOL_LEDGER.read_text())
+
+    def test_optional_protocols_have_proof_or_gaps(self) -> None:
+        protocols = self._ledger()["protocols"]
+        expected = {"http1", "http2", "websocket_h1", "websocket_h2", "http3", "websocket_h3"}
+        assert set(protocols) == expected
+
+        for name, entry in protocols.items():
+            assert set(entry) == {"status", "install", "proof", "gaps"}, name
+            if entry["status"] != "unsupported":
+                assert entry["proof"], name
+            if entry["status"].endswith("limited"):
+                assert entry["gaps"], name
+
+    def test_websocket_over_h3_is_explicitly_unsupported(self) -> None:
+        protocols = self._ledger()["protocols"]
+        assert protocols["websocket_h3"]["status"] == "unsupported"
+
+        websocket_doc = (ROOT / "site/content/docs/protocols/websocket.md").read_text()
+        http3_doc = (ROOT / "site/content/docs/protocols/http3.md").read_text()
+        expected = "WebSocket over HTTP/3 is not currently supported"
+
+        assert expected in websocket_doc
+        assert expected in http3_doc

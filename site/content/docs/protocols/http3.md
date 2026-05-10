@@ -18,6 +18,7 @@ transport handshake.
 HTTP/3 has its own support boundary from HTTP/1.1 and HTTP/2 because it uses a
 UDP listener and QUIC transport state. Check lifecycle, reload, 0-RTT, limit, and
 benchmark notes before treating it as production-equivalent to the TCP paths.
+WebSocket over HTTP/3 is not currently supported.
 :::
 
 ## Install

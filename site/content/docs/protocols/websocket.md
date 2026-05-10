@@ -77,6 +77,8 @@ a separately proven protocol path from HTTP/1 WebSocket support; keep deployment
 validation around accept/send/receive/close, stream reset, and missing-extra
 behavior.
 
+WebSocket over HTTP/3 is not currently supported.
+
 ## Configuration
 
 WebSocket connections share some settings with HTTP connections:
