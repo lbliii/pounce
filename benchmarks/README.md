@@ -54,6 +54,31 @@ python benchmarks/run_benchmark.py --workload all --output results.json
 | `--compare` | off | Also benchmark uvicorn |
 | `--output` | none | Save results to JSON file |
 
+## Benchmark Artifacts
+
+Public numeric performance claims need a reproducible artifact or an explicit
+snapshot caveat. Store benchmark artifacts as JSON that follows
+`benchmarks/artifact-schema.json`.
+
+Required metadata:
+
+- command and server command
+- git SHA
+- workload
+- Python version and GIL mode
+- OS and hardware
+- worker mode and worker count
+- duration, connections, and load-generator threads
+- load tool and version
+- comparison target and version, when comparing
+- sample count and variance
+- raw output path
+- summary table
+
+If a doc or release note uses a number without an artifact, phrase it as a local
+snapshot, tuning example, or historical note. Do not promote it to a product
+claim.
+
 ## Pytest Benchmarks
 
 Run in-process benchmarks via pytest:

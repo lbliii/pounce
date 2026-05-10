@@ -24,6 +24,7 @@ from pounce.config import _IIC_SKIP_FIELDS, ServerConfig
 ROOT = Path(__file__).resolve().parents[2]
 CLAIM_LEDGER = ROOT / "docs/design/public-claims.json"
 PROTOCOL_LEDGER = ROOT / "docs/design/protocol-proof-ledger.json"
+BENCHMARK_SCHEMA = ROOT / "benchmarks/artifact-schema.json"
 
 
 def _server_config_field_names() -> set[str]:
@@ -205,3 +206,45 @@ class TestProtocolProofLedger:
 
         assert expected in websocket_doc
         assert expected in http3_doc
+
+
+class TestBenchmarkArtifactPolicy:
+    REQUIRED_FIELDS = {
+        "artifact_id",
+        "created_at",
+        "git_sha",
+        "command",
+        "server_command",
+        "workload",
+        "python_version",
+        "python_gil_mode",
+        "os",
+        "hardware",
+        "worker_mode",
+        "workers",
+        "duration_seconds",
+        "connections",
+        "threads",
+        "load_tool",
+        "load_tool_version",
+        "comparison_target",
+        "comparison_target_version",
+        "samples",
+        "variance",
+        "raw_output",
+        "summary",
+    }
+
+    def test_benchmark_artifact_schema_names_required_metadata(self) -> None:
+        schema = json.loads(BENCHMARK_SCHEMA.read_text())
+        assert schema["version"] == 1
+        assert set(schema["required_fields"]) == self.REQUIRED_FIELDS
+        assert "not a product claim" in schema["notes"]
+
+    def test_benchmark_policy_is_documented_for_contributors(self) -> None:
+        contributing = (ROOT / "CONTRIBUTING.md").read_text()
+        benchmarks = (ROOT / "benchmarks/README.md").read_text()
+
+        assert "benchmarks/artifact-schema.json" in contributing
+        assert "benchmarks/artifact-schema.json" in benchmarks
+        assert "snapshot caveat" in benchmarks

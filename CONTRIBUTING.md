@@ -93,6 +93,10 @@ Every public feature PR should answer:
 If a PR only narrows public claims or adds contributor-process docs, say
 `no runtime behavior changed` and name the docs/site parity checks used.
 
+For numeric performance claims, either reference a benchmark artifact that
+follows `benchmarks/artifact-schema.json` or explicitly label the number as a
+local snapshot, tuning example, or historical note.
+
 ### Add an error
 
 Every `raise` of a `PounceError` subclass must pass a
