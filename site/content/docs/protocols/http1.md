@@ -38,8 +38,8 @@ h11 is a state-machine-based HTTP/1.1 parser. It's well-tested, handles edge cas
 
 ## Fast Built-in Parser
 
-The sync worker hot path uses a custom parser that provides ~3 µs/req parsing with full
-safety checks:
+The sync worker hot path uses a custom parser measured around ~3 µs/req on the
+local parser microbenchmark, with tested safety checks:
 
 - Method validation (rejects unknown methods)
 - Header size limits (16 KB, prevents exhaustion)

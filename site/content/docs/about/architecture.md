@@ -165,7 +165,7 @@ The bridge is per-request — created and destroyed within a single connection h
 | `protocols/h2.py` | Protocol | HTTP/2 via h2 |
 | `protocols/h3.py` | Protocol | HTTP/3 via bengal-zoomies |
 | `protocols/ws.py` | Protocol | WebSocket via wsproto |
-| `_fast_h1.py` | Protocol | Fast H1 parser (~3 µs/req) |
+| `_fast_h1.py` | Protocol | Fast H1 parser for sync workers |
 | `asgi/bridge.py` | Bridge | HTTP ASGI scope/receive/send |
 | `asgi/h2_bridge.py` | Bridge | HTTP/2 ASGI bridge |
 | `asgi/ws_bridge.py` | Bridge | WebSocket ASGI bridge |

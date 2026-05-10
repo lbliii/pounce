@@ -8,6 +8,7 @@ quietly drifting apart.
 from __future__ import annotations
 
 import inspect
+import json
 import re
 import tomllib
 from dataclasses import fields
@@ -21,6 +22,7 @@ from pounce._output import _OPTIONAL_DEPS
 from pounce.config import _IIC_SKIP_FIELDS, ServerConfig
 
 ROOT = Path(__file__).resolve().parents[2]
+CLAIM_LEDGER = ROOT / "docs/design/public-claims.json"
 
 
 def _server_config_field_names() -> set[str]:
@@ -106,3 +108,71 @@ class TestOptionalProtocolParity:
             assert "HTTP/2" in text, path
             assert "WebSocket" in text, path
             assert "HTTP/3" in text, path
+
+
+class TestPublicClaimLedger:
+    ACTIVE_PUBLIC_DOCS = [
+        ROOT / "README.md",
+        ROOT / "site/content/_index.md",
+        ROOT / "site/content/docs/_index.md",
+        ROOT / "site/content/docs/about/_index.md",
+        ROOT / "site/content/docs/about/architecture.md",
+        ROOT / "site/content/docs/about/comparison.md",
+        ROOT / "site/content/docs/about/faq.md",
+        ROOT / "site/content/docs/about/performance.md",
+        ROOT / "site/content/docs/deployment/backpressure.md",
+        ROOT / "site/content/docs/features/lifecycle-logging.md",
+        ROOT / "site/content/docs/features/middleware.md",
+        ROOT / "site/content/docs/features/static-files.md",
+        ROOT / "site/content/docs/features/websocket-compression.md",
+        ROOT / "site/content/docs/protocols/http1.md",
+    ]
+    RISKY_PATTERNS = [
+        re.compile(r"\bfull support\b", re.IGNORECASE),
+        re.compile(r"\bfull ASGI\b", re.IGNORECASE),
+        re.compile(r"\bzero-downtime\b", re.IGNORECASE),
+        re.compile(r"\bproduction apps\b", re.IGNORECASE),
+        re.compile(r"\bhigh-performance\b", re.IGNORECASE),
+        re.compile(r"\bthread-safe(?:ty)?\b", re.IGNORECASE),
+        re.compile(r"\bfree-threading safe\b", re.IGNORECASE),
+        re.compile(r"\bRFC compliant\b", re.IGNORECASE),
+        re.compile(r"\bevery response\b", re.IGNORECASE),
+        re.compile(r"\balways\b", re.IGNORECASE),
+        re.compile(r"\d+(?:\.\d+)?k?\s*req/s", re.IGNORECASE),
+        re.compile(r"\d+(?:\.\d+)?\s*(?:us|µs)/request", re.IGNORECASE),
+        re.compile(r"\d+(?:\.\d+)?\s*µs/req", re.IGNORECASE),
+        re.compile(r"\d+(?:\.\d+)?\s*%"),
+    ]
+
+    def _ledger(self) -> dict[str, object]:
+        return json.loads(CLAIM_LEDGER.read_text())
+
+    def test_claim_ledger_entries_have_required_fields(self) -> None:
+        ledger = self._ledger()
+        claim_ids: set[str] = set()
+        for claim in ledger["claims"]:
+            assert set(claim) >= {"id", "type", "status", "files", "patterns", "proof", "notes"}
+            assert claim["id"] not in claim_ids
+            claim_ids.add(claim["id"])
+            for rel in claim["files"]:
+                assert (ROOT / rel).exists(), rel
+
+    def test_risky_public_claims_are_in_ledger(self) -> None:
+        ledger = self._ledger()
+        allowed: dict[Path, list[str]] = {}
+        for claim in ledger["claims"]:
+            for rel in claim["files"]:
+                allowed.setdefault(ROOT / rel, []).extend(claim["patterns"])
+        for item in ledger["allowlist"]:
+            allowed.setdefault(ROOT / item["file"], []).append(item["pattern"])
+
+        failures: list[str] = []
+        for path in self.ACTIVE_PUBLIC_DOCS:
+            for lineno, line in enumerate(path.read_text().splitlines(), start=1):
+                if not any(pattern.search(line) for pattern in self.RISKY_PATTERNS):
+                    continue
+                if any(pattern.lower() in line.lower() for pattern in allowed.get(path, [])):
+                    continue
+                failures.append(f"{path.relative_to(ROOT)}:{lineno}: {line.strip()}")
+
+        assert failures == []

@@ -1,6 +1,6 @@
 ---
 title: Pounce
-description: A Python ASGI server for production apps, streaming responses, and free-threaded Python
+description: A Python ASGI server for deployments, streaming responses, and free-threaded Python
 template: home.html
 weight: 100
 type: page

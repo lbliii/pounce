@@ -49,7 +49,7 @@ automatic process fallback on GIL builds.
 | Free-threading | Native threads on 3.14t | Processes only | Processes only | Rust + processes |
 | HTTP/1.1 parser | Fast built-in parser + h11 | h11 or httptools (C) | h11 | Rust (hyper) |
 | Config thread-safety | Frozen dataclass | Mutable | Mutable | N/A (Rust) |
-| Zero-downtime reload | Rolling restart (3.14t) | Full restart | Full restart | N/A |
+| Thread-worker reload | Rolling restart on supported 3.14t deployments | Full restart | Full restart | N/A |
 | Thundering herd fix | AcceptDistributor | N/A | N/A | N/A |
 | Built-in metrics | Prometheus /metrics | No | No | No |
 | Lifecycle events API | Typed, public | Logging only | Logging only | N/A |

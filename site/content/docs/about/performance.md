@@ -15,7 +15,7 @@ category: explanation
 Pounce's sync workers use a built-in HTTP/1.1 parser optimized for the common
 request-head path. Local benchmark snapshots have measured it around **~3 us per
 request** versus h11 around **~22 us** on the same parser microbenchmark, but
-public performance claims should always include the command, hardware, Python
+public performance claims should include the command, hardware, Python
 build, workload, and variance. This isn't a C extension; it's pure Python using
 direct `bytes.find()` operations on a `memoryview` buffer.
 
@@ -88,7 +88,7 @@ This appears directly in browser DevTools (Network tab → Timing), enabling zer
 ## HTTP Parsing
 
 Pounce uses two HTTP/1.1 parser paths: `_fast_h1` for sync workers and h11 for
-async workers. Both are pure Python and free-threading safe. The fast parser
+async workers. Both are pure Python and designed for free-threading use. The fast parser
 handles the common request-head path; chunked body decoding, obs-fold, and
 trailer headers fall through to h11 or the async pool.
 

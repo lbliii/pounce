@@ -14,7 +14,7 @@ cascade:
 
 ## Learn Pounce
 
-Pounce is a Python ASGI server for production apps, streaming workloads, and
+Pounce is a Python ASGI server for deployments, streaming workloads, and
 free-threaded Python. Start with installation, then move into deployment, protocol
 support, and migration guides.
 

@@ -138,4 +138,4 @@ for attempt in range(max_retries):
 
 - Rate limiting: ~5-10 us/request, ~100 bytes per active IP
 - Request queueing: ~1-5 us/request (async semaphore acquire/release)
-- Both are thread-safe for free-threading mode
+- Both are designed for free-threading mode
