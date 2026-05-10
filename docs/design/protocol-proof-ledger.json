@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "protocols": {
+    "http1": {
+      "status": "core",
+      "install": "built in",
+      "proof": [
+        "tests/unit/test_h1_protocol.py",
+        "tests/unit/test_security.py",
+        "tests/unit/test_chunked_edge_cases.py",
+        "tests/unit/test_fuzz_extended.py",
+        "tests/integration/test_limits.py"
+      ],
+      "gaps": []
+    },
+    "http2": {
+      "status": "optional",
+      "install": "bengal-pounce[h2]",
+      "proof": [
+        "tests/unit/test_h2_protocol.py",
+        "tests/unit/test_h2_bridge.py",
+        "tests/unit/test_h2_handler.py"
+      ],
+      "gaps": [
+        "missing-extra diagnostics test",
+        "operator output parity for h2 availability"
+      ]
+    },
+    "websocket_h1": {
+      "status": "optional",
+      "install": "bengal-pounce[ws]",
+      "proof": [
+        "tests/unit/test_ws_protocol.py",
+        "tests/unit/test_websocket_compression.py",
+        "tests/integration/test_websocket_compression_integration.py"
+      ],
+      "gaps": [
+        "missing-extra deterministic HTTP/1 WebSocket response"
+      ]
+    },
+    "websocket_h2": {
+      "status": "optional-limited",
+      "install": "bengal-pounce[h2] + bengal-pounce[ws]",
+      "proof": [
+        "src/pounce/_h2_handler.py",
+        "src/pounce/asgi/h2_bridge.py"
+      ],
+      "gaps": [
+        "defer 200 response until ASGI websocket.accept",
+        "reject-before-accept integration test",
+        "stream reset and disconnect integration test",
+        "missing-extra deterministic H2 response or reset"
+      ]
+    },
+    "http3": {
+      "status": "optional-limited",
+      "install": "bengal-pounce[h3] + TLS",
+      "proof": [
+        "tests/integration/test_h3_integration.py",
+        "tests/integration/test_http3.py",
+        "tests/unit/test_h3_bridge.py",
+        "tests/unit/test_h3_handler.py",
+        "tests/unit/test_h3_worker.py"
+      ],
+      "gaps": [
+        "lifecycle state parity proof",
+        "reload and drain parity proof",
+        "shutdown parity proof",
+        "benchmark artifact",
+        "missing-extra diagnostics test"
+      ]
+    },
+    "websocket_h3": {
+      "status": "unsupported",
+      "install": "not available",
+      "proof": [],
+      "gaps": [
+        "no WebSocket-over-HTTP/3 implementation",
+        "no RFC 9220 Extended CONNECT over H3 tests"
+      ]
+    }
+  }
+}

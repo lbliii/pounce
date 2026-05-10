@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "required_fields": [
+    "artifact_id",
+    "created_at",
+    "git_sha",
+    "command",
+    "server_command",
+    "workload",
+    "python_version",
+    "python_gil_mode",
+    "os",
+    "hardware",
+    "worker_mode",
+    "workers",
+    "duration_seconds",
+    "connections",
+    "threads",
+    "load_tool",
+    "load_tool_version",
+    "comparison_target",
+    "comparison_target_version",
+    "samples",
+    "variance",
+    "raw_output",
+    "summary"
+  ],
+  "notes": "Public numeric performance claims must reference an artifact with these fields or explicitly state that the number is a local snapshot or tuning example, not a product claim."
+}

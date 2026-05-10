@@ -65,6 +65,38 @@ from `dataclasses.fields(ServerConfig)` — fail-closed. Three steps:
 
 TOML loading and `pounce config schema` pick the field up automatically.
 
+### Add or expand a public feature
+
+Start with the ownership gate in
+[docs/design/core-contract.md](docs/design/core-contract.md). Classify the
+feature before writing code:
+
+- **Core:** ASGI, HTTP/1.1, worker lifecycle, config validation, or operator
+  diagnostics.
+- **Optional protocol:** HTTP/2, WebSocket, HTTP/3, TLS, or another install-gated
+  protocol/transport path.
+- **Helper:** static files, middleware, compression, rate limiting, request
+  queueing, debug pages, or another convenience layer.
+- **Tooling/integration:** testing helpers, benchmarks, OpenTelemetry, Sentry, or
+  external observability systems.
+
+Every public feature PR should answer:
+
+1. Why should Pounce own this instead of app middleware, a reverse proxy, a
+   process manager, or deployment tooling?
+2. Which surfaces change: `ServerConfig`, `pounce.run`, CLI, TOML, schema,
+   redaction/info, logs, metrics, error codes, docs, examples, tests,
+   benchmarks, or changelog?
+3. What proof is included, and what collateral moves with it?
+4. What limitations or degraded behavior remain?
+
+If a PR only narrows public claims or adds contributor-process docs, say
+`no runtime behavior changed` and name the docs/site parity checks used.
+
+For numeric performance claims, either reference a benchmark artifact that
+follows `benchmarks/artifact-schema.json` or explicitly label the number as a
+local snapshot, tuning example, or historical note.
+
 ### Add an error
 
 Every `raise` of a `PounceError` subclass must pass a

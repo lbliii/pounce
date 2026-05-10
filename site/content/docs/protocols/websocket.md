@@ -1,6 +1,6 @@
 ---
 title: WebSocket
-description: WebSocket support via wsproto, including WebSocket over HTTP/2
+description: Optional WebSocket support via wsproto
 draft: false
 weight: 30
 lang: en
@@ -21,7 +21,8 @@ uv add "bengal-pounce[ws]"
 Pounce supports:
 
 - **Standard WebSocket** — Upgrade from HTTP/1.1
-- **WebSocket over HTTP/2** — Multiplexed with other HTTP/2 streams
+- **WebSocket over HTTP/2** — Multiplexed with other HTTP/2 streams when both
+  `ws` and `h2` extras are installed
 - **Per-message compression** — Via the permessage-deflate extension
 
 ## ASGI WebSocket Lifecycle
@@ -70,7 +71,13 @@ async def websocket_app(scope, receive, send):
 
 ## WebSocket over HTTP/2
 
-When both `bengal-pounce[h2]` and `bengal-pounce[ws]` are installed, WebSocket connections can be established over HTTP/2 using the extended CONNECT method (RFC 8441). This allows WebSocket streams to be multiplexed with regular HTTP/2 requests on the same connection.
+When both `bengal-pounce[h2]` and `bengal-pounce[ws]` are installed, WebSocket
+connections can use the HTTP/2 extended CONNECT method (RFC 8441). Treat this as
+a separately proven protocol path from HTTP/1 WebSocket support; keep deployment
+validation around accept/send/receive/close, stream reset, and missing-extra
+behavior.
+
+WebSocket over HTTP/3 is not currently supported.
 
 ## Configuration
 

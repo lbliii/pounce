@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "claims": [
+    {
+      "id": "readme-throughput-snapshot",
+      "type": "performance",
+      "status": "scoped-snapshot",
+      "files": ["README.md"],
+      "patterns": ["req/s"],
+      "proof": "README states the wrk command, workload, platform, and caveat that numbers are a snapshot.",
+      "notes": "Replace with benchmark artifact references before strengthening this claim."
+    },
+    {
+      "id": "parser-microbenchmark-snapshot",
+      "type": "performance",
+      "status": "scoped-snapshot",
+      "files": [
+        "site/content/docs/about/performance.md",
+        "site/content/docs/protocols/http1.md"
+      ],
+      "patterns": ["us per", "\u00b5s/req"],
+      "proof": "Current docs explicitly call this a local parser microbenchmark snapshot.",
+      "notes": "Requires benchmark artifact metadata before promotion."
+    },
+    {
+      "id": "static-file-helper-capability",
+      "type": "helper",
+      "status": "optional-helper",
+      "files": ["site/content/docs/features/static-files.md"],
+      "patterns": ["high-performance", "Full support"],
+      "proof": "Static file behavior is covered by static unit and integration tests; performance wording remains helper-scoped.",
+      "notes": "Do not promote static serving to core server contract."
+    },
+    {
+      "id": "websocket-compression-examples",
+      "type": "performance",
+      "status": "example-estimate",
+      "files": ["site/content/docs/features/websocket-compression.md"],
+      "patterns": ["60-80%", "70-80%", "~0%", "< 5%"],
+      "proof": "Payload table is illustrative and should not be treated as a benchmark artifact.",
+      "notes": "Replace with artifact-backed measurements before using in README/site hero copy."
+    },
+    {
+      "id": "backpressure-tuning-examples",
+      "type": "operator-guidance",
+      "status": "example-estimate",
+      "files": ["site/content/docs/deployment/backpressure.md"],
+      "patterns": ["req/s", "%", "us/request"],
+      "proof": "Guidance is scoped to tuning examples and implementation overhead estimates.",
+      "notes": "Do not use these numbers as product performance claims."
+    },
+    {
+      "id": "lifecycle-logging-overhead-estimate",
+      "type": "performance",
+      "status": "example-estimate",
+      "files": ["site/content/docs/features/lifecycle-logging.md"],
+      "patterns": ["us overhead", "%"],
+      "proof": "Docs label this as overhead guidance for deciding log volume.",
+      "notes": "Needs benchmark artifact before promotional use."
+    },
+    {
+      "id": "server-timing-every-response",
+      "type": "behavior",
+      "status": "config-scoped",
+      "files": [
+        "site/content/docs/about/performance.md",
+        "site/content/docs/about/faq.md"
+      ],
+      "patterns": ["every response"],
+      "proof": "Claim is scoped to server_timing=True.",
+      "notes": "Keep config condition in the same paragraph."
+    }
+  ],
+  "allowlist": [
+    {
+      "file": "site/content/docs/features/middleware.md",
+      "pattern": "every response",
+      "reason": "Middleware example describes a post-response hook, not a server-wide guarantee."
+    },
+    {
+      "file": "site/content/docs/about/comparison.md",
+      "pattern": "thread-safety",
+      "reason": "Navigation label for the thread-safety page."
+    },
+    {
+      "file": "site/content/docs/about/architecture.md",
+      "pattern": "thread-safety",
+      "reason": "Navigation label for the thread-safety page."
+    },
+    {
+      "file": "site/content/docs/about/_index.md",
+      "pattern": "thread-safety",
+      "reason": "Page metadata and navigation term."
+    }
+  ]
+}

@@ -21,8 +21,8 @@ automatic process fallback on GIL builds.
 - **Thread-based parallelism** — N worker threads share one interpreter, one copy of your app
 - **Shared memory** — Lower memory footprint than process-based workers
 - **Streaming-first** — Body chunks sent immediately to socket
-- **7x faster parsing** — Built-in HTTP/1.1 parser (~3 us/req) on sync worker hot path
-- **Zero-downtime reload** — Rolling restart with generational worker swap (3.14t only)
+- **Fast-path parsing** — Built-in HTTP/1.1 parser on the sync worker hot path
+- **Thread-worker reload** — Rolling restart with generational worker swap on supported 3.14t thread-worker deployments
 - **Pure Python** — One dependency (h11). Debuggable, hackable, readable
 - **Optional extras** — HTTP/2, WebSocket, TLS, HTTP/3 via `bengal-pounce[h2]`, `bengal-pounce[ws]`, `bengal-pounce[tls]`, `bengal-pounce[h3]`
 
@@ -47,9 +47,9 @@ automatic process fallback on GIL builds.
 | Capability | Pounce | Uvicorn | Hypercorn | Granian |
 |-----------|--------|---------|-----------|---------|
 | Free-threading | Native threads on 3.14t | Processes only | Processes only | Rust + processes |
-| HTTP/1.1 parser | ~3 us (built-in) + h11 | h11 or httptools (C) | h11 | Rust (hyper) |
+| HTTP/1.1 parser | Fast built-in parser + h11 | h11 or httptools (C) | h11 | Rust (hyper) |
 | Config thread-safety | Frozen dataclass | Mutable | Mutable | N/A (Rust) |
-| Zero-downtime reload | Rolling restart (3.14t) | Full restart | Full restart | N/A |
+| Thread-worker reload | Rolling restart on supported 3.14t deployments | Full restart | Full restart | N/A |
 | Thundering herd fix | AcceptDistributor | N/A | N/A | N/A |
 | Built-in metrics | Prometheus /metrics | No | No | No |
 | Lifecycle events API | Typed, public | Logging only | Logging only | N/A |

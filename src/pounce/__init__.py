@@ -37,7 +37,8 @@ try:
 except Exception:  # Package not installed in editable/dist mode
     __version__ = "0.0.0-dev"
 
-from typing import TypedDict, Unpack  # noqa: E402
+from collections.abc import Callable  # noqa: E402
+from typing import Any, TypedDict, Unpack, overload  # noqa: E402
 
 from pounce._errors import (  # noqa: E402
     LifespanError,
@@ -48,6 +49,7 @@ from pounce._errors import (  # noqa: E402
 )
 from pounce._middleware import (  # noqa: E402
     CORSMiddleware,
+    Middleware,
     Response,
     SecurityHeadersMiddleware,
 )
@@ -76,9 +78,13 @@ class ServerConfigKwargs(TypedDict, total=False):
     port: int
     workers: int
     backlog: int
+    worker_mode: str
+    cpu_affinity: bool
+    executor_threads_per_worker: int
     keep_alive_timeout: float
     request_timeout: float
     header_timeout: float
+    startup_timeout: float
     shutdown_timeout: float
     max_request_size: int
     max_header_size: int
@@ -89,12 +95,19 @@ class ServerConfigKwargs(TypedDict, total=False):
     log_level: str
     log_format: str
     display: DisplayConfig | None
+    app_name: str | None
+    app_tagline: str | None
+    app_version: str | None
+    signage: str | None
+    access_log_filter: Callable[[str, str, int], bool] | None
     server_header: str
     date_header: bool
     root_path: str
     compression: bool
     compression_min_size: int
+    compression_dictionaries: tuple[Any, ...]
     server_timing: bool
+    debug: bool
     reload: bool
     reload_include: tuple[str, ...]
     reload_dirs: tuple[str, ...]
@@ -102,7 +115,11 @@ class ServerConfigKwargs(TypedDict, total=False):
     trusted_hosts: frozenset[str]
     trusted_hosts_wildcard: bool
     health_check_path: str | None
+    introspection_enabled: bool
+    introspection_bind: str
+    introspection_path: str
     uds: str | None
+    uds_permissions: int
     ssl_certfile: str | None
     ssl_keyfile: str | None
     static_files: dict[str, str]
@@ -110,9 +127,42 @@ class ServerConfigKwargs(TypedDict, total=False):
     static_precompressed: bool
     static_follow_symlinks: bool
     static_index_file: str | None
+    middleware: list[Middleware]
+    websocket_compression: bool
+    websocket_max_message_size: int
+    reload_timeout: float
+    otel_endpoint: str | None
+    otel_service_name: str
+    lifecycle_logging: bool
+    log_slow_requests_threshold: float
+    metrics_enabled: bool
+    metrics_path: str
+    rate_limit_enabled: bool
+    rate_limit_requests_per_second: float
+    rate_limit_burst: int
+    request_queue_enabled: bool
+    request_queue_max_depth: int
+    http3_enabled: bool
+    http3_max_connections: int
+    http3_idle_timeout: float
+    http3_qpack_max_table_capacity: int
+    http3_zero_rtt_enabled: bool
+    sentry_dsn: str | None
+    sentry_environment: str | None
+    sentry_release: str | None
+    sentry_traces_sample_rate: float
+    sentry_profiles_sample_rate: float
 
 
-def run(app: str | ASGIApp, **kwargs: Unpack[ServerConfigKwargs]) -> None:
+@overload
+def run(app: str | ASGIApp, *, config: ServerConfig) -> None: ...
+
+
+@overload
+def run(app: str | ASGIApp, **kwargs: Unpack[ServerConfigKwargs]) -> None: ...
+
+
+def run(app: str | ASGIApp, **kwargs: Any) -> None:
     """Start a pounce server.
 
     Args:
@@ -130,7 +180,7 @@ def run(app: str | ASGIApp, **kwargs: Unpack[ServerConfigKwargs]) -> None:
 
     # Accept a pre-built ServerConfig via config= kwarg.
     _missing = object()
-    pre_built = kwargs.pop("config", _missing)  # type: ignore[arg-type]
+    pre_built = kwargs.pop("config", _missing)
     if pre_built is _missing:
         config = ServerConfig(**kwargs)
     elif isinstance(pre_built, ServerConfig):
@@ -162,6 +212,7 @@ __all__ = [
     "SecurityHeadersMiddleware",
     "Send",
     "ServerConfig",
+    "ServerConfigKwargs",
     "StaticFiles",
     "__version__",
     "create_static_handler",

@@ -5,16 +5,17 @@ draft: false
 weight: 60
 lang: en
 type: doc
-tags: [deployment, reload, shutdown, zero-downtime]
+tags: [deployment, reload, shutdown, rolling-reload]
 keywords: [graceful reload, graceful shutdown, SIGHUP, SIGTERM, connection draining]
 category: how-to
 ---
 
 # Server Lifecycle
 
-Pounce handles **SIGHUP** for graceful reload and **SIGTERM** / **SIGINT** for
-graceful shutdown. Both paths use connection draining: active requests get time
-to finish, while workers that are leaving service reject new connections.
+Pounce handles **SIGHUP** for graceful reload on supported multi-worker paths
+and **SIGTERM** / **SIGINT** for graceful shutdown. Both paths use connection
+draining: active requests get time to finish, while workers that are leaving
+service reject new connections.
 
 ## Graceful Reload (SIGHUP)
 
@@ -40,7 +41,8 @@ Time 0.1s: [Worker-0..3 draining] [Worker-4..7 accepting]  (Gen 0+1)
 Time 5s:   [Worker-4] [Worker-5] [Worker-6] [Worker-7]  (Gen 1 only)
 ```
 
-If the reimport fails, pounce logs the error and continues with the old code -- no downtime from bad deploys.
+If the reimport fails, pounce logs the error and continues with the old code
+instead of swapping to the failed generation.
 
 ### Configuration
 
@@ -128,7 +130,7 @@ TimeoutStopSec=40s
 
 | | Thread Mode (3.14t) | Process Mode (GIL) |
 |---|---|---|
-| Reload | True zero-downtime (old + new overlap) | Brief downtime (~100-500ms) |
+| Reload | Rolling generation swap with old + new overlap | Stop/start fallback may have a brief gap |
 | Shutdown | Drain per-thread | Drain per-process |
 | Recommendation | Production | Acceptable for dev |
 

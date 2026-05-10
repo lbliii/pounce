@@ -113,13 +113,15 @@ Workers are fully independent. No shared mutable state or cross-worker coordinat
 
 ### Sync Worker Fast Path (3.14t)
 
-On free-threaded Python, pounce also supports **sync workers** — blocking I/O without an asyncio event loop. Sync workers use the built-in fast HTTP/1.1 parser (~3 us/req) for simple request/response cycles.
+On free-threaded Python, pounce also supports **sync workers** — blocking I/O
+without an asyncio event loop. Sync workers use the built-in fast HTTP/1.1
+parser for simple request/response cycles.
 
 When a response requires streaming or WebSocket upgrade, the sync worker hands off to a dedicated **AsyncPool** thread via a typed handoff object:
 
 ```mermaid
 flowchart LR
-    SW["SyncWorker\n(blocking I/O, ~3 us parse)"] -->|"StreamingHandoff\nor WebSocketHandoff"| AP["AsyncPool\n(asyncio event loop)"]
+    SW["SyncWorker\n(blocking I/O, fast H1 parse)"] -->|"StreamingHandoff\nor WebSocketHandoff"| AP["AsyncPool\n(asyncio event loop)"]
     AP --> Stream["Streaming Response\nor WebSocket"]
 ```
 
@@ -163,7 +165,7 @@ The bridge is per-request — created and destroyed within a single connection h
 | `protocols/h2.py` | Protocol | HTTP/2 via h2 |
 | `protocols/h3.py` | Protocol | HTTP/3 via bengal-zoomies |
 | `protocols/ws.py` | Protocol | WebSocket via wsproto |
-| `_fast_h1.py` | Protocol | Fast H1 parser (~3 µs/req) |
+| `_fast_h1.py` | Protocol | Fast H1 parser for sync workers |
 | `asgi/bridge.py` | Bridge | HTTP ASGI scope/receive/send |
 | `asgi/h2_bridge.py` | Bridge | HTTP/2 ASGI bridge |
 | `asgi/ws_bridge.py` | Bridge | WebSocket ASGI bridge |
@@ -174,7 +176,7 @@ The bridge is per-request — created and destroyed within a single connection h
 | `_request_id.py` | Observability | Request ID generation/extraction |
 | `_health.py` | Observability | Built-in health check endpoint |
 | `metrics.py` | Observability | Prometheus-compatible metrics |
-| `sync_worker.py` | Worker | Blocking I/O worker (~3 us parse) |
+| `sync_worker.py` | Worker | Blocking I/O worker with fast H1 parse |
 | `async_pool.py` | Worker | Async handoff for streaming/WS |
 | `accept_distributor.py` | Network | Thundering herd elimination |
 | `_state.py` | Lifecycle | Elm Architecture state machine |

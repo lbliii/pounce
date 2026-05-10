@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Status: Beta](https://img.shields.io/badge/status-beta-yellow.svg)](https://pypi.org/project/bengal-pounce/)
 
-**Pure Python ASGI server. 7x faster HTTP parsing. True thread parallelism on Python 3.14t.**
+**Pure Python ASGI server for Python 3.14t, with a frozen config model and a low-overhead HTTP/1.1 fast path.**
 
 ```python
 import pounce
@@ -23,7 +23,7 @@ free-threaded Python 3.14t. It runs standard ASGI applications, supports streami
 responses, and gives you a clear upgrade path from process-based servers such as
 Uvicorn.
 
-Pounce's built-in HTTP/1.1 parser runs at ~3 us per request (7x faster than h11), its frozen configuration eliminates all locking overhead, and its rolling reload spawns new workers while draining old ones — zero dropped requests.
+Pounce's built-in HTTP/1.1 parser is optimized for the sync worker hot path, its frozen configuration keeps shared server state immutable, and thread-worker reloads use generational worker swaps with drain behavior.
 
 On Python 3.14t, worker threads share one interpreter and one copy of your app. On GIL
 builds, Pounce falls back to multi-process workers automatically.
@@ -31,13 +31,16 @@ builds, Pounce falls back to multi-process workers automatically.
 **Why people pick it:**
 
 - **ASGI-first** — Runs standard ASGI apps with CLI and programmatic entry points
-- **Free-threading native** — True thread parallelism with frozen immutable config (zero locks)
-- **7x faster parsing** — Built-in HTTP/1.1 parser (~3 us/req) with full request smuggling protection
-- **Four protocols** — HTTP/1.1, HTTP/2, HTTP/3 (QUIC), and WebSocket (including WS over H2)
-- **Zero-downtime reload** — Rolling restart with generational worker swap, no dropped requests
-- **Observable** — Typed lifecycle events, Prometheus metrics, OpenTelemetry, Server-Timing headers
-- **Batteries included** — TLS, compression, static files, middleware, rate limiting, observability
+- **Free-threading native** — True thread parallelism with frozen immutable server config
+- **Fast-path parsing** — Built-in HTTP/1.1 parser for sync workers with tested smuggling and header-limit checks
+- **Protocol extras** — HTTP/2, HTTP/3 (QUIC), and WebSocket support are install-gated optional paths
+- **Thread-worker reloads** — Rolling restart uses generational worker swap with drain behavior on supported worker modes
+- **Observable surfaces** — Typed lifecycle events, optional Prometheus metrics, OpenTelemetry, and Server-Timing headers
+- **Optional helpers** — TLS, compression, static files, middleware, rate limiting, and request queueing stay opt-in
 - **Migration path** — Familiar CLI for teams moving from Uvicorn-style deployments
+
+See [docs/design/core-contract.md](docs/design/core-contract.md) for the supported core,
+optional helpers, and proof required for public claims.
 
 ## Use Pounce For
 
@@ -65,19 +68,21 @@ Pounce achieves compatibility through correct ASGI 3.0 implementation — no fra
 
 ## Performance
 
-Pounce matches uvicorn on throughput — pure Python, no C extensions.
+Pounce is designed to make the pure-Python request path competitive while keeping
+the server core free of C extensions. Treat the numbers below as a benchmark
+snapshot, not a universal guarantee.
 
 | Scenario | Pounce | Uvicorn | Notes |
 |----------|--------|---------|-------|
 | 1 worker | ~7.2k req/s | ~6.5k req/s | Async event loop, h11 parser |
 | 4 workers | ~16k req/s | ~17k req/s | Threads (pounce) vs processes (uvicorn) |
 
-*Measured with `wrk -t4 -c100 -d10s` on macOS Apple Silicon, plain-text "hello world" ASGI app, Python 3.14t.*
+*Measured with `wrk -t4 -c100 -d10s` on macOS Apple Silicon, plain-text "hello world" ASGI app, Python 3.14t. Re-run locally before making deployment decisions.*
 
 Run `pounce bench --workers 4 --compare` to reproduce on your machine.
 
 Key optimizations in the sync worker path:
-- **Fast HTTP/1.1 parser** — Direct bytes parsing (~3 µs/req) replaces h11 (~22 µs/req) with full safety checks (method validation, header size limits, request smuggling detection)
+- **Fast HTTP/1.1 parser** — Direct bytes parsing is benchmarked separately from h11 and covers method validation, header size limits, duplicate `Content-Length`, and `Content-Length`/`Transfer-Encoding` ambiguity
 - **Keep-alive connections** — Connection reuse eliminates TCP handshake overhead
 - **Shared socket distribution** — Single accept queue for thread workers avoids macOS SO_REUSEPORT limitations
 
@@ -125,12 +130,12 @@ pip install bengal-pounce[full]   # All protocol extras
 | **Deployment** | Production workers, compression, observability, and shutdown behavior | [Deployment →](https://lbliii.github.io/pounce/docs/deployment/) |
 | **Migration** | Move from Uvicorn with similar CLI concepts | [Migrate from Uvicorn →](https://lbliii.github.io/pounce/docs/tutorials/migrate-from-uvicorn/) |
 | **HTTP/1.1** | h11 (async) + fast built-in parser (sync) | [HTTP/1.1 →](https://lbliii.github.io/pounce/docs/protocols/http1/) |
-| **HTTP/2** | Stream multiplexing via h2 | [HTTP/2 →](https://lbliii.github.io/pounce/docs/protocols/http2/) |
-| **HTTP/3** | QUIC/UDP via bengal-zoomies (requires TLS) | [HTTP/3 →](https://lbliii.github.io/pounce/docs/protocols/http3/) |
-| **WebSocket** | Full RFC 6455 via wsproto (including WS over H2) | [WebSocket →](https://lbliii.github.io/pounce/docs/protocols/websocket/) |
+| **HTTP/2** | Optional stream multiplexing via h2 | [HTTP/2 →](https://lbliii.github.io/pounce/docs/protocols/http2/) |
+| **HTTP/3** | Optional QUIC/UDP via bengal-zoomies (requires TLS) | [HTTP/3 →](https://lbliii.github.io/pounce/docs/protocols/http3/) |
+| **WebSocket** | Optional RFC 6455 support via wsproto; WS-over-H2 requires h2 + ws extras | [WebSocket →](https://lbliii.github.io/pounce/docs/protocols/websocket/) |
 | **Static Files** | Pre-compressed files, ETags, range requests | [Static Files →](https://lbliii.github.io/pounce/docs/features/static-files/) |
 | **Middleware** | ASGI3 middleware stack support | [Middleware →](https://lbliii.github.io/pounce/docs/features/middleware/) |
-| **OpenTelemetry** | Native distributed tracing (OTLP) | [OpenTelemetry →](https://lbliii.github.io/pounce/docs/deployment/observability/) |
+| **OpenTelemetry** | Optional distributed tracing (OTLP) | [OpenTelemetry →](https://lbliii.github.io/pounce/docs/deployment/observability/) |
 | **Lifecycle Logging** | Structured JSON event logging | [Logging →](https://lbliii.github.io/pounce/docs/features/lifecycle-logging/) |
 | **Graceful Shutdown** | Kubernetes-ready connection draining | [Shutdown →](https://lbliii.github.io/pounce/docs/deployment/lifecycle/) |
 | **Dev Error Pages** | Rich tracebacks with syntax highlighting | [Errors →](https://lbliii.github.io/pounce/docs/features/error-pages/) |
@@ -138,10 +143,10 @@ pip install bengal-pounce[full]   # All protocol extras
 | **Compression** | zstd (stdlib PEP 784) + gzip + WS compression | [Compression →](https://lbliii.github.io/pounce/docs/deployment/compression/) |
 | **Workers** | Auto-detect: threads (3.14t) or processes (GIL) | [Workers →](https://lbliii.github.io/pounce/docs/deployment/workers/) |
 | **Auto Reload** | Graceful restart on file changes | [Reload →](https://lbliii.github.io/pounce/docs/deployment/lifecycle/) |
-| **Rate Limiting** | Per-IP token bucket with 429 responses | [Rate Limiting →](https://lbliii.github.io/pounce/docs/deployment/backpressure/) |
-| **Request Queueing** | Bounded queue with 503 load shedding | [Request Queueing →](https://lbliii.github.io/pounce/docs/deployment/backpressure/) |
-| **Prometheus** | Built-in `/metrics` endpoint | [Metrics →](https://lbliii.github.io/pounce/docs/deployment/observability/) |
-| **Sentry** | Error tracking and performance monitoring | [Sentry →](https://lbliii.github.io/pounce/docs/deployment/observability/) |
+| **Rate Limiting** | Optional per-IP token bucket with 429 responses | [Rate Limiting →](https://lbliii.github.io/pounce/docs/deployment/backpressure/) |
+| **Request Queueing** | Optional bounded queue with 503 load shedding | [Request Queueing →](https://lbliii.github.io/pounce/docs/deployment/backpressure/) |
+| **Prometheus** | Optional `/metrics` endpoint | [Metrics →](https://lbliii.github.io/pounce/docs/deployment/observability/) |
+| **Sentry** | Optional error tracking and performance monitoring | [Sentry →](https://lbliii.github.io/pounce/docs/deployment/observability/) |
 | **Testing** | `TestServer` + pytest fixture for integration tests | [Testing →](https://lbliii.github.io/pounce/docs/testing/) |
 | **Benchmarking** | Built-in `pounce bench` command with comparative analysis | [Bench →](https://lbliii.github.io/pounce/docs/features/) |
 | **Lifecycle Events** | Public API for typed connection/request events | [API →](https://lbliii.github.io/pounce/docs/reference/api/) |
@@ -190,7 +195,7 @@ Async workers use h11; sync workers use a fast built-in parser for lower latency
 |----------|---------|---------|
 | HTTP/1.1 | h11 (async) / fast built-in parser (sync) | built-in |
 | HTTP/2 | h2 (stream multiplexing, priority signals) | `bengal-pounce[h2]` |
-| WebSocket | wsproto (including WS over H2) | `bengal-pounce[ws]` |
+| WebSocket | wsproto (HTTP/1 WebSocket; WS-over-H2 also requires h2) | `bengal-pounce[ws]` |
 | TLS | stdlib ssl + truststore | `bengal-pounce[tls]` |
 | HTTP/3 | bengal-zoomies (QUIC/UDP) | `bengal-pounce[h3]` |
 | All | Everything above | `bengal-pounce[full]` |
@@ -231,12 +236,13 @@ def test_api(pounce_server, my_app):
   immutable state. On GIL builds, falls back to multi-process automatically.
 - **Pure Python.** No Rust, no C extensions in the server core. Debuggable, hackable,
   readable.
-- **Typed end-to-end.** Frozen config, typed ASGI definitions, zero `type: ignore` comments.
+- **Typed end-to-end.** Frozen config, typed ASGI definitions, and no new type suppressions without review.
 - **One dependency.** `h11` for HTTP/1.1 parsing. Everything else is optional.
 - **Observable by design.** Lifecycle events are public API — `from pounce import BufferedCollector, ResponseCompleted`. Frameworks build dashboards on typed events, not log parsing.
 - **Framework tested.** Verified against FastAPI, Starlette, Django, and Litestar with 48 integration tests.
-- **Batteries included.** Static files, middleware, rate limiting, request queueing,
-  Prometheus metrics, Sentry, and OpenTelemetry — all built in, all optional.
+- **Optional helpers.** Static files, middleware, rate limiting, request queueing,
+  Prometheus metrics, Sentry, and OpenTelemetry are available without becoming
+  mandatory request-path dependencies.
 
 ---
 
@@ -247,7 +253,7 @@ def test_api(pounce_server, my_app):
 | Section | Description |
 |---------|-------------|
 | [Get Started](https://lbliii.github.io/pounce/docs/get-started/) | Installation and quickstart |
-| [Protocols](https://lbliii.github.io/pounce/docs/protocols/) | HTTP/1.1, HTTP/2, WebSocket |
+| [Protocols](https://lbliii.github.io/pounce/docs/protocols/) | HTTP/1.1, HTTP/2, WebSocket, HTTP/3 |
 | [Configuration](https://lbliii.github.io/pounce/docs/configuration/) | Server config, TLS, CLI |
 | [Deployment](https://lbliii.github.io/pounce/docs/deployment/) | Workers, compression, production |
 | [Extending](https://lbliii.github.io/pounce/docs/extending/) | ASGI bridge, custom protocols |
