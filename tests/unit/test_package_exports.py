@@ -25,7 +25,9 @@ class TestTopLevelExports:
         from pounce import ServerConfig, ServerConfigKwargs
 
         expected = {
-            field.name for field in fields(ServerConfig) if field.init and not field.name.startswith("_")
+            field.name
+            for field in fields(ServerConfig)
+            if field.init and not field.name.startswith("_")
         }
         actual = set(ServerConfigKwargs.__annotations__)
 

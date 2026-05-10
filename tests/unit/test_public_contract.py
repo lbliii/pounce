@@ -77,7 +77,9 @@ class TestOptionalProtocolParity:
 
         assert actual == expected_packages
         assert output_modules == set(expected_modules.values())
-        assert set(extras["full"]) == set(extras["h2"] + extras["ws"] + extras["tls"] + extras["h3"])
+        assert set(extras["full"]) == set(
+            extras["h2"] + extras["ws"] + extras["tls"] + extras["h3"]
+        )
 
     def test_install_docs_name_every_protocol_extra(self) -> None:
         docs = [
