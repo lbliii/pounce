@@ -13,6 +13,7 @@ import re
 import tomllib
 from dataclasses import fields
 from pathlib import Path
+from typing import ClassVar
 
 from pounce import _cli
 from pounce._config_file import _EXCLUDED_FIELDS as TOML_EXCLUDED_FIELDS
@@ -34,7 +35,7 @@ def _server_config_field_names() -> set[str]:
 class TestConfigSurfaceParity:
     def test_toml_keys_match_documented_policy(self) -> None:
         expected = _server_config_field_names() - TOML_EXCLUDED_FIELDS
-        assert TOML_VALID_KEYS == expected
+        assert expected == TOML_VALID_KEYS
 
     def test_schema_keys_match_documented_policy(self) -> None:
         expected = _server_config_field_names() - _IIC_SKIP_FIELDS
@@ -113,7 +114,7 @@ class TestOptionalProtocolParity:
 
 
 class TestPublicClaimLedger:
-    ACTIVE_PUBLIC_DOCS = [
+    ACTIVE_PUBLIC_DOCS: ClassVar[list[Path]] = [
         ROOT / "README.md",
         ROOT / "site/content/_index.md",
         ROOT / "site/content/docs/_index.md",
@@ -129,7 +130,7 @@ class TestPublicClaimLedger:
         ROOT / "site/content/docs/features/websocket-compression.md",
         ROOT / "site/content/docs/protocols/http1.md",
     ]
-    RISKY_PATTERNS = [
+    RISKY_PATTERNS: ClassVar[list[re.Pattern[str]]] = [
         re.compile(r"\bfull support\b", re.IGNORECASE),
         re.compile(r"\bfull ASGI\b", re.IGNORECASE),
         re.compile(r"\bzero-downtime\b", re.IGNORECASE),
@@ -209,7 +210,7 @@ class TestProtocolProofLedger:
 
 
 class TestBenchmarkArtifactPolicy:
-    REQUIRED_FIELDS = {
+    REQUIRED_FIELDS: ClassVar[set[str]] = {
         "artifact_id",
         "created_at",
         "git_sha",
@@ -248,3 +249,54 @@ class TestBenchmarkArtifactPolicy:
         assert "benchmarks/artifact-schema.json" in contributing
         assert "benchmarks/artifact-schema.json" in benchmarks
         assert "snapshot caveat" in benchmarks
+
+
+class TestDocsCliSnippets:
+    DOCS: ClassVar[list[Path]] = [
+        ROOT / "README.md",
+        ROOT / "benchmarks/README.md",
+        *[
+            path
+            for path in (ROOT / "site/content").rglob("*.md")
+            if "/releases/" not in path.as_posix()
+        ],
+    ]
+    COMMAND_RE = re.compile(r"\bpounce(?:\s+serve|\s+bench|\s+config\s+\w+)?[^\n`|]*")
+    FLAG_RE = re.compile(r"--[a-zA-Z0-9-]+")
+
+    @staticmethod
+    def _param_to_flag(name: str) -> str:
+        return "--" + name.replace("_", "-")
+
+    def test_serve_snippets_use_known_flags(self) -> None:
+        serve_flags = {
+            self._param_to_flag(name)
+            for name in inspect.signature(_cli._serve_impl).parameters
+            if name != "app"
+        }
+        # Milo exposes boolean negation flags from these implementation params.
+        serve_flags |= {"--no-compression", "--no-access-log"}
+        bench_flags = {"--workers", "--duration", "--compare"}
+        config_flags = {"--output-format"}
+        global_flags = {"--help"}
+
+        failures: list[str] = []
+        for path in self.DOCS:
+            for lineno, line in enumerate(path.read_text().splitlines(), start=1):
+                for command in self.COMMAND_RE.findall(line):
+                    flags = set(self.FLAG_RE.findall(command))
+                    if not flags:
+                        continue
+                    if re.search(r"\bpounce\s+bench(\s|$)", command):
+                        allowed = bench_flags | global_flags
+                    elif re.search(r"\bpounce\s+config\s+", command):
+                        allowed = config_flags | global_flags
+                    else:
+                        allowed = serve_flags | global_flags
+                    unknown = flags - allowed
+                    if unknown:
+                        failures.append(
+                            f"{path.relative_to(ROOT)}:{lineno}: {sorted(unknown)} in {command}"
+                        )
+
+        assert failures == []
