@@ -31,7 +31,7 @@ Install Pounce and serve your first ASGI app in minutes.
 :::{card} Protocols
 :icon: globe
 :link: ./protocols/
-HTTP/1.1, HTTP/2, WebSocket — how each protocol layer works.
+HTTP/1.1, HTTP/2, WebSocket, and HTTP/3 — how each protocol layer works.
 :::{/card}
 
 :::{card} Configuration

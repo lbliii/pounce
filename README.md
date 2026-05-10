@@ -253,7 +253,7 @@ def test_api(pounce_server, my_app):
 | Section | Description |
 |---------|-------------|
 | [Get Started](https://lbliii.github.io/pounce/docs/get-started/) | Installation and quickstart |
-| [Protocols](https://lbliii.github.io/pounce/docs/protocols/) | HTTP/1.1, HTTP/2, WebSocket |
+| [Protocols](https://lbliii.github.io/pounce/docs/protocols/) | HTTP/1.1, HTTP/2, WebSocket, HTTP/3 |
 | [Configuration](https://lbliii.github.io/pounce/docs/configuration/) | Server config, TLS, CLI |
 | [Deployment](https://lbliii.github.io/pounce/docs/deployment/) | Workers, compression, production |
 | [Extending](https://lbliii.github.io/pounce/docs/extending/) | ASGI bridge, custom protocols |

@@ -656,6 +656,9 @@ def check(
     shutdown_timeout: float | None = None,
     uds: str | None = None,
     health_check_path: str | None = None,
+    app_name: str | None = None,
+    app_tagline: str | None = None,
+    app_version: str | None = None,
     signage: str | None = None,
 ) -> None:
     """Run pre-flight validation checks.
@@ -1061,8 +1064,11 @@ def config_show(
     port: int | None = None,
     workers: int | None = None,
 ) -> None:
-    """Print the active ServerConfig (TOML + CLI + defaults) through the
-    Sprint 0.3 redaction allowlist.
+    """Print the active ServerConfig through the Sprint 0.3 redaction allowlist.
+
+    ``config show`` merges TOML, defaults, and its limited display overrides
+    (``host``, ``port``, and ``workers``). It is not a full mirror of every
+    ``serve`` flag.
 
     Secrets and filesystem paths are never printed — fields classified as
     ``REDACT_TO_BOOL`` appear as ``<name>_set = true|false``, and fields

@@ -15,6 +15,7 @@ cascade:
 ---
 
 Pounce supports multiple protocols through a modular handler system. The core ships with HTTP/1.1 via h11. HTTP/2, HTTP/3, and WebSocket are optional extras.
+TLS support is also optional and installs with `bengal-pounce[tls]`.
 
 :::{cards}
 :columns: 2
