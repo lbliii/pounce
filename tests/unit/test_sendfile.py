@@ -217,7 +217,7 @@ class TestCreateSendfileCallable:
 
 
 class TestStaticFilesSendfile:
-    """Tests that StaticFiles uses sendfile when available in scope extensions."""
+    """Tests that StaticFiles emits sendfile intents when the scope advertises support."""
 
     @pytest.fixture
     def static_dir(self, tmp_path):
@@ -229,7 +229,7 @@ class TestStaticFilesSendfile:
     def handler(self, static_dir):
         return StaticFiles(mounts=[StaticMount(url_path="/static", directory=static_dir)])
 
-    def _scope(self, path="/static/hello.txt", method="GET", *, sendfile_fn=None):
+    def _scope(self, path="/static/hello.txt", method="GET", *, sendfile_enabled=False):
         scope = {
             "type": "http",
             "method": method,
@@ -240,46 +240,33 @@ class TestStaticFilesSendfile:
             "scheme": "http",
             "server": ("127.0.0.1", 8000),
         }
-        if sendfile_fn is not None:
-            scope["extensions"] = {"pounce.sendfile": sendfile_fn}
+        if sendfile_enabled:
+            scope["extensions"] = {"pounce.sendfile": {"version": 1}}
         return scope
 
     @pytest.mark.asyncio
-    async def test_sendfile_used_for_full_file(self, handler, static_dir):
-        """When sendfile_fn is in scope, _send_file_body uses it."""
-        calls: list[tuple] = []
-
-        async def mock_sendfile(path, offset, count):
-            calls.append((path, offset, count))
-
+    async def test_sendfile_intent_used_for_full_file(self, handler, static_dir):
+        """When sendfile is advertised, StaticFiles emits a file-range intent."""
         sent = _SentMessages()
-        scope = self._scope(sendfile_fn=mock_sendfile)
+        scope = self._scope(sendfile_enabled=True)
         await handler(scope, None, sent)
 
-        # sendfile was called once with the full file
-        assert len(calls) == 1
-        assert calls[0][0] == static_dir / "hello.txt"
-        assert calls[0][1] == 0
-        assert calls[0][2] == 13  # len("Hello, World!")
-
-        # Headers, flush frame, then completion frame sent via ASGI
-        assert len(sent.messages) == 3
+        assert len(sent.messages) == 2
         assert sent.messages[0]["type"] == "http.response.start"
         assert sent.messages[0]["status"] == 200
-        # Empty body frame flushes pending headers in the bridge
-        assert sent.messages[1]["type"] == "http.response.body"
-        assert sent.messages[1]["body"] == b""
-        assert sent.messages[1]["more_body"] is True
-        # Final frame signals response completion for keep-alive
-        assert sent.messages[2]["type"] == "http.response.body"
-        assert sent.messages[2]["body"] == b""
-        assert sent.messages[2]["more_body"] is False
+        assert sent.messages[1] == {
+            "type": "pounce.response.sendfile",
+            "path": static_dir / "hello.txt",
+            "offset": 0,
+            "count": 13,
+            "more_body": False,
+        }
 
     @pytest.mark.asyncio
     async def test_fallback_without_sendfile(self, handler, static_dir):
-        """Without sendfile_fn, file is sent via chunked ASGI send."""
+        """Without sendfile support, file is sent via chunked ASGI send."""
         sent = _SentMessages()
-        scope = self._scope()  # no sendfile_fn
+        scope = self._scope()
         await handler(scope, None, sent)
 
         assert sent.messages[0]["status"] == 200
@@ -289,46 +276,31 @@ class TestStaticFilesSendfile:
         assert total_body == b"Hello, World!"
 
     @pytest.mark.asyncio
-    async def test_sendfile_used_for_range_request(self, handler, static_dir):
-        """Range requests use sendfile when available."""
-        calls: list[tuple] = []
-
-        async def mock_sendfile(path, offset, count):
-            calls.append((path, offset, count))
-
+    async def test_sendfile_intent_used_for_range_request(self, handler, static_dir):
+        """Range requests emit sendfile intents when support is advertised."""
         sent = _SentMessages()
-        scope = self._scope(sendfile_fn=mock_sendfile)
+        scope = self._scope(sendfile_enabled=True)
         scope["headers"] = [(b"range", b"bytes=0-4")]
         await handler(scope, None, sent)
 
         assert sent.messages[0]["status"] == 206
-        assert len(calls) == 1
-        assert calls[0][1] == 0  # offset
-        assert calls[0][2] == 5  # count (bytes 0-4 inclusive)
+        assert sent.messages[1]["type"] == "pounce.response.sendfile"
+        assert sent.messages[1]["offset"] == 0
+        assert sent.messages[1]["count"] == 5
 
     @pytest.mark.asyncio
     async def test_head_does_not_use_sendfile(self, handler):
         """HEAD requests never call sendfile — no body to transfer."""
-        calls: list[tuple] = []
-
-        async def mock_sendfile(path, offset, count):
-            calls.append((path, offset, count))
-
         sent = _SentMessages()
-        scope = self._scope(method="HEAD", sendfile_fn=mock_sendfile)
+        scope = self._scope(method="HEAD", sendfile_enabled=True)
         await handler(scope, None, sent)
 
-        assert len(calls) == 0
         assert sent.messages[0]["status"] == 200
+        assert all(message["type"] != "pounce.response.sendfile" for message in sent.messages)
 
     @pytest.mark.asyncio
     async def test_304_does_not_use_sendfile(self, handler, static_dir):
         """304 Not Modified skips sendfile entirely."""
-        calls: list[tuple] = []
-
-        async def mock_sendfile(path, offset, count):
-            calls.append((path, offset, count))
-
         # First request to get the ETag
         sent1 = _SentMessages()
         await handler(self._scope(), None, sent1)
@@ -340,9 +312,9 @@ class TestStaticFilesSendfile:
 
         # Second request with If-None-Match
         sent2 = _SentMessages()
-        scope = self._scope(sendfile_fn=mock_sendfile)
+        scope = self._scope(sendfile_enabled=True)
         scope["headers"] = [(b"if-none-match", etag)]
         await handler(scope, None, sent2)
 
         assert sent2.messages[0]["status"] == 304
-        assert len(calls) == 0
+        assert all(message["type"] != "pounce.response.sendfile" for message in sent2.messages)

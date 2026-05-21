@@ -2,7 +2,7 @@
 Static file serving with modern optimizations.
 
 Designed for Bengal SSG output and Chirp static assets. Supports:
-- Zero-copy sendfile (os.sendfile on Linux, sendfile on macOS)
+- Protocol-owned zero-copy sendfile for supported HTTP/1 connections
 - ETag generation from mtime + size
 - 304 Not Modified responses
 - Range requests (Accept-Ranges, Content-Range, 206)
@@ -24,10 +24,7 @@ import secrets
 import stat as stat_mod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from pounce._sendfile import SendfileCallable
+from typing import Any
 
 from pounce._types import ASGIApp, Receive, Send
 
@@ -198,8 +195,9 @@ class StaticFiles:
             elif lower_name == b"accept-encoding":
                 accept_encoding = hdr_value
 
-        # Check for zero-copy sendfile extension
-        sendfile_fn = scope.get("extensions", {}).get("pounce.sendfile")
+        # Protocol-owned sendfile support. The scope value is a capability
+        # advertisement, not a socket-writing callable.
+        sendfile_enabled = "pounce.sendfile" in scope.get("extensions", {})
 
         # Try to resolve to static file
         file = self._resolve_file(path, accept_encoding)
@@ -233,11 +231,11 @@ class StaticFiles:
         if range_header and method == "GET":
             ranges = self._parse_range_header(range_header.decode("latin1"), file.size)
             if ranges is not None:
-                await self._send_206(file, ranges, send, sendfile_fn=sendfile_fn)
+                await self._send_206(file, ranges, send, sendfile_enabled=sendfile_enabled)
                 return
 
         # Send full file
-        await self._send_file(file, method, send, sendfile_fn=sendfile_fn)
+        await self._send_file(file, method, send, sendfile_enabled=sendfile_enabled)
 
     def _resolve_file(self, url_path: str, accept_encoding: bytes | None) -> StaticFile | None:
         """Resolve URL path to static file.
@@ -590,7 +588,7 @@ class StaticFiles:
         ranges: list[tuple[int, int]],
         send: Send,
         *,
-        sendfile_fn: SendfileCallable | None = None,
+        sendfile_enabled: bool = False,
     ) -> None:
         """Send 206 Partial Content response (RFC 7233).
 
@@ -599,7 +597,7 @@ class StaticFiles:
 
         """
         if len(ranges) == 1:
-            await self._send_206_single(file, ranges[0], send, sendfile_fn=sendfile_fn)
+            await self._send_206_single(file, ranges[0], send, sendfile_enabled=sendfile_enabled)
         else:
             await self._send_206_multipart(file, ranges, send)
 
@@ -609,7 +607,7 @@ class StaticFiles:
         range_pair: tuple[int, int],
         send: Send,
         *,
-        sendfile_fn: SendfileCallable | None = None,
+        sendfile_enabled: bool = False,
     ) -> None:
         """Send a single-range 206 response."""
         start, end = range_pair
@@ -636,7 +634,9 @@ class StaticFiles:
             }
         )
 
-        await self._send_file_range(file.path, start, content_length, send, sendfile_fn=sendfile_fn)
+        await self._send_file_range(
+            file.path, start, content_length, send, sendfile_enabled=sendfile_enabled
+        )
 
     async def _send_206_multipart(
         self,
@@ -744,7 +744,7 @@ class StaticFiles:
         method: str,
         send: Send,
         *,
-        sendfile_fn: SendfileCallable | None = None,
+        sendfile_enabled: bool = False,
     ) -> None:
         """Send full file response (200 OK)."""
         headers = [
@@ -778,7 +778,7 @@ class StaticFiles:
             return
 
         # Send file body
-        await self._send_file_body(file.path, 0, file.size, send, sendfile_fn=sendfile_fn)
+        await self._send_file_body(file.path, 0, file.size, send, sendfile_enabled=sendfile_enabled)
 
     async def _send_file_body(
         self,
@@ -787,37 +787,24 @@ class StaticFiles:
         count: int,
         send: Send,
         *,
-        sendfile_fn: SendfileCallable | None = None,
+        sendfile_enabled: bool = False,
     ) -> None:
-        """Send file body, using zero-copy sendfile when available.
+        """Send file body, using protocol-owned zero-copy sendfile when available.
 
-        When sendfile_fn is provided (non-TLS connections on supported platforms),
-        the file data is transferred directly from the filesystem to the socket
-        via os.sendfile(), bypassing Python memory entirely. An empty ASGI body
-        frame is sent afterwards to signal response completion.
+        When the ASGI scope advertises ``pounce.sendfile``, emit a Pounce
+        extension message describing the file range. The bridge and active
+        protocol own framing, byte accounting, and socket writes.
 
         Falls back to chunked reads through ASGI send otherwise.
 
         """
-        if sendfile_fn is not None:
-            # Zero-copy path: flush response headers to the socket first,
-            # then transfer file data directly via os.sendfile().
-            # The empty body with more_body=True forces the ASGI bridge
-            # to write the buffered response headers to the writer.
+        if sendfile_enabled:
             await send(
                 {
-                    "type": "http.response.body",
-                    "body": b"",
-                    "more_body": True,
-                }
-            )
-            await sendfile_fn(path, offset, count)
-            # Signal response completion to the protocol layer so that
-            # h11 transitions to EndOfMessage and keep-alive works.
-            await send(
-                {
-                    "type": "http.response.body",
-                    "body": b"",
+                    "type": "pounce.response.sendfile",
+                    "path": path,
+                    "offset": offset,
+                    "count": count,
                     "more_body": False,
                 }
             )
@@ -851,10 +838,10 @@ class StaticFiles:
         count: int,
         send: Send,
         *,
-        sendfile_fn: SendfileCallable | None = None,
+        sendfile_enabled: bool = False,
     ) -> None:
         """Send file range (for 206 responses)."""
-        await self._send_file_body(path, start, count, send, sendfile_fn=sendfile_fn)
+        await self._send_file_body(path, start, count, send, sendfile_enabled=sendfile_enabled)
 
 
 def create_static_handler(

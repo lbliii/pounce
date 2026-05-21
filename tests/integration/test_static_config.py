@@ -5,9 +5,11 @@ from __future__ import annotations
 import httpx
 
 from pounce._config_file import load_config_with_overrides
+from pounce._static import StaticFiles, StaticMount
 from pounce._types import Receive, Scope, Send
+from pounce.config import ServerConfig
 from pounce.testing import TestServer
-from tests.conftest import with_lifespan
+from tests.conftest import send_raw_request, start_worker, with_lifespan
 
 
 @with_lifespan
@@ -75,3 +77,30 @@ def test_toml_static_files_serve_through_real_server(tmp_path) -> None:
     assert asset.headers["cache-control"] == "public, max-age=120"
     assert fallback.status_code == 200
     assert fallback.text == "fallback:/dynamic"
+
+
+def test_http1_static_content_length_body_stays_inside_h11(tmp_path) -> None:
+    """HTTP/1 static sendfile keeps h11 Content-Length accounting consistent."""
+    public = tmp_path / "public"
+    public.mkdir()
+    body = b"console.log('pounce')"
+    (public / "app.js").write_bytes(body)
+    app = StaticFiles(mounts=[StaticMount("/", public)])
+    config = ServerConfig(host="127.0.0.1", port=0, access_log=False, compression=False)
+    worker, sock, thread = start_worker(app, config=config)
+    addr = sock.getsockname()
+
+    try:
+        response = send_raw_request(
+            addr,
+            b"GET /app.js HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
+
+    head, _, received_body = response.partition(b"\r\n\r\n")
+    assert b"HTTP/1.1 200" in head
+    assert f"content-length: {len(body)}".encode() in head.lower()
+    assert received_body == body

@@ -13,6 +13,7 @@ Constraints:
 import asyncio
 import os
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,23 @@ type SendfileCallable = Callable[[Path, int, int], Coroutine[Any, Any, None]]
 
 # sendfile chunk size — avoid holding the GIL too long per call
 _SENDFILE_CHUNK = 1_048_576  # 1 MB
+
+
+@dataclass(frozen=True, slots=True)
+class SendfileRegion:
+    """Protocol-owned file body marker.
+
+    h11's passthrough send path only needs ``len(data)`` for body accounting.
+    The ASGI bridge recognizes this marker and transfers the referenced file
+    range with ``os.sendfile`` after writing h11's surrounding framing bytes.
+    """
+
+    path: Path
+    offset: int
+    count: int
+
+    def __len__(self) -> int:
+        return self.count
 
 
 def can_use_sendfile(writer: asyncio.StreamWriter) -> bool:
