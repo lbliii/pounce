@@ -5,7 +5,9 @@ thin factory function that selects between protocol backends.
 """
 
 import asyncio
+from pathlib import Path
 
+import h11
 import pytest
 
 from pounce._compression import GzipCompressor
@@ -205,6 +207,16 @@ class _FakeTransport:
 
     async def drain(self) -> None:
         """No-op drain for tests."""
+
+
+class _BodyOnlyProtocol:
+    """Protocol stub without sendfile passthrough support."""
+
+    def send_response(self, status: int, headers: list[tuple[bytes, bytes]]) -> bytes:
+        return b"HTTP/1.1 200 OK\r\n\r\n"
+
+    def send_body(self, data: bytes, more: bool = False) -> bytes:
+        return data
 
 
 class TestCreateSend:
@@ -778,6 +790,136 @@ class TestAutoChunkedEncoding:
         # Properly terminated
         assert b"0\r\n\r\n" in output
         assert state.bytes_sent == sum(len(c) for c in chunks)
+
+    @pytest.mark.asyncio
+    async def test_sendfile_intent_uses_h11_content_length_accounting(self, tmp_path):
+        """Protocol-owned sendfile advances h11's Content-Length writer."""
+        proto = H1Protocol()
+        proto.receive_data(b"GET /app.js HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        file_path = tmp_path / "app.js"
+        file_path.write_bytes(b"hello")
+        transport = _FakeTransport()
+        calls: list[tuple[Path, int, int, bytes]] = []
+
+        async def sendfile(path: Path, offset: int, count: int) -> None:
+            calls.append((path, offset, count, bytes(transport.data)))
+
+        state = SendState()
+        send = create_send(proto, transport, state, sendfile_fn=sendfile)
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", b"5")],
+            }
+        )
+        await send(
+            {
+                "type": "pounce.response.sendfile",
+                "path": file_path,
+                "offset": 0,
+                "count": 5,
+            }
+        )
+
+        assert calls == [(file_path, 0, 5, bytes(transport.data))]
+        assert b"content-length: 5" in bytes(transport.data).lower()
+        assert state.bytes_sent == 5
+        assert state.response_complete is True
+
+    @pytest.mark.asyncio
+    async def test_sendfile_intent_preserves_h11_length_errors(self, tmp_path):
+        """Mismatched file counts still fail through h11 before completion."""
+        proto = H1Protocol()
+        proto.receive_data(b"GET /app.js HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+
+        async def sendfile(path: Path, offset: int, count: int) -> None:
+            raise AssertionError("sendfile should not run when h11 rejects the body length")
+
+        send = create_send(proto, transport, SendState(), sendfile_fn=sendfile)
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", b"5")],
+            }
+        )
+        with pytest.raises(h11.LocalProtocolError, match="Too little data"):
+            await send(
+                {
+                    "type": "pounce.response.sendfile",
+                    "path": tmp_path / "app.js",
+                    "offset": 0,
+                    "count": 4,
+                }
+            )
+
+    @pytest.mark.asyncio
+    async def test_sendfile_intent_rejects_active_compression(self, tmp_path):
+        """sendfile intents cannot bypass an active response compressor."""
+        proto = H1Protocol()
+        proto.receive_data(b"GET /app.js HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        transport = _FakeTransport()
+
+        async def sendfile(path: Path, offset: int, count: int) -> None:
+            raise AssertionError("sendfile should not run with active compression")
+
+        send = create_send(
+            proto,
+            transport,
+            SendState(),
+            compressor=GzipCompressor(),
+            sendfile_fn=sendfile,
+        )
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", b"5")],
+            }
+        )
+
+        with pytest.raises(RuntimeError, match="active compression"):
+            await send(
+                {
+                    "type": "pounce.response.sendfile",
+                    "path": tmp_path / "app.js",
+                    "offset": 0,
+                    "count": 5,
+                }
+            )
+
+    @pytest.mark.asyncio
+    async def test_sendfile_intent_requires_protocol_passthrough(self, tmp_path):
+        """Protocols must explicitly support passthrough body parts for sendfile."""
+        transport = _FakeTransport()
+
+        async def sendfile(path: Path, offset: int, count: int) -> None:
+            raise AssertionError("sendfile should not run without protocol passthrough")
+
+        send = create_send(_BodyOnlyProtocol(), transport, SendState(), sendfile_fn=sendfile)
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", b"5")],
+            }
+        )
+
+        with pytest.raises(RuntimeError, match="requires protocol send_body_parts"):
+            await send(
+                {
+                    "type": "pounce.response.sendfile",
+                    "path": tmp_path / "app.js",
+                    "offset": 0,
+                    "count": 5,
+                }
+            )
 
 
 class TestCreateH1Protocol:

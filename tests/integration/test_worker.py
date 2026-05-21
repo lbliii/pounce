@@ -1,7 +1,28 @@
 """Integration tests for pounce.worker — end-to-end request handling."""
 
 from pounce._types import ASGIApp
-from tests.conftest import send_raw_request, start_worker
+from pounce.config import ServerConfig
+from tests.conftest import send_raw_request, start_worker, with_lifespan
+
+
+@with_lifespan
+async def _sendfile_extension_probe_app(scope, receive, send) -> None:
+    await receive()
+    extensions = scope.get("extensions", {})
+    has_sendfile = "pounce.sendfile" in extensions
+    body = b"sendfile" if has_sendfile else b"no-sendfile"
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/plain"),
+                (b"content-length", str(len(body)).encode()),
+                (b"x-pounce-sendfile", b"yes" if has_sendfile else b"no"),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
 
 
 class TestWorkerHelloWorld:
@@ -60,6 +81,50 @@ class TestWorkerStreaming:
             assert b"chunk0" in response
             assert b"chunk1" in response
             assert b"chunk2" in response
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
+
+class TestWorkerExtensions:
+    """HTTP/1 bridge scope extensions exposed to ASGI apps."""
+
+    def test_h11_worker_exposes_protocol_owned_sendfile(self):
+        config = ServerConfig(host="127.0.0.1", port=0, access_log=False, compression=False)
+        worker, sock, thread = start_worker(_sendfile_extension_probe_app, config=config)
+        addr = sock.getsockname()
+
+        try:
+            response = send_raw_request(
+                addr,
+                b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )
+            assert b"200" in response
+            assert b"x-pounce-sendfile: yes" in response.lower()
+            assert b"sendfile" in response
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
+    def test_h11_worker_omits_sendfile_when_runtime_compression_negotiates(self):
+        config = ServerConfig(host="127.0.0.1", port=0, access_log=False, compression=True)
+        worker, sock, thread = start_worker(_sendfile_extension_probe_app, config=config)
+        addr = sock.getsockname()
+
+        try:
+            response = send_raw_request(
+                addr,
+                (
+                    b"GET / HTTP/1.1\r\n"
+                    b"Host: localhost\r\n"
+                    b"Accept-Encoding: gzip\r\n"
+                    b"Connection: close\r\n\r\n"
+                ),
+            )
+            assert b"200" in response
+            assert b"x-pounce-sendfile: no" in response.lower()
         finally:
             worker.shutdown()
             thread.join(timeout=2)

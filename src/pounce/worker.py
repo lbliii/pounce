@@ -804,12 +804,13 @@ class Worker:
             )
             return
 
-        # Inject zero-copy sendfile extension for static file serving.
-        # Only available on non-TLS connections when dynamic compression will
-        # not transform the response body. Precompressed static variants still
-        # use sendfile when the client did not negotiate runtime compression.
+        # Advertise protocol-owned sendfile for static file serving. StaticFiles
+        # emits a file-range intent; the h11 bridge keeps Content-Length and
+        # chunk framing consistent before transferring bytes with os.sendfile.
+        sendfile_fn = None
         if compressor is None and can_use_sendfile(writer):
-            scope.setdefault("extensions", {})["pounce.sendfile"] = create_sendfile_callable(writer)
+            sendfile_fn = create_sendfile_callable(writer)
+            scope.setdefault("extensions", {})["pounce.sendfile"] = {"version": 1}
 
         # Built-in health check — respond before ASGI dispatch.
         # Skips access log to reduce noise from k8s/load balancer probes.
@@ -970,6 +971,7 @@ class Worker:
             server=server,
             dictionary_hash=dictionary.sf_hash if dictionary else None,
             extra_headers=dict_advert_headers,
+            sendfile_fn=sendfile_fn,
         )
 
         # Create OpenTelemetry span for this request

@@ -18,10 +18,12 @@ Phase 4 hot-path optimizations:
 
 import asyncio
 from dataclasses import dataclass
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
 from pounce._compression import Compressor
+from pounce._sendfile import SendfileCallable, SendfileRegion
 from pounce._timing import ServerTiming
 from pounce._types import Receive, Send
 from pounce.asgi._scope import build_base_scope
@@ -273,6 +275,7 @@ def create_send(
     server: tuple[str, int] | None = None,
     dictionary_hash: str | None = None,
     extra_headers: list[tuple[bytes, bytes]] | None = None,
+    sendfile_fn: SendfileCallable | None = None,
 ) -> Send:
     """Create an ASGI send callable that streams to the transport.
 
@@ -300,6 +303,25 @@ def create_send(
     # Buffer for write coalescing: holds the serialized response head
     # until the first body chunk arrives.
     pending_head: bytes = b""
+
+    async def _write_body_parts(parts: list[bytes | SendfileRegion]) -> None:
+        nonlocal pending_head
+
+        if pending_head:
+            writer.write(pending_head)
+            pending_head = b""
+
+        for part in parts:
+            if isinstance(part, SendfileRegion):
+                if sendfile_fn is None:
+                    raise RuntimeError("pounce.response.sendfile is not available")
+                await sendfile_fn(part.path, part.offset, part.count)
+            elif part:
+                writer.write(part)
+
+        transport = writer.transport
+        if transport is not None and transport.get_write_buffer_size() > _DRAIN_THRESHOLD:
+            await writer.drain()
 
     async def send(message: dict[str, Any]) -> None:
         nonlocal response_started, response_complete, pending_head, compressor
@@ -487,6 +509,48 @@ def create_send(
                 await writer.drain()
 
             state.bytes_sent += original_len
+            if not more_body:
+                response_complete = True
+                state.response_complete = True
+
+        elif msg_type == "pounce.response.sendfile":
+            _req_ctx = (
+                f" ({request_method.decode(errors='replace')} "
+                f"{request_path.decode(errors='replace')})"
+            )
+            if not response_started:
+                raise RuntimeError(
+                    f"Received pounce.response.sendfile before http.response.start{_req_ctx}"
+                )
+            if response_complete:
+                raise RuntimeError(
+                    f"Received pounce.response.sendfile after response is complete{_req_ctx}"
+                )
+            if writer.is_closing():
+                return
+            if compressor is not None:
+                raise RuntimeError(
+                    "pounce.response.sendfile is not available with active compression"
+                )
+
+            send_body_parts = getattr(protocol, "send_body_parts", None)
+            if not callable(send_body_parts):
+                raise RuntimeError("pounce.response.sendfile requires protocol send_body_parts")
+            if sendfile_fn is None:
+                raise RuntimeError("pounce.response.sendfile is not available")
+
+            path = message["path"]
+            if not isinstance(path, Path):
+                path = Path(path)
+            offset = int(message.get("offset", 0))
+            count = int(message["count"])
+            more_body = bool(message.get("more_body", False))
+            region = SendfileRegion(path=path, offset=offset, count=count)
+
+            parts = send_body_parts(region, more=more_body)
+            await _write_body_parts(parts)
+
+            state.bytes_sent += count
             if not more_body:
                 response_complete = True
                 state.response_complete = True

@@ -9,11 +9,12 @@ All state is per-connection, per-request-cycle. No shared mutable state.
 
 """
 
-from typing import Any
+from typing import Any, cast
 
 import h11
 
 from pounce._errors import ParseError
+from pounce._sendfile import SendfileRegion
 from pounce.protocols._base import (
     BodyReceived,
     ConnectionClosed,
@@ -123,6 +124,28 @@ class H1Protocol:
         if not more:
             parts.append(self._conn.send(h11.EndOfMessage()))
         return b"".join(parts)
+
+    def send_body_parts(
+        self,
+        data: bytes | SendfileRegion,
+        more: bool = False,
+    ) -> list[bytes | SendfileRegion]:
+        """Serialize a response body chunk without combining passthrough data.
+
+        h11's ``send_with_data_passthrough`` preserves the exact object passed
+        as ``Data.data`` while still applying Content-Length or chunked writer
+        accounting. The ASGI bridge uses this for protocol-owned sendfile:
+        h11 validates the declared body length, and the bridge writes any
+        framing bytes around the file transfer in order.
+        """
+        parts: list[bytes | SendfileRegion] = []
+        if data:
+            data_parts = self._conn.send_with_data_passthrough(h11.Data(data=cast(Any, data)))
+            if data_parts:
+                parts.extend(cast("list[bytes | SendfileRegion]", data_parts))
+        if not more:
+            parts.append(self._conn.send(h11.EndOfMessage()))
+        return parts
 
     def start_new_cycle(self) -> None:
         """Prepare for the next request on keep-alive connections."""
