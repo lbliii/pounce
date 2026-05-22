@@ -49,7 +49,7 @@ Completed or covered by current proof:
   `tests/unit/test_ws_protocol.py`.
 - Bengal and Chirp/LB Sonic-shaped workloads exist under `benchmarks/apps/`
   and `benchmarks/test_*.py`; the standalone runner drives each workload's
-  configured path.
+  configured path and now exposes endpoint-specific Bengal and Chirp profiles.
 - Optional protocol missing-extra diagnostics are covered by
   `tests/unit/test_optional_protocol_diagnostics.py`.
 
@@ -89,8 +89,8 @@ Accepted findings:
 | Contract | API/CLI | Programmatic | Protocol | Schema/Types | Docs | Examples | Tests | Benchmarks |
 |---|---|---|---|---|---|---|---|---|
 | Static files from config | TOML/schema exists | `ServerConfig.static_files` wraps the real app | H1 real-worker proof exists | Field exists | Claims exist | Static examples exist | `tests/integration/test_static_config.py` | Bengal workload exists |
-| Bengal local dev | Config recipe exists | Works through configured static handler | H1 static path covered | Static fields exist | Static docs exist | Synthetic fixture exists | Static fixture coverage | Bengal profile, artifact output, grouped variance, and best-effort RSS support exist; CPU telemetry pending |
-| Chirp/LB Sonic production | Railway recipe exists | Chirp forum fixture exists | H1/H2/H3/WS scope proof improved; H3 reload/drain remains | Config fields exist | Deployment docs exist | Forum-shaped workload exists | Tenant, limit, state, and smoke tests exist | Chirp profile, artifact output, grouped variance, and best-effort RSS support exist; CPU telemetry pending |
+| Bengal local dev | Config recipe exists | Works through configured static handler | H1 static path covered | Static fields exist | Static docs exist | Synthetic fixture exists | Static fixture coverage | Bengal home, asset, feed, and post profiles exist; artifact output, grouped variance, and best-effort RSS support exist; CPU telemetry pending |
+| Chirp/LB Sonic production | Railway recipe exists | Chirp forum fixture exists | H1/H2/H3/WS scope proof improved; H3 reload/drain remains | Config fields exist | Deployment docs exist | Forum-shaped workload exists | Tenant, limit, state, and smoke tests exist | Chirp home, thread, asset, and SSE profiles exist; artifact output, grouped variance, and best-effort RSS support exist; CPU telemetry pending |
 | Lifespan state | Public ASGI behavior | H1 path covered | H2/H3/WS scope proof exists | State behavior implicit | Needs parity note cleanup | Lifespan examples exist | Cross-protocol state tests exist | Not benchmark-sensitive |
 | Reload/drain | SIGHUP implementation documented | Server API exists | H3 reload/drain proof still pending | `reload_timeout` exists | Claims need measured proof | Production example generic | Signal/load-bearing proof still pending | Missing reload profile |
 | Introspection | Config fields exist | Response builder exists | Same-listener behavior accepted with warning contract | Allowlist exists | ADR updated | None | Unit tests cover warning/redaction | Not relevant |

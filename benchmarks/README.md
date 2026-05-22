@@ -45,8 +45,14 @@ python benchmarks/run_benchmark.py --workload chirp --artifact-output artifacts/
 | `hello` | `benchmarks.apps.hello:app` | Minimal hello-world (measures server overhead) |
 | `json` | `benchmarks.apps.json_app:app` | JSON response (pre-serialized) |
 | `echo` | `benchmarks.apps.echo:app` | POST body echo (1KB payload) |
-| `bengal` | `benchmarks.apps.bengal_static:app` | Bengal-shaped generated static site |
+| `bengal` | `benchmarks.apps.bengal_static:app` | Bengal-shaped generated static site home page |
+| `bengal_asset` | `benchmarks.apps.bengal_static:app` | Bengal-shaped generated static site CSS asset |
+| `bengal_feed` | `benchmarks.apps.bengal_static:app` | Bengal-shaped generated static site XML feed |
+| `bengal_post` | `benchmarks.apps.bengal_static:app` | Bengal-shaped generated static site post page |
 | `chirp` | `benchmarks.apps.chirp_forum:app` | Chirp/LB Sonic-shaped multi-tenant forum thread |
+| `chirp_asset` | `benchmarks.apps.chirp_forum:app` | Chirp/LB Sonic-shaped forum CSS asset |
+| `chirp_events` | `benchmarks.apps.chirp_forum:app` | Chirp/LB Sonic-shaped forum SSE first event |
+| `chirp_home` | `benchmarks.apps.chirp_forum:app` | Chirp/LB Sonic-shaped multi-tenant forum home |
 
 ### Runner Options
 
