@@ -84,6 +84,7 @@ Required metadata:
 - load tool and version
 - comparison target and version, when comparing
 - sample count and grouped variance by server, workload, and worker count
+- per-sample server RSS when the platform exposes it
 - raw output path
 - summary table
 

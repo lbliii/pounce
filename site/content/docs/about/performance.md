@@ -133,9 +133,9 @@ python benchmarks/run_benchmark.py --workload chirp --repeat 5 --artifact-output
 
 An artifact file records the command, server command, git SHA, Python/GIL mode,
 OS/hardware, workload, worker count, duration, connections, load tool, samples,
-grouped variance, raw output, and summary. A single artifact sample is not
-enough for a regression claim; use repeated samples before promoting a number in
-README, site docs, or release notes.
+grouped variance, best-effort server RSS, raw output, and summary. A single
+artifact sample is not enough for a regression claim; use repeated samples
+before promoting a number in README, site docs, or release notes.
 
 ## See Also
 
