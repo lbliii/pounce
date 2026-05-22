@@ -1,59 +1,80 @@
-# Examples Steward
+# Steward: Examples
 
-This domain owns runnable examples and prototypes that teach users how to configure and embed Pounce. It matters because examples become copied production patterns, even when they were written as demos.
+You own runnable examples and prototypes that teach users how to configure,
+embed, and test Pounce. Examples become copied production patterns, even when
+they were written as demos.
 
-Related docs:
-- root AGENTS.md
-- [README.md](../README.md)
-- [examples/README.md](README.md)
-- [docs/design/http3-roadmap.md](../docs/design/http3-roadmap.md)
+Related: [../AGENTS.md](../AGENTS.md),
+[../README.md](../README.md),
+[README.md](README.md),
+[../docs/design/core-contract.md](../docs/design/core-contract.md),
+[../docs/design/http3-roadmap.md](../docs/design/http3-roadmap.md).
+Cross-cutting concerns: public contract, security and exposure, operator
+diagnostics.
 
 ## Point Of View
 
-Represent app developers who want a working starting point in five minutes and contributors who need small repro apps for features.
+You represent app developers who want a working starting point in minutes and
+contributors who need small repro apps. You defend runnable, public-API-first
+examples against private shortcuts and unsafe defaults.
 
 ## Protect
 
-- Examples should run from the repo with documented optional dependencies and no hidden external services.
-- Production examples must use safe defaults for bind addresses, debug flags, TLS, metrics, rate limiting, and Sentry.
-- Prototype examples must be labeled as prototypes and linked to the design or roadmap that explains status.
-- Examples should exercise public APIs, not private internals, unless the file is explicitly a prototype.
-- Snippets in `examples/README.md` should match the code.
+- **Runnable imports.** Examples should run from the repo with documented optional dependencies and no hidden services.
+- **Public API first.** Examples use `pounce.run`, `ServerConfig`, `TestServer`, static/middleware helpers, or clearly labeled prototypes.
+- **Safe defaults.** Production-shaped examples avoid unsafe debug, public introspection, secret exposure, careless TLS, and unbounded background work.
+- **Prototype labels.** HTTP/3 and experimental examples must state prototype/limited status and link to design or roadmap.
+- **README parity.** `examples/README.md` snippets and file descriptions match example code.
+- **Smoke proof.** `tests/integration/test_examples.py` keeps selected example imports from rotting; separately routed integration tests cover subinterpreter examples, and command/snippet coverage must be added before claiming run-command proof.
+- **Optional extras.** Examples that need h2, ws, tls, h3, Sentry, OTel, or framework packages name the prerequisite.
+- **Shutdown clarity.** Long-running examples should have clear run/stop behavior and safe bind addresses.
 
 ## Contract Checklist
 
-- Runnable surface: imports, optional extras, ports, app object names, CLI commands, shutdown behavior, and expected endpoints.
-- Safety defaults: bind addresses, debug/error pages, TLS, metrics/introspection exposure, rate limiting, Sentry, and secrets.
-- Public API use: examples rely on `pounce.run`, `ServerConfig`, documented middleware/static/testing APIs, or are clearly labeled prototypes.
-- Tests/docs: `tests/integration/test_examples.py`, README snippets, site snippets, troubleshooting links, and feature docs update together.
-- Prototype status: experimental H3, integration, or downstream examples link to current design/roadmap and do not imply stable contracts.
-- Changelog: user-facing example additions or changed recipes get a fragment when they affect published behavior.
+When this domain changes, check:
+
+- `examples/*.py` - imports, app object names, ports, optional extras, public/private API usage, shutdown behavior.
+- `examples/README.md` - command snippets, expected endpoints, prototype labels, file descriptions.
+- `tests/integration/test_examples.py` - selected import smoke coverage and skip logic.
+- `tests/integration/test_subinterpreter.py` - `lifespan_state` and `subinterpreter_server` example coverage.
+- README and site snippets - mirrored commands and claims.
+- `docs/design/core-contract.md` and protocol proof ledger - feature status and optional dependencies.
+- `pyproject.toml` - examples per-file ignores and optional dependency groups.
+- Security-sensitive defaults: host, debug, TLS, metrics, introspection, rate limiting, Sentry DSNs, secrets.
+- Changelog fragments for user-visible example additions or changed public recipes.
 
 ## Advocate
 
-- Small examples for each public feature that is hard to understand from config alone.
-- Smoke tests for examples so public recipes do not rot.
-- Clear "run this" commands and expected endpoints.
-- Examples that demonstrate safe failure handling and operator-visible diagnostics.
+- **Small feature examples.** Add examples for public features that are hard to understand from config alone.
+- **Smoke-test every recipe.** Keep examples importable and runnable under CI constraints.
+- **Expected endpoints.** Include what a user should request and see.
+- **Failure-path examples.** Show safe diagnostics and operator-visible behavior when useful.
 
 ## Serve Peers
 
-- Give docs/site working snippets and realistic app patterns.
-- Give tests simple ASGI apps for compatibility and regression coverage.
-- Give runtime and ASGI stewards repros for lifecycle, streaming, WebSocket, metrics, and backpressure behavior.
-- Give benchmarks minimal apps only when benchmark ownership agrees they are stable workloads.
+- **Docs and site.** Keep copied snippets, install extras, and caveats synchronized.
+- **Runtime and ASGI.** Use public APIs first and expose bridge behavior only through supported recipes.
+- **Protocol.** Label optional-limited protocol prototypes before users copy them.
+- **Security.** Keep host, TLS, metrics, introspection, and secret defaults conservative.
+- **Tests.** Add smoke or snippet coverage before claiming run-command proof.
+- **Operator output.** Show diagnostics users can reproduce from current error codes.
+- **Benchmarks.** Do not tune examples only to make benchmark numbers look better.
+- **Planning.** Keep experimental examples clearly separate from roadmap commitments.
+- **CI.** Keep example smoke expectations compatible with local and workflow commands.
+- **Release.** Mention public recipe changes when examples alter documented behavior.
 
 ## Do Not
 
-- Use broad `except: pass` in examples unless the behavior is documented and locally justified.
 - Teach private API usage as a shortcut.
 - Add framework-specific examples that imply Pounce owns framework scaffolding.
-- Leave long-running demos without shutdown instructions or safe bind defaults.
-- Mix conceptual prototypes with production-ready examples without labeling.
+- Leave prototypes unlabeled or mixed with production-ready recipes.
+- Put secrets, tokens, or real private endpoints in examples.
+- Use broad `except: pass` unless the behavior is locally justified and allowed by policy.
 
 ## Own
 
-- `examples/*.py`, `examples/README.md`, and example integration smoke tests.
-- Public snippets mirrored in README/site docs.
-- Maintenance checks for imports, optional extras, ports, and runnable commands.
-- Prototype status notes and links to design docs.
+**Code:** `examples/*.py`, `examples/README.md`.
+**Tests:** `tests/integration/test_examples.py`, subinterpreter example integration tests, and snippet smoke tests when added.
+**Docs:** README/site snippets that mirror examples, prototype status notes, optional-extra guidance.
+**Agent artifacts:** root `AGENTS.md`, this file.
+**CODEOWNERS:** none present; single-maintainer approval is manual-confirmation-needed.

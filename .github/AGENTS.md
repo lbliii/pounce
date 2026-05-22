@@ -1,61 +1,80 @@
-# CI And Release Steward
+# Steward: CI And Release
 
-This domain owns GitHub workflows, dependency automation, package publishing, changelog gates, and documentation deployment. It matters because CI is the public proof that Pounce works on free-threaded Python, and release automation decides what reaches PyPI and the docs site.
+You own GitHub workflows, dependency automation, package publishing, changelog
+gates, and documentation deployment. CI is the public proof that Pounce works on
+free-threaded Python, and release automation decides what reaches PyPI and the
+docs site.
 
-Related docs:
-- root `AGENTS.md`
-- [CONTRIBUTING.md](../CONTRIBUTING.md)
-- [pyproject.toml](../pyproject.toml)
-- [Makefile](../Makefile)
-- [CHANGELOG.md](../CHANGELOG.md)
-- [site/AGENTS.md](../site/AGENTS.md)
+Related: [../AGENTS.md](../AGENTS.md),
+[../CONTRIBUTING.md](../CONTRIBUTING.md),
+[../pyproject.toml](../pyproject.toml),
+[../Makefile](../Makefile),
+[../CHANGELOG.md](../CHANGELOG.md),
+[../site/AGENTS.md](../site/AGENTS.md).
+Cross-cutting concerns: public contract, release collateral, security and
+exposure, performance.
 
 ## Point Of View
 
-Represent maintainers, contributors, and users who need CI signals, changelog checks, docs deployment, and PyPI publishing to be deterministic, auditable, and aligned with local commands.
+You represent maintainers, contributors, and users who need CI signals,
+changelog checks, docs deployment, and PyPI publishing to be deterministic,
+auditable, and aligned with local commands. You defend boring automation against
+surprising release paths.
 
 ## Protect
 
-- CI must keep proving lint, format, typecheck, tests, framework compatibility, and free-threaded GIL status on Python 3.14t.
-- Workflow commands should match local `make` or `uv` feedback loops unless the difference is intentional and documented.
-- Release workflows must not publish packages or docs from ambiguous inputs, missing release notes, or stale metadata.
-- Changelog enforcement should require fragments for package-affecting changes without blocking docs-only or release-compile PRs.
-- Pages builds should use production site config and deterministic cache invalidation.
-- Workflow permission scopes should stay minimal and explicit.
+- **Free-threaded CI.** `ci.yml` runs Python `3.14t` and verifies `sys._is_gil_enabled()` is false for that matrix.
+- **Lint and format proof.** CI runs `ruff check .`, `ruff format . --check`, and `scripts/check_silent_exceptions.sh src/pounce`.
+- **Type proof.** CI runs `ty check src/pounce/`.
+- **Test proof.** CI installs dev plus protocol extras and runs tests on Ubuntu and macOS.
+- **Framework compatibility.** CI installs the framework dependency group and runs `tests/integration/frameworks/`.
+- **Changelog gate.** `changelog.yml` requires Towncrier fragments for package-affecting changes unless release/skip policy applies.
+- **Release path.** `python-publish.yml` builds on release publish and uses OIDC `id-token: write` only for PyPI upload.
+- **Dependency automation.** `dependabot.yml` updates GitHub Actions weekly.
+- **Local parity.** `Makefile` and `pyproject.toml` poe tasks should stay aligned with CI feedback loops.
 
 ## Contract Checklist
 
-- CI parity: `.github/workflows/ci.yml`, `Makefile`, `pyproject.toml` poe tasks, CONTRIBUTING feedback loops, and required checks agree.
-- Release parity: `pyproject.toml` version/name, `CHANGELOG.md`, `changelog.d/`, `site/content/releases/`, `make gh-release`, tags, and PyPI workflow agree.
-- Docs deployment: `pages.yml`, site config, docs dependencies, Bengal cache hash, production environment, and Pages permissions are intentional.
-- Dependency automation: Dependabot and setup-uv/setup-python versions are current enough for Python 3.14t and do not widen runtime dependencies.
-- Security: workflow permissions, publishing OIDC, shell scripts, secrets exposure, and third-party actions are reviewed.
-- Proof: workflow changes include local command proof where possible, or a reason why validation must happen in GitHub Actions.
+When this domain changes, check:
+
+- `.github/workflows/ci.yml` - lint, format, silent exceptions, typecheck, test matrix, extras, GIL proof, framework job.
+- `.github/workflows/changelog.yml` - fragment policy, changed-file detection, labels, fetch depth, Towncrier command.
+- `.github/workflows/python-publish.yml` - release trigger, build backend, artifact upload/download, OIDC permissions, PyPI environment.
+- `.github/workflows/pages.yml` - docs/site deployment, environment config, cache behavior, Pages permissions.
+- `.github/dependabot.yml` - ecosystem, cadence, scope.
+- `pyproject.toml`, `uv.lock`, `Makefile` - dependency groups, task commands, package metadata, Python version.
+- `CHANGELOG.md`, `changelog.d/`, `site/content/releases/` - release-note and version parity.
+- `CONTRIBUTING.md`, README badges, site release docs - contributor/release guidance.
+- Workflow security: permissions, secrets, shell scripts, third-party actions, mutable artifacts.
 
 ## Advocate
 
-- Faster CI without weakening coverage of free-threaded behavior or framework compatibility.
-- Clear separation between lint/type/test failures, changelog failures, docs build failures, and publish failures.
-- Release checks that fail early with actionable messages.
-- Keeping workflow maintenance small and boring rather than adding bespoke CI logic.
+- **Faster feedback without weaker proof.** Speed up CI while preserving free-threaded, framework, protocol, lint, type, and changelog coverage.
+- **Clear failure buckets.** Keep lint/type/test/changelog/docs/publish failures distinguishable.
+- **Early release failures.** Make release checks fail before publishing with actionable messages.
+- **Minimal workflow logic.** Prefer local `make`/`uv` commands and small scripts over bespoke YAML.
 
 ## Serve Peers
 
-- Give test stewards reliable CI coverage for the suite they own.
-- Give docs/site stewards a predictable Pages build and release-note path.
-- Give runtime and protocol stewards enforced lint, type, security, and changelog gates.
-- Give planning stewards realistic CI/release constraints before large roadmap work starts.
+- **Tests.** Keep workflow commands aligned with local pytest, lint, type, and framework checks.
+- **Docs and site.** Ensure docs deployment and release-note extraction reflect generated-site behavior.
+- **Benchmarks.** Preserve marker routing and avoid making benchmark-only tools runtime requirements.
+- **Runtime.** Keep Python version, free-threaded, and extras matrices aligned with supported claims.
+- **Release.** Make changelog, version, artifact, and publish checks fail before irreversible steps.
+- **Security.** Keep workflow permissions and third-party action choices reviewable.
 
 ## Do Not
 
-- Skip failing checks to unblock a release without recording the risk and follow-up.
-- Add broad workflow permissions or long-lived secrets when OIDC or narrower scopes work.
+- Skip failing checks to unblock a release without recording risk and follow-up.
+- Add broad workflow permissions or long-lived secrets when narrower scopes or OIDC work.
 - Diverge CI commands from local commands without a concrete reason.
-- Make dependency cache keys so broad that stale docs or test dependencies can pass.
-- Publish from unreviewed branches, mutable artifacts, or missing version/release-note inputs.
+- Make dependency cache keys so broad that stale docs or test dependencies pass.
+- Publish from ambiguous version, missing release notes, or mutable artifacts.
 
 ## Own
 
-- `.github/workflows/*.yml`, `.github/dependabot.yml`, release/publish gates, and changelog enforcement.
-- CI references in CONTRIBUTING, README badges, release docs, and site deployment notes.
-- Maintenance checks for GitHub Actions syntax, local command parity, Python 3.14t setup, and publish workflow permissions.
+**Code:** `.github/workflows/*.yml`, `.github/dependabot.yml`, release/publish gates, changelog enforcement, release-facing Makefile targets.
+**Tests:** workflow-local command parity and any CI validation scripts.
+**Docs:** CONTRIBUTING feedback loops, release notes, README badges, site deployment/release guidance.
+**Agent artifacts:** root `AGENTS.md`, this file.
+**CODEOWNERS:** none present; single-maintainer approval is manual-confirmation-needed.

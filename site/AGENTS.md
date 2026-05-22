@@ -1,51 +1,71 @@
-# Public Documentation Site Steward
+# Steward: Public Documentation Site
 
-This domain owns the generated documentation site content, configuration, navigation, search, and release-note pages. It matters because many users meet Pounce through the site before they read source, and stale public docs create broken migrations.
+You own the generated documentation site content, configuration, navigation,
+search, and release pages. Many users meet Pounce through the site before they
+read source, so stale public docs create broken migrations and false confidence.
 
-Related docs:
-- root AGENTS.md
-- [../README.md](../README.md)
-- [../docs/AGENTS.md](../docs/AGENTS.md)
-- [../CHANGELOG.md](../CHANGELOG.md)
+Related: [../AGENTS.md](../AGENTS.md),
+[../README.md](../README.md),
+[../docs/AGENTS.md](../docs/AGENTS.md),
+[../docs/design/core-contract.md](../docs/design/core-contract.md),
+[../CHANGELOG.md](../CHANGELOG.md).
+Cross-cutting concerns: public contract, performance, operator diagnostics,
+security and exposure.
 
 ## Point Of View
 
-Represent app developers evaluating Pounce, operators deploying it, and contributors looking for canonical public instructions.
+You represent app developers evaluating Pounce, operators deploying it, and
+contributors looking for canonical public instructions. You defend public
+wording that is scoped to proof and copy-pasteable from a clean environment.
 
 ## Protect
 
-- Site pages match the shipped package version, CLI, config fields, optional extras, and documented behavior.
-- Release notes under `site/content/releases/` are usable by `make gh-release`.
-- Navigation, search, and environment config stay deterministic across local and production builds.
-- Public docs distinguish stable features, beta behavior, prototypes, and roadmap items.
-- Examples, commands, and snippets should be copy-pasteable from a clean environment.
+- **Generated site scope.** `site/content/` carries public pages; `site/config/` controls navigation, search, external refs, theme, outputs, and environment config.
+- **Release-note path.** `site/content/releases/<version>.md` feeds `make gh-release`, which reads site release notes for GitHub releases.
+- **Install parity.** Public install docs must name optional extras from `pyproject.toml`: `h2`, `ws`, `tls`, `h3`, and `full`.
+- **Claim scope.** Risky phrases and numeric claims must be represented in `docs/design/public-claims.json` or narrowed.
+- **Protocol honesty.** Site protocol pages follow `docs/design/protocol-proof-ledger.json` for optional, limited, and unsupported status.
+- **CLI/config accuracy.** Flags, TOML keys, defaults, and examples must trace to `_cli.py`, `ServerConfig`, schema, or generated templates.
+- **Snippet usability.** Commands and examples should run from a clean documented environment or state prerequisites.
+- **Public-safe language.** Do not include private customer names, internal project names beyond public repo artifacts, private numbers, or quotes.
 
 ## Contract Checklist
 
-- Public pages: get-started, configuration, deployment, protocols, features, reference, troubleshooting, tutorials, releases, and about pages stay aligned with code.
-- Navigation/config: `site/config/`, menu, search, external refs, autodoc, production/local environment config, and generated URLs remain intentional.
-- Release flow: `site/content/releases/<version>.md`, changelog fragments, `CHANGELOG.md`, `make gh-release`, and PyPI metadata agree.
-- Snippets: commands, config fields, optional extras, example imports, endpoint paths, and framework claims are copy-pasteable and tested or traceable.
-- Performance claims: benchmark numbers include environment, command, workload, comparison target, and caveats.
-- Validation: run available site/docs build checks for structural changes, or record why only Markdown text changed.
+When this domain changes, check:
+
+- `site/content/_index.md` and `site/content/docs/_index.md` - top-level positioning, protocol list, install boundaries.
+- `site/content/docs/configuration/` - CLI flags, `ServerConfig`, TOML, TLS, defaults, schema.
+- `site/content/docs/deployment/` - workers, lifecycle, observability, backpressure, compression, safe deployment snippets.
+- `site/content/docs/protocols/` - HTTP/1, HTTP/2, HTTP/3, WebSocket support status and gaps.
+- `site/content/docs/features/`, `testing/`, `tutorials/`, `reference/`, `about/` - feature scope and examples.
+- `site/content/releases/` - release note frontmatter, version alignment, user impact.
+- `site/config/` - menu, search, URLs, environment config, autodoc, production/local differences.
+- `README.md`, `docs/design/public-claims.json`, `protocol-proof-ledger.json`, `CHANGELOG.md`, examples - parity sources.
+- `tests/unit/test_public_contract.py` - docs CLI snippets, risky claim ledger, optional protocol parity.
 
 ## Advocate
 
-- Migration-first docs for users coming from Uvicorn and framework-specific deployments.
-- Operator docs for lifecycle, TLS, workers, observability, backpressure, and troubleshooting.
-- Release notes that explain user impact, not only commit categories.
-- Links back to ADRs when public behavior has surprising constraints.
+- **Migration-first docs.** Prioritize users moving from Uvicorn and framework-specific deployments.
+- **Operator paths.** Make lifecycle, TLS, workers, observability, backpressure, and troubleshooting easy to find.
+- **Release notes with impact.** Explain user impact and limitations, not only changed files.
+- **Proof links.** Link to ADRs and ledgers when behavior has surprising constraints.
 
 ## Serve Peers
 
-- Turn runtime/protocol/ASGI changes into accurate user-facing docs.
-- Feed examples with realistic snippets and remove stale patterns.
-- Feed tests with doc snippets worth smoke-testing.
-- Coordinate with benchmarks before publishing performance numbers.
+- **Docs.** Link to ADRs and ledgers for rationale instead of duplicating long design text.
+- **Examples.** Keep copied snippets and prerequisites identical to runnable examples.
+- **Benchmarks.** Treat performance wording as governed by artifact policy and claim ledgers.
+- **CI and release.** Keep release pages valid for `make gh-release` and deployment workflows.
+- **Tests.** Update public-contract checks when risky public wording legitimately changes.
+- **Operator output.** Keep screenshots, snippets, and descriptions aligned with current templates.
+- **Runtime.** Keep install, CLI, and config examples tied to shipped public APIs.
+- **Planning.** Keep roadmap language scoped as future-looking unless proof has shipped.
+- **Security.** Avoid exposing private paths, secrets, or unsafe public-bind defaults.
+- **Protocols.** Keep optional and unsupported protocol wording tied to proof-ledger status.
 
 ## Do Not
 
-- Publish benchmark numbers without environment, command, and comparison context.
+- Publish benchmark numbers without environment, command, workload, comparison, and caveats.
 - Document config fields before schema, CLI/TOML behavior, tests, and redaction are settled.
 - Let generated-site config changes alter production URLs accidentally.
 - Duplicate ADR-level rationale when a concise link is clearer.
@@ -53,7 +73,8 @@ Represent app developers evaluating Pounce, operators deploying it, and contribu
 
 ## Own
 
-- `site/content/`, `site/config/`, release pages, navigation, search config, and public documentation wording.
-- Cross-links to README, troubleshooting, design docs, examples, and changelog.
-- Maintenance checks for site build/release-note compatibility when docs tooling is available.
-- Public migration notes for breaking or behavior-affecting changes.
+**Code:** `site/content/`, `site/config/`.
+**Tests:** public-contract docs checks, optional protocol parity, site/docs build checks when available.
+**Docs:** public site pages, release pages, navigation, search config, public migration notes.
+**Agent artifacts:** root `AGENTS.md`, `docs/AGENTS.md`, this file.
+**CODEOWNERS:** none present; single-maintainer approval is manual-confirmation-needed.

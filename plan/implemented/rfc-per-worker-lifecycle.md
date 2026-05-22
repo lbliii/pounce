@@ -123,6 +123,12 @@ Both startup (30s) and shutdown (10s) scopes are wrapped in `asyncio.wait_for`. 
 5. **`test_shutdown_failure_non_fatal`** — Shutdown errors are logged but don't prevent worker exit.
 6. **`test_app_raises_on_unknown_scope`** — Apps that raise on unknown scope types don't crash the worker.
 
+Implemented proof references:
+
+- `tests/unit/test_worker_lifecycle.py` - per-worker startup/shutdown scope behavior.
+- `docs/design/subinterpreter-workers.md` - worker startup hook guidance for loop-local resources.
+- `CHANGELOG.md` - release notes document per-worker lifecycle scopes and test coverage.
+
 ---
 
 ## Migration & Compatibility

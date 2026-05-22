@@ -1,7 +1,10 @@
 """
-HTTP/3 example using pounce with zoomies.
+HTTP/3 optional-limited prototype using pounce with zoomies.
 
 Runs a minimal HTTP/3 server using pounce's zoomies integration.
+This demonstrates request/response handling only. Lifecycle parity,
+reload/drain proof, shutdown behavior, 0-RTT policy, benchmark proof, and
+WebSocket over HTTP/3 remain outside this prototype.
 
 Requirements:
     pip install bengal-pounce[h3]
