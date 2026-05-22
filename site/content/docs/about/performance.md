@@ -124,6 +124,19 @@ pounce bench --workers 4 --compare
 
 Reports throughput (req/s), latency percentiles (p50, p95, p99), error rates, and RSS memory usage.
 
+For PR or release evidence, use the repository benchmark runner and write an
+artifact metadata file:
+
+```bash
+python benchmarks/run_benchmark.py --workload chirp --artifact-output artifacts/chirp.json
+```
+
+An artifact file records the command, server command, git SHA, Python/GIL mode,
+OS/hardware, workload, worker count, duration, connections, load tool, samples,
+variance notes, raw output, and summary. A single artifact sample is not enough
+for a regression claim; repeat runs and report variance before promoting a
+number in README, site docs, or release notes.
+
 ## See Also
 
 - [[docs/deployment/compression|Compression]] — Configuration details

@@ -65,8 +65,8 @@ snapshot caveat. Store benchmark artifacts as JSON that follows
 `benchmarks/artifact-schema.json`.
 
 The `run_benchmark.py --output` file is structured runner output. Treat it as a
-raw input for analysis unless it is extended or wrapped with every field required
-by `benchmarks/artifact-schema.json`.
+raw input for analysis. Use `--artifact-output` when a PR or release needs
+metadata shaped for `benchmarks/artifact-schema.json`.
 
 Required metadata:
 
@@ -79,7 +79,8 @@ Required metadata:
 - duration, connections, and load-generator threads
 - load tool and version
 - comparison target and version, when comparing
-- sample count and variance
+- sample count and variance; the runner records a single-sample variance note
+  until repeated-run orchestration is added
 - raw output path
 - summary table
 

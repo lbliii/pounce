@@ -82,6 +82,9 @@ snapshot, not a universal guarantee.
 *Measured with `wrk -t4 -c100 -d10s` on macOS Apple Silicon, plain-text "hello world" ASGI app, Python 3.14t. Re-run locally before making deployment decisions.*
 
 Run `pounce bench --workers 4 --compare` to reproduce on your machine.
+For release or PR evidence, use
+`python benchmarks/run_benchmark.py --artifact-output results.json` so the run
+carries the metadata required by `benchmarks/artifact-schema.json`.
 
 Key optimizations in the sync worker path:
 - **Fast HTTP/1.1 parser** — Direct bytes parsing is benchmarked separately from h11 and covers method validation, header size limits, duplicate `Content-Length`, and `Content-Length`/`Transfer-Encoding` ambiguity
