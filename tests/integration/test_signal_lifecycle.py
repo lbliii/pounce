@@ -8,6 +8,8 @@ import socket
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -101,6 +103,29 @@ def _start_cli_server(*, workers: int) -> tuple[subprocess.Popen[bytes], int]:
     return proc, port
 
 
+def _stop_cli_server(proc: subprocess.Popen[bytes]) -> tuple[bytes, bytes]:
+    if proc.poll() is None:
+        proc.terminate()
+    try:
+        return proc.communicate(timeout=6)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        stdout, stderr = proc.communicate(timeout=2)
+        pytest.fail("pounce subprocess did not exit after SIGTERM")
+        return stdout, stderr
+
+
+@contextmanager
+def _running_cli_server(*, workers: int) -> Iterator[tuple[subprocess.Popen[bytes], int]]:
+    proc, port = _start_cli_server(workers=workers)
+    try:
+        _wait_for_hello(port)
+        yield proc, port
+    finally:
+        stdout, stderr = _stop_cli_server(proc)
+        assert b"Traceback" not in stdout + stderr
+
+
 @pytest.mark.integration
 def test_cli_sigterm_drains_and_exits_cleanly() -> None:
     """SIGTERM should produce a bounded, clean CLI server shutdown."""
@@ -116,3 +141,30 @@ def test_cli_sigterm_drains_and_exits_cleanly() -> None:
 
     assert proc.returncode == 0
     assert b"Traceback" not in stdout + stderr
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not hasattr(signal, "SIGHUP"), reason="SIGHUP is POSIX-only")
+def test_cli_sighup_reload_path_recovers_serving() -> None:
+    """SIGHUP should keep the CLI process alive and return to serving traffic."""
+    with _running_cli_server(workers=2) as (proc, port):
+        proc.send_signal(signal.SIGHUP)
+        deadline = time.monotonic() + 8
+        last_error: Exception | None = None
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                pytest.fail(f"pounce subprocess exited during SIGHUP reload: {proc.returncode}")
+            try:
+                response = _request(port)
+            except (ConnectionError, OSError) as exc:
+                last_error = exc
+                time.sleep(0.05)
+                continue
+            if b"Hello, World!" in response:
+                return
+            time.sleep(0.05)
+
+    msg = "pounce did not serve traffic after SIGHUP reload"
+    if last_error is not None:
+        raise RuntimeError(msg) from last_error
+    raise RuntimeError(msg)
