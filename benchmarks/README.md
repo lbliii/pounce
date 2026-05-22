@@ -25,6 +25,9 @@ python benchmarks/run_benchmark.py --workload bengal --workers 1 --duration 10
 # Chirp/LB Sonic-shaped forum workload
 python benchmarks/run_benchmark.py --workload chirp --workers 4 --duration 30
 
+# Repeat each workload for artifact variance
+python benchmarks/run_benchmark.py --workload chirp --repeat 5 --artifact-output artifacts/chirp.json
+
 # Compare against uvicorn
 python benchmarks/run_benchmark.py --compare --workers 4
 
@@ -54,6 +57,7 @@ python benchmarks/run_benchmark.py --workload chirp --artifact-output artifacts/
 | `--duration` | `10` | Test duration in seconds |
 | `--threads` | `4` | Load generator thread count |
 | `--connections` | `100` | Concurrent connections |
+| `--repeat` | `1` | Repeat each workload and label each sample in the output |
 | `--compare` | off | Also benchmark uvicorn |
 | `--output` | none | Save structured runner output to JSON. This is not a benchmark artifact unless it contains the metadata required by `artifact-schema.json`. |
 | `--artifact-output` | none | Save artifact-schema-compatible metadata for PR/release evidence. |
@@ -79,8 +83,7 @@ Required metadata:
 - duration, connections, and load-generator threads
 - load tool and version
 - comparison target and version, when comparing
-- sample count and variance; the runner records a single-sample variance note
-  until repeated-run orchestration is added
+- sample count and grouped variance by server, workload, and worker count
 - raw output path
 - summary table
 
