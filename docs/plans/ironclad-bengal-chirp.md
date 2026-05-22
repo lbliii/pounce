@@ -12,12 +12,12 @@ their scoped `AGENTS.md` files.
 
 ## Executive Summary
 
-The repo is feature-rich enough to support Bengal and Chirp, but the roadmap is
-stale and the strongest steward finding is that proof does not yet match the
-public claims. The next work should close public-contract gaps, then build
-representative Bengal and Chirp/LB Sonic evidence.
+The repo is feature-rich enough to support Bengal and Chirp, and several
+original proof gaps have now closed. The next work should keep the current proof
+map accurate, deepen load/reload evidence, and avoid promoting benchmark or H3
+claims beyond the ledgers.
 
-Original top convergence:
+Original top convergence, now partly closed:
 
 - `ServerConfig.static_files` is public and documented, but the real server path
   needs proof or wiring.
@@ -31,8 +31,8 @@ Original top convergence:
 ## Implementation Update — 2026-05-22
 
 Current `main` has closed several original contract gaps. Treat the ranked
-backlog below as the historical source of the saga, and use this update plus
-the proof ledgers for current status.
+backlog below as historical unless an item is explicitly marked open, and use
+this update plus the proof ledgers for current status.
 
 Completed or covered by current proof:
 
@@ -62,6 +62,28 @@ Remaining high-value gaps:
 - Public release/readme/site claim updates should continue to cite current
   ledgers and avoid promoting benchmark snapshots.
 
+## Steward Synthesis — 2026-05-22
+
+Asked stewards: Design/Troubleshooting, Runtime/Public API, Protocol/ASGI, and
+Performance Evidence.
+
+Accepted findings:
+
+- Closed P0s were still listed as active: static config, request limits, tenant
+  scope matrix, and lifespan state parity. Mark them closed and keep proof links
+  visible.
+- Bengal and Chirp workloads exist. The remaining benchmark gap is repeated
+  samples, variance, RSS/CPU capture, and release-quality artifacts, not fixture
+  absence.
+- Introspection same-listener behavior is no longer an unresolved ADR conflict;
+  `docs/design/introspection-auth.md` records the accepted contract and
+  `tests/unit/test_introspect.py` covers warning behavior.
+- HTTP/3 current truth is optional-limited zoomies support. H3 lifespan-state
+  handoff is proven; H3 reload/drain and benchmark artifacts remain open.
+- Public docs should narrow zero-downtime, immutable-config, H3 parity, and
+  optional-extra wording to match `core-contract.md` and
+  `protocol-proof-ledger.json`.
+
 ## Contract Parity Matrix
 
 | Contract | API/CLI | Programmatic | Protocol | Schema/Types | Docs | Examples | Tests | Benchmarks |
@@ -71,81 +93,62 @@ Remaining high-value gaps:
 | Chirp/LB Sonic production | Railway recipe exists | Chirp forum fixture exists | H1/H2/H3/WS scope proof improved; H3 reload/drain remains | Config fields exist | Deployment docs exist | Forum-shaped workload exists | Tenant, limit, state, and smoke tests exist | Chirp profile and artifact output exist; repeated variance pending |
 | Lifespan state | Public ASGI behavior | H1 path covered | H2/H3/WS scope proof exists | State behavior implicit | Needs parity note cleanup | Lifespan examples exist | Cross-protocol state tests exist | Not benchmark-sensitive |
 | Reload/drain | SIGHUP implementation documented | Server API exists | H3 reload/drain proof still pending | `reload_timeout` exists | Claims need measured proof | Production example generic | Signal/load-bearing proof still pending | Missing reload profile |
-| Introspection | Config fields exist | Response builder exists | Same-listener behavior conflicts with ADR | Allowlist exists | ADR/docs conflict | None | Mostly unit tests | Not relevant |
+| Introspection | Config fields exist | Response builder exists | Same-listener behavior accepted with warning contract | Allowlist exists | ADR updated | None | Unit tests cover warning/redaction | Not relevant |
 | Middleware | Programmatic only | Stack exists | ASGI semantics matter | Callable fields not TOML-friendly | Examples mostly aligned | Basic example | Real-server tests exist | Chirp workload covers middleware header |
 
-## Ranked Backlog
+## Historical Ranked Backlog
 
-### P0. Static Config Contract
+The original backlog is kept for traceability. Items marked **Closed** should not
+be treated as active work unless a later regression reopens them.
+
+### P0. Static Config Contract — Closed
 
 - Steward: Runtime/Public API, Protocol, ASGI Bridge, Transport/TLS,
   Tests/Compatibility
 - Area: Bengal static-site dev server
 - Invariant: Documented `ServerConfig` and TOML behavior must reach the public
   request path.
-- Evidence: `ServerConfig.static_files` exists and docs advertise it, while
-  current tests use `create_static_handler()` directly. Steward review did not
-  find static wrapping in `Server._apply_integrations()`.
-- User Impact: A Bengal user can follow docs and still fail to serve generated
-  files unless they know to wrap the app manually.
-- Required Fix: Wire `static_files` into server/app dispatch, or demote the
-  config field and document `StaticFiles` as the only supported path. The
-  preferred direction is to wire the field because it already exists publicly.
-- Required Proof: Real-worker H1 test using only
-  `ServerConfig(static_files={"/": tmpdir})`; TOML `[static_files]`; root mount;
-  mixed app/static fallthrough; 404 behavior; sendfile extension path; docs
-  example test.
+- Evidence: `Server._apply_static_files()` wraps configured static mounts into
+  the public request path.
+- Current Proof: `tests/integration/test_static_config.py` covers real-worker
+  config-only serving, TOML static config, mixed fallback, cache headers, and
+  sendfile/h11 accounting.
 - Collateral: Static docs, config docs, examples, changelog, `ROADMAP.md`.
 - Confidence: High.
 
-### P0. Request Body Limit Failure
+### P0. Request Body Limit Failure — Closed
 
 - Steward: Protocol
 - Area: Chirp/LB Sonic production request bodies
 - Invariant: Pounce must reject oversized input before ASGI sees partial data.
-- Evidence: Steward review found H1/H2/H3 over-limit paths that can truncate or
-  terminate the body stream instead of producing deterministic 413/reset
-  behavior.
-- User Impact: Forum posts, forms, and uploads can be processed partially,
-  creating data loss or security bugs.
-- Required Fix: Convert over-limit bodies to deterministic `413` or protocol
-  reset behavior with `POUNCE_LIMIT_*` diagnostics.
-- Required Proof: H1 content-length, H1 chunked, H2 DATA, and H3 DATA tests
-  proving the app is not called or receives a documented disconnect/reset.
+- Current Proof: H1 content-length and chunked limits are covered by
+  `tests/integration/test_limits.py`; H2 and H3 oversized DATA behavior is
+  covered by `tests/unit/test_h2_handler.py` and
+  `tests/unit/test_h3_handler.py`.
 - Collateral: Limits docs and troubleshooting catalog.
 - Confidence: High.
 
-### P0. Tenant Authority Scope Matrix
+### P0. Tenant Authority Scope Matrix — Closed
 
 - Steward: Protocol, ASGI Bridge, Transport/TLS, Tests/Compatibility
 - Area: Chirp/LB Sonic multi-tenant routing
 - Invariant: Host, authority, scheme, client, server, and root path must be
   validated and consistent across protocols and proxy-trust states.
-- Evidence: Steward review found H2/H3 pseudo-header defaulting and no
-  tenant-shaped scope matrix. Multi-tenant apps commonly derive tenant identity
-  from these fields.
-- User Impact: A malformed or spoofed request can resolve to the wrong tenant,
-  wrong absolute URL, or wrong redirect target.
-- Required Fix: Enforce required H2/H3 pseudo-headers, define Host versus
-  `:authority` behavior, and add trusted/untrusted proxy tests.
-- Required Proof: H1/H2/H3/WS scope matrix plus one Chirp-style tenant fixture
-  returning tenant identity from scope.
+- Current Proof: `tests/unit/test_tenant_scope_matrix.py` covers trusted and
+  untrusted forwarded authority across H1, H2, H3, and WebSocket. H2/H3
+  pseudo-header rejection tests cover malformed authority behavior.
 - Collateral: Deployment/security docs and protocol troubleshooting entries.
 - Confidence: Medium-high.
 
-### P0. Lifespan State Protocol Parity
+### P0. Lifespan State Protocol Parity — Closed
 
 - Steward: Protocol, ASGI Bridge
 - Area: Chirp/LB Sonic app state
 - Invariant: `scope["state"]` must be protocol-independent unless explicitly
   documented otherwise.
-- Evidence: H1 state injection exists; steward review found H2/H3/WebSocket
-  scope builders without state parameters.
-- User Impact: DB pools, caches, and tenant registries can vanish on negotiated
-  H2/H3/WS paths.
-- Required Fix: Thread worker lifespan state through H2, H3, and WebSocket scope
-  construction or document hard exceptions.
-- Required Proof: Scope state identity tests for H1, H2, H3, and WS.
+- Current Proof: H1 lifespan state is covered by integration tests; H2/H3/WS
+  scope builders have state identity tests; H3 handler dispatch passes lifespan
+  state into the ASGI scope.
 - Collateral: ASGI docs and compatibility matrix.
 - Confidence: High.
 
@@ -155,7 +158,7 @@ Remaining high-value gaps:
   Examples, Site
 - Area: Bengal local dev delight
 - Invariant: Bengal performance must be measured on Bengal-shaped output.
-- Required Fix: Add a checked-in miniature Bengal output fixture or generator and
+- Required Fix: Maintain and expand the checked-in Bengal output fixture and
   benchmark profile.
 - Required Proof: Root/nested indexes, `.well-known`, SVG/ICO/fonts, CSS/JS,
   search index, `.gz`, `.zst`, HEAD, ETag/304, Range, malformed traversal, and
@@ -171,7 +174,7 @@ Remaining high-value gaps:
   Evidence, Docs/Site
 - Area: Multi-tenant HTML-over-the-wire production
 - Invariant: Compatibility claims need an app-shaped integration fixture.
-- Required Fix: Add a representative workload with host tenants, middleware,
+- Required Fix: Maintain and expand the representative workload with host tenants, middleware,
   lifespan state, forms, static assets, streaming HTML or SSE, keep-alive, and
   optional WebSocket route if needed.
 - Required Proof: Real-server integration under concurrency, negative proxy
@@ -221,22 +224,19 @@ References checked 2026-05-09:
 - Collateral: Deployment lifecycle docs and production example.
 - Confidence: High.
 
-### P1. Introspection Contract
+### P1. Introspection Contract — Closed For ADR Decision
 
 - Steward: Transport/TLS, Tests/Compatibility, Docs, Operator Output
 - Area: Production diagnostics
 - Invariant: Security-sensitive operator endpoints need implementation, ADR, and
   docs to agree.
-- Evidence: The ADR describes a separate loopback listener, while implementation
-  dispatches the endpoint on the main worker listener and warns for public
-  exposure.
-- Required Fix: Choose the contract. Either implement a separate loopback
-  listener, or revise `introspection_bind` semantics and the ADR to reflect
-  same-listener behavior.
-- Required Proof: Live endpoint tests for disabled fallthrough, enabled
-  intercept, custom path, user-route collision, redaction canaries, and
-  public-bind warning.
-- Collateral: ADR, config schema, troubleshooting, deployment docs.
+- Evidence: `docs/design/introspection-auth.md` accepts same-listener
+  interception with loopback/default warning behavior, and
+  `tests/unit/test_introspect.py` covers warning/redaction behavior.
+- Remaining Fix: Keep site/deployment docs aligned with the accepted
+  same-listener contract.
+- Required Proof: Existing introspection tests plus docs parity.
+- Collateral: Deployment docs if wording drifts.
 - Confidence: High.
 
 ### P1. WebSocket Compression Negotiation
@@ -274,9 +274,10 @@ References checked 2026-05-09:
 - Area: Public claims and regression proof
 - Invariant: Published numbers must include workload, workers, duration,
   concurrency, platform, Python build, comparison target, variance, and caveats.
-- Required Fix: Standardize benchmark profiles and artifact output.
+- Required Fix: Standardize benchmark profiles and repeated artifact runs.
 - Required Proof: 5+ runs per profile, median/p95/p99/variance, error rate,
-  CPU/RSS, Python `3.14t`, hardware, commands, config, raw JSON.
+  CPU/RSS, Python `3.14t`, hardware, commands, config, raw JSON. The runner can
+  emit artifact-schema-compatible metadata; repeat orchestration remains open.
 - Collateral: README, site performance/comparison pages, releases.
 - Confidence: High.
 
@@ -307,8 +308,8 @@ References checked 2026-05-09:
 
 ## Dependencies
 
-- Bengal fixture or generated artifact before meaningful static benchmarks.
-- Chirp or LB Sonic representative fixture before production confidence claims.
+- Repeated Bengal static samples before public static performance claims.
+- Repeated Chirp/LB Sonic samples before production confidence claims.
 - Deterministic subprocess/signal harness before reload/drain proof.
 - Optional competitor installs and fixed hardware before public benchmarks.
 - Railway deployment details rechecked near release because platform behavior can
@@ -318,10 +319,8 @@ References checked 2026-05-09:
 ## Risks
 
 - The largest current risk is treating feature presence as a shipped contract.
-- Static config may already be a public regression; fix or demote before wider
-  Bengal messaging.
-- Silent body truncation and host/authority ambiguity are production correctness
-  risks for multi-tenant forum workloads.
+- Static config, request limits, and host/authority behavior now have proof;
+  keep ledgers current so those closed risks do not reopen silently.
 - HTTP/3 is valuable, but lifecycle parity may lag public feature tables.
 - Benchmark claims currently conflict across surfaces; publish only reproducible
   numbers.
@@ -330,9 +329,10 @@ References checked 2026-05-09:
 
 All consulted stewards converged on the same sequence:
 
-1. Close public-contract gaps.
-2. Build Bengal and Chirp/LB Sonic representative fixtures.
-3. Add reproducible benchmarks and load/drain proof.
+1. Keep public-contract proof current.
+2. Expand Bengal and Chirp/LB Sonic representative fixtures only where new
+   workflows require it.
+3. Add repeated reproducible benchmarks and load/drain proof.
 4. Align public docs, examples, and roadmap claims to the measured behavior.
 
 ## Minority Reports

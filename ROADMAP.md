@@ -24,26 +24,46 @@ The active planning record is
 [docs/plans/ironclad-bengal-chirp.md](docs/plans/ironclad-bengal-chirp.md).
 Older Phase 5b and vibe-readiness plans are historical implementation records.
 
+## Current State Update — May 22, 2026
+
+Several original Ironclad contract gaps are now covered by tests and ledgers.
+Static config reaches the real server path, H1/H2/H3 request limits fail closed,
+tenant-facing scope behavior has a cross-protocol matrix, lifespan state reaches
+H1/H2/H3/WebSocket scope builders, and Bengal/Chirp-shaped workloads exist.
+
+The remaining near-term work is narrower:
+
+- H3 reload/drain parity under load.
+- Signal-path reload/drain proof for production-shaped traffic.
+- Repeated benchmark samples and variance aggregation around the new artifact
+  metadata output.
+- Public docs and release wording kept aligned to proof ledgers.
+
 ## Where We Are
 
 | Surface | Current State | Confidence |
 |---|---|---|
 | HTTP/1.1 | Implemented, including fast sync parser | High |
-| HTTP/2 | Implemented, but parity gaps need focused proof | Medium |
-| HTTP/3 | Implemented via zoomies, but lifecycle/reload parity needs proof | Medium |
-| WebSocket | Implemented, compression negotiation needs review | Medium |
-| Static files | Static handler exists; public config wiring needs proof/fix | Medium |
-| Middleware | Implemented; docs and real-server Chirp integration need proof | Medium |
-| Lifespan state | H1 path covered; H2/H3/WS parity needs proof/fix | Medium |
+| HTTP/2 | Implemented with scope, limit, and missing-extra proof; operator output parity remains | Medium-high |
+| HTTP/3 | Implemented via zoomies with limit and lifespan-state proof; reload/drain and benchmark proof remain | Medium |
+| WebSocket | Implemented with compression negotiation and missing-extra proof; H2 WebSocket remains optional-limited | Medium-high |
+| Static files | Public config and TOML reach the real server path | High |
+| Middleware | Implemented with real-server tests and Chirp workload coverage | Medium-high |
+| Lifespan state | H1, H2, H3, and WebSocket scope paths covered | High |
 | Reload/drain | Implemented; signal-path load tests are the next gate | Medium |
 | Observability | Metrics, health, OTel, lifecycle logs, introspection present | Medium |
-| Benchmarks | Basic runner exists; canonical workload matrix is missing | Low |
+| Benchmarks | Bengal/Chirp workloads and artifact metadata output exist; repeated variance remains | Medium |
 
-## Priority 0: Contract Gaps
+## Priority 0: Closed Contract Proof
 
-These items block any claim that Bengal and Chirp/LB Sonic are ironclad.
+These items were original blockers for Bengal and Chirp/LB Sonic confidence.
+They now have current proof; keep them here as closed gates and use the active
+plan plus ledgers for exact test references.
 
 ### 1. Public Static Config Must Serve Files
+
+**Status:** Closed. Covered by real-server `ServerConfig.static_files` and TOML
+tests in `tests/integration/test_static_config.py`.
 
 `ServerConfig.static_files` and TOML static config are documented, but steward
 review found the current tests mostly wrap apps manually with `StaticFiles` or
@@ -60,6 +80,10 @@ Required proof:
 
 ### 2. Protocol Limits Must Fail Closed
 
+**Status:** Closed for H1/H2/H3 request-body limits. Covered by
+`tests/integration/test_limits.py`, `tests/unit/test_h2_handler.py`, and
+`tests/unit/test_h3_handler.py`.
+
 Oversized request bodies must not be truncated and delivered to ASGI as if they
 were valid. H1, H2, and H3 should reject or reset deterministically with
 operator-visible `POUNCE_LIMIT_*` diagnostics.
@@ -72,6 +96,9 @@ Required proof:
 - Troubleshooting and limits documentation aligned with behavior.
 
 ### 3. Tenant Authority Must Be Validated Across Protocols
+
+**Status:** Closed for the current H1/H2/H3/WebSocket scope matrix. Covered by
+`tests/unit/test_tenant_scope_matrix.py` and protocol pseudo-header tests.
 
 LB Sonic will likely derive tenant identity from host, authority, scheme, and
 trusted proxy headers. Pounce cannot default malformed H2/H3 pseudo-headers into
@@ -86,6 +113,9 @@ Required proof:
 - Chirp-style tenant fixture returning the resolved tenant from ASGI scope.
 
 ### 4. Lifespan State Parity
+
+**Status:** Closed for H1/H2/H3/WebSocket scope construction and H3 handler
+handoff. Covered by bridge, WebSocket, and H3 handler tests.
 
 Chirp production apps need startup-created state for pools, caches, tenant
 registries, and shared services. H1 must not be the only path that sees
@@ -106,8 +136,8 @@ without Nginx, and without surprising browser behavior.
 
 Work:
 
-- Add a Bengal-like fixture or generated output artifact.
-- Add local-dev static benchmark profile: warm small files, nested indexes,
+- Maintain and expand the Bengal-like fixture or generated output artifact.
+- Extend the local-dev static benchmark profile: warm small files, nested indexes,
   304s, range requests, precompressed assets, and cold first-hit numbers.
 - Validate reload includes for `.md`, `.html`, `.css`, `.js`, templates, and
   static assets.
@@ -127,7 +157,7 @@ Pounce behind a managed platform load balancer.
 
 Work:
 
-- Add a representative Chirp/LB Sonic fixture: host-based tenants, middleware,
+- Maintain and expand the representative Chirp/LB Sonic fixture: host-based tenants, middleware,
   lifespan state, forms, streamed HTML or SSE, static assets, and optional
   WebSocket route if the product needs it.
 - Add Railway-style deployment recipe: bind `0.0.0.0:$PORT`, rely on platform
@@ -155,8 +185,8 @@ Work:
 
 - Add profiles: `local-dev`, `bengal-static`, `chirp-prod`, `streaming`,
   `reload`, and `worker-modes`.
-- Add repeat counts, variance, raw JSON artifacts, CPU/RSS capture, Python build
-  metadata, GIL/free-threaded status, and competitor versions.
+- Add repeat counts, variance aggregation, CPU/RSS capture, and competitor
+  versions around the artifact metadata output.
 - Separate product claims from local observations. README and site numbers must
   cite the exact command, environment, sample count, and caveats.
 

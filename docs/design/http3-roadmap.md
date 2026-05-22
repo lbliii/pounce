@@ -9,10 +9,12 @@
 **Current-state note:** Sections below preserve the February 2026 aioquic
 research and original deferral recommendation. They are historical context, not
 the active implementation plan or a Pounce production-readiness claim. Current
-HTTP/3 work should focus on zoomies parity gates: lifecycle state, reload/drain
-behavior, transport documentation, and reproducible benchmarks before broad
-production claims. See [core-contract.md](core-contract.md) for the active
-support boundary.
+HTTP/3 work should focus on the remaining zoomies parity gates: reload/drain
+behavior and reproducible benchmark artifacts before broad production claims.
+Lifespan-state handoff is covered by current H3 bridge and handler tests. See
+[core-contract.md](core-contract.md) and
+[protocol-proof-ledger.json](protocol-proof-ledger.json) for the active support
+boundary.
 
 ## Executive Summary
 
@@ -732,16 +734,18 @@ above is historical research; Pounce's current HTTP/3 support boundary is the
 zoomies implementation and the parity gates named at the top of this document.
 
 **For pounce:**
-- **Phase 5b:** Focus on core features, defer HTTP/3
-- **Phase 5c:** Implement HTTP/3 with 6-8 week timeline
-- **Expected outcome:** Competitive parity with Hypercorn, improved mobile performance, future-proof architecture
+- **Current implementation:** Optional HTTP/3 via `bengal-zoomies`.
+- **Current status:** Optional-limited until reload/drain and benchmark evidence
+  match the claim level in `protocol-proof-ledger.json`.
+- **Expected outcome:** Keep H3 useful and explicit without presenting it as
+  production-equivalent to the TCP paths before proof exists.
 
-The path forward is clear, technically feasible, and strategically sound.
+The path forward is clear, technically feasible, and bounded by proof.
 
 ---
 
 **Next Steps:**
-1. Complete Phase 5b (lifecycle logging, graceful shutdown)
-2. Review this roadmap with stakeholders
-3. Prototype HTTP/3 in Phase 5c (Q2 2026)
-4. Validate performance assumptions before full implementation
+1. Add H3 reload/drain parity proof or document explicit exceptions.
+2. Produce benchmark artifacts for H3 workloads before public performance claims.
+3. Keep this historical roadmap secondary to `core-contract.md` and
+   `protocol-proof-ledger.json`.
