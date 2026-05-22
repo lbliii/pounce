@@ -17,7 +17,7 @@ stale and the strongest steward finding is that proof does not yet match the
 public claims. The next work should close public-contract gaps, then build
 representative Bengal and Chirp/LB Sonic evidence.
 
-Top convergence:
+Original top convergence:
 
 - `ServerConfig.static_files` is public and documented, but the real server path
   needs proof or wiring.
@@ -28,17 +28,50 @@ Top convergence:
   termination, healthcheck, proxy, and observability guidance.
 - Old Phase 5b plans should be treated as historical records, not active work.
 
+## Implementation Update — 2026-05-22
+
+Current `main` has closed several original contract gaps. Treat the ranked
+backlog below as the historical source of the saga, and use this update plus
+the proof ledgers for current status.
+
+Completed or covered by current proof:
+
+- Static config reaches the real server path:
+  `tests/integration/test_static_config.py`.
+- Request body limits fail closed across H1, H2, and H3:
+  `tests/integration/test_limits.py`, `tests/unit/test_h2_handler.py`, and
+  `tests/unit/test_h3_handler.py`.
+- Tenant-facing authority/proxy scope behavior has a cross-protocol matrix:
+  `tests/unit/test_tenant_scope_matrix.py`.
+- Lifespan state reaches H1, H2, H3, and WebSocket scope builders, including
+  H3 handler dispatch proof: `tests/unit/test_h3_handler.py`,
+  `tests/unit/test_h2_bridge.py`, `tests/unit/test_h3_bridge.py`, and
+  `tests/unit/test_ws_protocol.py`.
+- Bengal and Chirp/LB Sonic-shaped workloads exist under `benchmarks/apps/`
+  and `benchmarks/test_*.py`; the standalone runner drives each workload's
+  configured path.
+- Optional protocol missing-extra diagnostics are covered by
+  `tests/unit/test_optional_protocol_diagnostics.py`.
+
+Remaining high-value gaps:
+
+- H3 reload/drain parity under load.
+- Benchmark artifact generation that fully emits
+  `benchmarks/artifact-schema.json`, not only structured runner output.
+- Public release/readme/site claim updates should continue to cite current
+  ledgers and avoid promoting benchmark snapshots.
+
 ## Contract Parity Matrix
 
 | Contract | API/CLI | Programmatic | Protocol | Schema/Types | Docs | Examples | Tests | Benchmarks |
 |---|---|---|---|---|---|---|---|---|
-| Static files from config | Partial: TOML/schema exists; CLI unclear | `StaticFiles` works; `ServerConfig.static_files` needs proof | H1 proof needed; H2/H3 policy needed | Field exists | Claims exist | Manual static example exists | Manual-wrapper tests only | Missing Bengal profile |
-| Bengal local dev | No first-class recipe | Possible through wrapper | H1 static path likely enough after config fix | Static fields exist | Static docs exist | Synthetic example | Synthetic fixture | Missing |
-| Chirp/LB Sonic production | Railway command missing | Chirp hello example only | H1/H2/H3/WS parity gaps | Config fields exist | Generic deployment docs | Hello-world Chirp only | No tenant fixture | Missing |
-| Lifespan state | Public ASGI behavior | H1 path covered | H2/H3/WS gaps | State behavior implicit | Needs parity note | Lifespan examples exist | H1-heavy | Missing |
-| Reload/drain | SIGHUP implementation; docs conflict with SIGUSR1 claim | Server API exists | H3 lifecycle gap | `reload_timeout` exists | Claims need measured proof | Production example generic | Load-bearing signal tests missing | Missing reload profile |
+| Static files from config | TOML/schema exists | `ServerConfig.static_files` wraps the real app | H1 real-worker proof exists | Field exists | Claims exist | Static examples exist | `tests/integration/test_static_config.py` | Bengal workload exists |
+| Bengal local dev | Config recipe exists | Works through configured static handler | H1 static path covered | Static fields exist | Static docs exist | Synthetic fixture exists | Static fixture coverage | Bengal profile exists; artifact output still pending |
+| Chirp/LB Sonic production | Railway recipe exists | Chirp forum fixture exists | H1/H2/H3/WS scope proof improved; H3 reload/drain remains | Config fields exist | Deployment docs exist | Forum-shaped workload exists | Tenant, limit, state, and smoke tests exist | Chirp profile exists; artifact output still pending |
+| Lifespan state | Public ASGI behavior | H1 path covered | H2/H3/WS scope proof exists | State behavior implicit | Needs parity note cleanup | Lifespan examples exist | Cross-protocol state tests exist | Not benchmark-sensitive |
+| Reload/drain | SIGHUP implementation documented | Server API exists | H3 reload/drain proof still pending | `reload_timeout` exists | Claims need measured proof | Production example generic | Signal/load-bearing proof still pending | Missing reload profile |
 | Introspection | Config fields exist | Response builder exists | Same-listener behavior conflicts with ADR | Allowlist exists | ADR/docs conflict | None | Mostly unit tests | Not relevant |
-| Middleware | Programmatic only | Stack exists | ASGI semantics matter | Callable fields not TOML-friendly | Examples conflict with code | Basic example | Unit-heavy | Missing real-server profile |
+| Middleware | Programmatic only | Stack exists | ASGI semantics matter | Callable fields not TOML-friendly | Examples mostly aligned | Basic example | Real-server tests exist | Chirp workload covers middleware header |
 
 ## Ranked Backlog
 
