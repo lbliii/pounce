@@ -41,6 +41,7 @@ def test_build_artifact_has_required_schema_fields() -> None:
             {
                 "server": "pounce",
                 "workload": "chirp",
+                "workers": 4,
                 "req_per_sec": 1000.0,
                 "p99_latency_ms": 2.0,
             }
@@ -89,3 +90,59 @@ def test_build_artifact_has_required_schema_fields() -> None:
     assert artifact["workload"] == "chirp"
     assert "pounce:chirp" in artifact["server_command"]
     assert "uvicorn:chirp" in artifact["server_command"]
+
+
+def test_build_artifact_summarizes_repeated_samples() -> None:
+    suite = BenchmarkSuite(
+        timestamp="2026-05-22T120000-0400",
+        python_version="3.14.2 free-threaded",
+        platform="test-os",
+        results=[
+            {
+                "server": "pounce",
+                "workload": "chirp",
+                "workers": 4,
+                "req_per_sec": 1000.0,
+                "p99_latency_ms": 2.0,
+                "errors": 0,
+                "sample_index": 1,
+            },
+            {
+                "server": "pounce",
+                "workload": "chirp",
+                "workers": 4,
+                "req_per_sec": 1100.0,
+                "p99_latency_ms": 3.0,
+                "errors": 1,
+                "sample_index": 2,
+            },
+        ],
+    )
+
+    artifact = build_artifact(
+        suite,
+        command=[
+            "python",
+            "benchmarks/run_benchmark.py",
+            "--workload",
+            "chirp",
+            "--repeat",
+            "2",
+        ],
+        workload="chirp",
+        workers=4,
+        duration=30,
+        connections=100,
+        threads=4,
+        load_tool="wrk",
+        load_tool_version="wrk 4.2.0",
+        compare=False,
+    )
+
+    [group] = artifact["summary"]["groups"]
+    assert group["sample_count"] == 2
+    assert group["req_per_sec"]["median"] == 1050.0
+    assert group["req_per_sec"]["variance"] == 2500.0
+    assert group["p99_latency_ms"]["p95"] == 3.0
+    assert group["errors_total"] == 1
+    assert artifact["variance"]["groups"] == artifact["summary"]["groups"]

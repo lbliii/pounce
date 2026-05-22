@@ -28,6 +28,7 @@ import json
 import platform
 import re
 import signal
+import statistics
 import subprocess
 import sys
 import time
@@ -573,6 +574,62 @@ def _python_gil_mode() -> str:
     return "unknown"
 
 
+def _nearest_rank(values: list[float], percentile: int) -> float:
+    """Return a nearest-rank percentile for repeated benchmark samples."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    rank = max(1, round((percentile / 100) * len(ordered)))
+    return ordered[min(rank, len(ordered)) - 1]
+
+
+def _metric_summary(rows: list[dict], metric: str) -> dict:
+    """Summarize a numeric benchmark metric across repeated samples."""
+    values = [float(row.get(metric, 0.0)) for row in rows]
+    if not values:
+        return {
+            "min": 0.0,
+            "median": 0.0,
+            "p95": 0.0,
+            "max": 0.0,
+            "variance": 0.0,
+        }
+    return {
+        "min": min(values),
+        "median": statistics.median(values),
+        "p95": _nearest_rank(values, 95),
+        "max": max(values),
+        "variance": statistics.pvariance(values) if len(values) > 1 else 0.0,
+    }
+
+
+def _group_sample_summaries(samples: list[dict]) -> list[dict]:
+    """Group benchmark samples into artifact-ready summaries."""
+    groups: dict[tuple[str, str, int], list[dict]] = {}
+    for sample in samples:
+        key = (
+            str(sample.get("server", "unknown")),
+            str(sample.get("workload", "unknown")),
+            int(sample.get("workers", 0)),
+        )
+        groups.setdefault(key, []).append(sample)
+
+    summaries = []
+    for (server, workload, workers), rows in sorted(groups.items()):
+        summaries.append(
+            {
+                "server": server,
+                "workload": workload,
+                "workers": workers,
+                "sample_count": len(rows),
+                "req_per_sec": _metric_summary(rows, "req_per_sec"),
+                "p99_latency_ms": _metric_summary(rows, "p99_latency_ms"),
+                "errors_total": sum(int(row.get("errors", 0)) for row in rows),
+            }
+        )
+    return summaries
+
+
 def build_artifact(
     suite: BenchmarkSuite,
     *,
@@ -589,6 +646,7 @@ def build_artifact(
 ) -> dict:
     """Build JSON metadata matching benchmarks/artifact-schema.json."""
     created_at = suite.timestamp or time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    summaries = _group_sample_summaries(suite.results)
     server_commands: dict[str, str] = {}
     workloads = list(WORKLOADS) if workload == "all" else [workload]
     for wl in workloads:
@@ -622,13 +680,13 @@ def build_artifact(
         "comparison_target_version": "recorded in raw output when available" if compare else None,
         "samples": suite.results,
         "variance": {
-            "sample_count": 1,
-            "req_per_sec": 0.0,
-            "p99_latency_ms": 0.0,
-            "note": "single runner sample; repeat artifacts before making regression claims",
+            "sample_count": len(suite.results),
+            "groups": summaries,
+            "note": "sample groups with sample_count < 2 are snapshots, not regression evidence",
         },
         "raw_output": suite.results,
         "summary": {
+            "groups": summaries,
             "results": suite.results,
         },
     }
