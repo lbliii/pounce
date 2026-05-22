@@ -18,6 +18,16 @@ def test_benchmark_url_keeps_root_workload_path() -> None:
     assert _benchmark_url(8100, "bengal") == "http://127.0.0.1:8100/"
 
 
+def test_benchmark_url_exposes_named_profile_paths() -> None:
+    assert (
+        _benchmark_url(8100, "bengal_asset")
+        == "http://127.0.0.1:8100/assets/site.css"
+    )
+    assert _benchmark_url(8100, "bengal_feed") == "http://127.0.0.1:8100/feed.xml"
+    assert _benchmark_url(8100, "chirp_events") == "http://127.0.0.1:8100/events"
+    assert _benchmark_url(8100, "chirp_home") == "http://127.0.0.1:8100/"
+
+
 def test_sample_plan_repeats_each_workload_in_order() -> None:
     assert _sample_plan(["hello", "chirp"], 2) == [
         (1, "hello"),

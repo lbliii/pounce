@@ -93,15 +93,51 @@ WORKLOADS: dict[str, dict[str, str]] = {
     },
     "bengal": {
         "app": "benchmarks.apps.bengal_static:app",
-        "description": "Bengal-shaped generated static site",
+        "description": "Bengal-shaped generated static site home page",
         "method": "GET",
         "path": "/",
+    },
+    "bengal_asset": {
+        "app": "benchmarks.apps.bengal_static:app",
+        "description": "Bengal-shaped generated static site CSS asset",
+        "method": "GET",
+        "path": "/assets/site.css",
+    },
+    "bengal_feed": {
+        "app": "benchmarks.apps.bengal_static:app",
+        "description": "Bengal-shaped generated static site XML feed",
+        "method": "GET",
+        "path": "/feed.xml",
+    },
+    "bengal_post": {
+        "app": "benchmarks.apps.bengal_static:app",
+        "description": "Bengal-shaped generated static site post page",
+        "method": "GET",
+        "path": "/posts/launch/",
     },
     "chirp": {
         "app": "benchmarks.apps.chirp_forum:app",
         "description": "Chirp/LB Sonic-shaped multi-tenant forum thread",
         "method": "GET",
         "path": "/threads/1",
+    },
+    "chirp_asset": {
+        "app": "benchmarks.apps.chirp_forum:app",
+        "description": "Chirp/LB Sonic-shaped forum CSS asset",
+        "method": "GET",
+        "path": "/assets/forum.css",
+    },
+    "chirp_events": {
+        "app": "benchmarks.apps.chirp_forum:app",
+        "description": "Chirp/LB Sonic-shaped forum SSE first event",
+        "method": "GET",
+        "path": "/events",
+    },
+    "chirp_home": {
+        "app": "benchmarks.apps.chirp_forum:app",
+        "description": "Chirp/LB Sonic-shaped multi-tenant forum home",
+        "method": "GET",
+        "path": "/",
     },
 }
 
