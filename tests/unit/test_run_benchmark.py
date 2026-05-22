@@ -6,6 +6,7 @@ from benchmarks.run_benchmark import (
     BenchmarkSuite,
     _benchmark_url,
     _sample_plan,
+    _server_command,
     build_artifact,
 )
 
@@ -26,6 +27,12 @@ def test_benchmark_url_exposes_named_profile_paths() -> None:
     assert _benchmark_url(8100, "bengal_feed") == "http://127.0.0.1:8100/feed.xml"
     assert _benchmark_url(8100, "chirp_events") == "http://127.0.0.1:8100/events"
     assert _benchmark_url(8100, "chirp_home") == "http://127.0.0.1:8100/"
+
+
+def test_pounce_server_command_uses_current_cli_shape() -> None:
+    command = _server_command("pounce", "chirp", 8100, 2)
+    assert command[1:5] == ["-m", "pounce", "serve", "--app"]
+    assert "benchmarks.apps.chirp_forum:app" in command
 
 
 def test_sample_plan_repeats_each_workload_in_order() -> None:

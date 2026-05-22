@@ -158,6 +158,8 @@ def _server_command(server: str, workload: str, port: int, workers: int) -> list
             sys.executable,
             "-m",
             "pounce",
+            "serve",
+            "--app",
             wl["app"],
             "--host",
             "127.0.0.1",
