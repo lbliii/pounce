@@ -104,7 +104,11 @@ When the server reaches `max_connections`, new connections receive an HTTP `503 
 
 ## Streaming Body Limits
 
-`max_request_size` is enforced for both buffered and streaming request bodies. If a chunked or streaming body exceeds the limit, the stream is terminated with an empty final chunk — the ASGI app sees EOF and the connection is not abruptly closed.
+`max_request_size` is enforced for buffered and streaming request bodies. Known
+oversized bodies are rejected with `413` before app dispatch. HTTP/2 and HTTP/3
+oversized DATA paths return deterministic 413/reset behavior. On the HTTP/1
+chunked streaming path, the app may see a documented end-of-body signal rather
+than a partial body crossing the limit.
 
 ## HEAD Request Handling
 

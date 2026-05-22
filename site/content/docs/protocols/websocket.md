@@ -18,6 +18,9 @@ WebSocket support is provided via the `wsproto` library. Install the extra:
 uv add "bengal-pounce[ws]"
 ```
 
+If `wsproto` is missing, WebSocket setup fails with an install hint:
+`pip install bengal-pounce[ws]`.
+
 Pounce supports:
 
 - **Standard WebSocket** — Upgrade from HTTP/1.1
