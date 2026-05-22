@@ -102,6 +102,14 @@ WORKLOADS: dict[str, dict[str, str]] = {
 }
 
 
+def _benchmark_url(port: int, workload: str) -> str:
+    """Return the URL that exercises the configured workload path."""
+    path = WORKLOADS[workload].get("path", "/")
+    if not path.startswith("/"):
+        path = f"/{path}"
+    return f"http://127.0.0.1:{port}{path}"
+
+
 # ---------------------------------------------------------------------------
 # Server management
 # ---------------------------------------------------------------------------
@@ -386,7 +394,7 @@ def run_benchmark(
     try:
         print(f"  Running {tool} ({duration}s, {connections} connections)...")
         raw = runner(
-            f"http://127.0.0.1:{port}/",
+            _benchmark_url(port, workload),
             duration=duration,
             threads=threads,
             connections=connections,
@@ -430,7 +438,7 @@ def run_benchmark(
 
             print(f"  Running {tool} ({duration}s, {connections} connections)...")
             raw = runner(
-                f"http://127.0.0.1:{uvicorn_port}/",
+                _benchmark_url(uvicorn_port, workload),
                 duration=duration,
                 threads=threads,
                 connections=connections,
