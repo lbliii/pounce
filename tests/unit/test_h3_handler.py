@@ -146,6 +146,28 @@ def _build_protocol() -> tuple[Any, ServerConfig]:
     return protocol, config
 
 
+def _h3_headers_event(*, stream_id: int = 0, end_stream: bool = True) -> Any:
+    """Build a minimal H3HeadersReceived-like event for handler tests."""
+
+    @dataclass(frozen=True)
+    class FakeH3HeadersReceived:
+        stream_id: int
+        headers: list[tuple[bytes, bytes]]
+        end_stream: bool = True
+        is_0rtt: bool = False
+
+    return FakeH3HeadersReceived(
+        stream_id=stream_id,
+        headers=[
+            (b":method", b"GET"),
+            (b":path", b"/state"),
+            (b":scheme", b"https"),
+            (b":authority", b"example.com"),
+        ],
+        end_stream=end_stream,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Task 1.2 — Connection State Tests
 # ---------------------------------------------------------------------------
@@ -173,6 +195,44 @@ class TestZoomiesConnection:
         c2 = _make_connection(cids=(b"\x02",))
         c1.stream_tasks[0] = ("task", "queue")  # type: ignore[assignment]
         assert 0 not in c2.stream_tasks
+
+
+class TestLifespanStateHandoff:
+    """Tests that H3 handler-created ASGI scopes receive lifespan state."""
+
+    async def test_headers_dispatch_scope_includes_lifespan_state(self) -> None:
+        from zoomies.core import QuicConfiguration
+
+        from pounce._h3_handler import _create_zoomies_datagram_protocol
+
+        seen_scope: dict[str, Any] = {}
+        lifespan_state = {"tenant_registry": object()}
+
+        async def app(scope: Any, receive: Any, send: Any) -> None:
+            seen_scope.update(scope)
+            await send({"type": "http.response.start", "status": 204, "headers": []})
+            await send({"type": "http.response.body", "body": b"", "more_body": False})
+
+        config = _make_config()
+        quic_config = QuicConfiguration(certificate=b"cert", private_key=b"key")
+        cls = _create_zoomies_datagram_protocol(
+            app,
+            config,
+            logging.getLogger("test"),
+            _SERVER,
+            quic_config,
+            lifespan_state=lifespan_state,
+        )
+        protocol = cls()
+        transport = MagicMock(spec=asyncio.DatagramTransport)
+        protocol.connection_made(transport)
+        conn = _make_connection(addr=_ADDR_A)
+
+        protocol._handle_headers(conn, _h3_headers_event(), _ADDR_A)
+        task, _ = conn.stream_tasks[0]
+        await asyncio.wait_for(task, timeout=1.0)
+
+        assert seen_scope["state"] is lifespan_state
 
 
 class TestRouteConnection:

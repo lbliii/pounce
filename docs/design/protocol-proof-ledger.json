@@ -63,9 +63,7 @@
         "tests/unit/test_optional_protocol_diagnostics.py"
       ],
       "gaps": [
-        "lifecycle state parity proof",
         "reload and drain parity proof",
-        "shutdown parity proof",
         "benchmark artifact"
       ]
     },
