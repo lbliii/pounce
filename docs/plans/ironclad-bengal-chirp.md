@@ -64,6 +64,11 @@ Remaining high-value gaps:
 - CPU capture for benchmark artifacts. The runner can repeat samples, aggregate
   grouped variance, and record best-effort server RSS, but artifacts do not yet
   include reliable per-process CPU telemetry.
+- Local pounce-only Bengal and Chirp artifacts exist under
+  `benchmarks/artifacts/2026-05-22/`. The Bengal home-page artifact is an
+  investigation input because it shows very low local throughput; do not turn it
+  into a public performance claim without root-cause analysis and comparison
+  runs.
 - Public release/readme/site claim updates should continue to cite current
   ledgers and avoid promoting benchmark snapshots.
 
@@ -94,8 +99,8 @@ Accepted findings:
 | Contract | API/CLI | Programmatic | Protocol | Schema/Types | Docs | Examples | Tests | Benchmarks |
 |---|---|---|---|---|---|---|---|---|
 | Static files from config | TOML/schema exists | `ServerConfig.static_files` wraps the real app | H1 real-worker proof exists | Field exists | Claims exist | Static examples exist | `tests/integration/test_static_config.py` | Bengal workload exists |
-| Bengal local dev | Config recipe exists | Works through configured static handler | H1 static path covered | Static fields exist | Static docs exist | Synthetic fixture exists | Static fixture coverage | Bengal home, asset, feed, and post profiles exist; artifact output, grouped variance, and best-effort RSS support exist; CPU telemetry pending |
-| Chirp/LB Sonic production | Railway recipe exists | Chirp forum fixture exists | H1/H2/H3/WS scope proof improved; H3 reload/drain remains | Config fields exist | Deployment docs exist | Forum-shaped workload exists | Tenant, limit, state, and smoke tests exist | Chirp home, thread, asset, and SSE profiles exist; artifact output, grouped variance, and best-effort RSS support exist; CPU telemetry pending |
+| Bengal local dev | Config recipe exists | Works through configured static handler | H1 static path covered | Static fields exist | Static docs exist | Synthetic fixture exists | Static fixture coverage | Bengal home, asset, feed, and post profiles exist; local pounce-only artifact added; static throughput investigation pending |
+| Chirp/LB Sonic production | Railway recipe exists | Chirp forum fixture exists | H1/H2/H3/WS scope proof improved; H3 reload/drain remains | Config fields exist | Deployment docs exist | Forum-shaped workload exists | Tenant, limit, state, and smoke tests exist | Chirp home, thread, asset, and SSE profiles exist; local pounce-only artifact added; CPU/comparison telemetry pending |
 | Lifespan state | Public ASGI behavior | H1 path covered | H2/H3/WS scope proof exists | State behavior implicit | Needs parity note cleanup | Lifespan examples exist | Cross-protocol state tests exist | Not benchmark-sensitive |
 | Reload/drain | SIGHUP implementation documented | Server API exists | H3 reload/drain proof still pending | `reload_timeout` exists | Claims need measured proof | Production example generic | CLI SIGTERM and SIGHUP subprocess proof exists; mixed-load drain proof pending | Missing reload profile |
 | Introspection | Config fields exist | Response builder exists | Same-listener behavior accepted with warning contract | Allowlist exists | ADR updated | None | Unit tests cover warning/redaction | Not relevant |

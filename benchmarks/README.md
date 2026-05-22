@@ -98,6 +98,13 @@ If a doc or release note uses a number without an artifact, phrase it as a local
 snapshot, tuning example, or historical note. Do not promote it to a product
 claim.
 
+Current local snapshot artifacts:
+
+| Artifact | Scope | Caveat |
+|----------|-------|--------|
+| `benchmarks/artifacts/2026-05-22/bengal-pounce-local.json` | Bengal home page, pounce-only, 5 samples, 5s each | Local macOS/free-threaded run; use as investigation input, not a release claim. |
+| `benchmarks/artifacts/2026-05-22/chirp-pounce-local.json` | Chirp thread page, pounce-only, 5 samples, 5s each | Local macOS/free-threaded run; no uvicorn comparison. |
+
 ## Pytest Benchmarks
 
 Run in-process benchmarks via pytest:
