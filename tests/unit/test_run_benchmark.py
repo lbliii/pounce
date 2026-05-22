@@ -106,6 +106,7 @@ def test_build_artifact_summarizes_repeated_samples() -> None:
                 "p99_latency_ms": 2.0,
                 "errors": 0,
                 "sample_index": 1,
+                "server_rss_bytes": 10_240,
             },
             {
                 "server": "pounce",
@@ -115,6 +116,7 @@ def test_build_artifact_summarizes_repeated_samples() -> None:
                 "p99_latency_ms": 3.0,
                 "errors": 1,
                 "sample_index": 2,
+                "server_rss_bytes": 20_480,
             },
         ],
     )
@@ -144,5 +146,6 @@ def test_build_artifact_summarizes_repeated_samples() -> None:
     assert group["req_per_sec"]["median"] == 1050.0
     assert group["req_per_sec"]["variance"] == 2500.0
     assert group["p99_latency_ms"]["p95"] == 3.0
+    assert group["server_rss_bytes"]["max"] == 20_480
     assert group["errors_total"] == 1
     assert artifact["variance"]["groups"] == artifact["summary"]["groups"]

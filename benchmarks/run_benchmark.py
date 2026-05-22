@@ -54,6 +54,7 @@ class BenchmarkResult:
     total_requests: int
     errors: int
     sample_index: int = 1
+    server_rss_bytes: int | None = None
 
 
 @dataclass(slots=True)
@@ -211,6 +212,28 @@ def _stop_server(proc: subprocess.Popen) -> None:
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait()
+
+
+def _process_rss_bytes(proc: subprocess.Popen) -> int | None:
+    """Return current process RSS in bytes when the platform exposes it."""
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "rss=", "-p", str(proc.pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+    output = result.stdout.strip()
+    if not output:
+        return None
+    try:
+        rss_kib = int(output.split()[0])
+    except (IndexError, ValueError):
+        return None
+    return rss_kib * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -463,6 +486,7 @@ def run_benchmark(
             method=method,
             body_size=body_size,
         )
+        server_rss_bytes = _process_rss_bytes(pounce_proc)
         results.append(
             BenchmarkResult(
                 server="pounce",
@@ -472,6 +496,7 @@ def run_benchmark(
                 threads=threads,
                 connections=connections,
                 sample_index=sample_index,
+                server_rss_bytes=server_rss_bytes,
                 **raw,
             )
         )
@@ -496,6 +521,7 @@ def run_benchmark(
                 method=method,
                 body_size=body_size,
             )
+            server_rss_bytes = _process_rss_bytes(uvicorn_proc)
             results.append(
                 BenchmarkResult(
                     server="uvicorn",
@@ -505,6 +531,7 @@ def run_benchmark(
                     threads=threads,
                     connections=connections,
                     sample_index=sample_index,
+                    server_rss_bytes=server_rss_bytes,
                     **raw,
                 )
             )
@@ -616,6 +643,7 @@ def _group_sample_summaries(samples: list[dict]) -> list[dict]:
 
     summaries = []
     for (server, workload, workers), rows in sorted(groups.items()):
+        rss_rows = [row for row in rows if row.get("server_rss_bytes") is not None]
         summaries.append(
             {
                 "server": server,
@@ -624,6 +652,9 @@ def _group_sample_summaries(samples: list[dict]) -> list[dict]:
                 "sample_count": len(rows),
                 "req_per_sec": _metric_summary(rows, "req_per_sec"),
                 "p99_latency_ms": _metric_summary(rows, "p99_latency_ms"),
+                "server_rss_bytes": _metric_summary(rss_rows, "server_rss_bytes")
+                if rss_rows
+                else None,
                 "errors_total": sum(int(row.get("errors", 0)) for row in rows),
             }
         )
