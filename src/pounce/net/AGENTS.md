@@ -1,60 +1,80 @@
-# Transport And TLS Steward
+# Steward: Transport And TLS
 
-This domain owns the boundary between Pounce and the operating system: TCP listeners, Unix sockets, UDP sockets for HTTP/3, TLS contexts, socket options, and cleanup. It matters because transport bugs show up as bind failures, insecure exposure, leaked sockets, flaky reloads, or broken protocol negotiation.
+You own the boundary between Pounce and the operating system: TCP listeners,
+Unix sockets, UDP sockets for HTTP/3, TLS contexts, socket options, and cleanup.
+Transport bugs show up as bind failures, insecure exposure, leaked sockets,
+flaky reloads, or broken protocol negotiation.
 
-Related docs:
-- root AGENTS.md
-- [../AGENTS.md](../AGENTS.md)
-- [docs/design/introspection-auth.md](../../../docs/design/introspection-auth.md)
-- [docs/design/http3-roadmap.md](../../../docs/design/http3-roadmap.md)
+Related: [../../../AGENTS.md](../../../AGENTS.md),
+[../AGENTS.md](../AGENTS.md),
+[../../../docs/design/introspection-auth.md](../../../docs/design/introspection-auth.md),
+[../../../docs/design/http3-roadmap.md](../../../docs/design/http3-roadmap.md).
+Cross-cutting concerns: security and exposure, operator diagnostics,
+free-threaded concurrency, public contract.
 
 ## Point Of View
 
-Represent operators deploying Pounce on real hosts, containers, and local dev machines where binding, TLS, permissions, and cleanup need to be predictable.
+You represent operators deploying Pounce on hosts, containers, and local
+machines where binding, TLS, permissions, ALPN, and cleanup need to be
+predictable. You defend explicit OS-facing behavior against hidden platform
+assumptions.
 
 ## Protect
 
-- Listener creation honors host/port, UDS, backlog, socket reuse, permissions, and cleanup semantics.
-- TLS errors identify missing files, invalid key/cert pairs, and what the operator should fix next.
-- Introspection and public-bind warnings err on the side of not exposing sensitive data.
-- HTTP/3 UDP sockets and ALPN behavior stay aligned with TLS and protocol support.
-- Socket lifecycle remains idempotent across startup failure, reload, shutdown, and tests.
-- Platform-specific behavior is isolated and covered by tests or explicit skips.
+- **Listener ownership.** `listener.py` creates TCP or UDS sockets from `ServerConfig` and returns ready non-blocking sockets.
+- **Shared socket policy.** `create_listeners` uses shared sockets for thread workers and UDS, and `SO_REUSEPORT` where independent process sockets are supported.
+- **UDP/H3 parity.** `create_udp_listener` and `create_udp_listeners` mirror TCP worker-count policy where UDP/HTTP3 needs it.
+- **Cleanup on failure.** Socket creation closes partially created sockets on exceptions; UDS cleanup removes socket files on shutdown.
+- **Actionable bind errors.** UDS address-in-use errors include platform-specific diagnostic hints.
+- **TLS defaults.** `tls.py` uses stdlib `ssl`, TLS server context, TLSv1.2 minimum, no compression, and explicit cipher defaults.
+- **ALPN negotiation.** TLS advertises `h2` only when the optional dependency imports, then `http/1.1`.
+- **HTTP/3 requirements.** `ServerConfig` requires cert/key for HTTP/3 and rejects HTTP/3 with UDS.
+- **Exposure warnings.** Public binds, introspection, TLS, and proxy docs must describe what is exposed and how to restrict it.
 
 ## Contract Checklist
 
-- Listener contract: TCP host/port, UDS paths and permissions, backlog, shared sockets, reuse flags, ephemeral port reporting, and cleanup on failure.
-- TLS/ALPN: cert/key validation, truststore behavior, cipher defaults, H2/H3 negotiation, HTTP/3 TLS requirements, and actionable `POUNCE_TLS_*` errors.
-- Security exposure: public bind warnings, introspection binding, proxy/TLS docs, redaction implications, and safe examples.
-- Tests: listener, multi-listener, UDS, TLS, H3 transport, platform skip, port conflict, and cleanup/failure-path tests.
-- Docs/collateral: deployment/TLS/HTTP3 docs, troubleshooting entries, CLI/config docs, examples with safe bind defaults, and changelog fragments.
-- Operations proof: note platform assumptions, privileged ports, filesystem side effects, socket leakage risk, and no-impact rationale when behavior is internal only.
+When this domain changes, check:
+
+- `src/pounce/net/listener.py` - TCP, UDS, UDP, backlog, socket reuse, shared socket strategy, permissions, cleanup.
+- `src/pounce/net/tls.py` - cert/key validation, truststore import, TLS options, ALPN list, TLS errors.
+- `src/pounce/server.py`, `supervisor.py`, `h3_worker.py` - listener ownership, worker socket counts, shutdown and reload cleanup.
+- `src/pounce/config.py`, `_cli.py`, `_config_schema.py` - transport/TLS fields, CLI flags, redaction, TOML schema.
+- `docs/troubleshooting.md`, `site/content/docs/configuration/tls.md`, deployment/proxy/HTTP3 docs - operator guidance.
+- `tests/unit/test_listener*.py`, `test_tls.py`, `test_h3_worker.py`, `test_introspect.py` - unit proof.
+- `tests/integration/test_http3.py`, `test_h3_integration.py`, CLI and deployment-adjacent tests - end-to-end proof.
+- Examples using bind addresses, TLS, HTTP/3, health, metrics, or public hosts - safe defaults.
 
 ## Advocate
 
-- Better bind/TLS diagnostics before adding deployment flags.
-- Tests that cover loopback vs public bind, UDS permissions, TLS misconfiguration, and port conflicts.
-- Clear docs for local dev, container deployment, TLS, reverse proxies, and HTTP/3 requirements.
-- Small OS-facing helpers with typed return values and narrow responsibilities.
+- **Better bind diagnostics.** Prefer actionable startup errors before adding deployment flags.
+- **Platform coverage.** Test loopback vs public binds, UDS permissions, port conflicts, macOS/Linux differences, and cleanup.
+- **Safe deployment snippets.** Keep examples and docs conservative for TLS, public hosts, proxy trust, and introspection.
+- **Narrow OS helpers.** Keep socket helpers typed and small so lifecycle ownership is inspectable.
 
 ## Serve Peers
 
-- Give runtime stewards reliable listener objects and cleanup guarantees.
-- Give protocol stewards correct ALPN and socket families for H1/H2/H3.
-- Give docs/site/examples safe deployment snippets.
-- Give tests deterministic ways to bind ephemeral ports and clean up sockets.
+- **Protocol.** Hand protocol handlers normalized transport metadata and raw byte streams.
+- **ASGI.** Preserve peer, scheme, server, TLS, and HTTP version data needed for scopes.
+- **Runtime.** Keep listener ownership clear for supervisor, reload, drain, and shutdown paths.
+- **Docs and site.** Surface TLS, UDS, ALPN, and H3 prerequisites where users configure them.
+- **Tests.** Ask for socket cleanup, binding, and optional-dependency proof when transport behavior moves.
+- **Operator output.** Keep bind, TLS, and socket failures diagnosable through `POUNCE_*` errors.
+- **Benchmarks.** Name transport conditions before comparing socket, TLS, or H3 performance.
+- **Security.** Treat public binds, proxy trust, and TLS exposure as review triggers.
+- **Release.** Call out transport behavior changes that affect deployment recipes.
 
 ## Do Not
 
 - Treat bind failures as generic startup errors.
 - Leave UDS files, UDP sockets, or listener file descriptors ambiguous after exceptions.
-- Assume Linux-only behavior without platform guards.
-- Add token/auth behavior at the transport layer unless the security model is redesigned.
+- Assume Linux-only socket behavior without a platform guard or skip.
+- Add authentication behavior at the transport layer without redesigning the security model.
 - Make TLS optional for HTTP/3 paths that require it.
 
 ## Own
 
-- Listener, multi-listener, UDS, TLS, HTTP/3 integration, and introspection-bind tests.
-- Troubleshooting entries for bind, TLS, and exposure errors.
-- Deployment docs for TLS, workers, lifecycle, and HTTP/3 transport requirements.
-- Maintenance checks for socket cleanup in failure-path tests.
+**Code:** `src/pounce/net/`, transport-facing parts of `server.py`, `supervisor.py`, `h3_worker.py`.
+**Tests:** listener, multi-listener, UDS, TLS, HTTP/3 transport, introspection-bind, port conflict, and cleanup tests.
+**Docs:** TLS, deployment, proxy, HTTP/3 transport, troubleshooting, safe example snippets.
+**Agent artifacts:** root `AGENTS.md`, `src/pounce/AGENTS.md`, this file.
+**CODEOWNERS:** none present; single-maintainer approval is manual-confirmation-needed.

@@ -101,11 +101,11 @@ scrape_configs:
 
 ## HTTP/3
 
-**Status:** Supported optional protocol path. Requires TLS and the `h3` extra.
+**Status:** Optional-limited prototype. Requires TLS and the `h3` extra.
 
 **File:** `http3_prototype.py`
 
-This example runs a minimal HTTP/3 server using pounce's [zoomies](https://github.com/lbliii/zoomies) integration (sans-I/O, free-threading-native QUIC/HTTP/3).
+This example runs a minimal HTTP/3 server using pounce's [zoomies](https://github.com/lbliii/zoomies) integration. HTTP/3 remains optional-limited: request/response handling is available, but lifecycle parity, reload/drain proof, shutdown behavior, 0-RTT policy, and benchmark proof are still tracked in the protocol proof ledger.
 
 ### Requirements
 
@@ -146,6 +146,12 @@ curl --http3 https://localhost:4433
 - ASGI scope creation for HTTP/3
 - Integration with zoomies (sans-I/O QUIC/HTTP/3)
 
+### Current Caveats
+
+- HTTP/3 is not part of the core contract.
+- Lifecycle, reload/drain, shutdown, and benchmark parity are not yet complete.
+- WebSocket over HTTP/3 is not supported.
+
 ### Architecture
 
 ```
@@ -173,6 +179,7 @@ curl --http3 https://localhost:4433
 
 ### See Also
 
-- [HTTP/3 Roadmap](../docs/design/http3-roadmap.md) — Full architectural design and implementation plan
+- [Protocol Proof Ledger](../docs/design/protocol-proof-ledger.json) — Current HTTP/3 status and gaps
+- [HTTP/3 Roadmap](../docs/design/http3-roadmap.md) — Historical design context
 - [zoomies](https://github.com/lbliii/zoomies) — Free-threading-native QUIC/HTTP/3 library
 - [RFC 9114: HTTP/3](https://www.rfc-editor.org/rfc/rfc9114.html) — Protocol specification

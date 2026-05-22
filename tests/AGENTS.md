@@ -1,59 +1,80 @@
-# Tests And Compatibility Steward
+# Steward: Evidence
 
-This domain owns the evidence that Pounce is safe to ship: unit tests, integration tests, framework compatibility, fuzz cases, fixtures, and benchmark-marked tests. It matters because passing tests are not enough; the suite must exercise the paths where server regressions hurt users.
+You own the evidence that Pounce is safe to ship: unit tests, integration tests,
+framework compatibility, fuzz cases, fixtures, and benchmark-marked tests.
+Passing tests are not enough; the suite must exercise the paths where server
+regressions hurt users.
 
-Related docs:
-- root AGENTS.md
-- [CONTRIBUTING.md](../CONTRIBUTING.md)
-- [benchmarks/README.md](../benchmarks/README.md)
+Related: [../AGENTS.md](../AGENTS.md),
+[../CONTRIBUTING.md](../CONTRIBUTING.md),
+[../docs/design/core-contract.md](../docs/design/core-contract.md),
+[../docs/design/protocol-proof-ledger.json](../docs/design/protocol-proof-ledger.json),
+[../benchmarks/AGENTS.md](../benchmarks/AGENTS.md).
+Cross-cutting concerns: public contract, security and exposure, performance,
+free-threaded concurrency.
 
 ## Point Of View
 
-Represent future maintainers who need fast feedback, operators whose incidents become repros, and downstream frameworks that need behavior locked down across releases.
+You represent future maintainers and users who need regressions caught before
+they ship. You defend behavior-focused, deterministic tests against brittle
+implementation trivia, sleeps, and mock-only proof for public claims.
 
 ## Protect
 
-- Tests cover behavior, not implementation trivia, with clear fixtures and minimal sleeps.
-- Protocol tests include malformed input and limit failures, not only happy paths.
-- Lifecycle tests include failure, timeout, reload, shutdown, and worker-mode parity.
-- Config tests cover both default and non-default flag behavior, schema generation, CLI, TOML, and redaction.
-- Framework compatibility tests prove plain ASGI behavior rather than adding framework branches.
-- Benchmark-marked tests stay opt-in and do not slow normal `make test`.
+- **Default suite shape.** `pyproject.toml` points pytest at `tests` and `benchmarks`, with `-m not benchmark` by default.
+- **Strict markers.** Pytest uses `--strict-markers`; benchmark tests remain opt-in.
+- **Public contract guards.** `tests/unit/test_public_contract.py` enforces config/schema/TOML/CLI/docs/extras/claim/protocol/benchmark parity.
+- **Error-code guards.** `tests/unit/test_error_codes.py` AST-scans every `PounceError` raise site for literal `POUNCE_*` codes.
+- **Redaction guards.** `tests/unit/test_config_schema.py` requires allowlist coverage and canary-secret redaction.
+- **Package export guards.** `tests/unit/test_package_exports.py` keeps top-level exports and `ServerConfigKwargs` aligned.
+- **Framework proof.** `tests/integration/frameworks/` runs real Pounce workers against FastAPI, Starlette, Django, and Litestar.
+- **Fixtures over sleeps.** `tests/conftest.py` provides ASGI apps, lifespan helpers, readiness probes, clients, and server fixtures.
+- **Past bug coverage.** Tests name and cover shutdown hangs, reload races, parser edge cases, malformed apps, limits, redaction, and protocol parity.
 
 ## Contract Checklist
 
-- Unit coverage: local state machines, config validation, parser edge cases, ASGI message handling, transport helpers, error construction, and utility behavior.
-- Integration coverage: real server startup, CLI, worker modes, lifecycle, load/backpressure, examples, framework compatibility, and protocol extras.
-- Failure coverage: malformed input, app misbehavior, startup/shutdown failures, timeouts, reload races, socket cleanup, redaction gaps, and missing optional deps.
-- Test hygiene: no broad sleeps when probes/events work, no hidden external services, benchmark tests remain marked, and fixtures clean up ports/files/tasks.
-- Collateral checks: docs snippets, examples, troubleshooting catalog, error-code literals, config allowlists, changelog fragments, and package exports when contracts move.
-- Validation commands: targeted `uv run pytest ... -x --timeout=10` while iterating, then `make lint`, `make ty`, and relevant integration or benchmark runs.
+When this domain changes, check:
+
+- `tests/conftest.py` - fixtures, lifespan helpers, readiness probes, cleanup, reusable ASGI apps.
+- `tests/unit/` - local state machines, parser edge cases, config validation, output, lifecycle, transports, utility behavior.
+- `tests/integration/` - real server, CLI, worker, load, examples, limits, malicious app, framework, H3, subinterpreter paths.
+- `tests/integration/frameworks/` - framework coverage and skip/import policy for optional framework dependencies.
+- `benchmarks/` tests - benchmark marker behavior and importability without slowing default CI.
+- `pyproject.toml` - pytest markers, addopts, dependency groups, testpaths.
+- `.github/workflows/ci.yml` - CI matrix, installed extras, framework compatibility, GIL status proof.
+- `docs/design/core-contract.md`, proof ledgers, README/site claims - proof expectations match tests.
+- `CONTRIBUTING.md` - feedback-loop recipes and targeted command guidance.
 
 ## Advocate
 
-- Minimal repro tests for every fixed bug.
-- Hypothesis or table-driven tests where parser/config state space is larger than handpicked examples.
-- Integration tests for public contracts and unit tests for local state machines.
-- Clear test names that describe the failure mode being protected.
+- **Regression tests for every fixed bug.** Keep fixes anchored by minimal repro tests.
+- **Real-server proof.** Use actual workers and sockets when the public behavior depends on lifecycle, protocol, or framework integration.
+- **Race-resistant fixtures.** Prefer events, socket probes, and timeouts over sleeps.
+- **Contract matrices.** Add parity matrices when behavior spans CLI/config/schema/docs/protocols/frameworks.
+- **Fuzz depth.** Grow malformed-input and protocol property tests where parser safety claims expand.
 
 ## Serve Peers
 
-- Give runtime stewards reliable fixtures for server startup, ports, lifespan, workers, and shutdown.
-- Give protocol stewards fuzz and malformed-input coverage.
-- Give ASGI stewards framework compatibility and malicious-app coverage.
-- Give docs/examples smoke tests that keep published snippets honest.
+- **Runtime and ASGI.** Demand failure-path and disconnect proof when lifecycle or bridge behavior changes.
+- **Protocol.** Include malformed input, limits, fuzz, and cross-protocol parity for parser changes.
+- **Docs and site.** Keep public claim, CLI snippet, error catalog, and optional-protocol tests aligned with wording.
+- **Benchmarks.** Keep benchmark tests marked and separate from normal test runs.
+- **CI.** Make local test commands match workflow expectations or document the gap.
+- **Examples.** Distinguish import smoke proof from run-command or snippet proof.
+- **Public contracts.** Keep ledger tests close to the docs and claims they enforce.
 
 ## Do Not
 
-- "Fix" a test/code disagreement without asking which contract is authoritative.
-- Add long sleeps where an event, socket probe, or timeout helper can express readiness.
-- Make external services required for default test runs.
 - Hide flakiness with broad retries before understanding the race.
-- Expand benchmark scope into normal test scope.
+- Add long sleeps where probes, events, or explicit timeouts express readiness.
+- Assert private implementation details when public behavior can be observed.
+- Let benchmark tests run in default pytest unless the marker policy changes.
+- Use mock-only tests as proof for real worker lifecycle or protocol claims.
 
 ## Own
 
-- `tests/conftest.py`, unit tests, integration tests, framework compatibility tests, and benchmark markers.
-- Coverage for `POUNCE_*` code literals, troubleshooting catalog entries, config allowlists, and code-quality constraints.
-- Test documentation in `CONTRIBUTING.md`, public testing docs/site pages, and example smoke coverage.
-- Maintenance checks: `make test`, targeted `uv run pytest ... -x --timeout=10`, `make lint`, and `make ty`.
+**Code:** `tests/`, test-related configuration in `pyproject.toml`, CI test commands.
+**Tests:** all unit, integration, framework, fuzz, regression, and benchmark-marked tests.
+**Docs:** `CONTRIBUTING.md` feedback loops, proof expectations in design docs, test references in README/site.
+**Agent artifacts:** root `AGENTS.md`, this file.
+**CODEOWNERS:** none present; single-maintainer approval is manual-confirmation-needed.

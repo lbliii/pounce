@@ -69,6 +69,15 @@
       "patterns": ["every response"],
       "proof": "Claim is scoped to server_timing=True.",
       "notes": "Keep config condition in the same paragraph."
+    },
+    {
+      "id": "release-0.3.0-throughput-snapshot",
+      "type": "performance",
+      "status": "historical-snapshot",
+      "files": ["site/content/releases/0.3.0.md"],
+      "patterns": ["req/s"],
+      "proof": "Release note describes the 0.3.0 sync-worker benchmark snapshot and should not be promoted without artifact metadata.",
+      "notes": "Keep release performance numbers historical unless a benchmark artifact is added."
     }
   ],
   "allowlist": [

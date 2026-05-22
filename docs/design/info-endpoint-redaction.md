@@ -195,7 +195,7 @@ Live fields added alongside the redacted config view:
 
 ## Implementation Notes for Sprint 4.1
 
-- Implement as a single module-level `_INFO_ALLOWLIST: dict[str, Literal["EXPOSE","REDACT_TO_BOOL"]]` in `_introspect.py`. Any field absent from this mapping is implicitly `REDACT` (fail-closed).
+- Implement as the module-level `INFO_ALLOWLIST: dict[str, Literal["EXPOSE", "REDACT_TO_BOOL"]]` in `_config_schema.py`. `_introspect.py` consumes the redacted view from that module. Any field absent from this mapping is implicitly redacted (fail-closed).
 - Unit test: walk `dataclasses.fields(ServerConfig)`, assert every non-skipped field is in the allowlist. Adding a new `ServerConfig` field without updating the allowlist fails CI.
 - The "introspection endpoint might leak X" regression test: construct a `ServerConfig` with canary values (`ssl_certfile="/CANARY/cert.pem"`, `sentry_dsn="https://CANARY@o.ingest.sentry.io/"`, `uds="/tmp/CANARY.sock"`), call `/info`, assert `"CANARY"` appears in no response byte.
 
@@ -219,6 +219,6 @@ Simpler: just read `pounce.toml` and emit it.
 
 ## Consequences
 
-- Adding a `ServerConfig` field is a two-step change: add to dataclass, add to `_INFO_ALLOWLIST`. CI rejects the first without the second.
+- Adding a `ServerConfig` field is a two-step change: add to dataclass, add to `_config_schema.INFO_ALLOWLIST`. CI rejects the first without the second.
 - Agent tooling gets a stable, safe contract to key on.
 - In the worst case (endpoint accidentally exposed to the internet), the blast radius is bounded — attacker learns timeouts and feature flags, nothing more.

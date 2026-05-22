@@ -131,6 +131,7 @@ class TestPublicClaimLedger:
         ROOT / "site/content/docs/features/static-files.md",
         ROOT / "site/content/docs/features/websocket-compression.md",
         ROOT / "site/content/docs/protocols/http1.md",
+        ROOT / "site/content/releases/0.3.0.md",
     ]
     RISKY_PATTERNS: ClassVar[list[re.Pattern[str]]] = [
         re.compile(r"\bfull support\b", re.IGNORECASE),

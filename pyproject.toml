@@ -242,7 +242,7 @@ dev = [
 test = { cmd = "pytest", help = "Run full test suite" }
 test-fast = { cmd = "pytest tests/ -x -q --timeout=10", help = "Fast feedback loop" }
 test-cov = { cmd = "pytest tests/ --cov=pounce --cov-report=term-missing", help = "Run tests with coverage" }
-bench = { cmd = "pytest tests/ -m benchmark --benchmark-only", help = "Run benchmarks" }
+bench = { cmd = "pytest benchmarks/ -m benchmark --benchmark-only", help = "Run benchmarks" }
 examples = { cmd = "pytest tests/integration/test_examples.py -v", help = "Smoke-test examples" }
 
 # Type Checking

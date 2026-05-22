@@ -324,6 +324,12 @@ if writer.is_closing():
 4. **`test_send_guard_closed_writer`** — verify send() silently returns when writer is closing.
 5. **`test_short_response_no_overhead`** — verify simple GET responses don't create unnecessary tasks (fast path preserved).
 
+Implemented proof references:
+
+- `tests/unit/test_disconnect.py` - disconnect receive and streaming disconnect behavior.
+- `docs/design/core-contract.md` - ASGI serving contract includes disconnect proof.
+- `docs/design/protocol-proof-ledger.json` - disconnect integration remains protocol proof collateral.
+
 ### Phase 5: Fast-Path Optimization
 
 For non-streaming responses (the common case), the concurrent reader task is unnecessary overhead. Add a fast-path: only spawn the monitor task when the response uses `more_body=True` (streaming).

@@ -28,7 +28,7 @@ python benchmarks/run_benchmark.py --workload chirp --workers 4 --duration 30
 # Compare against uvicorn
 python benchmarks/run_benchmark.py --compare --workers 4
 
-# Save results as JSON
+# Save structured runner output as JSON
 python benchmarks/run_benchmark.py --workload all --output results.json
 ```
 
@@ -52,13 +52,17 @@ python benchmarks/run_benchmark.py --workload all --output results.json
 | `--threads` | `4` | Load generator thread count |
 | `--connections` | `100` | Concurrent connections |
 | `--compare` | off | Also benchmark uvicorn |
-| `--output` | none | Save results to JSON file |
+| `--output` | none | Save structured runner output to JSON. This is not a benchmark artifact unless it contains the metadata required by `artifact-schema.json`. |
 
 ## Benchmark Artifacts
 
 Public numeric performance claims need a reproducible artifact or an explicit
 snapshot caveat. Store benchmark artifacts as JSON that follows
 `benchmarks/artifact-schema.json`.
+
+The `run_benchmark.py --output` file is structured runner output. Treat it as a
+raw input for analysis unless it is extended or wrapped with every field required
+by `benchmarks/artifact-schema.json`.
 
 Required metadata:
 
