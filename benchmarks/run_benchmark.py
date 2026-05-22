@@ -52,6 +52,7 @@ class BenchmarkResult:
     transfer_per_sec: str
     total_requests: int
     errors: int
+    sample_index: int = 1
 
 
 @dataclass(slots=True)
@@ -150,6 +151,18 @@ def _server_command(server: str, workload: str, port: int, workers: int) -> list
 def _command_string(command: list[str]) -> str:
     """Render a command list for artifact metadata."""
     return " ".join(command)
+
+
+def _sample_plan(workloads: list[str], repeat: int) -> list[tuple[int, str]]:
+    """Return the ordered benchmark samples to run."""
+    if repeat < 1:
+        msg = "repeat must be >= 1"
+        raise ValueError(msg)
+    return [
+        (sample_index, workload)
+        for sample_index in range(1, repeat + 1)
+        for workload in workloads
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -422,6 +435,7 @@ def run_benchmark(
     connections: int,
     compare: bool,
     port: int = 8100,
+    sample_index: int = 1,
 ) -> list[BenchmarkResult]:
     """Run a benchmark for a single workload, optionally comparing servers."""
     wl = WORKLOADS[workload]
@@ -456,6 +470,7 @@ def run_benchmark(
                 duration_s=duration,
                 threads=threads,
                 connections=connections,
+                sample_index=sample_index,
                 **raw,
             )
         )
@@ -488,6 +503,7 @@ def run_benchmark(
                     duration_s=duration,
                     threads=threads,
                     connections=connections,
+                    sample_index=sample_index,
                     **raw,
                 )
             )
@@ -649,6 +665,12 @@ def main() -> None:
         "--connections", type=int, default=100, help="Concurrent connections (default: 100)"
     )
     parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="Repeat each workload this many times (default: 1)",
+    )
+    parser.add_argument(
         "--compare", action="store_true", help="Also benchmark uvicorn for comparison"
     )
     parser.add_argument("--output", type=str, default=None, help="Save results to JSON file")
@@ -659,6 +681,8 @@ def main() -> None:
         help="Save artifact-schema-compatible metadata JSON",
     )
     args = parser.parse_args()
+    if args.repeat < 1:
+        parser.error("--repeat must be >= 1")
 
     suite = BenchmarkSuite(
         timestamp=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -675,9 +699,11 @@ def main() -> None:
     load_tool = _find_load_tool()
     print(f"Tool: {load_tool}")
 
-    for wl in workloads:
+    for sample_index, wl in _sample_plan(workloads, args.repeat):
         print(f"\n{'=' * 60}")
         print(f"Workload: {wl} — {WORKLOADS[wl]['description']}")
+        if args.repeat > 1:
+            print(f"Sample: {sample_index}/{args.repeat}")
         print(f"{'=' * 60}")
 
         results = run_benchmark(
@@ -687,6 +713,7 @@ def main() -> None:
             threads=args.threads,
             connections=args.connections,
             compare=args.compare,
+            sample_index=sample_index,
         )
         all_results.extend(results)
 

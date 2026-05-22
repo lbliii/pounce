@@ -1,6 +1,13 @@
 """Unit tests for the standalone benchmark runner."""
 
-from benchmarks.run_benchmark import BenchmarkSuite, _benchmark_url, build_artifact
+import pytest
+
+from benchmarks.run_benchmark import (
+    BenchmarkSuite,
+    _benchmark_url,
+    _sample_plan,
+    build_artifact,
+)
 
 
 def test_benchmark_url_uses_workload_path() -> None:
@@ -9,6 +16,20 @@ def test_benchmark_url_uses_workload_path() -> None:
 
 def test_benchmark_url_keeps_root_workload_path() -> None:
     assert _benchmark_url(8100, "bengal") == "http://127.0.0.1:8100/"
+
+
+def test_sample_plan_repeats_each_workload_in_order() -> None:
+    assert _sample_plan(["hello", "chirp"], 2) == [
+        (1, "hello"),
+        (1, "chirp"),
+        (2, "hello"),
+        (2, "chirp"),
+    ]
+
+
+def test_sample_plan_rejects_zero_repeat() -> None:
+    with pytest.raises(ValueError, match="repeat must be >= 1"):
+        _sample_plan(["hello"], 0)
 
 
 def test_build_artifact_has_required_schema_fields() -> None:
