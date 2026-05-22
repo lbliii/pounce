@@ -7,10 +7,10 @@ from unittest.mock import patch
 
 import pytest
 
+from pounce._h3_handler import create_zoomies_datagram_protocol_factory
 from pounce.config import ServerConfig
 from pounce.protocols.h2 import H2Connection
 from pounce.protocols.ws import WSProtocol
-from pounce._h3_handler import create_zoomies_datagram_protocol_factory
 
 
 async def _noop_app(scope, receive, send) -> None:
