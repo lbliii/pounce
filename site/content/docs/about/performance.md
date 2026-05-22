@@ -49,7 +49,9 @@ The shared-memory architecture provides a fundamental advantage over fork-based 
 | 4 | ~1x app memory | ~4x app memory |
 | 8 | ~1x app memory | ~8x app memory |
 
-On Python 3.14t, all workers share the same interpreter, the same application object, and the same frozen configuration. Immutable data requires zero synchronization.
+On Python 3.14t, workers share the same interpreter, application object, and
+frozen server configuration. Pounce keeps request-local mutable state separate
+from shared server-owned objects.
 
 ## Compression
 

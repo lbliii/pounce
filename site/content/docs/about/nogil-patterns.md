@@ -38,10 +38,10 @@ class ServerConfig:
 ```
 
 **Why it works.** `frozen=True` makes every attribute read-only after `__init__`.
-Multiple threads reading the same frozen object require zero synchronization --
-there is no write to race against. `slots=True` eliminates `__dict__`, preventing
-accidental monkey-patching at runtime. `kw_only=True` forces explicit construction,
-catching misconfiguration at boot rather than under load.
+Multiple threads can read the same frozen config object without mutating it.
+`slots=True` eliminates `__dict__`, preventing accidental monkey-patching at
+runtime. `kw_only=True` forces explicit construction, catching misconfiguration
+at boot rather than under load.
 
 **In Pounce.** `ServerConfig` carries 60+ fields with 93 validations at boot.
 Every worker thread holds a reference to the same object. No per-access locking,

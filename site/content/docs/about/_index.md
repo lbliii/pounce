@@ -39,7 +39,7 @@ Streaming-first design and threading performance.
 :icon: shield
 :link: ./thread-safety
 :description: How Pounce handles shared state across workers
-Frozen configuration, per-request state, zero synchronization.
+Frozen configuration and per-request mutable state.
 :::{/card}
 
 :::{card} Comparison
