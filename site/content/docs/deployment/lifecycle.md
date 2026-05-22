@@ -48,6 +48,10 @@ instead of swapping to the failed generation.
 HTTP/3 uses a separate UDP/QUIC listener. Treat H3 reload/drain as limited until
 the protocol proof ledger records parity for that path.
 
+Current subprocess proof covers SIGTERM clean exit and SIGHUP recovery to
+serving traffic. It does not yet prove mixed active-request drain behavior under
+load, so avoid describing reload as lossless across all modes and protocols.
+
 ### Configuration
 
 ```python

@@ -73,6 +73,11 @@ Normative language:
 | Process workers on GIL builds | Workers run in forked processes when available. | Process-mode reload may have different availability and downtime characteristics than thread-mode rolling reload. | Supervisor coordinates process shutdown and joins. | App import/fork constraints apply; no shared app object. |
 | Subinterpreter mode | Explicit `worker_mode="subinterpreter"` path. | Treat as limited/beta unless the specific lifecycle path has tests. | Requires explicit proof for state transfer and shutdown behavior. | Compatibility depends on subinterpreter-safe app/dependencies. |
 
+Subprocess signal proof currently covers CLI SIGTERM clean exit and SIGHUP
+recovery to serving traffic in `tests/integration/test_signal_lifecycle.py`.
+Load-bearing reload/drain claims still require mixed-traffic proof with bounded
+503/disconnect behavior and orphan-worker checks.
+
 ## Claim Ledger
 
 Public claims must be phrased at the strongest level the proof supports.

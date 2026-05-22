@@ -69,3 +69,7 @@ pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem --http3
 - The built-in health endpoint and request ID handling match the HTTP/1.1 and HTTP/2 paths.
 - Lifespan state is passed into H3 ASGI scopes.
 - Reload/drain parity and benchmark artifacts remain explicit proof gates.
+
+Long term, H3 should graduate by proving the same reload/drain behavior as the
+TCP paths. Until then, keep H3 deployment language optional-limited rather than
+production-equivalent.

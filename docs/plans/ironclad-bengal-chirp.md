@@ -55,7 +55,12 @@ Completed or covered by current proof:
 
 Remaining high-value gaps:
 
-- H3 reload/drain parity under load.
+- H3 reload/drain parity under load. Long-term stance: keep H3 optional-limited
+  until the H3-specific harness proves parity with the TCP lifecycle contract.
+- Mixed-traffic signal proof. `tests/integration/test_signal_lifecycle.py`
+  now covers CLI SIGTERM clean exit and SIGHUP recovery to serving traffic, but
+  it does not yet prove active-request drain behavior, bounded 503/disconnect
+  behavior, or orphan-worker absence under load.
 - CPU capture for benchmark artifacts. The runner can repeat samples, aggregate
   grouped variance, and record best-effort server RSS, but artifacts do not yet
   include reliable per-process CPU telemetry.
@@ -92,7 +97,7 @@ Accepted findings:
 | Bengal local dev | Config recipe exists | Works through configured static handler | H1 static path covered | Static fields exist | Static docs exist | Synthetic fixture exists | Static fixture coverage | Bengal home, asset, feed, and post profiles exist; artifact output, grouped variance, and best-effort RSS support exist; CPU telemetry pending |
 | Chirp/LB Sonic production | Railway recipe exists | Chirp forum fixture exists | H1/H2/H3/WS scope proof improved; H3 reload/drain remains | Config fields exist | Deployment docs exist | Forum-shaped workload exists | Tenant, limit, state, and smoke tests exist | Chirp home, thread, asset, and SSE profiles exist; artifact output, grouped variance, and best-effort RSS support exist; CPU telemetry pending |
 | Lifespan state | Public ASGI behavior | H1 path covered | H2/H3/WS scope proof exists | State behavior implicit | Needs parity note cleanup | Lifespan examples exist | Cross-protocol state tests exist | Not benchmark-sensitive |
-| Reload/drain | SIGHUP implementation documented | Server API exists | H3 reload/drain proof still pending | `reload_timeout` exists | Claims need measured proof | Production example generic | Signal/load-bearing proof still pending | Missing reload profile |
+| Reload/drain | SIGHUP implementation documented | Server API exists | H3 reload/drain proof still pending | `reload_timeout` exists | Claims need measured proof | Production example generic | CLI SIGTERM and SIGHUP subprocess proof exists; mixed-load drain proof pending | Missing reload profile |
 | Introspection | Config fields exist | Response builder exists | Same-listener behavior accepted with warning contract | Allowlist exists | ADR updated | None | Unit tests cover warning/redaction | Not relevant |
 | Middleware | Programmatic only | Stack exists | ASGI semantics matter | Callable fields not TOML-friendly | Examples mostly aligned | Basic example | Real-server tests exist | Chirp workload covers middleware header |
 
