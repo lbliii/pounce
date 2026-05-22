@@ -9,10 +9,12 @@
 **Current-state note:** Sections below preserve the February 2026 aioquic
 research and original deferral recommendation. They are historical context, not
 the active implementation plan or a Pounce production-readiness claim. Current
-HTTP/3 work should focus on zoomies parity gates: lifecycle state, reload/drain
-behavior, transport documentation, and reproducible benchmarks before broad
-production claims. See [core-contract.md](core-contract.md) for the active
-support boundary.
+HTTP/3 work should follow [core-contract.md](core-contract.md),
+[protocol-proof-ledger.json](protocol-proof-ledger.json), and
+[../plans/ironclad-bengal-chirp.md](../plans/ironclad-bengal-chirp.md). The
+remaining HTTP/3 gates are reload/drain behavior, transport documentation,
+representative workload proof, and reproducible benchmarks before broad
+production claims.
 
 ## Executive Summary
 
@@ -29,12 +31,14 @@ implemented with zoomies.
 - ✅ **Browser support** is universal (Chrome, Firefox, Safari, Edge all support HTTP/3 by default)
 - ✅ **Performance gains** are significant on mobile/high-latency networks (12-52% improvement)
 - ⚠️ **Architectural complexity** is high (UDP vs TCP, different worker model, ALPN negotiation)
-- ⚠️ **Adoption priority** is lower than completing Phase 5b core features
-- ✅ **Integration path** is clear via aioquic's asyncio protocol
+- ⚠️ **Adoption priority** is lower than completing representative
+  Bengal/Chirp proof and reload/drain gates
+- ✅ **Current integration path** uses zoomies, not aioquic
 
 **Historical recommendation:** Complete Phase 5b first, then implement HTTP/3 in
-Phase 5c with `protocols/h3.py` and UDP worker support. Current work should use
-the current-state note above instead.
+Phase 5c with `protocols/h3.py` and UDP worker support. That sequence is closed:
+HTTP/3 now exists through zoomies. Current work should use the current-state
+note above instead.
 
 ## Technical Background
 
@@ -544,55 +548,21 @@ if scope["method"] in ["POST", "PUT", "DELETE"] and is_0rtt:
 
 ## Roadmap
 
-### Phase 5b (Current) — Foundation
+### Current State — Zoomies Implementation
 
-**Status:** ✅ Complete TLS support, H2 protocol, lifecycle logging
+**Status:** Implemented as optional, limited-parity HTTP/3 support.
 
-**No HTTP/3 work** — focus on core features:
-- [x] Static file serving
-- [x] Middleware system
-- [x] OpenTelemetry integration
-- [x] Lifecycle logging
-- [x] Graceful shutdown
+Current work is not an aioquic implementation project. The active HTTP/3 tasks
+are evidence and contract hardening:
 
-**Preparation for Phase 5c:**
-- [ ] Document TLS 1.3 requirements in deployment docs
-- [ ] Add `alt-svc` header support infrastructure (optional)
+- Reload and drain behavior under H3 traffic.
+- Transport documentation for TLS, UDP listeners, and deployment expectations.
+- Representative Bengal/Chirp workload proof where H3 is in scope.
+- Reproducible benchmarks with environment, Python build, workload, variance,
+  and caveats.
+- Public wording aligned with the protocol proof ledger.
 
-### Phase 5c (Q2 2026) — HTTP/3 Implementation
-
-**Timeline:** 6-8 weeks
-
-**Milestone 1: Prototype (Week 1-2)**
-- [ ] Install aioquic and run example HTTP/3 server
-- [ ] Create `protocols/h3.py` with basic request/response
-- [ ] Test with Chrome `--enable-quic` flag
-- [ ] Measure prototype performance vs HTTP/2
-
-**Milestone 2: Integration (Week 3-4)**
-- [ ] Create `H3Worker` class
-- [ ] Implement UDP socket binding with `SO_REUSEPORT`
-- [ ] Integrate aioquic `QuicConnectionProtocol`
-- [ ] ASGI scope translation for HTTP/3
-
-**Milestone 3: Features (Week 5-6)**
-- [ ] Alt-Svc header advertisement
-- [ ] ALPN negotiation for `h3`
-- [ ] Server push (if beneficial)
-- [ ] 0-RTT resumption (with safety checks)
-
-**Milestone 4: Testing and Docs (Week 7-8)**
-- [ ] Integration tests with real browsers
-- [ ] Performance benchmarks (vs HTTP/2)
-- [ ] Security audit (0-RTT, migration)
-- [ ] Documentation: deployment guide, browser testing
-
-**Dependencies:**
-- aioquic>=1.3.0
-- TLS 1.3 certificate
-- UDP port 443 (or custom)
-
-### Phase 5d (Q3 2026) — Optimization
+### Future Optimization
 
 **Optional enhancements:**
 - [ ] HTTP/3 connection pooling and reuse metrics
@@ -602,32 +572,23 @@ if scope["method"] in ["POST", "PUT", "DELETE"] and is_0rtt:
 
 ## Recommendation
 
-### For Phase 5b: ❌ Defer HTTP/3
+### Current Recommendation: Harden Proof Before Stronger Claims
 
-**Rationale:**
-1. **Feature completeness:** Focus on completing Phase 5b core features (lifecycle logging, graceful shutdown, etc.) before adding HTTP/3 complexity
-2. **Complexity:** HTTP/3 requires significant architectural changes (UDP workers, new protocol handler)
-3. **Testing burden:** HTTP/3 requires extensive browser compatibility testing
-4. **Adoption priority:** Most users benefit more from Phase 5b features than HTTP/3
+HTTP/3 is already implemented through zoomies. Do not use the historical
+Phase 5b/5c deferral language as an active task plan. The useful next work is to
+prove and document the limited-parity support boundary:
 
-**Action items:**
-- Document TLS 1.3 readiness in deployment guides
-- Ensure architecture supports future HTTP/3 (no blocking decisions)
-
-### For Phase 5c: ✅ Implement HTTP/3
-
-**Rationale:**
-1. **Competitive parity:** Hypercorn already supports HTTP/3; pounce should match
-2. **Mobile-first web:** HTTP/3 benefits mobile users significantly (30% latency reduction)
-3. **Future-proofing:** HTTP/3 adoption is growing rapidly (25%+ of web traffic)
-4. **Technical feasibility:** aioquic provides solid foundation, architecture is clear
-
-**Action items:**
-- Allocate 6-8 weeks for implementation
-- Prioritize prototype and performance validation first
-- Ensure browser testing infrastructure is in place
+1. Exercise H3 reload/drain behavior under representative traffic.
+2. Keep transport and deployment docs explicit about TLS, UDP, and platform
+   limitations.
+3. Publish only benchmark numbers tied to reproducible artifacts.
+4. Keep protocol feature tables aligned with the proof ledger.
 
 ## Prototype Considerations
+
+This section is historical aioquic research. It is retained because it explains
+the original evaluation path, but it is not an implementation recipe for current
+Pounce HTTP/3 work.
 
 ### Minimal Viable Prototype
 
@@ -731,17 +692,14 @@ benefits for mobile and high-latency networks. The aioquic foundation described
 above is historical research; Pounce's current HTTP/3 support boundary is the
 zoomies implementation and the parity gates named at the top of this document.
 
-**For pounce:**
-- **Phase 5b:** Focus on core features, defer HTTP/3
-- **Phase 5c:** Implement HTTP/3 with 6-8 week timeline
-- **Expected outcome:** Competitive parity with Hypercorn, improved mobile performance, future-proof architecture
-
-The path forward is clear, technically feasible, and strategically sound.
+**For Pounce:** HTTP/3 remains optional and limited-parity until the proof above
+is complete.
 
 ---
 
 **Next Steps:**
-1. Complete Phase 5b (lifecycle logging, graceful shutdown)
-2. Review this roadmap with stakeholders
-3. Prototype HTTP/3 in Phase 5c (Q2 2026)
-4. Validate performance assumptions before full implementation
+1. Keep the protocol proof ledger current.
+2. Add reload/drain proof for H3 where production claims require it.
+3. Validate performance assumptions with reproducible benchmark artifacts.
+4. Keep public docs scoped to optional, limited-parity support until those gates
+   close.
