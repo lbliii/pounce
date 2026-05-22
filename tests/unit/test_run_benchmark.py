@@ -1,6 +1,6 @@
 """Unit tests for the standalone benchmark runner."""
 
-from benchmarks.run_benchmark import _benchmark_url
+from benchmarks.run_benchmark import BenchmarkSuite, _benchmark_url, build_artifact
 
 
 def test_benchmark_url_uses_workload_path() -> None:
@@ -9,3 +9,62 @@ def test_benchmark_url_uses_workload_path() -> None:
 
 def test_benchmark_url_keeps_root_workload_path() -> None:
     assert _benchmark_url(8100, "bengal") == "http://127.0.0.1:8100/"
+
+
+def test_build_artifact_has_required_schema_fields() -> None:
+    suite = BenchmarkSuite(
+        timestamp="2026-05-22T120000-0400",
+        python_version="3.14.2 free-threaded",
+        platform="test-os",
+        results=[
+            {
+                "server": "pounce",
+                "workload": "chirp",
+                "req_per_sec": 1000.0,
+                "p99_latency_ms": 2.0,
+            }
+        ],
+    )
+
+    artifact = build_artifact(
+        suite,
+        command=["python", "benchmarks/run_benchmark.py", "--workload", "chirp"],
+        workload="chirp",
+        workers=4,
+        duration=30,
+        connections=100,
+        threads=4,
+        load_tool="wrk",
+        load_tool_version="wrk 4.2.0",
+        compare=True,
+    )
+
+    required = {
+        "artifact_id",
+        "created_at",
+        "git_sha",
+        "command",
+        "server_command",
+        "workload",
+        "python_version",
+        "python_gil_mode",
+        "os",
+        "hardware",
+        "worker_mode",
+        "workers",
+        "duration_seconds",
+        "connections",
+        "threads",
+        "load_tool",
+        "load_tool_version",
+        "comparison_target",
+        "comparison_target_version",
+        "samples",
+        "variance",
+        "raw_output",
+        "summary",
+    }
+    assert required <= artifact.keys()
+    assert artifact["workload"] == "chirp"
+    assert "pounce:chirp" in artifact["server_command"]
+    assert "uvicorn:chirp" in artifact["server_command"]

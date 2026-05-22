@@ -25,6 +25,7 @@ Prerequisites:
 
 import argparse
 import json
+import platform
 import re
 import signal
 import subprocess
@@ -110,6 +111,47 @@ def _benchmark_url(port: int, workload: str) -> str:
     return f"http://127.0.0.1:{port}{path}"
 
 
+def _server_command(server: str, workload: str, port: int, workers: int) -> list[str]:
+    """Build the server command used for a benchmark run."""
+    wl = WORKLOADS[workload]
+    if server == "pounce":
+        return [
+            sys.executable,
+            "-m",
+            "pounce",
+            wl["app"],
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--workers",
+            str(workers),
+            "--no-access-log",
+            "--no-compression",
+        ]
+    if server == "uvicorn":
+        return [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            wl["app"],
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--workers",
+            str(workers),
+            "--no-access-log",
+        ]
+    msg = f"unknown benchmark server: {server}"
+    raise ValueError(msg)
+
+
+def _command_string(command: list[str]) -> str:
+    """Render a command list for artifact metadata."""
+    return " ".join(command)
+
+
 # ---------------------------------------------------------------------------
 # Server management
 # ---------------------------------------------------------------------------
@@ -181,6 +223,24 @@ def _find_load_tool() -> str:
         file=sys.stderr,
     )
     sys.exit(1)
+
+
+def _load_tool_version(tool: str) -> str:
+    """Return best-effort load tool version metadata."""
+    for flag in ("--version", "-version", "--help"):
+        try:
+            result = subprocess.run(
+                [tool, flag],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+        output = (result.stdout or result.stderr).strip().splitlines()
+        if output:
+            return output[0]
+    return "unknown"
 
 
 def _run_wrk(
@@ -374,20 +434,7 @@ def run_benchmark(
 
     # --- Pounce ---
     print(f"\n  Starting pounce ({workload}, {workers} workers)...")
-    pounce_cmd = [
-        sys.executable,
-        "-m",
-        "pounce",
-        wl["app"],
-        "--host",
-        "127.0.0.1",
-        "--port",
-        str(port),
-        "--workers",
-        str(workers),
-        "--no-access-log",
-        "--no-compression",
-    ]
+    pounce_cmd = _server_command("pounce", workload, port, workers)
     pounce_proc = _start_server(pounce_cmd, port)
     time.sleep(0.5)
 
@@ -419,19 +466,7 @@ def run_benchmark(
     if compare:
         uvicorn_port = port + 1
         print(f"\n  Starting uvicorn ({workload}, {workers} workers)...")
-        uvicorn_cmd = [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            wl["app"],
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(uvicorn_port),
-            "--workers",
-            str(workers),
-            "--no-access-log",
-        ]
+        uvicorn_cmd = _server_command("uvicorn", workload, uvicorn_port, workers)
         try:
             uvicorn_proc = _start_server(uvicorn_cmd, uvicorn_port)
             time.sleep(0.5)
@@ -499,6 +534,96 @@ def save_json(suite: BenchmarkSuite, path: Path) -> None:
     print(f"\nResults saved to {path}")
 
 
+def _git_sha() -> str:
+    """Return the current git SHA if available."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return "unknown"
+    return result.stdout.strip()
+
+
+def _python_gil_mode() -> str:
+    """Return whether this Python build currently has the GIL enabled."""
+    is_gil_enabled = getattr(sys, "_is_gil_enabled", None)
+    if callable(is_gil_enabled):
+        return "gil-enabled" if is_gil_enabled() else "free-threaded"
+    return "unknown"
+
+
+def build_artifact(
+    suite: BenchmarkSuite,
+    *,
+    command: list[str],
+    workload: str,
+    workers: int,
+    duration: int,
+    connections: int,
+    threads: int,
+    load_tool: str,
+    load_tool_version: str,
+    compare: bool,
+    port: int = 8100,
+) -> dict:
+    """Build JSON metadata matching benchmarks/artifact-schema.json."""
+    created_at = suite.timestamp or time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    server_commands: dict[str, str] = {}
+    workloads = list(WORKLOADS) if workload == "all" else [workload]
+    for wl in workloads:
+        server_commands[f"pounce:{wl}"] = _command_string(
+            _server_command("pounce", wl, port, workers)
+        )
+        if compare:
+            server_commands[f"uvicorn:{wl}"] = _command_string(
+                _server_command("uvicorn", wl, port + 1, workers)
+            )
+
+    return {
+        "artifact_id": f"pounce-{workload}-{created_at.replace(':', '').replace('+', '-')}",
+        "created_at": created_at,
+        "git_sha": _git_sha(),
+        "command": _command_string(command),
+        "server_command": server_commands,
+        "workload": workload,
+        "python_version": suite.python_version or sys.version,
+        "python_gil_mode": _python_gil_mode(),
+        "os": suite.platform or platform.platform(),
+        "hardware": f"{platform.machine()} {platform.processor()}".strip(),
+        "worker_mode": "auto",
+        "workers": workers,
+        "duration_seconds": duration,
+        "connections": connections,
+        "threads": threads,
+        "load_tool": load_tool,
+        "load_tool_version": load_tool_version,
+        "comparison_target": "uvicorn" if compare else None,
+        "comparison_target_version": "recorded in raw output when available" if compare else None,
+        "samples": suite.results,
+        "variance": {
+            "sample_count": 1,
+            "req_per_sec": 0.0,
+            "p99_latency_ms": 0.0,
+            "note": "single runner sample; repeat artifacts before making regression claims",
+        },
+        "raw_output": suite.results,
+        "summary": {
+            "results": suite.results,
+        },
+    }
+
+
+def save_artifact(artifact: dict, path: Path) -> None:
+    """Save a benchmark artifact JSON file."""
+    path.write_text(json.dumps(artifact, indent=2) + "\n")
+    print(f"\nBenchmark artifact saved to {path}")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -527,9 +652,13 @@ def main() -> None:
         "--compare", action="store_true", help="Also benchmark uvicorn for comparison"
     )
     parser.add_argument("--output", type=str, default=None, help="Save results to JSON file")
+    parser.add_argument(
+        "--artifact-output",
+        type=str,
+        default=None,
+        help="Save artifact-schema-compatible metadata JSON",
+    )
     args = parser.parse_args()
-
-    import platform
 
     suite = BenchmarkSuite(
         timestamp=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -543,7 +672,8 @@ def main() -> None:
     print("Pounce Benchmark Suite")
     print(f"Python: {sys.version.split()[0]}")
     print(f"Platform: {platform.platform()}")
-    print(f"Tool: {_find_load_tool()}")
+    load_tool = _find_load_tool()
+    print(f"Tool: {load_tool}")
 
     for wl in workloads:
         print(f"\n{'=' * 60}")
@@ -566,6 +696,21 @@ def main() -> None:
 
     if args.output:
         save_json(suite, Path(args.output))
+
+    if args.artifact_output:
+        artifact = build_artifact(
+            suite,
+            command=sys.argv,
+            workload=args.workload,
+            workers=args.workers,
+            duration=args.duration,
+            connections=args.connections,
+            threads=args.threads,
+            load_tool=load_tool,
+            load_tool_version=_load_tool_version(load_tool),
+            compare=args.compare,
+        )
+        save_artifact(artifact, Path(args.artifact_output))
 
 
 if __name__ == "__main__":

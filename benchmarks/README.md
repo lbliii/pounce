@@ -30,6 +30,9 @@ python benchmarks/run_benchmark.py --compare --workers 4
 
 # Save structured runner output as JSON
 python benchmarks/run_benchmark.py --workload all --output results.json
+
+# Save artifact-schema-compatible metadata for PR/release evidence
+python benchmarks/run_benchmark.py --workload chirp --artifact-output artifacts/chirp.json
 ```
 
 ### Workloads
@@ -53,6 +56,7 @@ python benchmarks/run_benchmark.py --workload all --output results.json
 | `--connections` | `100` | Concurrent connections |
 | `--compare` | off | Also benchmark uvicorn |
 | `--output` | none | Save structured runner output to JSON. This is not a benchmark artifact unless it contains the metadata required by `artifact-schema.json`. |
+| `--artifact-output` | none | Save artifact-schema-compatible metadata for PR/release evidence. |
 
 ## Benchmark Artifacts
 
@@ -63,31 +67,6 @@ snapshot caveat. Store benchmark artifacts as JSON that follows
 The `run_benchmark.py --output` file is structured runner output. Treat it as a
 raw input for analysis unless it is extended or wrapped with every field required
 by `benchmarks/artifact-schema.json`.
-
-Required metadata:
-
-- command and server command
-- git SHA
-- workload
-- Python version and GIL mode
-- OS and hardware
-- worker mode and worker count
-- duration, connections, and load-generator threads
-- load tool and version
-- comparison target and version, when comparing
-- sample count and variance
-- raw output path
-- summary table
-
-If a doc or release note uses a number without an artifact, phrase it as a local
-snapshot, tuning example, or historical note. Do not promote it to a product
-claim.
-
-## Benchmark Artifacts
-
-Public numeric performance claims need a reproducible artifact or an explicit
-snapshot caveat. Store benchmark artifacts as JSON that follows
-`benchmarks/artifact-schema.json`.
 
 Required metadata:
 
