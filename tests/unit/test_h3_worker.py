@@ -16,7 +16,7 @@ from pounce.config import ServerConfig
 from pounce.h3_worker import H3Worker
 from pounce.protocols.h3 import is_h3_available
 
-pytestmark = pytest.mark.skipif(
+requires_zoomies = pytest.mark.skipif(
     not is_h3_available(),
     reason="zoomies not installed; pip install pounce[h3]",
 )
@@ -54,6 +54,7 @@ def _make_udp_socket() -> socket.socket:
 # ---------------------------------------------------------------------------
 
 
+@requires_zoomies
 class TestH3WorkerConstruction:
     """Tests for H3Worker.__init__."""
 
@@ -106,6 +107,7 @@ class TestH3WorkerConstruction:
             sock.close()
 
 
+@requires_zoomies
 class TestH3WorkerShutdown:
     """Tests for H3Worker shutdown mechanisms."""
 
