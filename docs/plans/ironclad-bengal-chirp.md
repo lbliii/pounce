@@ -56,8 +56,9 @@ Completed or covered by current proof:
 Remaining high-value gaps:
 
 - H3 reload/drain parity under load.
-- Benchmark artifact generation that fully emits
-  `benchmarks/artifact-schema.json`, not only structured runner output.
+- Repeated benchmark sample orchestration and variance aggregation. The runner
+  can emit artifact-schema-compatible metadata, but current artifacts still
+  record a single runner sample unless callers repeat runs.
 - Public release/readme/site claim updates should continue to cite current
   ledgers and avoid promoting benchmark snapshots.
 
@@ -66,8 +67,8 @@ Remaining high-value gaps:
 | Contract | API/CLI | Programmatic | Protocol | Schema/Types | Docs | Examples | Tests | Benchmarks |
 |---|---|---|---|---|---|---|---|---|
 | Static files from config | TOML/schema exists | `ServerConfig.static_files` wraps the real app | H1 real-worker proof exists | Field exists | Claims exist | Static examples exist | `tests/integration/test_static_config.py` | Bengal workload exists |
-| Bengal local dev | Config recipe exists | Works through configured static handler | H1 static path covered | Static fields exist | Static docs exist | Synthetic fixture exists | Static fixture coverage | Bengal profile exists; artifact output still pending |
-| Chirp/LB Sonic production | Railway recipe exists | Chirp forum fixture exists | H1/H2/H3/WS scope proof improved; H3 reload/drain remains | Config fields exist | Deployment docs exist | Forum-shaped workload exists | Tenant, limit, state, and smoke tests exist | Chirp profile exists; artifact output still pending |
+| Bengal local dev | Config recipe exists | Works through configured static handler | H1 static path covered | Static fields exist | Static docs exist | Synthetic fixture exists | Static fixture coverage | Bengal profile and artifact output exist; repeated variance pending |
+| Chirp/LB Sonic production | Railway recipe exists | Chirp forum fixture exists | H1/H2/H3/WS scope proof improved; H3 reload/drain remains | Config fields exist | Deployment docs exist | Forum-shaped workload exists | Tenant, limit, state, and smoke tests exist | Chirp profile and artifact output exist; repeated variance pending |
 | Lifespan state | Public ASGI behavior | H1 path covered | H2/H3/WS scope proof exists | State behavior implicit | Needs parity note cleanup | Lifespan examples exist | Cross-protocol state tests exist | Not benchmark-sensitive |
 | Reload/drain | SIGHUP implementation documented | Server API exists | H3 reload/drain proof still pending | `reload_timeout` exists | Claims need measured proof | Production example generic | Signal/load-bearing proof still pending | Missing reload profile |
 | Introspection | Config fields exist | Response builder exists | Same-listener behavior conflicts with ADR | Allowlist exists | ADR/docs conflict | None | Mostly unit tests | Not relevant |
