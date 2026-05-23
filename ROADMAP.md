@@ -65,18 +65,18 @@ plan plus ledgers for exact test references.
 **Status:** Closed. Covered by real-server `ServerConfig.static_files` and TOML
 tests in `tests/integration/test_static_config.py`.
 
-`ServerConfig.static_files` and TOML static config are documented, but steward
-review found the current tests mostly wrap apps manually with `StaticFiles` or
-`create_static_handler`. The public server path must either wire that config into
-dispatch or explicitly demote the config surface.
+`ServerConfig.static_files` and TOML static config now reach the public server
+dispatch path through `Server._apply_static_files()`. Keep this gate closed
+unless a later regression breaks real-server static serving.
 
-Required proof:
+Current proof:
 
 - Real-worker test using only `ServerConfig(static_files={"/": tmpdir})`.
 - TOML `[static_files]` test through public config loading.
 - Bengal-shaped fixture: root index, nested indexes, CSS/JS, SVG/ICO, fonts,
   search index, `.well-known`, `.gz`, `.zst`, and missing-file behavior.
-- Static-only Bengal mode and mixed Chirp app-plus-assets mode documented.
+- Static-only and mixed app-plus-assets behavior covered by integration tests
+  and public static configuration docs.
 
 ### 2. Protocol Limits Must Fail Closed
 

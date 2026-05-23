@@ -19,8 +19,8 @@ claims beyond the ledgers.
 
 Original top convergence, now partly closed:
 
-- `ServerConfig.static_files` is public and documented, but the real server path
-  needs proof or wiring.
+- `ServerConfig.static_files` is public, documented, and covered through the
+  real server path by `tests/integration/test_static_config.py`.
 - Chirp/LB Sonic needs multi-tenant scope correctness across host, authority,
   proxy, root path, lifespan state, and protocol variants.
 - Benchmarks must become reproducible workload evidence, not scattered claims.

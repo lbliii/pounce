@@ -91,7 +91,7 @@ Required metadata:
 - comparison target and version, when comparing
 - sample count and grouped variance by server, workload, and worker count
 - per-sample server RSS when the platform exposes it
-- raw output path
+- raw load-tool stdout/stderr entries per sample
 - summary table
 
 If a doc or release note uses a number without an artifact, phrase it as a local

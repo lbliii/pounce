@@ -2,6 +2,7 @@
 
 import pytest
 
+import benchmarks.run_benchmark as runner
 from benchmarks.run_benchmark import (
     BenchmarkSuite,
     _benchmark_url,
@@ -83,7 +84,8 @@ def test_sample_plan_rejects_zero_repeat() -> None:
         _sample_plan(["hello"], 0)
 
 
-def test_build_artifact_has_required_schema_fields() -> None:
+def test_build_artifact_has_required_schema_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runner, "_server_version", lambda module: f"{module} 1.2.3")
     suite = BenchmarkSuite(
         timestamp="2026-05-22T120000-0400",
         python_version="3.14.2 free-threaded",
@@ -139,8 +141,56 @@ def test_build_artifact_has_required_schema_fields() -> None:
     }
     assert required <= artifact.keys()
     assert artifact["workload"] == "chirp"
+    assert artifact["comparison_target_version"] == "uvicorn 1.2.3"
     assert "pounce:chirp" in artifact["server_command"]
     assert "uvicorn:chirp" in artifact["server_command"]
+
+
+def test_build_artifact_separates_samples_from_raw_output() -> None:
+    suite = BenchmarkSuite(
+        timestamp="2026-05-22T120000-0400",
+        python_version="3.14.2 free-threaded",
+        platform="test-os",
+        results=[
+            {
+                "server": "pounce",
+                "workload": "chirp",
+                "workers": 4,
+                "req_per_sec": 1000.0,
+                "p99_latency_ms": 2.0,
+                "errors": 0,
+                "sample_index": 1,
+                "load_tool_stdout": "Requests/sec: 1000.00\n",
+                "load_tool_stderr": "",
+            }
+        ],
+    )
+
+    artifact = build_artifact(
+        suite,
+        command=["python", "benchmarks/run_benchmark.py", "--workload", "chirp"],
+        workload="chirp",
+        workers=4,
+        duration=30,
+        connections=100,
+        threads=4,
+        load_tool="wrk",
+        load_tool_version="wrk 4.2.0",
+        compare=False,
+    )
+
+    assert "load_tool_stdout" not in artifact["samples"][0]
+    assert artifact["raw_output"] == [
+        {
+            "server": "pounce",
+            "workload": "chirp",
+            "workers": 4,
+            "sample_index": 1,
+            "load_tool": "wrk",
+            "stdout": "Requests/sec: 1000.00\n",
+            "stderr": "",
+        }
+    ]
 
 
 def test_build_artifact_summarizes_repeated_samples() -> None:

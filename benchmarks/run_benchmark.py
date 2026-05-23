@@ -41,6 +41,7 @@ _LOAD_TOOL_FIND_ERRORS = (FileNotFoundError, subprocess.TimeoutExpired)
 _LOAD_TOOL_VERSION_ERRORS = (FileNotFoundError, subprocess.TimeoutExpired)
 _RSS_PARSE_ERRORS = (IndexError, ValueError)
 _SERVER_START_RETRY_ERRORS = (ConnectionRefusedError, OSError)
+_UVICORN_COMPARISON_ERRORS = (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +63,8 @@ class BenchmarkResult:
     errors: int
     sample_index: int = 1
     server_rss_bytes: int | None = None
+    load_tool_stdout: str = ""
+    load_tool_stderr: str = ""
 
 
 @dataclass(slots=True)
@@ -299,7 +302,7 @@ def _find_load_tool() -> str:
                 timeout=5,
             )
             return tool
-        except _LOAD_TOOL_VERSION_ERRORS:
+        except _LOAD_TOOL_FIND_ERRORS:
             continue
     print(
         "Error: Neither 'wrk' nor 'hey' found on PATH.\n"
@@ -320,7 +323,7 @@ def _load_tool_version(tool: str) -> str:
                 text=True,
                 timeout=5,
             )
-        except _LOAD_TOOL_FIND_ERRORS:
+        except _LOAD_TOOL_VERSION_ERRORS:
             continue
         output = (result.stdout or result.stderr).strip().splitlines()
         if output:
@@ -347,7 +350,10 @@ def _run_wrk(
         url,
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=duration + 30)
-    return _parse_wrk_output(result.stdout)
+    parsed = _parse_wrk_output(result.stdout)
+    parsed["load_tool_stdout"] = result.stdout
+    parsed["load_tool_stderr"] = result.stderr
+    return parsed
 
 
 def _run_hey(
@@ -375,7 +381,10 @@ def _run_hey(
         cmd.extend(["-d", "x" * int(body_size)])
 
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=duration + 30)
-    return _parse_hey_output(result.stdout)
+    parsed = _parse_hey_output(result.stdout)
+    parsed["load_tool_stdout"] = result.stdout
+    parsed["load_tool_stderr"] = result.stderr
+    return parsed
 
 
 def _parse_wrk_output(output: str) -> dict:
@@ -556,6 +565,7 @@ def run_benchmark(
         uvicorn_port = port + 1
         print(f"\n  Starting uvicorn ({workload}, {workers} workers)...")
         uvicorn_cmd = _server_command("uvicorn", workload, uvicorn_port, workers)
+        uvicorn_proc: subprocess.Popen | None = None
         try:
             uvicorn_proc = _start_server(uvicorn_cmd, uvicorn_port)
             time.sleep(0.5)
@@ -583,9 +593,11 @@ def run_benchmark(
                     **raw,
                 )
             )
-            _stop_server(uvicorn_proc)
-        except (RuntimeError, FileNotFoundError) as exc:
+        except _UVICORN_COMPARISON_ERRORS as exc:
             print(f"  Uvicorn comparison skipped: {exc}", file=sys.stderr)
+        finally:
+            if uvicorn_proc is not None and uvicorn_proc.poll() is None:
+                _stop_server(uvicorn_proc)
 
     return results
 
@@ -647,6 +659,46 @@ def _python_gil_mode() -> str:
     if callable(is_gil_enabled):
         return "gil-enabled" if is_gil_enabled() else "free-threaded"
     return "unknown"
+
+
+def _server_version(module: str) -> str:
+    """Return best-effort comparison server version metadata."""
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", module, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except _COMMAND_ERRORS:
+        return "unknown"
+    output = (result.stdout or result.stderr).strip().splitlines()
+    if output:
+        return output[0]
+    return "unknown"
+
+
+def _artifact_samples(results: list[dict]) -> list[dict]:
+    """Return parsed sample rows without verbose raw load-tool streams."""
+    raw_fields = {"load_tool_stdout", "load_tool_stderr"}
+    return [{key: value for key, value in row.items() if key not in raw_fields} for row in results]
+
+
+def _raw_output_entries(results: list[dict], load_tool: str) -> list[dict]:
+    """Return raw load-tool output entries for artifact evidence."""
+    return [
+        {
+            "server": row.get("server", "unknown"),
+            "workload": row.get("workload", "unknown"),
+            "workers": row.get("workers", 0),
+            "sample_index": row.get("sample_index", 1),
+            "load_tool": load_tool,
+            "stdout": row.get("load_tool_stdout", ""),
+            "stderr": row.get("load_tool_stderr", ""),
+        }
+        for row in results
+    ]
 
 
 def _nearest_rank(values: list[float], percentile: int) -> float:
@@ -725,7 +777,8 @@ def build_artifact(
 ) -> dict:
     """Build JSON metadata matching benchmarks/artifact-schema.json."""
     created_at = suite.timestamp or time.strftime("%Y-%m-%dT%H:%M:%S%z")
-    summaries = _group_sample_summaries(suite.results)
+    samples = _artifact_samples(suite.results)
+    summaries = _group_sample_summaries(samples)
     server_commands: dict[str, str] = {}
     workloads = list(WORKLOADS) if workload == "all" else [workload]
     for wl in workloads:
@@ -756,17 +809,17 @@ def build_artifact(
         "load_tool": load_tool,
         "load_tool_version": load_tool_version,
         "comparison_target": "uvicorn" if compare else None,
-        "comparison_target_version": "recorded in raw output when available" if compare else None,
-        "samples": suite.results,
+        "comparison_target_version": _server_version("uvicorn") if compare else None,
+        "samples": samples,
         "variance": {
-            "sample_count": len(suite.results),
+            "sample_count": len(samples),
             "groups": summaries,
             "note": "sample groups with sample_count < 2 are snapshots, not regression evidence",
         },
-        "raw_output": suite.results,
+        "raw_output": _raw_output_entries(suite.results, load_tool),
         "summary": {
             "groups": summaries,
-            "results": suite.results,
+            "results": samples,
         },
     }
 
