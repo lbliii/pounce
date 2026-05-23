@@ -52,7 +52,7 @@ The remaining near-term work is narrower:
 | Lifespan state | H1, H2, H3, and WebSocket scope paths covered | High |
 | Reload/drain | Implemented; signal-path load tests are the next gate | Medium |
 | Observability | Metrics, health, OTel, lifecycle logs, introspection present | Medium |
-| Benchmarks | Bengal/Chirp workloads and artifact metadata output exist; repeated variance remains | Medium |
+| Benchmarks | Bengal/Chirp workloads, repeated variance summaries, RSS samples, endpoint profiles, and local snapshot artifacts exist | Medium |
 
 ## Priority 0: Closed Contract Proof
 
