@@ -36,6 +36,12 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+_COMMAND_ERRORS = (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired)
+_LOAD_TOOL_FIND_ERRORS = (FileNotFoundError, subprocess.TimeoutExpired)
+_LOAD_TOOL_VERSION_ERRORS = (FileNotFoundError, subprocess.TimeoutExpired)
+_RSS_PARSE_ERRORS = (IndexError, ValueError)
+_SERVER_START_RETRY_ERRORS = (ConnectionRefusedError, OSError)
+
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkResult:
@@ -192,8 +198,10 @@ def _server_command(server: str, workload: str, port: int, workers: int) -> list
 def _command_string(command: list[str]) -> str:
     """Render a command list for artifact metadata."""
     rendered = list(command)
-    if rendered and rendered[0] == sys.executable:
-        rendered[0] = Path(sys.executable).name
+    if rendered:
+        executable = Path(rendered[0]).name
+        if executable.startswith("python"):
+            rendered[0] = executable
     return " ".join(rendered)
 
 
@@ -233,7 +241,7 @@ def _start_server(
             s = socket.create_connection(("127.0.0.1", port), timeout=0.5)
             s.close()
             return proc
-        except ConnectionRefusedError, OSError:
+        except _SERVER_START_RETRY_ERRORS:
             time.sleep(0.2)
             if proc.poll() is not None:
                 _, stderr = proc.communicate()
@@ -264,14 +272,14 @@ def _process_rss_bytes(proc: subprocess.Popen) -> int | None:
             timeout=5,
             check=True,
         )
-    except FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired:
+    except _COMMAND_ERRORS:
         return None
     output = result.stdout.strip()
     if not output:
         return None
     try:
         rss_kib = int(output.split()[0])
-    except IndexError, ValueError:
+    except _RSS_PARSE_ERRORS:
         return None
     return rss_kib * 1024
 
@@ -291,7 +299,7 @@ def _find_load_tool() -> str:
                 timeout=5,
             )
             return tool
-        except FileNotFoundError, subprocess.TimeoutExpired:
+        except _LOAD_TOOL_VERSION_ERRORS:
             continue
     print(
         "Error: Neither 'wrk' nor 'hey' found on PATH.\n"
@@ -312,7 +320,7 @@ def _load_tool_version(tool: str) -> str:
                 text=True,
                 timeout=5,
             )
-        except FileNotFoundError, subprocess.TimeoutExpired:
+        except _LOAD_TOOL_FIND_ERRORS:
             continue
         output = (result.stdout or result.stderr).strip().splitlines()
         if output:
@@ -628,7 +636,7 @@ def _git_sha() -> str:
             timeout=5,
             check=True,
         )
-    except FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired:
+    except _COMMAND_ERRORS:
         return "unknown"
     return result.stdout.strip()
 
@@ -856,7 +864,7 @@ def main() -> None:
     if args.artifact_output:
         artifact = build_artifact(
             suite,
-            command=sys.argv,
+            command=[sys.executable, *sys.argv],
             workload=args.workload,
             workers=args.workers,
             duration=args.duration,

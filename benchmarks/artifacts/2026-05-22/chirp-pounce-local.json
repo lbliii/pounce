@@ -2,7 +2,7 @@
   "artifact_id": "pounce-chirp-2026-05-22T151707-0400",
   "created_at": "2026-05-22T15:17:07-0400",
   "git_sha": "f008a32515443c7ea4f3b42a264dcf66a8a1150e",
-  "command": "benchmarks/run_benchmark.py --workload chirp --workers 1 --duration 5 --threads 4 --connections 50 --repeat 5 --artifact-output benchmarks/artifacts/2026-05-22/chirp-pounce-local.json",
+  "command": "python benchmarks/run_benchmark.py --workload chirp --workers 1 --duration 5 --threads 4 --connections 50 --repeat 5 --artifact-output benchmarks/artifacts/2026-05-22/chirp-pounce-local.json",
   "server_command": {
     "pounce:chirp": "python -m pounce serve --app benchmarks.apps.chirp_forum:app --host 127.0.0.1 --port 8100 --workers 1 --no-access-log --no-compression"
   },

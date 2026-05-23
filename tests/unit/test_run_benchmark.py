@@ -41,6 +41,29 @@ def test_command_string_redacts_sys_executable_path() -> None:
     assert "/.venv/bin/python" not in rendered
 
 
+def test_build_artifact_command_can_include_interpreter() -> None:
+    suite = BenchmarkSuite(
+        timestamp="2026-05-22T120000-0400",
+        python_version="3.14.2 free-threaded",
+        platform="test-os",
+    )
+
+    artifact = build_artifact(
+        suite,
+        command=["/tmp/work/.venv/bin/python", "benchmarks/run_benchmark.py"],
+        workload="chirp",
+        workers=1,
+        duration=5,
+        connections=50,
+        threads=4,
+        load_tool="wrk",
+        load_tool_version="wrk 4.2.0",
+        compare=False,
+    )
+
+    assert artifact["command"] == "python benchmarks/run_benchmark.py"
+
+
 def test_nearest_rank_uses_ceiling_rank() -> None:
     values = [float(i) for i in range(1, 12)]
     assert _nearest_rank(values, 95) == 11.0
