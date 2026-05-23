@@ -18,7 +18,7 @@ from pounce.protocols.h3 import is_h3_available
 
 requires_zoomies = pytest.mark.skipif(
     not is_h3_available(),
-    reason="zoomies not installed; pip install pounce[h3]",
+    reason="zoomies not installed; pip install bengal-pounce[h3]",
 )
 
 

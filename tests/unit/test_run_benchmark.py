@@ -5,6 +5,8 @@ import pytest
 from benchmarks.run_benchmark import (
     BenchmarkSuite,
     _benchmark_url,
+    _command_string,
+    _nearest_rank,
     _sample_plan,
     _server_command,
     build_artifact,
@@ -20,10 +22,7 @@ def test_benchmark_url_keeps_root_workload_path() -> None:
 
 
 def test_benchmark_url_exposes_named_profile_paths() -> None:
-    assert (
-        _benchmark_url(8100, "bengal_asset")
-        == "http://127.0.0.1:8100/assets/site.css"
-    )
+    assert _benchmark_url(8100, "bengal_asset") == "http://127.0.0.1:8100/assets/site.css"
     assert _benchmark_url(8100, "bengal_feed") == "http://127.0.0.1:8100/feed.xml"
     assert _benchmark_url(8100, "chirp_events") == "http://127.0.0.1:8100/events"
     assert _benchmark_url(8100, "chirp_home") == "http://127.0.0.1:8100/"
@@ -33,6 +32,18 @@ def test_pounce_server_command_uses_current_cli_shape() -> None:
     command = _server_command("pounce", "chirp", 8100, 2)
     assert command[1:5] == ["-m", "pounce", "serve", "--app"]
     assert "benchmarks.apps.chirp_forum:app" in command
+
+
+def test_command_string_redacts_sys_executable_path() -> None:
+    command = _server_command("pounce", "chirp", 8100, 2)
+    rendered = _command_string(command)
+    assert rendered.startswith("python")
+    assert "/.venv/bin/python" not in rendered
+
+
+def test_nearest_rank_uses_ceiling_rank() -> None:
+    values = [float(i) for i in range(1, 12)]
+    assert _nearest_rank(values, 95) == 11.0
 
 
 def test_sample_plan_repeats_each_workload_in_order() -> None:

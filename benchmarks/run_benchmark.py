@@ -25,6 +25,7 @@ Prerequisites:
 
 import argparse
 import json
+import math
 import platform
 import re
 import signal
@@ -190,7 +191,10 @@ def _server_command(server: str, workload: str, port: int, workers: int) -> list
 
 def _command_string(command: list[str]) -> str:
     """Render a command list for artifact metadata."""
-    return " ".join(command)
+    rendered = list(command)
+    if rendered and rendered[0] == sys.executable:
+        rendered[0] = Path(sys.executable).name
+    return " ".join(rendered)
 
 
 def _sample_plan(workloads: list[str], repeat: int) -> list[tuple[int, str]]:
@@ -199,9 +203,7 @@ def _sample_plan(workloads: list[str], repeat: int) -> list[tuple[int, str]]:
         msg = "repeat must be >= 1"
         raise ValueError(msg)
     return [
-        (sample_index, workload)
-        for sample_index in range(1, repeat + 1)
-        for workload in workloads
+        (sample_index, workload) for sample_index in range(1, repeat + 1) for workload in workloads
     ]
 
 
@@ -262,14 +264,14 @@ def _process_rss_bytes(proc: subprocess.Popen) -> int | None:
             timeout=5,
             check=True,
         )
-    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+    except FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired:
         return None
     output = result.stdout.strip()
     if not output:
         return None
     try:
         rss_kib = int(output.split()[0])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         return None
     return rss_kib * 1024
 
@@ -310,7 +312,7 @@ def _load_tool_version(tool: str) -> str:
                 text=True,
                 timeout=5,
             )
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except FileNotFoundError, subprocess.TimeoutExpired:
             continue
         output = (result.stdout or result.stderr).strip().splitlines()
         if output:
@@ -626,7 +628,7 @@ def _git_sha() -> str:
             timeout=5,
             check=True,
         )
-    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+    except FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired:
         return "unknown"
     return result.stdout.strip()
 
@@ -644,7 +646,7 @@ def _nearest_rank(values: list[float], percentile: int) -> float:
     if not values:
         return 0.0
     ordered = sorted(values)
-    rank = max(1, round((percentile / 100) * len(ordered)))
+    rank = max(1, math.ceil((percentile / 100) * len(ordered)))
     return ordered[min(rank, len(ordered)) - 1]
 
 

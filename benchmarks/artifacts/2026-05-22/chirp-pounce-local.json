@@ -4,7 +4,7 @@
   "git_sha": "f008a32515443c7ea4f3b42a264dcf66a8a1150e",
   "command": "benchmarks/run_benchmark.py --workload chirp --workers 1 --duration 5 --threads 4 --connections 50 --repeat 5 --artifact-output benchmarks/artifacts/2026-05-22/chirp-pounce-local.json",
   "server_command": {
-    "pounce:chirp": "/Users/llane/Documents/github/python/b-stack/pounce/.venv/bin/python -m pounce serve --app benchmarks.apps.chirp_forum:app --host 127.0.0.1 --port 8100 --workers 1 --no-access-log --no-compression"
+    "pounce:chirp": "python -m pounce serve --app benchmarks.apps.chirp_forum:app --host 127.0.0.1 --port 8100 --workers 1 --no-access-log --no-compression"
   },
   "workload": "chirp",
   "python_version": "3.14.2 free-threading build (main, Dec 17 2025, 21:08:58) [Clang 21.1.4 ]",

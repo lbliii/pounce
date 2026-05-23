@@ -110,9 +110,8 @@ def _stop_cli_server(proc: subprocess.Popen[bytes]) -> tuple[bytes, bytes]:
         return proc.communicate(timeout=6)
     except subprocess.TimeoutExpired:
         proc.kill()
-        stdout, stderr = proc.communicate(timeout=2)
+        proc.communicate(timeout=2)
         pytest.fail("pounce subprocess did not exit after SIGTERM")
-        return stdout, stderr
 
 
 @contextmanager
