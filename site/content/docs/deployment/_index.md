@@ -66,7 +66,7 @@ Monitoring, tracing, and error tracking for production.
 :icon: refresh-cw
 :link: ./lifecycle
 :description: Graceful reload, hot deploy, and shutdown
-Zero-downtime operations with connection draining.
+Mode-scoped reload and shutdown behavior with connection draining.
 :::{/card}
 
 :::{card} Backpressure

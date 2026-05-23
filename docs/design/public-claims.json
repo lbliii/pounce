@@ -8,7 +8,7 @@
       "files": ["README.md"],
       "patterns": ["req/s"],
       "proof": "README states the wrk command, workload, platform, and caveat that numbers are a snapshot.",
-      "notes": "Replace with benchmark artifact references before strengthening this claim."
+      "notes": "The runner can emit artifact metadata with --artifact-output; replace with actual artifact references before strengthening this claim."
     },
     {
       "id": "parser-microbenchmark-snapshot",
@@ -20,7 +20,7 @@
       ],
       "patterns": ["us per", "\u00b5s/req"],
       "proof": "Current docs explicitly call this a local parser microbenchmark snapshot.",
-      "notes": "Requires benchmark artifact metadata before promotion."
+      "notes": "Requires actual benchmark artifact references before promotion."
     },
     {
       "id": "static-file-helper-capability",
@@ -56,7 +56,7 @@
       "files": ["site/content/docs/features/lifecycle-logging.md"],
       "patterns": ["us overhead", "%"],
       "proof": "Docs label this as overhead guidance for deciding log volume.",
-      "notes": "Needs benchmark artifact before promotional use."
+      "notes": "Needs an actual benchmark artifact before promotional use."
     },
     {
       "id": "server-timing-every-response",

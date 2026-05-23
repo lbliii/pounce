@@ -27,6 +27,10 @@ WebSocket over HTTP/3 is not currently supported.
 pip install "bengal-pounce[h3]"
 ```
 
+If `bengal-zoomies` is missing, the HTTP/3 path fails with an install hint:
+`pip install bengal-pounce[h3]`. `pounce check` also reports the missing
+HTTP/3 stack when `http3_enabled` is configured without the extra installed.
+
 ## Enable
 
 ```python
@@ -63,3 +67,9 @@ pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem --http3
 - Malformed or contradictory pseudo-headers are rejected before ASGI scope construction.
 - `Alt-Svc` is advertised from HTTP/2 responses when HTTP/3 is enabled.
 - The built-in health endpoint and request ID handling match the HTTP/1.1 and HTTP/2 paths.
+- Lifespan state is passed into H3 ASGI scopes.
+- Reload/drain parity and benchmark artifacts remain explicit proof gates.
+
+Long term, H3 should graduate by proving the same reload/drain behavior as the
+TCP paths. Until then, keep H3 deployment language optional-limited rather than
+production-equivalent.

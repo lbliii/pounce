@@ -25,11 +25,17 @@ python benchmarks/run_benchmark.py --workload bengal --workers 1 --duration 10
 # Chirp/LB Sonic-shaped forum workload
 python benchmarks/run_benchmark.py --workload chirp --workers 4 --duration 30
 
+# Repeat each workload for artifact variance
+python benchmarks/run_benchmark.py --workload chirp --repeat 5 --artifact-output artifacts/chirp.json
+
 # Compare against uvicorn
 python benchmarks/run_benchmark.py --compare --workers 4
 
 # Save structured runner output as JSON
 python benchmarks/run_benchmark.py --workload all --output results.json
+
+# Save artifact-schema-compatible metadata for PR/release evidence
+python benchmarks/run_benchmark.py --workload chirp --artifact-output artifacts/chirp.json
 ```
 
 ### Workloads
@@ -39,8 +45,14 @@ python benchmarks/run_benchmark.py --workload all --output results.json
 | `hello` | `benchmarks.apps.hello:app` | Minimal hello-world (measures server overhead) |
 | `json` | `benchmarks.apps.json_app:app` | JSON response (pre-serialized) |
 | `echo` | `benchmarks.apps.echo:app` | POST body echo (1KB payload) |
-| `bengal` | `benchmarks.apps.bengal_static:app` | Bengal-shaped generated static site |
+| `bengal` | `benchmarks.apps.bengal_static:app` | Bengal-shaped generated static site home page |
+| `bengal_asset` | `benchmarks.apps.bengal_static:app` | Bengal-shaped generated static site CSS asset |
+| `bengal_feed` | `benchmarks.apps.bengal_static:app` | Bengal-shaped generated static site XML feed |
+| `bengal_post` | `benchmarks.apps.bengal_static:app` | Bengal-shaped generated static site post page |
 | `chirp` | `benchmarks.apps.chirp_forum:app` | Chirp/LB Sonic-shaped multi-tenant forum thread |
+| `chirp_asset` | `benchmarks.apps.chirp_forum:app` | Chirp/LB Sonic-shaped forum CSS asset |
+| `chirp_events` | `benchmarks.apps.chirp_forum:app` | Chirp/LB Sonic-shaped forum SSE first event |
+| `chirp_home` | `benchmarks.apps.chirp_forum:app` | Chirp/LB Sonic-shaped multi-tenant forum home |
 
 ### Runner Options
 
@@ -51,8 +63,10 @@ python benchmarks/run_benchmark.py --workload all --output results.json
 | `--duration` | `10` | Test duration in seconds |
 | `--threads` | `4` | Load generator thread count |
 | `--connections` | `100` | Concurrent connections |
+| `--repeat` | `1` | Repeat each workload and label each sample in the output |
 | `--compare` | off | Also benchmark uvicorn |
 | `--output` | none | Save structured runner output to JSON. This is not a benchmark artifact unless it contains the metadata required by `artifact-schema.json`. |
+| `--artifact-output` | none | Save artifact-schema-compatible metadata for PR/release evidence. |
 
 ## Benchmark Artifacts
 
@@ -61,8 +75,8 @@ snapshot caveat. Store benchmark artifacts as JSON that follows
 `benchmarks/artifact-schema.json`.
 
 The `run_benchmark.py --output` file is structured runner output. Treat it as a
-raw input for analysis unless it is extended or wrapped with every field required
-by `benchmarks/artifact-schema.json`.
+raw input for analysis. Use `--artifact-output` when a PR or release needs
+metadata shaped for `benchmarks/artifact-schema.json`.
 
 Required metadata:
 
@@ -75,38 +89,21 @@ Required metadata:
 - duration, connections, and load-generator threads
 - load tool and version
 - comparison target and version, when comparing
-- sample count and variance
-- raw output path
+- sample count and grouped variance by server, workload, and worker count
+- per-sample server RSS when the platform exposes it
+- raw load-tool stdout/stderr entries per sample
 - summary table
 
 If a doc or release note uses a number without an artifact, phrase it as a local
 snapshot, tuning example, or historical note. Do not promote it to a product
 claim.
 
-## Benchmark Artifacts
+Current local snapshot artifacts:
 
-Public numeric performance claims need a reproducible artifact or an explicit
-snapshot caveat. Store benchmark artifacts as JSON that follows
-`benchmarks/artifact-schema.json`.
-
-Required metadata:
-
-- command and server command
-- git SHA
-- workload
-- Python version and GIL mode
-- OS and hardware
-- worker mode and worker count
-- duration, connections, and load-generator threads
-- load tool and version
-- comparison target and version, when comparing
-- sample count and variance
-- raw output path
-- summary table
-
-If a doc or release note uses a number without an artifact, phrase it as a local
-snapshot, tuning example, or historical note. Do not promote it to a product
-claim.
+| Artifact | Scope | Caveat |
+|----------|-------|--------|
+| `benchmarks/artifacts/2026-05-22/bengal-pounce-local.json` | Bengal home page, pounce-only, 5 samples, 5s each | Local macOS/free-threaded run; use as investigation input, not a release claim. |
+| `benchmarks/artifacts/2026-05-22/chirp-pounce-local.json` | Chirp thread page, pounce-only, 5 samples, 5s each | Local macOS/free-threaded run; no uvicorn comparison. |
 
 ## Pytest Benchmarks
 

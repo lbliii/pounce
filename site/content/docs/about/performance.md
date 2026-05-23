@@ -49,7 +49,9 @@ The shared-memory architecture provides a fundamental advantage over fork-based 
 | 4 | ~1x app memory | ~4x app memory |
 | 8 | ~1x app memory | ~8x app memory |
 
-On Python 3.14t, all workers share the same interpreter, the same application object, and the same frozen configuration. Immutable data requires zero synchronization.
+On Python 3.14t, workers share the same interpreter, application object, and
+frozen server configuration. Pounce keeps request-local mutable state separate
+from shared server-owned objects.
 
 ## Compression
 
@@ -123,6 +125,19 @@ pounce bench --workers 4 --compare
 ```
 
 Reports throughput (req/s), latency percentiles (p50, p95, p99), error rates, and RSS memory usage.
+
+For PR or release evidence, use the repository benchmark runner and write an
+artifact metadata file:
+
+```bash
+python benchmarks/run_benchmark.py --workload chirp --repeat 5 --artifact-output artifacts/chirp.json
+```
+
+An artifact file records the command, server command, git SHA, Python/GIL mode,
+OS/hardware, workload, worker count, duration, connections, load tool, samples,
+grouped variance, best-effort server RSS, raw output, and summary. A single
+artifact sample is not enough for a regression claim; use repeated samples
+before promoting a number in README, site docs, or release notes.
 
 ## See Also
 

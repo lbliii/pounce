@@ -25,13 +25,23 @@ Prerequisites:
 
 import argparse
 import json
+import math
+import platform
 import re
 import signal
+import statistics
 import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+_COMMAND_ERRORS = (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired)
+_LOAD_TOOL_FIND_ERRORS = (FileNotFoundError, subprocess.TimeoutExpired)
+_LOAD_TOOL_VERSION_ERRORS = (FileNotFoundError, subprocess.TimeoutExpired)
+_RSS_PARSE_ERRORS = (IndexError, ValueError)
+_SERVER_START_RETRY_ERRORS = (ConnectionRefusedError, OSError)
+_UVICORN_COMPARISON_ERRORS = (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired)
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +61,10 @@ class BenchmarkResult:
     transfer_per_sec: str
     total_requests: int
     errors: int
+    sample_index: int = 1
+    server_rss_bytes: int | None = None
+    load_tool_stdout: str = ""
+    load_tool_stderr: str = ""
 
 
 @dataclass(slots=True)
@@ -89,9 +103,27 @@ WORKLOADS: dict[str, dict[str, str]] = {
     },
     "bengal": {
         "app": "benchmarks.apps.bengal_static:app",
-        "description": "Bengal-shaped generated static site",
+        "description": "Bengal-shaped generated static site home page",
         "method": "GET",
         "path": "/",
+    },
+    "bengal_asset": {
+        "app": "benchmarks.apps.bengal_static:app",
+        "description": "Bengal-shaped generated static site CSS asset",
+        "method": "GET",
+        "path": "/assets/site.css",
+    },
+    "bengal_feed": {
+        "app": "benchmarks.apps.bengal_static:app",
+        "description": "Bengal-shaped generated static site XML feed",
+        "method": "GET",
+        "path": "/feed.xml",
+    },
+    "bengal_post": {
+        "app": "benchmarks.apps.bengal_static:app",
+        "description": "Bengal-shaped generated static site post page",
+        "method": "GET",
+        "path": "/posts/launch/",
     },
     "chirp": {
         "app": "benchmarks.apps.chirp_forum:app",
@@ -99,7 +131,91 @@ WORKLOADS: dict[str, dict[str, str]] = {
         "method": "GET",
         "path": "/threads/1",
     },
+    "chirp_asset": {
+        "app": "benchmarks.apps.chirp_forum:app",
+        "description": "Chirp/LB Sonic-shaped forum CSS asset",
+        "method": "GET",
+        "path": "/assets/forum.css",
+    },
+    "chirp_events": {
+        "app": "benchmarks.apps.chirp_forum:app",
+        "description": "Chirp/LB Sonic-shaped forum SSE first event",
+        "method": "GET",
+        "path": "/events",
+    },
+    "chirp_home": {
+        "app": "benchmarks.apps.chirp_forum:app",
+        "description": "Chirp/LB Sonic-shaped multi-tenant forum home",
+        "method": "GET",
+        "path": "/",
+    },
 }
+
+
+def _benchmark_url(port: int, workload: str) -> str:
+    """Return the URL that exercises the configured workload path."""
+    path = WORKLOADS[workload].get("path", "/")
+    if not path.startswith("/"):
+        path = f"/{path}"
+    return f"http://127.0.0.1:{port}{path}"
+
+
+def _server_command(server: str, workload: str, port: int, workers: int) -> list[str]:
+    """Build the server command used for a benchmark run."""
+    wl = WORKLOADS[workload]
+    if server == "pounce":
+        return [
+            sys.executable,
+            "-m",
+            "pounce",
+            "serve",
+            "--app",
+            wl["app"],
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--workers",
+            str(workers),
+            "--no-access-log",
+            "--no-compression",
+        ]
+    if server == "uvicorn":
+        return [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            wl["app"],
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--workers",
+            str(workers),
+            "--no-access-log",
+        ]
+    msg = f"unknown benchmark server: {server}"
+    raise ValueError(msg)
+
+
+def _command_string(command: list[str]) -> str:
+    """Render a command list for artifact metadata."""
+    rendered = list(command)
+    if rendered:
+        executable = Path(rendered[0]).name
+        if executable.startswith("python"):
+            rendered[0] = executable
+    return " ".join(rendered)
+
+
+def _sample_plan(workloads: list[str], repeat: int) -> list[tuple[int, str]]:
+    """Return the ordered benchmark samples to run."""
+    if repeat < 1:
+        msg = "repeat must be >= 1"
+        raise ValueError(msg)
+    return [
+        (sample_index, workload) for sample_index in range(1, repeat + 1) for workload in workloads
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +244,7 @@ def _start_server(
             s = socket.create_connection(("127.0.0.1", port), timeout=0.5)
             s.close()
             return proc
-        except ConnectionRefusedError, OSError:
+        except _SERVER_START_RETRY_ERRORS:
             time.sleep(0.2)
             if proc.poll() is not None:
                 _, stderr = proc.communicate()
@@ -149,6 +265,28 @@ def _stop_server(proc: subprocess.Popen) -> None:
         proc.wait()
 
 
+def _process_rss_bytes(proc: subprocess.Popen) -> int | None:
+    """Return current process RSS in bytes when the platform exposes it."""
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "rss=", "-p", str(proc.pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+    except _COMMAND_ERRORS:
+        return None
+    output = result.stdout.strip()
+    if not output:
+        return None
+    try:
+        rss_kib = int(output.split()[0])
+    except _RSS_PARSE_ERRORS:
+        return None
+    return rss_kib * 1024
+
+
 # ---------------------------------------------------------------------------
 # wrk / hey detection and execution
 # ---------------------------------------------------------------------------
@@ -164,7 +302,7 @@ def _find_load_tool() -> str:
                 timeout=5,
             )
             return tool
-        except FileNotFoundError, subprocess.TimeoutExpired:
+        except _LOAD_TOOL_FIND_ERRORS:
             continue
     print(
         "Error: Neither 'wrk' nor 'hey' found on PATH.\n"
@@ -173,6 +311,24 @@ def _find_load_tool() -> str:
         file=sys.stderr,
     )
     sys.exit(1)
+
+
+def _load_tool_version(tool: str) -> str:
+    """Return best-effort load tool version metadata."""
+    for flag in ("--version", "-version", "--help"):
+        try:
+            result = subprocess.run(
+                [tool, flag],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except _LOAD_TOOL_VERSION_ERRORS:
+            continue
+        output = (result.stdout or result.stderr).strip().splitlines()
+        if output:
+            return output[0]
+    return "unknown"
 
 
 def _run_wrk(
@@ -194,7 +350,10 @@ def _run_wrk(
         url,
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=duration + 30)
-    return _parse_wrk_output(result.stdout)
+    parsed = _parse_wrk_output(result.stdout)
+    parsed["load_tool_stdout"] = result.stdout
+    parsed["load_tool_stderr"] = result.stderr
+    return parsed
 
 
 def _run_hey(
@@ -222,7 +381,10 @@ def _run_hey(
         cmd.extend(["-d", "x" * int(body_size)])
 
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=duration + 30)
-    return _parse_hey_output(result.stdout)
+    parsed = _parse_hey_output(result.stdout)
+    parsed["load_tool_stdout"] = result.stdout
+    parsed["load_tool_stderr"] = result.stderr
+    return parsed
 
 
 def _parse_wrk_output(output: str) -> dict:
@@ -354,6 +516,7 @@ def run_benchmark(
     connections: int,
     compare: bool,
     port: int = 8100,
+    sample_index: int = 1,
 ) -> list[BenchmarkResult]:
     """Run a benchmark for a single workload, optionally comparing servers."""
     wl = WORKLOADS[workload]
@@ -366,33 +529,21 @@ def run_benchmark(
 
     # --- Pounce ---
     print(f"\n  Starting pounce ({workload}, {workers} workers)...")
-    pounce_cmd = [
-        sys.executable,
-        "-m",
-        "pounce",
-        wl["app"],
-        "--host",
-        "127.0.0.1",
-        "--port",
-        str(port),
-        "--workers",
-        str(workers),
-        "--no-access-log",
-        "--no-compression",
-    ]
+    pounce_cmd = _server_command("pounce", workload, port, workers)
     pounce_proc = _start_server(pounce_cmd, port)
     time.sleep(0.5)
 
     try:
         print(f"  Running {tool} ({duration}s, {connections} connections)...")
         raw = runner(
-            f"http://127.0.0.1:{port}/",
+            _benchmark_url(port, workload),
             duration=duration,
             threads=threads,
             connections=connections,
             method=method,
             body_size=body_size,
         )
+        server_rss_bytes = _process_rss_bytes(pounce_proc)
         results.append(
             BenchmarkResult(
                 server="pounce",
@@ -401,6 +552,8 @@ def run_benchmark(
                 duration_s=duration,
                 threads=threads,
                 connections=connections,
+                sample_index=sample_index,
+                server_rss_bytes=server_rss_bytes,
                 **raw,
             )
         )
@@ -411,32 +564,22 @@ def run_benchmark(
     if compare:
         uvicorn_port = port + 1
         print(f"\n  Starting uvicorn ({workload}, {workers} workers)...")
-        uvicorn_cmd = [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            wl["app"],
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(uvicorn_port),
-            "--workers",
-            str(workers),
-            "--no-access-log",
-        ]
+        uvicorn_cmd = _server_command("uvicorn", workload, uvicorn_port, workers)
+        uvicorn_proc: subprocess.Popen | None = None
         try:
             uvicorn_proc = _start_server(uvicorn_cmd, uvicorn_port)
             time.sleep(0.5)
 
             print(f"  Running {tool} ({duration}s, {connections} connections)...")
             raw = runner(
-                f"http://127.0.0.1:{uvicorn_port}/",
+                _benchmark_url(uvicorn_port, workload),
                 duration=duration,
                 threads=threads,
                 connections=connections,
                 method=method,
                 body_size=body_size,
             )
+            server_rss_bytes = _process_rss_bytes(uvicorn_proc)
             results.append(
                 BenchmarkResult(
                     server="uvicorn",
@@ -445,12 +588,16 @@ def run_benchmark(
                     duration_s=duration,
                     threads=threads,
                     connections=connections,
+                    sample_index=sample_index,
+                    server_rss_bytes=server_rss_bytes,
                     **raw,
                 )
             )
-            _stop_server(uvicorn_proc)
-        except (RuntimeError, FileNotFoundError) as exc:
+        except _UVICORN_COMPARISON_ERRORS as exc:
             print(f"  Uvicorn comparison skipped: {exc}", file=sys.stderr)
+        finally:
+            if uvicorn_proc is not None and uvicorn_proc.poll() is None:
+                _stop_server(uvicorn_proc)
 
     return results
 
@@ -491,6 +638,198 @@ def save_json(suite: BenchmarkSuite, path: Path) -> None:
     print(f"\nResults saved to {path}")
 
 
+def _git_sha() -> str:
+    """Return the current git SHA if available."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+    except _COMMAND_ERRORS:
+        return "unknown"
+    return result.stdout.strip()
+
+
+def _python_gil_mode() -> str:
+    """Return whether this Python build currently has the GIL enabled."""
+    is_gil_enabled = getattr(sys, "_is_gil_enabled", None)
+    if callable(is_gil_enabled):
+        return "gil-enabled" if is_gil_enabled() else "free-threaded"
+    return "unknown"
+
+
+def _server_version(module: str) -> str:
+    """Return best-effort comparison server version metadata."""
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", module, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except _COMMAND_ERRORS:
+        return "unknown"
+    output = (result.stdout or result.stderr).strip().splitlines()
+    if output:
+        return output[0]
+    return "unknown"
+
+
+def _artifact_samples(results: list[dict]) -> list[dict]:
+    """Return parsed sample rows without verbose raw load-tool streams."""
+    raw_fields = {"load_tool_stdout", "load_tool_stderr"}
+    return [{key: value for key, value in row.items() if key not in raw_fields} for row in results]
+
+
+def _raw_output_entries(results: list[dict], load_tool: str) -> list[dict]:
+    """Return raw load-tool output entries for artifact evidence."""
+    return [
+        {
+            "server": row.get("server", "unknown"),
+            "workload": row.get("workload", "unknown"),
+            "workers": row.get("workers", 0),
+            "sample_index": row.get("sample_index", 1),
+            "load_tool": load_tool,
+            "stdout": row.get("load_tool_stdout", ""),
+            "stderr": row.get("load_tool_stderr", ""),
+        }
+        for row in results
+    ]
+
+
+def _nearest_rank(values: list[float], percentile: int) -> float:
+    """Return a nearest-rank percentile for repeated benchmark samples."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    rank = max(1, math.ceil((percentile / 100) * len(ordered)))
+    return ordered[min(rank, len(ordered)) - 1]
+
+
+def _metric_summary(rows: list[dict], metric: str) -> dict:
+    """Summarize a numeric benchmark metric across repeated samples."""
+    values = [float(row.get(metric, 0.0)) for row in rows]
+    if not values:
+        return {
+            "min": 0.0,
+            "median": 0.0,
+            "p95": 0.0,
+            "max": 0.0,
+            "variance": 0.0,
+        }
+    return {
+        "min": min(values),
+        "median": statistics.median(values),
+        "p95": _nearest_rank(values, 95),
+        "max": max(values),
+        "variance": statistics.pvariance(values) if len(values) > 1 else 0.0,
+    }
+
+
+def _group_sample_summaries(samples: list[dict]) -> list[dict]:
+    """Group benchmark samples into artifact-ready summaries."""
+    groups: dict[tuple[str, str, int], list[dict]] = {}
+    for sample in samples:
+        key = (
+            str(sample.get("server", "unknown")),
+            str(sample.get("workload", "unknown")),
+            int(sample.get("workers", 0)),
+        )
+        groups.setdefault(key, []).append(sample)
+
+    summaries = []
+    for (server, workload, workers), rows in sorted(groups.items()):
+        rss_rows = [row for row in rows if row.get("server_rss_bytes") is not None]
+        summaries.append(
+            {
+                "server": server,
+                "workload": workload,
+                "workers": workers,
+                "sample_count": len(rows),
+                "req_per_sec": _metric_summary(rows, "req_per_sec"),
+                "p99_latency_ms": _metric_summary(rows, "p99_latency_ms"),
+                "server_rss_bytes": _metric_summary(rss_rows, "server_rss_bytes")
+                if rss_rows
+                else None,
+                "errors_total": sum(int(row.get("errors", 0)) for row in rows),
+            }
+        )
+    return summaries
+
+
+def build_artifact(
+    suite: BenchmarkSuite,
+    *,
+    command: list[str],
+    workload: str,
+    workers: int,
+    duration: int,
+    connections: int,
+    threads: int,
+    load_tool: str,
+    load_tool_version: str,
+    compare: bool,
+    port: int = 8100,
+) -> dict:
+    """Build JSON metadata matching benchmarks/artifact-schema.json."""
+    created_at = suite.timestamp or time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    samples = _artifact_samples(suite.results)
+    summaries = _group_sample_summaries(samples)
+    server_commands: dict[str, str] = {}
+    workloads = list(WORKLOADS) if workload == "all" else [workload]
+    for wl in workloads:
+        server_commands[f"pounce:{wl}"] = _command_string(
+            _server_command("pounce", wl, port, workers)
+        )
+        if compare:
+            server_commands[f"uvicorn:{wl}"] = _command_string(
+                _server_command("uvicorn", wl, port + 1, workers)
+            )
+
+    return {
+        "artifact_id": f"pounce-{workload}-{created_at.replace(':', '').replace('+', '-')}",
+        "created_at": created_at,
+        "git_sha": _git_sha(),
+        "command": _command_string(command),
+        "server_command": server_commands,
+        "workload": workload,
+        "python_version": suite.python_version or sys.version,
+        "python_gil_mode": _python_gil_mode(),
+        "os": suite.platform or platform.platform(),
+        "hardware": f"{platform.machine()} {platform.processor()}".strip(),
+        "worker_mode": "auto",
+        "workers": workers,
+        "duration_seconds": duration,
+        "connections": connections,
+        "threads": threads,
+        "load_tool": load_tool,
+        "load_tool_version": load_tool_version,
+        "comparison_target": "uvicorn" if compare else None,
+        "comparison_target_version": _server_version("uvicorn") if compare else None,
+        "samples": samples,
+        "variance": {
+            "sample_count": len(samples),
+            "groups": summaries,
+            "note": "sample groups with sample_count < 2 are snapshots, not regression evidence",
+        },
+        "raw_output": _raw_output_entries(suite.results, load_tool),
+        "summary": {
+            "groups": summaries,
+            "results": samples,
+        },
+    }
+
+
+def save_artifact(artifact: dict, path: Path) -> None:
+    """Save a benchmark artifact JSON file."""
+    path.write_text(json.dumps(artifact, indent=2) + "\n")
+    print(f"\nBenchmark artifact saved to {path}")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -516,12 +855,24 @@ def main() -> None:
         "--connections", type=int, default=100, help="Concurrent connections (default: 100)"
     )
     parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="Repeat each workload this many times (default: 1)",
+    )
+    parser.add_argument(
         "--compare", action="store_true", help="Also benchmark uvicorn for comparison"
     )
     parser.add_argument("--output", type=str, default=None, help="Save results to JSON file")
+    parser.add_argument(
+        "--artifact-output",
+        type=str,
+        default=None,
+        help="Save artifact-schema-compatible metadata JSON",
+    )
     args = parser.parse_args()
-
-    import platform
+    if args.repeat < 1:
+        parser.error("--repeat must be >= 1")
 
     suite = BenchmarkSuite(
         timestamp=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -535,11 +886,14 @@ def main() -> None:
     print("Pounce Benchmark Suite")
     print(f"Python: {sys.version.split()[0]}")
     print(f"Platform: {platform.platform()}")
-    print(f"Tool: {_find_load_tool()}")
+    load_tool = _find_load_tool()
+    print(f"Tool: {load_tool}")
 
-    for wl in workloads:
+    for sample_index, wl in _sample_plan(workloads, args.repeat):
         print(f"\n{'=' * 60}")
         print(f"Workload: {wl} — {WORKLOADS[wl]['description']}")
+        if args.repeat > 1:
+            print(f"Sample: {sample_index}/{args.repeat}")
         print(f"{'=' * 60}")
 
         results = run_benchmark(
@@ -549,6 +903,7 @@ def main() -> None:
             threads=args.threads,
             connections=args.connections,
             compare=args.compare,
+            sample_index=sample_index,
         )
         all_results.extend(results)
 
@@ -558,6 +913,21 @@ def main() -> None:
 
     if args.output:
         save_json(suite, Path(args.output))
+
+    if args.artifact_output:
+        artifact = build_artifact(
+            suite,
+            command=[sys.executable, *sys.argv],
+            workload=args.workload,
+            workers=args.workers,
+            duration=args.duration,
+            connections=args.connections,
+            threads=args.threads,
+            load_tool=load_tool,
+            load_tool_version=_load_tool_version(load_tool),
+            compare=args.compare,
+        )
+        save_artifact(artifact, Path(args.artifact_output))
 
 
 if __name__ == "__main__":

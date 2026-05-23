@@ -25,5 +25,5 @@
     "raw_output",
     "summary"
   ],
-  "notes": "Public numeric performance claims must reference an artifact with these fields or explicitly state that the number is a local snapshot or tuning example, not a product claim."
+  "notes": "Public numeric performance claims must reference an artifact with these fields, raw load-tool output entries, and repeated grouped variance, or explicitly state that the number is a local snapshot or tuning example, not a product claim."
 }

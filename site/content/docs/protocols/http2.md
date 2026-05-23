@@ -18,6 +18,9 @@ HTTP/2 support is provided via the `h2` library. Install the extra:
 uv add "bengal-pounce[h2]"
 ```
 
+If the extra is missing, the HTTP/2 path fails with an install hint:
+`pip install bengal-pounce[h2]`.
+
 HTTP/2 provides:
 
 - **Stream multiplexing** — Multiple requests over a single TCP connection

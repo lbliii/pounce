@@ -9,12 +9,12 @@
 **Current-state note:** Sections below preserve the February 2026 aioquic
 research and original deferral recommendation. They are historical context, not
 the active implementation plan or a Pounce production-readiness claim. Current
-HTTP/3 work should follow [core-contract.md](core-contract.md),
-[protocol-proof-ledger.json](protocol-proof-ledger.json), and
-[../plans/ironclad-bengal-chirp.md](../plans/ironclad-bengal-chirp.md). The
-remaining HTTP/3 gates are reload/drain behavior, transport documentation,
-representative workload proof, and reproducible benchmarks before broad
-production claims.
+HTTP/3 work should focus on the remaining zoomies parity gates: reload/drain
+behavior and reproducible benchmark artifacts before broad production claims.
+Lifespan-state handoff is covered by current H3 bridge and handler tests. See
+[core-contract.md](core-contract.md) and
+[protocol-proof-ledger.json](protocol-proof-ledger.json) for the active support
+boundary.
 
 ## Executive Summary
 
@@ -31,14 +31,13 @@ implemented with zoomies.
 - ✅ **Browser support** is universal (Chrome, Firefox, Safari, Edge all support HTTP/3 by default)
 - ✅ **Performance gains** are significant on mobile/high-latency networks (12-52% improvement)
 - ⚠️ **Architectural complexity** is high (UDP vs TCP, different worker model, ALPN negotiation)
-- ⚠️ **Adoption priority** is lower than completing representative
-  Bengal/Chirp proof and reload/drain gates
-- ✅ **Current integration path** uses zoomies, not aioquic
+- ⚠️ **Adoption priority** is lower than closing the remaining zoomies parity
+  gates named in the protocol proof ledger
+- ✅ **Current integration path** is zoomies, not aioquic
 
 **Historical recommendation:** Complete Phase 5b first, then implement HTTP/3 in
-Phase 5c with `protocols/h3.py` and UDP worker support. That sequence is closed:
-HTTP/3 now exists through zoomies. Current work should use the current-state
-note above instead.
+Phase 5c with `protocols/h3.py` and UDP worker support. Current work should use
+the current-state note above instead.
 
 ## Technical Background
 
@@ -98,7 +97,11 @@ note above instead.
 - **Independent streams** — no head-of-line blocking across streams
 - **Flexible congestion control** — pluggable algorithms (NewReno, BBR, Cubic)
 
-## Current State Analysis
+## Historical aioquic Evaluation
+
+This section records the library and ecosystem scan from the original roadmap.
+It is not the current Pounce implementation state. Current Pounce HTTP/3 support
+uses zoomies and is bounded by `protocol-proof-ledger.json`.
 
 ### aioquic Library
 
@@ -157,9 +160,10 @@ class H3Protocol(QuicConnectionProtocol):
 - [Can I Use: HTTP/3](https://caniuse.com/http3)
 - [Browser support for HTTP/3 QUIC](https://mybyways.com/blog/browser-support-for-http3-quic)
 
-### Existing ASGI Servers
+### Existing ASGI Servers At The Time Of Research
 
-**Hypercorn** is currently the **only** ASGI server with HTTP/3 support:
+At the time this research was written, **Hypercorn** was the notable ASGI
+server with HTTP/3 support:
 
 ```bash
 pip install hypercorn[h3]  # Installs aioquic dependency
@@ -172,13 +176,17 @@ hypercorn --quic-bind 0.0.0.0:443 myapp:app
 - ALPN negotiation to select protocol
 - Certificate required (TLS 1.3 mandatory for QUIC)
 
-**Competitive gap:**
+**Historical competitive snapshot:**
 - Uvicorn: ❌ No HTTP/3 support
 - Gunicorn: ❌ No HTTP/3 support
 - Hypercorn: ✅ HTTP/3 supported
-- **pounce:** ⏳ Planned for Phase 5c
+- **pounce:** Now optional, limited-parity HTTP/3 support through zoomies
 
-## Architectural Design
+## Historical Architectural Design
+
+This section is the original aioquic-oriented design sketch. It is preserved for
+decision history only. Do not treat it as the shipped architecture, config
+schema, or active implementation plan.
 
 ### High-Level Architecture
 
@@ -287,7 +295,7 @@ priority: u=0, i  # Urgency 0, incremental
 
 **Implementation:** aioquic handles priority parsing; pounce can expose via ASGI scope.
 
-### Proposed Architecture
+### Historical Proposed Architecture
 
 #### File Structure
 
@@ -296,9 +304,9 @@ src/pounce/
 ├── protocols/
 │   ├── h1.py          # Existing HTTP/1.1
 │   ├── h2_protocol.py # Existing HTTP/2
-│   └── h3.py          # NEW: HTTP/3 protocol (Phase 5c)
+│   └── h3.py          # Historical proposal
 ├── worker.py          # Current TCP worker
-├── h3_worker.py       # NEW: UDP/QUIC worker (Phase 5c)
+├── h3_worker.py       # Historical proposal; current code uses H3Worker
 ├── server.py          # Server orchestration
 └── supervisor.py      # Worker supervision
 ```
@@ -312,7 +320,7 @@ def run(self):
     # Existing TCP socket for H1/H2
     tcp_sock = self._bind_tcp_socket(self._config.host, self._config.port)
 
-    # NEW: UDP socket for H3 (if enabled)
+    # Historical proposal: UDP socket for H3 (if enabled)
     if self._config.http3_enabled:
         udp_sock = self._bind_udp_socket(self._config.host, self._config.port)
         # Spawn H3 workers
@@ -326,7 +334,7 @@ def run(self):
 ```python
 # TLS context (already exists, needs update)
 ssl_context.set_alpn_protocols(["h3", "h2", "http/1.1"])
-#                                ^^^^ NEW: advertise HTTP/3
+#                                ^^^^ historical proposal: advertise HTTP/3
 ```
 
 **3. Alt-Svc header:**
@@ -402,14 +410,18 @@ class H3ServerProtocol(QuicConnectionProtocol):
         await self._app(scope, receive, send)
 ```
 
-### Configuration
+### Historical Configuration Sketch
+
+These fields are not a current `ServerConfig` contract. Validate current
+configuration against `src/pounce/config.py`, `_config_file.py`, and
+`_config_schema.py` before documenting or implementing config behavior.
 
 ```python
 @dataclass(frozen=True, slots=True)
 class ServerConfig:
     # ... existing fields ...
 
-    # HTTP/3 configuration (Phase 5c)
+    # Historical HTTP/3 configuration sketch
     http3_enabled: bool = False  # Enable HTTP/3/QUIC support
     http3_max_connections: int = 10_000  # Max concurrent QUIC connections
     http3_idle_timeout: float = 30.0  # QUIC idle timeout (seconds)
@@ -532,7 +544,11 @@ if scope["method"] in ["POST", "PUT", "DELETE"] and is_0rtt:
 - **Large file downloads** (>1 MB) — TCP congestion control is well-tuned
 - **Localhost/LAN** — minimal benefit, slight overhead
 
-### Expected pounce Performance
+### Historical aioquic Performance Assumptions
+
+These estimates are preserved as historical research only. They are not current
+Pounce benchmark claims, and they do not describe the shipped zoomies backend.
+Current public performance wording must cite reproducible benchmark artifacts.
 
 **Assumptions:**
 - aioquic pure-Python implementation (~30% slower than native)
@@ -548,7 +564,7 @@ if scope["method"] in ["POST", "PUT", "DELETE"] and is_0rtt:
 
 ## Roadmap
 
-### Current State — Zoomies Implementation
+### Current Proof Roadmap — Zoomies Implementation
 
 **Status:** Implemented as optional, limited-parity HTTP/3 support.
 
@@ -584,7 +600,7 @@ prove and document the limited-parity support boundary:
 3. Publish only benchmark numbers tied to reproducible artifacts.
 4. Keep protocol feature tables aligned with the proof ledger.
 
-## Prototype Considerations
+## Historical Prototype Considerations
 
 This section is historical aioquic research. It is retained because it explains
 the original evaluation path, but it is not an implementation recipe for current
@@ -692,14 +708,19 @@ benefits for mobile and high-latency networks. The aioquic foundation described
 above is historical research; Pounce's current HTTP/3 support boundary is the
 zoomies implementation and the parity gates named at the top of this document.
 
-**For Pounce:** HTTP/3 remains optional and limited-parity until the proof above
-is complete.
+**For pounce:**
+- **Current implementation:** Optional HTTP/3 via `bengal-zoomies`.
+- **Current status:** Optional-limited until reload/drain and benchmark evidence
+  match the claim level in `protocol-proof-ledger.json`.
+- **Expected outcome:** Keep H3 useful and explicit without presenting it as
+  production-equivalent to the TCP paths before proof exists.
+
+The path forward is clear, technically feasible, and bounded by proof.
 
 ---
 
 **Next Steps:**
-1. Keep the protocol proof ledger current.
-2. Add reload/drain proof for H3 where production claims require it.
-3. Validate performance assumptions with reproducible benchmark artifacts.
-4. Keep public docs scoped to optional, limited-parity support until those gates
-   close.
+1. Add H3 reload/drain parity proof or document explicit exceptions.
+2. Produce benchmark artifacts for H3 workloads before public performance claims.
+3. Keep this historical roadmap secondary to `core-contract.md` and
+   `protocol-proof-ledger.json`.

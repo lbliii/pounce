@@ -1,0 +1,315 @@
+{
+  "artifact_id": "pounce-bengal-2026-05-22T151631-0400",
+  "created_at": "2026-05-22T15:16:31-0400",
+  "git_sha": "f008a32515443c7ea4f3b42a264dcf66a8a1150e",
+  "command": "python benchmarks/run_benchmark.py --workload bengal --workers 1 --duration 5 --threads 4 --connections 50 --repeat 5 --artifact-output benchmarks/artifacts/2026-05-22/bengal-pounce-local.json",
+  "server_command": {
+    "pounce:bengal": "python -m pounce serve --app benchmarks.apps.bengal_static:app --host 127.0.0.1 --port 8100 --workers 1 --no-access-log --no-compression"
+  },
+  "workload": "bengal",
+  "python_version": "3.14.2 free-threading build (main, Dec 17 2025, 21:08:58) [Clang 21.1.4 ]",
+  "python_gil_mode": "free-threaded",
+  "os": "macOS-26.3.1-arm64-arm-64bit-Mach-O",
+  "hardware": "arm64 arm",
+  "worker_mode": "auto",
+  "workers": 1,
+  "duration_seconds": 5,
+  "connections": 50,
+  "threads": 4,
+  "load_tool": "wrk",
+  "load_tool_version": "wrk 4.2.0 [kqueue] Copyright (C) 2012 Will Glozer",
+  "comparison_target": null,
+  "comparison_target_version": null,
+  "samples": [
+    {
+      "server": "pounce",
+      "workload": "bengal",
+      "workers": 1,
+      "duration_s": 5,
+      "threads": 4,
+      "connections": 50,
+      "req_per_sec": 9.51,
+      "avg_latency_ms": 186.32,
+      "p50_latency_ms": 199.24,
+      "p99_latency_ms": 231.75,
+      "transfer_per_sec": "6.94KB",
+      "total_requests": 48,
+      "errors": 0,
+      "sample_index": 1,
+      "server_rss_bytes": 63602688
+    },
+    {
+      "server": "pounce",
+      "workload": "bengal",
+      "workers": 1,
+      "duration_s": 5,
+      "threads": 4,
+      "connections": 50,
+      "req_per_sec": 9.51,
+      "avg_latency_ms": 26.64,
+      "p50_latency_ms": 26.27,
+      "p99_latency_ms": 33.35,
+      "transfer_per_sec": "6.94KB",
+      "total_requests": 48,
+      "errors": 0,
+      "sample_index": 2,
+      "server_rss_bytes": 62488576
+    },
+    {
+      "server": "pounce",
+      "workload": "bengal",
+      "workers": 1,
+      "duration_s": 5,
+      "threads": 4,
+      "connections": 50,
+      "req_per_sec": 9.5,
+      "avg_latency_ms": 17.0,
+      "p50_latency_ms": 17.33,
+      "p99_latency_ms": 18.79,
+      "transfer_per_sec": "6.93KB",
+      "total_requests": 48,
+      "errors": 0,
+      "sample_index": 3,
+      "server_rss_bytes": 60473344
+    },
+    {
+      "server": "pounce",
+      "workload": "bengal",
+      "workers": 1,
+      "duration_s": 5,
+      "threads": 4,
+      "connections": 50,
+      "req_per_sec": 9.47,
+      "avg_latency_ms": 17.63,
+      "p50_latency_ms": 18.06,
+      "p99_latency_ms": 19.86,
+      "transfer_per_sec": "6.91KB",
+      "total_requests": 48,
+      "errors": 0,
+      "sample_index": 4,
+      "server_rss_bytes": 59768832
+    },
+    {
+      "server": "pounce",
+      "workload": "bengal",
+      "workers": 1,
+      "duration_s": 5,
+      "threads": 4,
+      "connections": 50,
+      "req_per_sec": 9.49,
+      "avg_latency_ms": 24.52,
+      "p50_latency_ms": 24.15,
+      "p99_latency_ms": 31.15,
+      "transfer_per_sec": "6.92KB",
+      "total_requests": 48,
+      "errors": 0,
+      "sample_index": 5,
+      "server_rss_bytes": 60473344
+    }
+  ],
+  "variance": {
+    "sample_count": 5,
+    "groups": [
+      {
+        "server": "pounce",
+        "workload": "bengal",
+        "workers": 1,
+        "sample_count": 5,
+        "req_per_sec": {
+          "min": 9.47,
+          "median": 9.5,
+          "p95": 9.51,
+          "max": 9.51,
+          "variance": 0.00022399999999999046
+        },
+        "p99_latency_ms": {
+          "min": 18.79,
+          "median": 31.15,
+          "p95": 231.75,
+          "max": 231.75,
+          "variance": 6821.29784
+        },
+        "server_rss_bytes": {
+          "min": 59768832.0,
+          "median": 60473344.0,
+          "p95": 63602688.0,
+          "max": 63602688.0,
+          "variance": 2081491475496.96
+        },
+        "errors_total": 0
+      }
+    ],
+    "note": "sample groups with sample_count < 2 are snapshots, not regression evidence"
+  },
+  "raw_output": [
+    {
+      "server": "pounce",
+      "workload": "bengal",
+      "workers": 1,
+      "sample_index": 1,
+      "load_tool": "wrk",
+      "stdout": "",
+      "stderr": "",
+      "note": "raw load-tool output was not captured by the runner version used for this local snapshot"
+    },
+    {
+      "server": "pounce",
+      "workload": "bengal",
+      "workers": 1,
+      "sample_index": 2,
+      "load_tool": "wrk",
+      "stdout": "",
+      "stderr": "",
+      "note": "raw load-tool output was not captured by the runner version used for this local snapshot"
+    },
+    {
+      "server": "pounce",
+      "workload": "bengal",
+      "workers": 1,
+      "sample_index": 3,
+      "load_tool": "wrk",
+      "stdout": "",
+      "stderr": "",
+      "note": "raw load-tool output was not captured by the runner version used for this local snapshot"
+    },
+    {
+      "server": "pounce",
+      "workload": "bengal",
+      "workers": 1,
+      "sample_index": 4,
+      "load_tool": "wrk",
+      "stdout": "",
+      "stderr": "",
+      "note": "raw load-tool output was not captured by the runner version used for this local snapshot"
+    },
+    {
+      "server": "pounce",
+      "workload": "bengal",
+      "workers": 1,
+      "sample_index": 5,
+      "load_tool": "wrk",
+      "stdout": "",
+      "stderr": "",
+      "note": "raw load-tool output was not captured by the runner version used for this local snapshot"
+    }
+  ],
+  "summary": {
+    "groups": [
+      {
+        "server": "pounce",
+        "workload": "bengal",
+        "workers": 1,
+        "sample_count": 5,
+        "req_per_sec": {
+          "min": 9.47,
+          "median": 9.5,
+          "p95": 9.51,
+          "max": 9.51,
+          "variance": 0.00022399999999999046
+        },
+        "p99_latency_ms": {
+          "min": 18.79,
+          "median": 31.15,
+          "p95": 231.75,
+          "max": 231.75,
+          "variance": 6821.29784
+        },
+        "server_rss_bytes": {
+          "min": 59768832.0,
+          "median": 60473344.0,
+          "p95": 63602688.0,
+          "max": 63602688.0,
+          "variance": 2081491475496.96
+        },
+        "errors_total": 0
+      }
+    ],
+    "results": [
+      {
+        "server": "pounce",
+        "workload": "bengal",
+        "workers": 1,
+        "duration_s": 5,
+        "threads": 4,
+        "connections": 50,
+        "req_per_sec": 9.51,
+        "avg_latency_ms": 186.32,
+        "p50_latency_ms": 199.24,
+        "p99_latency_ms": 231.75,
+        "transfer_per_sec": "6.94KB",
+        "total_requests": 48,
+        "errors": 0,
+        "sample_index": 1,
+        "server_rss_bytes": 63602688
+      },
+      {
+        "server": "pounce",
+        "workload": "bengal",
+        "workers": 1,
+        "duration_s": 5,
+        "threads": 4,
+        "connections": 50,
+        "req_per_sec": 9.51,
+        "avg_latency_ms": 26.64,
+        "p50_latency_ms": 26.27,
+        "p99_latency_ms": 33.35,
+        "transfer_per_sec": "6.94KB",
+        "total_requests": 48,
+        "errors": 0,
+        "sample_index": 2,
+        "server_rss_bytes": 62488576
+      },
+      {
+        "server": "pounce",
+        "workload": "bengal",
+        "workers": 1,
+        "duration_s": 5,
+        "threads": 4,
+        "connections": 50,
+        "req_per_sec": 9.5,
+        "avg_latency_ms": 17.0,
+        "p50_latency_ms": 17.33,
+        "p99_latency_ms": 18.79,
+        "transfer_per_sec": "6.93KB",
+        "total_requests": 48,
+        "errors": 0,
+        "sample_index": 3,
+        "server_rss_bytes": 60473344
+      },
+      {
+        "server": "pounce",
+        "workload": "bengal",
+        "workers": 1,
+        "duration_s": 5,
+        "threads": 4,
+        "connections": 50,
+        "req_per_sec": 9.47,
+        "avg_latency_ms": 17.63,
+        "p50_latency_ms": 18.06,
+        "p99_latency_ms": 19.86,
+        "transfer_per_sec": "6.91KB",
+        "total_requests": 48,
+        "errors": 0,
+        "sample_index": 4,
+        "server_rss_bytes": 59768832
+      },
+      {
+        "server": "pounce",
+        "workload": "bengal",
+        "workers": 1,
+        "duration_s": 5,
+        "threads": 4,
+        "connections": 50,
+        "req_per_sec": 9.49,
+        "avg_latency_ms": 24.52,
+        "p50_latency_ms": 24.15,
+        "p99_latency_ms": 31.15,
+        "transfer_per_sec": "6.92KB",
+        "total_requests": 48,
+        "errors": 0,
+        "sample_index": 5,
+        "server_rss_bytes": 60473344
+      }
+    ]
+  }
+}

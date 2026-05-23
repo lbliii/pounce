@@ -6,7 +6,7 @@ weight: 30
 lang: en
 type: doc
 tags: [thread-safety, free-threading, nogil]
-keywords: [thread-safety, free-threading, nogil, frozen, immutable, shared state]
+keywords: [thread-safety, free-threading, nogil, frozen, shared state]
 category: explanation
 ---
 
@@ -17,18 +17,18 @@ Python 3.14t (PEP 703) removes the Global Interpreter Lock. For the first time, 
 - **GIL builds**: Multi-worker means multi-process (fork). Each process has its own memory space. Thread safety is irrelevant between workers.
 - **Free-threading builds**: Multi-worker means multi-thread. All workers share one memory space. Thread safety matters.
 
-Pounce is designed for the free-threading world. The key principle: **shared data is immutable, mutable data is per-request**.
+Pounce is designed for the free-threading world. The key principle: **server-owned shared configuration is frozen, mutable request data is per-request**.
 
-## What's Shared (Immutable)
+## What's Shared
 
-These are shared across all worker threads with zero synchronization:
+These are shared across worker threads without mutating the shared object:
 
 | Data | Type | Why It's Safe |
 |------|------|---------------|
-| `ServerConfig` | `@dataclass(frozen=True)` | Immutable after creation |
-| Application reference | Function/class | Read-only reference |
+| `ServerConfig` | `@dataclass(frozen=True)` | Frozen after creation |
+| Application reference | Function/class | Shared callable reference |
 | Socket objects | OS-managed | Kernel handles concurrent accept |
-| Protocol constants | Module-level `frozenset`/`tuple` | Immutable collections |
+| Protocol constants | Module-level `frozenset`/`tuple` | Frozen collections |
 
 `ServerConfig` uses `frozen=True` and `slots=True` — any attempt to mutate it raises `FrozenInstanceError`.
 

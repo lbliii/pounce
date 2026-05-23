@@ -29,7 +29,7 @@ show_recent_posts: false
 **Pure Python. Frozen config. True parallelism.**
 
 Pounce is a pure-Python ASGI server for Python 3.14t with a low-overhead
-HTTP/1.1 fast path, immutable shared server config, and thread-worker reload
+HTTP/1.1 fast path, a frozen shared `ServerConfig`, and thread-worker reload
 draining. No C extensions in the server core.
 
 ```python
@@ -49,7 +49,7 @@ pounce.run("myapp:app")
 :::{card} Free-Threading Native
 :icon: cpu
 True OS thread parallelism on Python 3.14t. N workers share one interpreter with
-frozen immutable server configuration.
+a frozen server configuration object.
 :::{/card}
 
 :::{card} Fast-Path Parsing

@@ -64,7 +64,8 @@ Yes. Pounce sends `lifespan.startup` and `lifespan.shutdown` events per the ASGI
 On Python 3.14t, the GIL is removed. Threads can execute Python code in true parallel. Threads sharing one interpreter means:
 
 - **One copy of the app** — not N copies
-- **Shared immutable data** — frozen config, route tables, templates
+- **Shared frozen configuration** — one `ServerConfig` object, with
+  per-request mutable state kept separate
 - **No IPC overhead** — workers communicate through memory, not pipes
 
 ### What's the overhead of Pounce vs raw asyncio?

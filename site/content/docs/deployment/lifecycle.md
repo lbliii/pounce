@@ -19,7 +19,8 @@ service reject new connections.
 
 ## Graceful Reload (SIGHUP)
 
-Send SIGHUP to perform a rolling restart with fresh code:
+On supported multi-worker thread and subinterpreter paths, send SIGHUP to
+perform a rolling restart with fresh code:
 
 ```bash
 kill -HUP <pid>
@@ -43,6 +44,13 @@ Time 5s:   [Worker-4] [Worker-5] [Worker-6] [Worker-7]  (Gen 1 only)
 
 If the reimport fails, pounce logs the error and continues with the old code
 instead of swapping to the failed generation.
+
+HTTP/3 uses a separate UDP/QUIC listener. Treat H3 reload/drain as limited until
+the protocol proof ledger records parity for that path.
+
+Current subprocess proof covers SIGTERM clean exit and SIGHUP recovery to
+serving traffic. It does not yet prove mixed active-request drain behavior under
+load, so avoid describing reload as lossless across all modes and protocols.
 
 ### Configuration
 
@@ -135,6 +143,8 @@ TimeoutStopSec=40s
 | Recommendation | Production | Acceptable for dev |
 
 Thread mode requires Python 3.14t (free-threading). Process mode falls back to stop-all-then-start.
+Subinterpreter reload is explicit and beta-scoped; validate dependency
+compatibility before relying on it for production deploys.
 
 ## Troubleshooting
 

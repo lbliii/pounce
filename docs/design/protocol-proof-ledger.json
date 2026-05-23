@@ -19,10 +19,10 @@
       "proof": [
         "tests/unit/test_h2_protocol.py",
         "tests/unit/test_h2_bridge.py",
-        "tests/unit/test_h2_handler.py"
+        "tests/unit/test_h2_handler.py",
+        "tests/unit/test_optional_protocol_diagnostics.py"
       ],
       "gaps": [
-        "missing-extra diagnostics test",
         "operator output parity for h2 availability"
       ]
     },
@@ -32,24 +32,23 @@
       "proof": [
         "tests/unit/test_ws_protocol.py",
         "tests/unit/test_websocket_compression.py",
-        "tests/integration/test_websocket_compression_integration.py"
+        "tests/integration/test_websocket_compression_integration.py",
+        "tests/unit/test_optional_protocol_diagnostics.py"
       ],
-      "gaps": [
-        "missing-extra deterministic HTTP/1 WebSocket response"
-      ]
+      "gaps": []
     },
     "websocket_h2": {
       "status": "optional-limited",
       "install": "bengal-pounce[h2] + bengal-pounce[ws]",
       "proof": [
         "src/pounce/_h2_handler.py",
-        "src/pounce/asgi/h2_bridge.py"
+        "src/pounce/asgi/h2_bridge.py",
+        "tests/unit/test_optional_protocol_diagnostics.py"
       ],
       "gaps": [
         "defer 200 response until ASGI websocket.accept",
         "reject-before-accept integration test",
-        "stream reset and disconnect integration test",
-        "missing-extra deterministic H2 response or reset"
+        "stream reset and disconnect integration test"
       ]
     },
     "http3": {
@@ -60,14 +59,12 @@
         "tests/integration/test_http3.py",
         "tests/unit/test_h3_bridge.py",
         "tests/unit/test_h3_handler.py",
-        "tests/unit/test_h3_worker.py"
+        "tests/unit/test_h3_worker.py",
+        "tests/unit/test_optional_protocol_diagnostics.py"
       ],
       "gaps": [
-        "lifecycle state parity proof",
         "reload and drain parity proof",
-        "shutdown parity proof",
-        "benchmark artifact",
-        "missing-extra diagnostics test"
+        "benchmark artifact"
       ]
     },
     "websocket_h3": {

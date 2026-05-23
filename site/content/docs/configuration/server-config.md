@@ -12,7 +12,10 @@ category: reference
 
 ## Overview
 
-`ServerConfig` is a frozen dataclass (`@dataclass(frozen=True, slots=True)`) that holds all server settings. It's created once at startup and shared across all workers — safe because it's immutable.
+`ServerConfig` is a frozen dataclass (`@dataclass(frozen=True, slots=True)`)
+that holds all server settings. It's created once at startup and shared across
+workers as frozen server configuration. Treat referenced objects as read-only
+unless their own API says otherwise.
 
 ```python
 from pounce import ServerConfig
