@@ -31,8 +31,9 @@ implemented with zoomies.
 - ✅ **Browser support** is universal (Chrome, Firefox, Safari, Edge all support HTTP/3 by default)
 - ✅ **Performance gains** are significant on mobile/high-latency networks (12-52% improvement)
 - ⚠️ **Architectural complexity** is high (UDP vs TCP, different worker model, ALPN negotiation)
-- ⚠️ **Adoption priority** is lower than completing Phase 5b core features
-- ✅ **Integration path** is clear via aioquic's asyncio protocol
+- ⚠️ **Adoption priority** is lower than closing the remaining zoomies parity
+  gates named in the protocol proof ledger
+- ✅ **Current integration path** is zoomies, not aioquic
 
 **Historical recommendation:** Complete Phase 5b first, then implement HTTP/3 in
 Phase 5c with `protocols/h3.py` and UDP worker support. Current work should use
@@ -96,7 +97,11 @@ the current-state note above instead.
 - **Independent streams** — no head-of-line blocking across streams
 - **Flexible congestion control** — pluggable algorithms (NewReno, BBR, Cubic)
 
-## Current State Analysis
+## Historical aioquic Evaluation
+
+This section records the library and ecosystem scan from the original roadmap.
+It is not the current Pounce implementation state. Current Pounce HTTP/3 support
+uses zoomies and is bounded by `protocol-proof-ledger.json`.
 
 ### aioquic Library
 
@@ -155,9 +160,10 @@ class H3Protocol(QuicConnectionProtocol):
 - [Can I Use: HTTP/3](https://caniuse.com/http3)
 - [Browser support for HTTP/3 QUIC](https://mybyways.com/blog/browser-support-for-http3-quic)
 
-### Existing ASGI Servers
+### Existing ASGI Servers At The Time Of Research
 
-**Hypercorn** is currently the **only** ASGI server with HTTP/3 support:
+At the time this research was written, **Hypercorn** was the notable ASGI
+server with HTTP/3 support:
 
 ```bash
 pip install hypercorn[h3]  # Installs aioquic dependency
@@ -170,13 +176,17 @@ hypercorn --quic-bind 0.0.0.0:443 myapp:app
 - ALPN negotiation to select protocol
 - Certificate required (TLS 1.3 mandatory for QUIC)
 
-**Competitive gap:**
+**Historical competitive snapshot:**
 - Uvicorn: ❌ No HTTP/3 support
 - Gunicorn: ❌ No HTTP/3 support
 - Hypercorn: ✅ HTTP/3 supported
-- **pounce:** ⏳ Planned for Phase 5c
+- **pounce:** Now optional, limited-parity HTTP/3 support through zoomies
 
-## Architectural Design
+## Historical Architectural Design
+
+This section is the original aioquic-oriented design sketch. It is preserved for
+decision history only. Do not treat it as the shipped architecture, config
+schema, or active implementation plan.
 
 ### High-Level Architecture
 
@@ -285,7 +295,7 @@ priority: u=0, i  # Urgency 0, incremental
 
 **Implementation:** aioquic handles priority parsing; pounce can expose via ASGI scope.
 
-### Proposed Architecture
+### Historical Proposed Architecture
 
 #### File Structure
 
@@ -294,9 +304,9 @@ src/pounce/
 ├── protocols/
 │   ├── h1.py          # Existing HTTP/1.1
 │   ├── h2_protocol.py # Existing HTTP/2
-│   └── h3.py          # NEW: HTTP/3 protocol (Phase 5c)
+│   └── h3.py          # Historical proposal
 ├── worker.py          # Current TCP worker
-├── h3_worker.py       # NEW: UDP/QUIC worker (Phase 5c)
+├── h3_worker.py       # Historical proposal; current code uses H3Worker
 ├── server.py          # Server orchestration
 └── supervisor.py      # Worker supervision
 ```
@@ -310,7 +320,7 @@ def run(self):
     # Existing TCP socket for H1/H2
     tcp_sock = self._bind_tcp_socket(self._config.host, self._config.port)
 
-    # NEW: UDP socket for H3 (if enabled)
+    # Historical proposal: UDP socket for H3 (if enabled)
     if self._config.http3_enabled:
         udp_sock = self._bind_udp_socket(self._config.host, self._config.port)
         # Spawn H3 workers
@@ -324,7 +334,7 @@ def run(self):
 ```python
 # TLS context (already exists, needs update)
 ssl_context.set_alpn_protocols(["h3", "h2", "http/1.1"])
-#                                ^^^^ NEW: advertise HTTP/3
+#                                ^^^^ historical proposal: advertise HTTP/3
 ```
 
 **3. Alt-Svc header:**
@@ -400,14 +410,18 @@ class H3ServerProtocol(QuicConnectionProtocol):
         await self._app(scope, receive, send)
 ```
 
-### Configuration
+### Historical Configuration Sketch
+
+These fields are not a current `ServerConfig` contract. Validate current
+configuration against `src/pounce/config.py`, `_config_file.py`, and
+`_config_schema.py` before documenting or implementing config behavior.
 
 ```python
 @dataclass(frozen=True, slots=True)
 class ServerConfig:
     # ... existing fields ...
 
-    # HTTP/3 configuration (Phase 5c)
+    # Historical HTTP/3 configuration sketch
     http3_enabled: bool = False  # Enable HTTP/3/QUIC support
     http3_max_connections: int = 10_000  # Max concurrent QUIC connections
     http3_idle_timeout: float = 30.0  # QUIC idle timeout (seconds)
@@ -530,7 +544,11 @@ if scope["method"] in ["POST", "PUT", "DELETE"] and is_0rtt:
 - **Large file downloads** (>1 MB) — TCP congestion control is well-tuned
 - **Localhost/LAN** — minimal benefit, slight overhead
 
-### Expected pounce Performance
+### Historical aioquic Performance Assumptions
+
+These estimates are preserved as historical research only. They are not current
+Pounce benchmark claims, and they do not describe the shipped zoomies backend.
+Current public performance wording must cite reproducible benchmark artifacts.
 
 **Assumptions:**
 - aioquic pure-Python implementation (~30% slower than native)
@@ -546,55 +564,21 @@ if scope["method"] in ["POST", "PUT", "DELETE"] and is_0rtt:
 
 ## Roadmap
 
-### Phase 5b (Current) — Foundation
+### Current Proof Roadmap — Zoomies Implementation
 
-**Status:** ✅ Complete TLS support, H2 protocol, lifecycle logging
+**Status:** Implemented as optional, limited-parity HTTP/3 support.
 
-**No HTTP/3 work** — focus on core features:
-- [x] Static file serving
-- [x] Middleware system
-- [x] OpenTelemetry integration
-- [x] Lifecycle logging
-- [x] Graceful shutdown
+Current work is not an aioquic implementation project. The active HTTP/3 tasks
+are evidence and contract hardening:
 
-**Preparation for Phase 5c:**
-- [ ] Document TLS 1.3 requirements in deployment docs
-- [ ] Add `alt-svc` header support infrastructure (optional)
+- Reload and drain behavior under H3 traffic.
+- Transport documentation for TLS, UDP listeners, and deployment expectations.
+- Representative Bengal/Chirp workload proof where H3 is in scope.
+- Reproducible benchmarks with environment, Python build, workload, variance,
+  and caveats.
+- Public wording aligned with the protocol proof ledger.
 
-### Phase 5c (Q2 2026) — HTTP/3 Implementation
-
-**Timeline:** 6-8 weeks
-
-**Milestone 1: Prototype (Week 1-2)**
-- [ ] Install aioquic and run example HTTP/3 server
-- [ ] Create `protocols/h3.py` with basic request/response
-- [ ] Test with Chrome `--enable-quic` flag
-- [ ] Measure prototype performance vs HTTP/2
-
-**Milestone 2: Integration (Week 3-4)**
-- [ ] Create `H3Worker` class
-- [ ] Implement UDP socket binding with `SO_REUSEPORT`
-- [ ] Integrate aioquic `QuicConnectionProtocol`
-- [ ] ASGI scope translation for HTTP/3
-
-**Milestone 3: Features (Week 5-6)**
-- [ ] Alt-Svc header advertisement
-- [ ] ALPN negotiation for `h3`
-- [ ] Server push (if beneficial)
-- [ ] 0-RTT resumption (with safety checks)
-
-**Milestone 4: Testing and Docs (Week 7-8)**
-- [ ] Integration tests with real browsers
-- [ ] Performance benchmarks (vs HTTP/2)
-- [ ] Security audit (0-RTT, migration)
-- [ ] Documentation: deployment guide, browser testing
-
-**Dependencies:**
-- aioquic>=1.3.0
-- TLS 1.3 certificate
-- UDP port 443 (or custom)
-
-### Phase 5d (Q3 2026) — Optimization
+### Future Optimization
 
 **Optional enhancements:**
 - [ ] HTTP/3 connection pooling and reuse metrics
@@ -604,32 +588,23 @@ if scope["method"] in ["POST", "PUT", "DELETE"] and is_0rtt:
 
 ## Recommendation
 
-### For Phase 5b: ❌ Defer HTTP/3
+### Current Recommendation: Harden Proof Before Stronger Claims
 
-**Rationale:**
-1. **Feature completeness:** Focus on completing Phase 5b core features (lifecycle logging, graceful shutdown, etc.) before adding HTTP/3 complexity
-2. **Complexity:** HTTP/3 requires significant architectural changes (UDP workers, new protocol handler)
-3. **Testing burden:** HTTP/3 requires extensive browser compatibility testing
-4. **Adoption priority:** Most users benefit more from Phase 5b features than HTTP/3
+HTTP/3 is already implemented through zoomies. Do not use the historical
+Phase 5b/5c deferral language as an active task plan. The useful next work is to
+prove and document the limited-parity support boundary:
 
-**Action items:**
-- Document TLS 1.3 readiness in deployment guides
-- Ensure architecture supports future HTTP/3 (no blocking decisions)
+1. Exercise H3 reload/drain behavior under representative traffic.
+2. Keep transport and deployment docs explicit about TLS, UDP, and platform
+   limitations.
+3. Publish only benchmark numbers tied to reproducible artifacts.
+4. Keep protocol feature tables aligned with the proof ledger.
 
-### For Phase 5c: ✅ Implement HTTP/3
+## Historical Prototype Considerations
 
-**Rationale:**
-1. **Competitive parity:** Hypercorn already supports HTTP/3; pounce should match
-2. **Mobile-first web:** HTTP/3 benefits mobile users significantly (30% latency reduction)
-3. **Future-proofing:** HTTP/3 adoption is growing rapidly (25%+ of web traffic)
-4. **Technical feasibility:** aioquic provides solid foundation, architecture is clear
-
-**Action items:**
-- Allocate 6-8 weeks for implementation
-- Prioritize prototype and performance validation first
-- Ensure browser testing infrastructure is in place
-
-## Prototype Considerations
+This section is historical aioquic research. It is retained because it explains
+the original evaluation path, but it is not an implementation recipe for current
+Pounce HTTP/3 work.
 
 ### Minimal Viable Prototype
 
