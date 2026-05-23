@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.1] — 2026-05-23
+
+### Added
+
+- Added checked-in Bengal and Chirp local benchmark artifacts plus benchmark
+  runner tests so performance claims can trace to workload, platform, and command
+  metadata.
+
+### Changed
+
+- Added public contract guardrails for API/config/CLI/docs parity, documented
+  protocol proof status, and aligned `run(config=...)` typing with
+  `ServerConfig`.
+- Hardened release proof by adding steward guidance, benchmark artifact policy,
+  public-claim ledgers, protocol proof updates, and docs checks that keep public
+  claims aligned with shipped behavior.
+
+### Fixed
+
+- Moved HTTP/1 static-file sendfile framing under protocol ownership so range
+  responses, streaming fallbacks, and ASGI send paths share consistent completion
+  behavior.
+
+---
+
 ## [0.7.0] — 2026-05-09
 
 Release-readiness hardening for protocol correctness, operator UX, config discovery, and
