@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
-from unittest.mock import MagicMock, patch
+import socket
+from unittest.mock import MagicMock
 
 import pytest
 
-from pounce._sendfile import _SENDFILE_CHUNK, can_use_sendfile, create_sendfile_callable
+from pounce._sendfile import can_use_sendfile, create_sendfile_callable
 from pounce._static import StaticFiles, StaticMount
 
 # ---------------------------------------------------------------------------
@@ -75,140 +77,175 @@ class TestCanUseSendfile:
 # ---------------------------------------------------------------------------
 
 
+async def _stream_writer_pair() -> tuple[asyncio.StreamWriter, socket.socket]:
+    """Build a real ``StreamWriter`` over a socketpair.
+
+    Returns ``(writer, peer)`` where ``writer`` wraps one connected socket
+    (the sending side, registered on the event loop) and ``peer`` is the
+    raw receiving socket.  This exercises the real ``loop.sendfile`` path
+    instead of mocking ``os.sendfile``.
+    """
+    loop = asyncio.get_running_loop()
+    send_sock, peer = socket.socketpair()
+    send_sock.setblocking(False)
+    reader = asyncio.StreamReader()
+    protocol = asyncio.StreamReaderProtocol(reader)
+    transport, _ = await loop.create_connection(lambda: protocol, sock=send_sock)
+    writer = asyncio.StreamWriter(transport, protocol, reader, loop)
+    return writer, peer
+
+
+def _recv_exact(sock: socket.socket, n: int, timeout: float = 2.0) -> bytes:
+    """Read exactly ``n`` bytes from ``sock`` (or until it closes)."""
+    sock.settimeout(timeout)
+    buf = b""
+    while len(buf) < n:
+        try:
+            chunk = sock.recv(n - len(buf))
+        except TimeoutError:
+            break
+        if not chunk:
+            break
+        buf += chunk
+    return buf
+
+
+async def _close_writer(writer: asyncio.StreamWriter) -> None:
+    writer.close()
+    with contextlib.suppress(OSError, ConnectionError):
+        await writer.wait_closed()
+
+
 class TestCreateSendfileCallable:
     @pytest.mark.asyncio
     async def test_transfers_full_file(self, tmp_path):
-        """sendfile callable reads the entire file when count == file size."""
+        """sendfile callable transfers the entire file when count == file size."""
+        payload = b"Hello, sendfile!"
         test_file = tmp_path / "hello.txt"
-        test_file.write_bytes(b"Hello, sendfile!")
+        test_file.write_bytes(payload)
 
-        writer = _mock_writer(fd=42)
-        # Track os.sendfile calls
-        calls: list[tuple] = []
-
-        def fake_sendfile(out_fd, in_fd, offset, count):
-            calls.append((out_fd, in_fd, offset, count))
-            return count  # pretend all bytes sent
-
-        with patch("os.sendfile", side_effect=fake_sendfile):
+        writer, peer = await _stream_writer_pair()
+        try:
             fn = create_sendfile_callable(writer)
-            await fn(test_file, 0, 15)
-
-        assert len(calls) == 1
-        assert calls[0][0] == 42  # socket fd
-        assert calls[0][2] == 0  # offset
-        assert calls[0][3] == 15  # count
+            await fn(test_file, 0, len(payload))
+            assert _recv_exact(peer, len(payload)) == payload
+        finally:
+            await _close_writer(writer)
+            peer.close()
 
     @pytest.mark.asyncio
     async def test_transfers_with_offset(self, tmp_path):
+        """An offset/count transfers only the requested slice of the file."""
+        data = bytes(range(256)) * 4  # 1024 bytes
         test_file = tmp_path / "data.bin"
-        test_file.write_bytes(b"x" * 200)
+        test_file.write_bytes(data)
 
-        writer = _mock_writer(fd=10)
-        calls: list[tuple] = []
-
-        def fake_sendfile(out_fd, in_fd, offset, count):
-            calls.append((out_fd, in_fd, offset, count))
-            return count
-
-        with patch("os.sendfile", side_effect=fake_sendfile):
+        writer, peer = await _stream_writer_pair()
+        try:
             fn = create_sendfile_callable(writer)
             await fn(test_file, 50, 100)
-
-        assert calls[0][2] == 50  # offset
-        assert calls[0][3] == 100  # count
+            assert _recv_exact(peer, 100) == data[50:150]
+        finally:
+            await _close_writer(writer)
+            peer.close()
 
     @pytest.mark.asyncio
-    async def test_chunked_transfer(self, tmp_path):
-        """Large transfers are split into _SENDFILE_CHUNK-sized pieces."""
+    async def test_transfers_larger_than_buffer(self, tmp_path):
+        """A transfer larger than the socket send buffer completes via back-pressure.
+
+        The receiver drains concurrently so the kernel send buffer cannot
+        wedge — the EAGAIN retry path inside ``loop.sendfile`` keeps the
+        transfer flowing instead of crashing (issue #72).
+        """
+        payload = bytes(range(256)) * 8192  # 2 MiB — exceeds SO_SNDBUF
         test_file = tmp_path / "big.bin"
-        test_file.write_bytes(b"\x00" * 10)
-        total = _SENDFILE_CHUNK * 2 + 500
+        test_file.write_bytes(payload)
 
-        writer = _mock_writer()
-        calls: list[tuple] = []
-
-        def fake_sendfile(out_fd, in_fd, offset, count):
-            calls.append((out_fd, in_fd, offset, count))
-            return count
-
-        with patch("os.sendfile", side_effect=fake_sendfile):
+        writer, peer = await _stream_writer_pair()
+        loop = asyncio.get_running_loop()
+        # Drain the peer in a thread so sendfile is not permanently blocked.
+        recv_future = loop.run_in_executor(None, _recv_exact, peer, len(payload), 10.0)
+        try:
             fn = create_sendfile_callable(writer)
-            await fn(test_file, 0, total)
-
-        assert len(calls) == 3
-        assert calls[0][3] == _SENDFILE_CHUNK
-        assert calls[1][3] == _SENDFILE_CHUNK
-        assert calls[2][3] == 500
+            await fn(test_file, 0, len(payload))
+            received = await recv_future
+            assert received == payload
+        finally:
+            await _close_writer(writer)
+            peer.close()
 
     @pytest.mark.asyncio
-    async def test_partial_sends(self, tmp_path):
-        """Handles partial sends (os.sendfile returns less than requested)."""
-        test_file = tmp_path / "partial.bin"
-        test_file.write_bytes(b"\x00" * 10)
+    async def test_zero_count_is_noop(self, tmp_path):
+        """count <= 0 returns without touching the socket."""
+        test_file = tmp_path / "empty.bin"
+        test_file.write_bytes(b"")
 
-        writer = _mock_writer()
-        call_count = 0
-
-        def fake_sendfile(out_fd, in_fd, offset, count):
-            nonlocal call_count
-            call_count += 1
-            return min(count, 100)  # only send 100 bytes at a time
-
-        with patch("os.sendfile", side_effect=fake_sendfile):
+        writer, peer = await _stream_writer_pair()
+        try:
             fn = create_sendfile_callable(writer)
-            await fn(test_file, 0, 250)
-
-        assert call_count == 3  # 100 + 100 + 50
+            await fn(test_file, 0, 0)  # must not raise
+            peer.settimeout(0.2)
+            with pytest.raises(TimeoutError):
+                peer.recv(16)
+        finally:
+            await _close_writer(writer)
+            peer.close()
 
     @pytest.mark.asyncio
-    async def test_zero_return_breaks(self, tmp_path):
-        """sendfile returns 0 when connection closes — loop must stop."""
-        test_file = tmp_path / "eof.bin"
-        test_file.write_bytes(b"\x00" * 10)
+    async def test_short_transfer_aborts_connection(self, tmp_path):
+        """If the file yields fewer bytes than count, the connection is aborted.
 
-        writer = _mock_writer()
-        call_count = 0
+        The framing was already committed for `count` bytes, so a short
+        transfer would otherwise leave a truncated/desynced keep-alive
+        response.  Guards the pounce.response.sendfile extension against a
+        caller passing count > file size (and TOCTOU truncation).
+        """
+        test_file = tmp_path / "short.bin"
+        test_file.write_bytes(b"only-ten!!")  # 10 bytes
 
-        def fake_sendfile(out_fd, in_fd, offset, count):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 2:
-                return 0
-            return min(count, 500)
-
-        with patch("os.sendfile", side_effect=fake_sendfile):
+        writer, peer = await _stream_writer_pair()
+        try:
             fn = create_sendfile_callable(writer)
-            await fn(test_file, 0, 2000)
-
-        assert call_count == 2
+            await fn(test_file, 0, 100)  # ask for 100, only 10 exist
+            # Transport was aborted, so the writer is now closing.
+            assert writer.is_closing()
+        finally:
+            await _close_writer(writer)
+            peer.close()
 
     @pytest.mark.asyncio
-    async def test_fd_closed_on_error(self, tmp_path):
-        """File descriptor is closed even if sendfile raises."""
-        test_file = tmp_path / "err.bin"
-        test_file.write_bytes(b"\x00" * 10)
+    async def test_closed_writer_is_noop(self, tmp_path):
+        """A closing connection aborts cleanly instead of crashing."""
+        test_file = tmp_path / "x.bin"
+        test_file.write_bytes(b"abc")
 
-        writer = _mock_writer()
-        closed_fds: list[int] = []
-        original_close = os.close
+        writer, peer = await _stream_writer_pair()
+        fn = create_sendfile_callable(writer)
+        await _close_writer(writer)
+        peer.close()
+        # Must not raise even though the transport is gone.
+        await fn(test_file, 0, 3)
 
-        def track_close(fd):
-            closed_fds.append(fd)
-            original_close(fd)
+    @pytest.mark.asyncio
+    async def test_client_disconnect_does_not_raise(self, tmp_path):
+        """If the peer vanishes mid-transfer, sendfile aborts without raising."""
+        payload = bytes(range(256)) * 8192  # 2 MiB
+        test_file = tmp_path / "drop.bin"
+        test_file.write_bytes(payload)
 
-        def failing_sendfile(out_fd, in_fd, offset, count):
-            raise OSError("disk error")
-
-        with (
-            patch("os.sendfile", side_effect=failing_sendfile),
-            patch("os.close", side_effect=track_close),
-        ):
+        writer, peer = await _stream_writer_pair()
+        loop = asyncio.get_running_loop()
+        try:
             fn = create_sendfile_callable(writer)
-            with pytest.raises(OSError, match="disk error"):
-                await fn(test_file, 0, 100)
-
-        assert len(closed_fds) == 1
+            task = asyncio.create_task(fn(test_file, 0, len(payload)))
+            # Read a little in a thread (so the loop keeps running the sendfile
+            # task), then slam the connection shut while bytes remain.
+            await loop.run_in_executor(None, _recv_exact, peer, 4096, 2.0)
+            peer.close()
+            # Should swallow ConnectionError/BrokenPipeError rather than crash.
+            await asyncio.wait_for(task, timeout=5.0)
+        finally:
+            await _close_writer(writer)
 
 
 # ---------------------------------------------------------------------------

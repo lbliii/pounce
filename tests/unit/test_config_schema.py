@@ -66,7 +66,7 @@ class TestBuildSchema:
 
         Intentional additions: update the snapshot AND extend INFO_ALLOWLIST.
         """
-        assert len(build_schema()["properties"]) == 70
+        assert len(build_schema()["properties"]) == 71
 
     def test_output_is_valid_json(self) -> None:
         # Round-tripping catches any non-serializable default values.

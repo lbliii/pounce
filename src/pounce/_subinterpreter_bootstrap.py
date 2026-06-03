@@ -161,6 +161,17 @@ async def _run_worker_with_iic(
             timeout=worker._config.startup_timeout,
         )
     except Exception:
+        if worker._config.worker_startup_failure == "shutdown":
+            # Fail-loud opt-in (issue #65): treat as a fatal startup failure.
+            # Re-raise so the worker refuses to serve; bootstrap reports
+            # STATUS_ERROR and the supervisor applies its restart budget.
+            logger.error(
+                "Subinterpreter worker %d startup hook failed and "
+                "worker_startup_failure='shutdown' — refusing to serve",
+                worker._worker_id,
+                exc_info=True,
+            )
+            raise
         logger.debug("Worker startup hook raised (expected for most apps)")
 
     # Start accepting connections

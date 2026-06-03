@@ -253,24 +253,36 @@ class Worker:
         # The _worker_lifecycle_receive helper returns http.disconnect
         # to unblock most handlers quickly; the timeout is a safety net.
         #
-        # If the app raises, we log at debug level and proceed — most
+        # If the app raises, the default policy logs and proceeds — most
         # ASGI apps don't know about pounce.worker.startup and will
         # crash on it (e.g. KeyError on scope['method']).  This is
         # normal and should not prevent the worker from starting.
-        try:
-            await asyncio.wait_for(
-                self._app(
-                    {"type": "pounce.worker.startup", "worker_id": self._worker_id},
-                    _worker_lifecycle_receive,
-                    _worker_lifecycle_send,
-                ),
-                timeout=30.0,
+        #
+        # Frameworks that intentionally use the hook can opt into
+        # ``worker_startup_failure='shutdown'`` to fail loudly: the worker
+        # refuses to serve and signals the supervisor to stop (issue #65).
+        startup_ok = await self._run_worker_startup_hook()
+        if not startup_ok and self._config.worker_startup_failure == "shutdown":
+            self._logger.error(
+                "Worker %d refusing to serve: pounce.worker.startup hook failed and "
+                "worker_startup_failure='shutdown' — signalling server shutdown",
+                self._worker_id,
             )
-        except Exception:
-            self._logger.warning(
-                "Worker startup hook raised — if this is unexpected, check your app",
-                exc_info=True,
-            )
+            # Never start accepting connections.  Tell the supervisor (and
+            # peer workers, via the shared event) to stop so the process
+            # exits instead of serving with uninitialised worker state.
+            if self._ext_shutdown is not None:
+                self._ext_shutdown.set()
+            self._async_shutdown.set()
+            # Tear down the per-worker executor we created above (the normal
+            # cleanup in the serving ``finally`` is skipped by this early
+            # return).  cancel_futures drops anything the failed startup hook
+            # queued; wait=False keeps the abort prompt.  The
+            # ``pounce.worker.shutdown`` hook is intentionally NOT run — the
+            # worker never started, so there is no initialised state to tear
+            # down, and the app's failing startup hook owns its own cleanup.
+            executor.shutdown(wait=False, cancel_futures=True)
+            return
 
         server = await asyncio.start_server(
             self._handle_connection,
@@ -379,6 +391,43 @@ class Worker:
             finally:
                 shutdown_helper.shutdown(wait=False)
             self._logger.debug("Worker %d stopped", self._worker_id)
+
+    async def _run_worker_startup_hook(self) -> bool:
+        """Run the ``pounce.worker.startup`` hook. Return True on success.
+
+        Generic ASGI apps that don't recognise the scope typically raise
+        (e.g. ``KeyError`` on ``scope['method']``) — that is normal and
+        returns ``False`` without being fatal unless
+        ``worker_startup_failure='shutdown'`` (see :meth:`_serve`).  A
+        timeout is also treated as a failure.
+        """
+        fatal = self._config.worker_startup_failure == "shutdown"
+        level = logging.ERROR if fatal else logging.WARNING
+        try:
+            await asyncio.wait_for(
+                self._app(
+                    {"type": "pounce.worker.startup", "worker_id": self._worker_id},
+                    _worker_lifecycle_receive,
+                    _worker_lifecycle_send,
+                ),
+                timeout=self._config.startup_timeout,
+            )
+        except TimeoutError:
+            self._logger.log(
+                level,
+                "Worker %d startup hook timed out after %.1fs",
+                self._worker_id,
+                self._config.startup_timeout,
+            )
+            return False
+        except Exception:
+            self._logger.log(
+                level,
+                "Worker startup hook raised — if this is unexpected, check your app",
+                exc_info=True,
+            )
+            return False
+        return True
 
     async def _bridge_shutdown(self, ext_event: threading.Event) -> None:
         """Poll an external ``threading.Event`` and set the async shutdown.

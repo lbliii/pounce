@@ -19,6 +19,7 @@ from pounce.config import ServerConfig
 from pounce.net.listener import create_listener
 from pounce.server import Server
 from pounce.worker import Worker
+from tests.conftest import send_raw_request, start_worker
 
 
 class TestWorkerLifecycleScopes:
@@ -129,41 +130,129 @@ class TestWorkerLifecycleScopes:
 
 
 class TestWorkerStartupFailure:
-    """Worker startup hook failure prevents serving."""
+    """Worker startup hook failure policy (issue #65).
 
-    @pytest.mark.asyncio
-    async def test_startup_failure_prevents_serving(self):
-        """If startup scope raises, the worker exits without accepting."""
-        connections_accepted = False
+    Default ('ignore') keeps generic-ASGI compatibility: a hook exception is
+    logged and serving continues.  Opt-in ('shutdown') fails loud: the worker
+    refuses to serve and signals the supervisor to stop.
+    """
+
+    @staticmethod
+    def _lifespan(scope: Scope, receive: Receive, send: Send):
+        """Return the standard lifespan coroutine for an app branch."""
+
+        async def _run() -> None:
+            while True:
+                msg = await receive()
+                if msg["type"] == "lifespan.startup":
+                    await send({"type": "lifespan.startup.complete"})
+                elif msg["type"] == "lifespan.shutdown":
+                    await send({"type": "lifespan.shutdown.complete"})
+                    return
+
+        return _run()
+
+    def test_default_policy_continues_serving(self):
+        """Default 'ignore': a failing startup hook is logged, serving continues.
+
+        Generic ASGI apps that don't recognise pounce.worker.startup raise on
+        it; the worker must still come up and serve requests.
+        """
 
         async def app(scope: Scope, receive: Receive, send: Send) -> None:
-            nonlocal connections_accepted
             if scope["type"] == "pounce.worker.startup":
-                msg = "Cannot initialise worker resources"
+                msg = "app does not understand this scope"
                 raise RuntimeError(msg)
             if scope["type"] == "pounce.worker.shutdown":
                 return
             if scope["type"] == "http":
-                connections_accepted = True
+                await receive()
+                body = b"served"
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 200,
+                        "headers": [(b"content-length", str(len(body)).encode())],
+                    }
+                )
+                await send({"type": "http.response.body", "body": body})
+                return
             if scope["type"] == "lifespan":
-                while True:
-                    msg_data = await receive()
-                    if msg_data["type"] == "lifespan.startup":
-                        await send({"type": "lifespan.startup.complete"})
-                    elif msg_data["type"] == "lifespan.shutdown":
-                        await send({"type": "lifespan.shutdown.complete"})
-                        return
+                await self._lifespan(scope, receive, send)
 
         config = ServerConfig(host="127.0.0.1", port=0, access_log=False)
+        worker, sock, thread = start_worker(app, config=config)
+        addr = sock.getsockname()
+        try:
+            response = send_raw_request(
+                addr, b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+            )
+        finally:
+            worker.shutdown()
+            thread.join(timeout=3)
+            sock.close()
+
+        assert b"HTTP/1.1 200" in response
+        assert b"served" in response
+
+    def test_shutdown_policy_refuses_to_serve_and_signals_supervisor(self):
+        """'shutdown': hook failure stops the worker and signals the shared
+        event (how the supervisor learns); the worker never reaches its
+        accept loop."""
+
+        async def app(scope: Scope, receive: Receive, send: Send) -> None:
+            if scope["type"] == "pounce.worker.startup":
+                msg = "cannot initialise worker resources"
+                raise RuntimeError(msg)
+            if scope["type"] == "http":  # pragma: no cover - must never run
+                raise AssertionError("worker must not accept connections")
+            if scope["type"] == "lifespan":
+                await self._lifespan(scope, receive, send)
+
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
+            worker_startup_failure="shutdown",
+        )
+        sock = create_listener(config)
+        # Mimic the supervisor's shared shutdown event.
+        ext_shutdown = threading.Event()
+        worker = Worker(config, app, sock, worker_id=0, shutdown_event=ext_shutdown)
+        thread = threading.Thread(target=worker.run, daemon=True)
+        thread.start()
+
+        # The worker returns from _serve before asyncio.start_server, so the
+        # thread exits on its own — proving it never entered the accept loop.
+        thread.join(timeout=3)
+        try:
+            assert not thread.is_alive()  # exited (did not block on serve)
+            assert ext_shutdown.is_set()  # signalled the supervisor to stop
+        finally:
+            sock.close()
+
+    def test_shutdown_policy_standalone_worker_still_exits(self):
+        """Fail-loud with no shared event (standalone Worker) still exits cleanly."""
+
+        async def app(scope: Scope, receive: Receive, send: Send) -> None:
+            if scope["type"] == "pounce.worker.startup":
+                msg = "boom"
+                raise RuntimeError(msg)
+            if scope["type"] == "lifespan":
+                await self._lifespan(scope, receive, send)
+
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
+            worker_startup_failure="shutdown",
+        )
         sock = create_listener(config)
         worker = Worker(config, app, sock, worker_id=0)
         thread = threading.Thread(target=worker.run, daemon=True)
         thread.start()
-
-        # Worker should exit quickly due to startup failure
         thread.join(timeout=3)
-
-        assert not connections_accepted
+        assert not thread.is_alive()
         sock.close()
 
 
@@ -314,3 +403,35 @@ class TestSingleWorkerLifecycle:
         server.shutdown()
         thread.join(timeout=3)
         assert not thread.is_alive()
+
+    def test_single_worker_startup_failure_shutdown_prevents_serving(self):
+        """Single-worker fail-loud: a failing startup hook stops the server
+        before it ever becomes ready (issue #65)."""
+
+        async def app(scope: Scope, receive: Receive, send: Send) -> None:
+            if scope["type"] == "pounce.worker.startup":
+                msg = "boom"
+                raise RuntimeError(msg)
+            if scope["type"] == "lifespan":
+                while True:
+                    msg_data = await receive()
+                    if msg_data["type"] == "lifespan.startup":
+                        await send({"type": "lifespan.startup.complete"})
+                    elif msg_data["type"] == "lifespan.shutdown":
+                        await send({"type": "lifespan.shutdown.complete"})
+                        return
+
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
+            worker_startup_failure="shutdown",
+        )
+        server = Server(config, app)
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+
+        # The server exits on its own without ever becoming ready.
+        thread.join(timeout=3)
+        assert not thread.is_alive()
+        assert not server._started_event.is_set()

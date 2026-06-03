@@ -357,6 +357,7 @@ class Server:
             # Per-worker startup — in single-worker mode there's one
             # "worker" sharing the main event loop.  Send the scope so
             # @app.on_worker_startup hooks fire just like multi-worker.
+            startup_ok = True
             try:
                 await asyncio.wait_for(
                     self._app(
@@ -367,16 +368,32 @@ class Server:
                     timeout=self._config.startup_timeout,
                 )
             except TimeoutError:
+                startup_ok = False
                 logger.warning(
                     "Worker startup hook timed out after %.1fs"
-                    " — app may not handle lifespan.startup.complete",
+                    " — the pounce.worker.startup hook did not complete in time",
                     self._config.startup_timeout,
                 )
             except Exception:
+                startup_ok = False
                 logger.warning(
                     "Worker startup hook raised — if this is unexpected, check your app",
                     exc_info=True,
                 )
+
+            # Fail-loud opt-in (issue #65): refuse to serve if the hook failed.
+            # The lifespan context still unwinds cleanly on return, so
+            # lifespan.shutdown runs and run() exits without ever serving.
+            if not startup_ok and self._config.worker_startup_failure == "shutdown":
+                logger.error(
+                    "Worker startup hook failed and worker_startup_failure='shutdown' "
+                    "— not accepting connections"
+                )
+                self._shutdown_event.set()
+                if self._async_shutdown is not None:
+                    self._async_shutdown.set()
+                self._loop = None
+                return
 
             server = await asyncio.start_server(
                 worker._handle_connection,
