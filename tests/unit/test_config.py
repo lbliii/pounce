@@ -95,6 +95,10 @@ class TestServerConfigDefaults:
         config = ServerConfig()
         assert config.worker_mode == "auto"
 
+    def test_default_worker_startup_failure(self):
+        config = ServerConfig()
+        assert config.worker_startup_failure == "ignore"
+
 
 class TestServerConfigOverrides:
     """ServerConfig fields can be overridden at construction."""
@@ -239,6 +243,14 @@ class TestServerConfigValidation:
     def test_invalid_worker_mode_raises(self):
         with pytest.raises(ValueError, match="worker_mode must be one of"):
             ServerConfig(worker_mode="invalid")
+
+    def test_invalid_worker_startup_failure_raises(self):
+        with pytest.raises(ValueError, match="worker_startup_failure must be one of"):
+            ServerConfig(worker_startup_failure="explode")
+
+    def test_worker_startup_failure_normalized(self):
+        config = ServerConfig(worker_startup_failure="SHUTDOWN")
+        assert config.worker_startup_failure == "shutdown"
 
     def test_ssl_certfile_without_keyfile_raises(self):
         with pytest.raises(ValueError, match="ssl_certfile and ssl_keyfile must both"):
@@ -460,6 +472,14 @@ class TestServerConfigIICSerialization:
         d["nonexistent_key"] = "should be ignored"
         restored = ServerConfig.from_iic_dict(d)
         assert restored.host == "127.0.0.1"
+
+    def test_worker_startup_failure_round_trip(self):
+        """The fail-loud policy propagates to subinterpreter workers via IIC."""
+        config = ServerConfig(worker_startup_failure="shutdown")
+        d = config.to_iic_dict()
+        assert d["worker_startup_failure"] == "shutdown"
+        restored = ServerConfig.from_json(config.to_json())
+        assert restored.worker_startup_failure == "shutdown"
 
 
 class TestServerConfigHypothesisRoundTrip:

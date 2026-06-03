@@ -79,6 +79,7 @@ class ServerConfigKwargs(TypedDict, total=False):
     workers: int
     backlog: int
     worker_mode: str
+    worker_startup_failure: str
     cpu_affinity: bool
     executor_threads_per_worker: int
     keep_alive_timeout: float

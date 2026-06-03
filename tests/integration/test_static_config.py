@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import socket
+import time
+
 import httpx
 
 from pounce._config_file import load_config_with_overrides
@@ -104,3 +107,57 @@ def test_http1_static_content_length_body_stays_inside_h11(tmp_path) -> None:
     assert b"HTTP/1.1 200" in head
     assert f"content-length: {len(body)}".encode() in head.lower()
     assert received_body == body
+
+
+def test_http1_static_sendfile_survives_slow_client_backpressure(tmp_path) -> None:
+    """A slow reader on a large static file must not crash the sendfile worker.
+
+    Regression test for issue #72: the zero-copy sendfile path used a raw
+    ``os.sendfile`` loop in an executor with no EAGAIN handling, so a slow or
+    disconnecting client filling the kernel send buffer crashed the worker
+    mid-response with an uncaught ``BlockingIOError``.  ``loop.sendfile`` now
+    handles the back-pressure via the selector, so the full file transfers.
+    """
+    public = tmp_path / "public"
+    public.mkdir()
+    # Comfortably larger than SO_SNDBUF so the send buffer fills mid-transfer.
+    body = (bytes(range(256)) * 4) * 4096  # 4 MiB, deterministic content
+    (public / "big.bin").write_bytes(body)
+
+    app = StaticFiles(mounts=[StaticMount("/", public)])
+    # Compression off + plain HTTP is the exact profile that takes the
+    # sendfile path (worker.py advertises pounce.sendfile only then).
+    config = ServerConfig(host="127.0.0.1", port=0, access_log=False, compression=False)
+    worker, sock, thread = start_worker(app, config=config)
+    addr = sock.getsockname()
+
+    received = b""
+    head = b""
+    try:
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(30.0)
+        client.connect(addr)
+        client.sendall(b"GET /big.bin HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        # Read slowly so the kernel send buffer fills faster than it drains,
+        # forcing the sendfile path to handle EAGAIN back-pressure.
+        while True:
+            try:
+                chunk = client.recv(8192)
+            except TimeoutError:
+                break
+            if not chunk:
+                break
+            received += chunk
+            if not head and b"\r\n\r\n" in received:
+                head, _, received = received.partition(b"\r\n\r\n")
+            time.sleep(0.0005)
+        client.close()
+    finally:
+        worker.shutdown()
+        thread.join(timeout=5)
+        sock.close()
+
+    assert thread.is_alive() is False  # worker exited cleanly, did not hang/crash
+    assert b"HTTP/1.1 200" in head
+    assert f"content-length: {len(body)}".encode() in head.lower()
+    assert received == body  # full file, no truncation

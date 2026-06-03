@@ -27,6 +27,7 @@ _IIC_SKIP_FIELDS: frozenset[str] = frozenset(
         "_VALID_LOG_LEVELS",
         "_VALID_LOG_FORMATS",
         "_VALID_WORKER_MODES",
+        "_VALID_WORKER_STARTUP_FAILURE",
     }
 )
 
@@ -58,6 +59,16 @@ class ServerConfig:
     # "sync": force sync workers (fast path; streaming hands off to async pool)
     # "async": force async workers (current behavior)
     worker_mode: str = "auto"
+
+    # Worker startup hook (pounce.worker.startup) failure policy.
+    # "ignore" (default): a hook exception/timeout is logged and serving
+    #   continues — required for generic ASGI apps that don't recognise the
+    #   scope and raise on it (e.g. KeyError on scope['method']).
+    # "shutdown": treat a hook exception/timeout as fatal — the worker refuses
+    #   to serve and signals the server to shut down.  Lets frameworks that
+    #   intentionally use the hook fail loudly instead of serving with
+    #   uninitialised worker state.  See issue #65.
+    worker_startup_failure: str = "ignore"
 
     # CPU affinity (Linux only): pin each worker to a dedicated core.
     # Reduces cache thrashing; no-op on non-Linux or when sched_setaffinity fails.
@@ -204,6 +215,7 @@ class ServerConfig:
     _VALID_LOG_LEVELS: frozenset[str] = frozenset({"debug", "info", "warning", "error", "critical"})
     _VALID_LOG_FORMATS: frozenset[str] = frozenset({"auto", "text", "json"})
     _VALID_WORKER_MODES: frozenset[str] = frozenset({"auto", "sync", "async", "subinterpreter"})
+    _VALID_WORKER_STARTUP_FAILURE: frozenset[str] = frozenset({"ignore", "shutdown"})
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
@@ -279,6 +291,15 @@ class ServerConfig:
             )
             raise ValueError(msg)
         object.__setattr__(self, "worker_mode", normalized)
+        wsf = self.worker_startup_failure.lower()
+        if wsf not in self._VALID_WORKER_STARTUP_FAILURE:
+            msg = (
+                f"worker_startup_failure must be one of "
+                f"{sorted(self._VALID_WORKER_STARTUP_FAILURE)} "
+                f"(got {self.worker_startup_failure!r})"
+            )
+            raise ValueError(msg)
+        object.__setattr__(self, "worker_startup_failure", wsf)
         if normalized == "subinterpreter":
             from pounce._runtime import has_subinterpreters
 

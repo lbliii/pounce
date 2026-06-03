@@ -203,6 +203,7 @@ INFO_ALLOWLIST: dict[str, Classification] = {
     "workers": "EXPOSE",
     "backlog": "EXPOSE",
     "worker_mode": "EXPOSE",
+    "worker_startup_failure": "EXPOSE",
     "cpu_affinity": "EXPOSE",
     "executor_threads_per_worker": "EXPOSE",
     # Timeouts & limits
