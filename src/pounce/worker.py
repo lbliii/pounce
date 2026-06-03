@@ -274,6 +274,14 @@ class Worker:
             if self._ext_shutdown is not None:
                 self._ext_shutdown.set()
             self._async_shutdown.set()
+            # Tear down the per-worker executor we created above (the normal
+            # cleanup in the serving ``finally`` is skipped by this early
+            # return).  cancel_futures drops anything the failed startup hook
+            # queued; wait=False keeps the abort prompt.  The
+            # ``pounce.worker.shutdown`` hook is intentionally NOT run — the
+            # worker never started, so there is no initialised state to tear
+            # down, and the app's failing startup hook owns its own cleanup.
+            executor.shutdown(wait=False, cancel_futures=True)
             return
 
         server = await asyncio.start_server(

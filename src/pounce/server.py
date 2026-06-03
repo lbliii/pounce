@@ -371,7 +371,7 @@ class Server:
                 startup_ok = False
                 logger.warning(
                     "Worker startup hook timed out after %.1fs"
-                    " — app may not handle lifespan.startup.complete",
+                    " — the pounce.worker.startup hook did not complete in time",
                     self._config.startup_timeout,
                 )
             except Exception:
