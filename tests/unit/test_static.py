@@ -190,6 +190,87 @@ class TestFileResolution:
             assert file.mime_type == expected_mime
 
 
+class TestHiddenMountDirectory:
+    """Regression tests for #74: mounts rooted under a hidden (dot) path.
+
+    The hidden-component guard must only inspect path components *below* the
+    mount root. A directory the operator explicitly mounted must be fully
+    serveable even if one of its ancestors is a dotfile dir (e.g. Bengal's
+    ``<root>/.bengal/staging`` dev double-buffer).
+    """
+
+    def _make_handler(self, root: Path) -> StaticFiles:
+        return create_static_handler({"/": str(root)})
+
+    def test_serves_file_under_hidden_mount_dir(self, tmp_path):
+        """Files under a mount whose ancestor is a dotfile dir are served."""
+        mount_dir = tmp_path / ".bengal" / "staging"
+        css = mount_dir / "assets" / "style.css"
+        css.parent.mkdir(parents=True)
+        css.write_text("body{}")
+
+        handler = self._make_handler(mount_dir)
+        file = handler._resolve_file("/assets/style.css", None)
+
+        assert file is not None
+        assert file.path == mount_dir / "assets" / "style.css"
+
+    def test_serves_root_file_under_hidden_mount_dir(self, tmp_path):
+        """A file directly under a hidden mount root is served."""
+        mount_dir = tmp_path / ".bengal" / "staging"
+        mount_dir.mkdir(parents=True)
+        (mount_dir / "index.html").write_text("<h1>Hi</h1>")
+
+        handler = self._make_handler(mount_dir)
+        file = handler._resolve_file("/index.html", None)
+
+        assert file is not None
+        assert file.path == mount_dir / "index.html"
+
+    def test_hidden_file_below_hidden_mount_still_blocked(self, tmp_path):
+        """A dotfile *below* the mount root is still blocked (security)."""
+        mount_dir = tmp_path / ".bengal" / "staging"
+        mount_dir.mkdir(parents=True)
+        (mount_dir / ".env").write_text("SECRET=abc123")
+        (mount_dir / "nested").mkdir()
+        (mount_dir / "nested" / ".secret").write_text("nope")
+
+        handler = self._make_handler(mount_dir)
+
+        assert handler._resolve_file("/.env", None) is None
+        assert handler._resolve_file("/nested/.secret", None) is None
+
+    def test_well_known_below_hidden_mount_allowed(self, tmp_path):
+        """.well-known is still allowed below a hidden mount root."""
+        mount_dir = tmp_path / ".bengal" / "staging"
+        wk = mount_dir / ".well-known" / "security.txt"
+        wk.parent.mkdir(parents=True)
+        wk.write_text("Contact: mailto:a@b.c")
+
+        handler = self._make_handler(mount_dir)
+        file = handler._resolve_file("/.well-known/security.txt", None)
+
+        assert file is not None
+        assert file.path == wk
+
+    def test_precompressed_served_under_hidden_mount_dir(self, tmp_path):
+        """Precompressed variants are served under a hidden mount root.
+
+        Exercises the duplicated guard in ``_validate_precompressed``.
+        """
+        mount_dir = tmp_path / ".bengal" / "staging"
+        mount_dir.mkdir(parents=True)
+        (mount_dir / "style.css").write_text("body{}")
+        (mount_dir / "style.css.gz").write_bytes(b"\x1f\x8b\x08\x00compressed")
+
+        handler = self._make_handler(mount_dir)
+        file = handler._resolve_file("/style.css", b"gzip")
+
+        assert file is not None
+        assert file.encoding == "gzip"
+        assert file.path == mount_dir / "style.css.gz"
+
+
 class TestETagGeneration:
     """Tests for ETag generation."""
 

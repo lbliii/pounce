@@ -283,8 +283,13 @@ class StaticFiles:
                 return None
 
             # Block hidden files (anything starting with .) but allow .well-known
-            # per RFC 8615 (used by ACME/Let's Encrypt, security.txt, etc.)
-            for part in resolved.parts:
+            # per RFC 8615 (used by ACME/Let's Encrypt, security.txt, etc.).
+            # Only inspect components *below* the mount root: an operator may
+            # legitimately mount a directory that itself lives under a dotfile
+            # path (e.g. <root>/.bengal/staging), and those ancestors must not
+            # be treated as hidden-file access. resolved is already confirmed
+            # relative to mount_resolved above, so relative_to cannot raise.
+            for part in resolved.relative_to(mount_resolved).parts:
                 if part.startswith(".") and part != ".well-known":
                     return None
 
@@ -416,8 +421,11 @@ class StaticFiles:
         except (ValueError, OSError):  # fmt: skip
             return False
 
-        # Block hidden files (same check as _resolve_file)
-        for part in resolved.parts:
+        # Block hidden files (same check as _resolve_file) — only inspect
+        # components below the mount root so a mount under a dotfile path
+        # (e.g. <root>/.bengal/staging) is still serveable. resolved is
+        # already confirmed relative to mount.directory above.
+        for part in resolved.relative_to(mount.directory).parts:
             if part.startswith(".") and part != ".well-known":
                 return False
 
