@@ -168,6 +168,16 @@ class TestBuildH3Scope:
         scope = build_h3_scope(_h3_headers(), ServerConfig(), _CLIENT, _SERVER, is_0rtt=True)
         assert scope["extensions"]["pounce.h3.is_0rtt"] is True
 
+    def test_does_not_advertise_response_push(self) -> None:
+        """H3 must not advertise http.response.push: server push is unimplemented.
+
+        Extension honesty (src/pounce/asgi/AGENTS.md): advertise an extension only
+        when the runtime can execute it. This matches the H2 bridge, which does not
+        advertise push either.
+        """
+        scope = build_h3_scope(_h3_headers(), ServerConfig(), _CLIENT, _SERVER)
+        assert "http.response.push" not in scope["extensions"]
+
     def test_root_path_from_config(self) -> None:
         config = ServerConfig(root_path="/prefix")
         scope = build_h3_scope(_h3_headers(), config, _CLIENT, _SERVER)
@@ -632,3 +642,17 @@ class TestCreateH3Send:
         _, headers = h3.sent_headers[0]
         header_dict = dict(headers)
         assert header_dict.get(b"x-custom") == b"value"
+
+    async def test_unhandled_message_type_raises(self) -> None:
+        """Unknown ASGI message types must fail loud (no silent no-op).
+
+        Mirrors the H1 bridge, which raises on unexpected message types rather
+        than dropping them silently (e.g. a never-implemented push attempt).
+        """
+        h3 = _MockH3Connection()
+        transmit = MagicMock()
+        state = SendState()
+        send = create_h3_send(h3, stream_id=0, transmit=transmit, state=state)
+
+        with pytest.raises(RuntimeError, match="Unexpected ASGI message type"):
+            await send({"type": "http.response.push", "path": "/asset.js", "headers": []})
