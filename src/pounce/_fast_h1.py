@@ -9,6 +9,7 @@ checks that matter for real-world deployment:
 - Header size limit (prevents memory exhaustion)
 - Null byte / control character injection in targets and header names
 - Duplicate Content-Length detection (request smuggling vector)
+- Duplicate Host detection (request smuggling / routing-desync vector)
 - Content-Length + Transfer-Encoding conflict (RFC 7230 §3.3.3)
 - Negative or non-numeric Content-Length rejection
 - Chunked Transfer-Encoding detection (returns flag so caller can handle)
@@ -134,6 +135,7 @@ def parse_request(
     content_length = -1  # -1 = not set
     has_transfer_encoding = False
     chunked = False
+    host_count = 0
 
     pos = 0
     block_len = len(header_block)
@@ -193,6 +195,16 @@ def parse_request(
             has_transfer_encoding = True
             if b"chunked" in value.lower():
                 chunked = True
+        elif name_lower == b"host":
+            # Duplicate Host is a request-smuggling / routing-desync vector
+            # (RFC 9112 §3.2). h11 (the async path) rejects this too — keep
+            # both worker paths in lockstep.
+            host_count += 1
+            if host_count > 1:
+                raise ParseError(
+                    "Duplicate Host header",
+                    code="POUNCE_PARSE_DUPLICATE_HOST",
+                )
 
     # CL + TE together is a smuggling vector (RFC 7230 §3.3.3)
     if content_length >= 0 and has_transfer_encoding:

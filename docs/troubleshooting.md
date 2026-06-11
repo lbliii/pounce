@@ -98,6 +98,12 @@ The request carried more than one `Content-Length` header.
 **Cause:** broken client or intermediary merging requests.
 **Do:** reject at the proxy; this is also a smuggling vector.
 
+### POUNCE_PARSE_DUPLICATE_HOST
+The request carried more than one `Host` header. RFC 9112 §3.2 forbids this; it
+is a request-smuggling / routing-desync vector for host-based routing.
+**Cause:** broken client or intermediary, or a smuggling attempt.
+**Do:** pounce always rejects (both worker paths). Investigate the upstream.
+
 ### POUNCE_PARSE_BAD_CONTENT_LENGTH
 `Content-Length` is not a valid non-negative integer.
 **Cause:** client bug; whitespace, hex, or signed values in the header.

@@ -452,6 +452,57 @@ class TestSyncWorkerErrorPaths:
         response = bytes(mock_sock.sent_data)
         assert b"400" in response
 
+    def test_duplicate_host_returns_400(self) -> None:
+        """Duplicate Host header gets 400 (smuggling / routing-desync parity, #119)."""
+        bad_request = b"GET / HTTP/1.1\r\nHost: a.example\r\nHost: b.example\r\n\r\n"
+        mock_sock = MockSocket(bad_request)
+        worker = _make_worker()
+        runner = asyncio.Runner()
+        try:
+            worker._handle_connection(mock_sock, ("127.0.0.1", 54321), runner)
+        finally:
+            runner.close()
+
+        response = bytes(mock_sock.sent_data)
+        assert b"400" in response
+        # Surfaces the semantic diagnostic code via the error header.
+        assert b"POUNCE_PARSE_DUPLICATE_HOST" in response
+
+    def test_crlf_header_sanitized_not_dropped(self) -> None:
+        """App-supplied CRLF in a response header is sanitized, not a dropped connection (#120)."""
+
+        async def _crlf_header_app(scope: Scope, receive: Receive, send: Send) -> None:
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"x-evil", b"value\r\nInjected: yes"),
+                        (b"x-ok", b"fine"),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": b"ok", "more_body": False})
+
+        request_bytes = _build_http_request(headers={"Host": "localhost"})
+        mock_sock = MockSocket(request_bytes)
+        worker = _make_worker(app=_crlf_header_app)
+        runner = asyncio.Runner()
+        try:
+            worker._handle_connection(mock_sock, ("127.0.0.1", 54321), runner)
+        finally:
+            runner.close()
+
+        response = bytes(mock_sock.sent_data)
+        # Response is delivered normally (no abrupt drop / unhandled error).
+        assert b"200" in response
+        assert b"ok" in response
+        # The CRLF was stripped, so the injected text is NOT on its own
+        # header line — it is collapsed into the x-evil value instead.
+        assert b"\r\nInjected: yes" not in response
+        assert b"\r\ninjected: yes" not in response.lower()
+        assert b"x-evil: valueinjected: yes" in response.lower()
+
 
 # ---------------------------------------------------------------------------
 # Sprint 2: Handoff paths

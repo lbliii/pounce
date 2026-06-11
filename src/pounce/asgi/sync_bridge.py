@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pounce._types import ASGIApp
+from pounce.asgi.bridge import _sanitize_headers
 
 
 class NeedsAsyncError(Exception):
@@ -98,13 +99,19 @@ def call_asgi_sync(
             response_started = True
             status = message["status"]
             raw_headers = message.get("headers", [])
-            headers = [
-                (
-                    h[0] if isinstance(h[0], bytes) else h[0].encode(),
-                    h[1] if isinstance(h[1], bytes) else h[1].encode(),
-                )
-                for h in raw_headers
-            ]
+            # Defense-in-depth: strip CR/LF and drop empty names, matching the
+            # async/H2/H3 bridges. Without this, an app-supplied CRLF header
+            # would raise HeaderInjectionError at serialization and abruptly
+            # drop the connection instead of returning a sanitized response.
+            headers = _sanitize_headers(
+                [
+                    (
+                        h[0] if isinstance(h[0], bytes) else h[0].encode(),
+                        h[1] if isinstance(h[1], bytes) else h[1].encode(),
+                    )
+                    for h in raw_headers
+                ]
+            )
         elif msg_type == "http.response.body":
             body_parts.append(message.get("body", b""))
             if message.get("more_body", False):
