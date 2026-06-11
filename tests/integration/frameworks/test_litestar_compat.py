@@ -255,11 +255,6 @@ class TestLitestarStreaming:
 class TestLitestarWebSocket:
     """WebSocket echo handler works through pounce."""
 
-    @pytest.mark.xfail(
-        reason="Litestar WebSocket routing expects scope without HTTP method; "
-        "pounce WebSocket upgrade flow includes method='GET' in scope lookup",
-        strict=False,
-    )
     def test_websocket_echo(self, pounce_server) -> None:
         pytest.importorskip("wsproto")
         host, port = pounce_server(_make_websocket_app())
