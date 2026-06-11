@@ -206,3 +206,33 @@ class TestMaxHeadersEnforcement:
         buf = memoryview(raw)
         result, _, _, _ = parse_request(buf, len(raw), max_headers=100)
         assert result is not None
+
+
+class TestDuplicateHostRejection:
+    """Both worker paths must reject >1 Host header (RFC 9112 §3.2)."""
+
+    def test_fast_parser_rejects_duplicate_host(self):
+        """The sync fast parser raises ParseError on duplicate Host (#119)."""
+        raw = b"GET / HTTP/1.1\r\nHost: a.example\r\nHost: b.example\r\n\r\n"
+        buf = memoryview(raw)
+        with pytest.raises(FastParseError, match=r"[Dd]uplicate Host") as exc:
+            parse_request(buf, len(raw), max_headers=100)
+        assert exc.value.code == "POUNCE_PARSE_DUPLICATE_HOST"
+        assert exc.value.status_code == 400
+
+    def test_fast_parser_accepts_single_host(self):
+        """A single Host header is accepted by the fast parser."""
+        raw = b"GET / HTTP/1.1\r\nHost: a.example\r\n\r\n"
+        buf = memoryview(raw)
+        result, _, _, _ = parse_request(buf, len(raw), max_headers=100)
+        assert result is not None
+
+    def test_both_paths_reject_duplicate_host(self):
+        """Parity: async (h11) and sync (fast) paths both reject duplicate Host."""
+        raw = b"GET / HTTP/1.1\r\nHost: a.example\r\nHost: b.example\r\n\r\n"
+        # Async path (h11) rejects with a ParseError.
+        with pytest.raises(ParseError):
+            H1Protocol().receive_data(raw)
+        # Sync fast path rejects with a ParseError too.
+        with pytest.raises(FastParseError):
+            parse_request(memoryview(raw), len(raw), max_headers=100)

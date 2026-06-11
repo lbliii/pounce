@@ -78,10 +78,11 @@ ALL_SITES = _collect_raise_sites()
 
 def test_expected_site_count() -> None:
     """Keep count stable so accidentally-added raise sites trigger review."""
-    assert len(ALL_SITES) == 24, (
-        f"Found {len(ALL_SITES)} pounce-error raise sites; "
-        f"plan docs/plans/vibe-coding-epic.md expects 24. "
-        f"If this changed intentionally, update the plan + this test."
+    # 24 from Sprint 1 (docs/plans/vibe-coding-epic.md) + 1 for the
+    # duplicate-Host rejection added in _fast_h1 (issue #119).
+    assert len(ALL_SITES) == 25, (
+        f"Found {len(ALL_SITES)} pounce-error raise sites; expected 25. "
+        f"If this changed intentionally, update this test."
     )
 
 
