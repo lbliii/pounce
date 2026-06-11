@@ -7,6 +7,8 @@
         cpu_count        -- number of CPUs (int)
         gil_status       -- "nogil" or "GIL"
         install_path     -- pounce install location
+        worker_model     -- auto-detected worker model (e.g. "thread (sync)")
+        worker_count     -- resolved worker count (int)
         deps             -- list of {name, installed, version, hint} dicts
         frameworks       -- list of detected framework name strings
 -#}
@@ -17,6 +19,7 @@
   {{ kv_pair("Python", python_version ~ " (" ~ gil_status ~ ")") }}
   {{ kv_pair("Platform", platform) }}
   {{ kv_pair("CPUs", cpu_count | string) }}
+  {{ kv_pair("Worker model", worker_model ~ " (" ~ (worker_count | string) ~ " workers)") }}
   {{ kv_pair("Pounce", "v" ~ version) }}
   {{ kv_pair("Install", install_path) }}
 
