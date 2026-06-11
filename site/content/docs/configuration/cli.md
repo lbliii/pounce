@@ -55,11 +55,15 @@ The `--app` argument is a Python module path with an attribute, e.g. `myapp:app`
 ::::{tip}
 5xx responses are logged at `WARNING` level (instead of `INFO`) so they stand out visually and can be filtered separately.
 
-When `--log-format json` is set, all log output is emitted as structured JSON:
+When `--log-format json` is set, each access-log line is emitted as a flat
+structured JSON object on stderr:
 
 ```json
-{"timestamp": "2026-02-08T12:00:00+00:00", "level": "WARNING", "logger": "pounce.access", "method": "GET", "path": "/", "status": 500, "bytes_sent": 21, "duration_ms": 98.9, "client": "127.0.0.1:5000", "request_id": "a1b2c3d4e5f6..."}
+{"ts": "2026-02-08T12:00:00+00:00", "level": "warn", "method": "GET", "path": "/", "status": 500, "bytes": 21, "duration_ms": 98.9, "client": "127.0.0.1:5000", "req_id": "a1b2c3d4e5f67890a1b2c3d4e5f67890", "worker": 0}
 ```
+
+The field set, types, and the `req_id` policy are a stability contract — see
+[the access-log schema](../deployment/observability.md#json-access-log-schema).
 ::::
 
 ### Observability

@@ -212,6 +212,27 @@ def access_log(
     In pretty mode, writes a colored compact line to stderr.
     In text mode, uses the standard combined log format via stdlib logging.
 
+    JSON access-log schema (stability contract — see
+    ``site/content/docs/deployment/observability.md``). Each line is a flat
+    object with these keys::
+
+        ts          str    ISO-8601 timestamp, UTC, with offset
+        level        str    "info" (status < 500) or "warn" (status >= 500)
+        method       str    HTTP request method
+        path         str    request target (path + query)
+        status       int    HTTP response status code
+        bytes        int    response body bytes sent
+        duration_ms  float  request duration, rounded to 1 decimal
+        client       str    "host:port" of the peer
+        req_id       str    optional — present only when a request id exists;
+                            the FULL id, byte-for-byte equal to the
+                            ``X-Request-ID`` response header (no truncation)
+        worker       int    optional — present only in multi-worker mode
+
+    Consumers may depend on this key set, the value types, and the req_id
+    policy. New keys may be added; existing keys are not renamed or retyped
+    without a deprecation.
+
     Args:
         method: HTTP method (e.g., "GET").
         path: Request path (e.g., "/api/users").
@@ -220,7 +241,8 @@ def access_log(
         duration_ms: Request duration in milliseconds.
         client: Client address string (e.g., "127.0.0.1:5000").
         http_version: Protocol version string (e.g., "1.1", "2").
-        request_id: Optional request ID for tracing.
+        request_id: Optional request ID for tracing. Logged in full (json and
+            text modes) so it matches the X-Request-ID response header exactly.
         worker_id: Optional worker ID for multi-worker correlation.
 
     """
@@ -237,7 +259,9 @@ def access_log(
                 "client": client,
             }
             if request_id is not None:
-                entry["req_id"] = request_id[:8]
+                # Full, untruncated id so it exactly matches the X-Request-ID
+                # response header (and proxy-supplied ids of arbitrary length).
+                entry["req_id"] = request_id
             if worker_id is not None:
                 entry["worker"] = worker_id
             line = json_module.dumps(entry, default=str)
@@ -252,7 +276,7 @@ def access_log(
         case _:
             # Text mode — classic combined-log via stdlib logging
             level = logging.WARNING if status >= 500 else logging.INFO
-            rid_suffix = f" [{request_id[:12]}]" if request_id else ""
+            rid_suffix = f" [{request_id}]" if request_id else ""
             wid_suffix = f" w{worker_id}" if worker_id is not None else ""
             access_logger.log(
                 level,

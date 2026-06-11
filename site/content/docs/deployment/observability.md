@@ -62,6 +62,47 @@ async def app(scope, receive, send):
     request_id = scope.get("extensions", {}).get("request_id")
 ```
 
+The request id is logged **in full** in both `json` and `text` access-log
+modes, so the `req_id` access-log field is byte-for-byte equal to the
+`X-Request-ID` response header. Correlate a log line with a client-side
+response (or a trusted proxy's forwarded id) by exact string match — no
+prefix logic is required. Because a trusted proxy may supply a non-UUID4
+value of any length, no truncation or length assumption is applied.
+
+## JSON access-log schema
+
+`--log-format json` emits one flat JSON object per completed request on
+stderr. **This schema is a stability contract**: log-ingestion pipelines may
+depend on the field names, value types, and the `req_id` policy below.
+
+```json
+{"ts": "2026-02-08T12:00:00+00:00", "level": "warn", "method": "GET", "path": "/", "status": 500, "bytes": 21, "duration_ms": 98.9, "client": "127.0.0.1:5000", "req_id": "a1b2c3d4e5f67890a1b2c3d4e5f67890", "worker": 0}
+```
+
+| Key | Type | Always present | Meaning |
+|-----|------|----------------|---------|
+| `ts` | string | yes | ISO-8601 timestamp, UTC, with offset |
+| `level` | string | yes | `"info"` for status < 500, `"warn"` for status >= 500 |
+| `method` | string | yes | HTTP request method |
+| `path` | string | yes | Request target (path + query string) |
+| `status` | integer | yes | HTTP response status code |
+| `bytes` | integer | yes | Response body bytes sent |
+| `duration_ms` | number | yes | Request duration in ms, rounded to 1 decimal |
+| `client` | string | yes | Peer address as `host:port` |
+| `req_id` | string | no | Full request id; equals the `X-Request-ID` header. Present only when a request id exists |
+| `worker` | integer | no | Worker id; present only in multi-worker mode |
+
+Stability guarantees:
+
+- Existing keys are not renamed or retyped without a deprecation cycle.
+- New optional keys may be added over time, so consumers should ignore
+  unknown keys rather than reject the line.
+- `req_id`, when present, is the **complete** id (never truncated), matching
+  the `X-Request-ID` response header exactly.
+
+The `text` access-log format is intended for humans and is **not** covered by
+this contract; use `json` for machine consumption.
+
 ## Prometheus Metrics
 
 `PrometheusCollector` implements the `LifecycleCollector` protocol. Thread-safe for free-threading mode.
