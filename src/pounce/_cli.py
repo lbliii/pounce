@@ -595,12 +595,17 @@ def parse_dirs(raw: list[str] | None) -> tuple[str, ...]:
     description="Show system diagnostics and dependency status",
     display_result=False,
 )
-def info() -> None:
-    """Display system info, dependency status, and environment diagnostics."""
+def info(output_format: str = "text") -> None:
+    """Display system info, dependency status, and environment diagnostics.
+
+    Pass ``--output-format json`` for a stable, machine-readable dict suitable
+    for ``pounce info --output-format json | jq``.
+    """
     import os
     import platform
 
     from pounce import _output
+    from pounce.config import ServerConfig
 
     python_version = sys.version.split()[0]
     gil_status = _output.detect_gil_status()
@@ -611,6 +616,9 @@ def info() -> None:
     deps = _output.probe_all_optional_deps()
     frameworks = _output.detect_frameworks()
 
+    worker_model = _output.detect_worker_model()
+    worker_count = ServerConfig().resolve_workers()
+
     _output.info_panel(
         version=__version__,
         python_version=python_version,
@@ -620,6 +628,9 @@ def info() -> None:
         install_path=install_path,
         deps=deps,
         frameworks=frameworks,
+        worker_model=worker_model,
+        worker_count=worker_count,
+        output_format=output_format,
     )
 
 

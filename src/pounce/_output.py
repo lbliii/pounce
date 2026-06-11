@@ -64,6 +64,20 @@ def _write(text: str) -> None:
         sys.stderr.write(text + "\n")
 
 
+def _write_stdout(text: str) -> None:
+    """Write a line to stdout (thread-safe).
+
+    Diagnostic commands (``pounce info``) emit to stdout so output is captured
+    by ``pounce info | cat`` / ``| jq`` rather than silently dropped through an
+    unconfigured logger.  Reuses the shared stderr lock so interleaving with
+    lifecycle output stays serialized under free-threaded Python.
+    """
+    from pounce.logging import stderr_lock
+
+    with stderr_lock:
+        sys.stdout.write(text + "\n")
+
+
 # ── Errors ────────────────────────────────────────────
 
 
@@ -232,6 +246,21 @@ def detect_frameworks() -> list[str]:
 # ── Info panel ───────────────────────────────────────
 
 
+def detect_worker_model() -> str:
+    """Describe the worker model auto-detect would choose on this interpreter.
+
+    Combines the spawning strategy (:func:`detect_worker_mode`) with the
+    execution mode (:func:`resolve_worker_execution_mode`) so the line reflects
+    what ``--worker-mode auto`` would pick here — e.g. ``thread (sync)`` on a
+    free-threaded build, ``process (async)`` on a GIL build.
+    """
+    from pounce._runtime import detect_worker_mode, resolve_worker_execution_mode
+
+    mode = detect_worker_mode()
+    execution = resolve_worker_execution_mode("auto")
+    return f"{mode.value} ({execution.value})"
+
+
 def info_panel(
     *,
     version: str,
@@ -242,13 +271,44 @@ def info_panel(
     install_path: str,
     deps: list[dict],
     frameworks: list[str],
+    worker_model: str,
+    worker_count: int,
+    output_format: str = "text",
 ) -> None:
-    """Render the system info diagnostic panel."""
+    """Render the system info diagnostic panel.
+
+    Writes to stdout (via :func:`_write_stdout`) so the diagnostics survive
+    being piped or redirected — ``pounce info`` previously emitted via
+    ``logger.info``, which is dropped when no handler is installed (the common
+    non-TTY automation case).
+
+    ``output_format`` selects the channel: ``"json"`` emits a stable,
+    machine-readable dict; anything else renders the human-readable panel
+    (pretty when stderr is a TTY, plain text otherwise).
+    """
     import os
+
+    if output_format == "json":
+        import json
+
+        payload = {
+            "version": version,
+            "python_version": python_version,
+            "platform": platform_str,
+            "cpu_count": cpu_count,
+            "gil_status": gil_status,
+            "install_path": install_path,
+            "deps": deps,
+            "frameworks": frameworks,
+            "worker_model": worker_model,
+            "worker_count": worker_count,
+        }
+        _write_stdout(json.dumps(payload, indent=2))
+        return
 
     use_pretty = _is_pretty() or sys.stderr.isatty() or os.environ.get("FORCE_COLOR") == "1"
     if use_pretty:
-        _write(
+        _write_stdout(
             _render(
                 "info.kida",
                 version=version,
@@ -259,20 +319,28 @@ def info_panel(
                 install_path=install_path,
                 deps=deps,
                 frameworks=frameworks,
+                worker_model=worker_model,
+                worker_count=worker_count,
             )
         )
     else:
-        logger.info(
-            "pounce v%s | Python %s | %s | %d CPUs | %s",
-            version,
-            python_version,
-            platform_str,
-            cpu_count,
-            gil_status,
+        # Write directly to stdout instead of logger.info — ``pounce info`` runs
+        # before ``configure_logging`` installs handlers, so logger.info is
+        # silently dropped (``pounce info | cat`` produced zero bytes). Agents
+        # piping stdout now get the full diagnostics.
+        _write_stdout(
+            f"pounce v{version} | Python {python_version} | {platform_str} | "
+            f"{cpu_count} CPUs | {gil_status}"
         )
+        _write_stdout(f"Worker model: {worker_model} | {worker_count} workers")
+        _write_stdout(f"Install path: {install_path}")
         for dep in deps:
             status = dep["version"] if dep["installed"] else "not installed"
-            logger.info("  %s: %s", dep["name"], status)
+            _write_stdout(f"  {dep['name']}: {status}")
+        if frameworks:
+            _write_stdout(f"Frameworks: {', '.join(frameworks)}")
+        else:
+            _write_stdout("Frameworks: none detected")
 
 
 # ── Check results ────────────────────────────────────
