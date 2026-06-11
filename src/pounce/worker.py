@@ -390,6 +390,14 @@ class Worker:
                 executor.shutdown(wait=False, cancel_futures=True)
             finally:
                 shutdown_helper.shutdown(wait=False)
+
+            # Flush any spans still queued in the BatchSpanProcessor so they are
+            # exported rather than dropped when the worker process exits (#133).
+            if self._otel_span_manager is not None:
+                from pounce._otel import flush_otel
+
+                flush_otel()
+
             self._logger.debug("Worker %d stopped", self._worker_id)
 
     async def _run_worker_startup_hook(self) -> bool:
