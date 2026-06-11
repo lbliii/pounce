@@ -13,6 +13,7 @@ from pounce._compression import (
     DictZstdCompressor,
     GzipCompressor,
     ZstdCompressor,
+    accepted_encodings,
     create_compressor,
     negotiate_dictionary,
     negotiate_encoding,
@@ -90,6 +91,33 @@ class TestNegotiateEncoding:
     def test_invalid_q_value_treated_as_zero(self):
         result = negotiate_encoding(b"gzip;q=invalid")
         assert result is None
+
+
+class TestAcceptedEncodings:
+    """accepted_encodings() returns acceptable encodings in priority order."""
+
+    def test_priority_order(self):
+        if not _HAS_ZSTD:
+            pytest.skip("zstd not available")
+        assert accepted_encodings(b"gzip, zstd") == ["zstd", "gzip"]
+
+    def test_q_zero_excluded(self):
+        # gzip declined, zstd accepted -> only zstd remains.
+        if not _HAS_ZSTD:
+            assert accepted_encodings(b"gzip;q=0, zstd") == []
+        else:
+            assert accepted_encodings(b"gzip;q=0, zstd") == ["zstd"]
+
+    def test_all_declined_empty(self):
+        assert accepted_encodings(b"identity") == []
+        assert accepted_encodings(b"gzip;q=0") == []
+
+    def test_gzip_only(self):
+        assert accepted_encodings(b"gzip") == ["gzip"]
+
+    def test_wildcard_includes_all(self):
+        expected = ["zstd", "gzip"] if _HAS_ZSTD else ["gzip"]
+        assert accepted_encodings(b"*") == expected
 
 
 class TestGzipCompressor:

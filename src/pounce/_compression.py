@@ -275,10 +275,35 @@ def negotiate_encoding(accept_encoding: bytes | str) -> str | None:
         None
 
     """
+    encodings = _parse_accept_encoding(accept_encoding)
+
+    # Check wildcard
+    wildcard_q = encodings.get("*", 0.0)
+
+    # Find best match respecting priority
+    for encoding in _ENCODING_PRIORITY:
+        q = encodings.get(encoding, wildcard_q)
+        if q > 0:
+            return encoding
+
+    return None
+
+
+def _parse_accept_encoding(accept_encoding: bytes | str) -> dict[str, float]:
+    """Parse Accept-Encoding into an {encoding: q-value} mapping.
+
+    Encodings explicitly declined with ``q=0`` are omitted from the result.
+
+    Args:
+        accept_encoding: The Accept-Encoding header value.
+
+    Returns:
+        Mapping of lowercase encoding name to its q-value (all > 0).
+
+    """
     if isinstance(accept_encoding, bytes):
         accept_encoding = accept_encoding.decode("ascii", errors="replace")
 
-    # Parse into {encoding: q-value} mapping
     encodings: dict[str, float] = {}
     for part in accept_encoding.split(","):
         part = part.strip()
@@ -301,16 +326,28 @@ def negotiate_encoding(accept_encoding: bytes | str) -> str | None:
         if q > 0:
             encodings[name] = q
 
-    # Check wildcard
+    return encodings
+
+
+def accepted_encodings(accept_encoding: bytes | str) -> list[str]:
+    """Return acceptable encodings from Accept-Encoding, in our priority order.
+
+    Respects q-values: encodings with ``q=0`` are excluded and a non-zero
+    wildcard (``*``) makes any priority encoding acceptable. Unlike
+    :func:`negotiate_encoding`, this returns *all* acceptable priority
+    encodings (zstd before gzip) so callers can pick the best variant that
+    actually exists on disk.
+
+    Args:
+        accept_encoding: The Accept-Encoding header value.
+
+    Returns:
+        List of acceptable encoding names in descending preference.
+
+    """
+    encodings = _parse_accept_encoding(accept_encoding)
     wildcard_q = encodings.get("*", 0.0)
-
-    # Find best match respecting priority
-    for encoding in _ENCODING_PRIORITY:
-        q = encodings.get(encoding, wildcard_q)
-        if q > 0:
-            return encoding
-
-    return None
+    return [encoding for encoding in _ENCODING_PRIORITY if encodings.get(encoding, wildcard_q) > 0]
 
 
 def create_compressor(

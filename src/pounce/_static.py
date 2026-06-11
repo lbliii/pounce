@@ -23,10 +23,29 @@ import os
 import secrets
 import stat as stat_mod
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from pounce._compression import accepted_encodings
 from pounce._types import ASGIApp, Receive, Send
+
+# Maximum number of byte ranges honored per Range request. Requests asking for
+# more ranges than this are collapsed to a full 200 response to avoid
+# range-based amplification (CVE-2011-3192 style). RFC 7233 permits a server to
+# ignore the Range header for any request it considers abusive.
+_MAX_RANGES = 10
+
+
+class _RangeNotSatisfiable(Enum):
+    """Sentinel for a valid but unsatisfiable Range request (-> 416)."""
+
+    TOKEN = 0
+
+
+# A valid Range whose bytes lie entirely outside the file. Distinct from
+# ``None`` (malformed Range, which is ignored and served as a full 200).
+_RANGE_NOT_SATISFIABLE = _RangeNotSatisfiable.TOKEN
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +93,7 @@ class StaticFile:
         mime_type: MIME type (e.g., "text/html")
         etag: ETag header value
         encoding: Content-Encoding (None, "gzip", or "zstd")
+        vary: Whether content negotiation occurred (emit Vary: Accept-Encoding)
 
     """
 
@@ -84,6 +104,7 @@ class StaticFile:
     etag: str
     encoding: str | None = None
     cache_control: str = "public, max-age=3600"
+    vary: bool = False
 
 
 class StaticFiles:
@@ -230,6 +251,10 @@ class StaticFiles:
         # Check Range header
         if range_header and method == "GET":
             ranges = self._parse_range_header(range_header.decode("latin1"), file.size)
+            if ranges is _RANGE_NOT_SATISFIABLE:
+                # Valid but unsatisfiable range -> 416 (RFC 7233 §4.4).
+                await self._send_416(file, send)
+                return
             if ranges is not None:
                 await self._send_206(file, ranges, send, sendfile_enabled=sendfile_enabled)
                 return
@@ -353,6 +378,10 @@ class StaticFiles:
                 etag=etag,
                 encoding=encoding,
                 cache_control=mount.cache_control,
+                # A precompressed-enabled mount negotiates on Accept-Encoding,
+                # so every response (even identity) must advertise Vary so
+                # shared caches do not mix variants across clients.
+                vary=mount.precompressed,
             )
 
         return None
@@ -378,28 +407,22 @@ class StaticFiles:
         if not accept_encoding:
             return (path, None)
 
-        accept_str = accept_encoding.decode("latin1").lower()
+        # Honor q-values: ``gzip;q=0`` excludes gzip and identity preference is
+        # respected. Walk acceptable encodings in priority order (zstd > gzip)
+        # and serve the first variant that exists, falling back to identity.
+        suffixes = {"zstd": ".zst", "gzip": ".gz"}
+        for encoding in accepted_encodings(accept_encoding):
+            suffix = suffixes.get(encoding)
+            if suffix is None:
+                continue
 
-        # Check zstd first (better compression)
-        if "zstd" in accept_str:
-            zst_path = path.with_suffix(path.suffix + ".zst")
-            if zst_path.exists() and self._validate_precompressed(zst_path, mount):
+            variant_path = path.with_suffix(path.suffix + suffix)
+            if variant_path.exists() and self._validate_precompressed(variant_path, mount):
                 try:
-                    zst_stat = zst_path.stat()
-                    # Only use if precompressed is newer or same age
-                    if zst_stat.st_mtime >= original_stat.st_mtime:
-                        return (zst_path, "zstd")
-                except OSError:
-                    pass
-
-        # Check gzip
-        if "gzip" in accept_str:
-            gz_path = path.with_suffix(path.suffix + ".gz")
-            if gz_path.exists() and self._validate_precompressed(gz_path, mount):
-                try:
-                    gz_stat = gz_path.stat()
-                    if gz_stat.st_mtime >= original_stat.st_mtime:
-                        return (gz_path, "gzip")
+                    variant_stat = variant_path.stat()
+                    # Only use if the precompressed variant is newer or same age.
+                    if variant_stat.st_mtime >= original_stat.st_mtime:
+                        return (variant_path, encoding)
                 except OSError:
                     pass
 
@@ -504,20 +527,42 @@ class StaticFiles:
 
     def _parse_range_header(
         self, range_header: str, file_size: int
-    ) -> list[tuple[int, int]] | None:
+    ) -> list[tuple[int, int]] | None | _RangeNotSatisfiable:
         """Parse Range header and return list of (start, end) byte ranges.
 
         Format: "bytes=0-499" or "bytes=500-999" or "bytes=-500"
 
+        Distinguishes three outcomes (RFC 7233):
+          * Malformed Range (bad syntax, ``start > end``) -> ``None``; the
+            caller ignores the header and serves a full 200 response.
+          * Valid but unsatisfiable (an explicit ``start >= file_size``) ->
+            :data:`_RANGE_NOT_SATISFIABLE`; the caller sends 416.
+          * Satisfiable -> a coalesced list of (start, end) tuples. An explicit
+            ``end`` past EOF is clamped to ``file_size - 1`` rather than
+            rejected. Requests with more than ``_MAX_RANGES`` parts are treated
+            as abusive and ignored (``None`` -> full 200).
+
         Returns:
-            List of (start, end) tuples (inclusive), or None if invalid
+            List of (start, end) tuples (inclusive), ``None`` if the header
+            should be ignored, or the unsatisfiable sentinel.
 
         """
         if not range_header.startswith("bytes="):
             return None
 
-        ranges = []
-        for range_spec in range_header[6:].split(","):
+        # Empty file: any byte range is unsatisfiable.
+        if file_size == 0:
+            return _RANGE_NOT_SATISFIABLE
+
+        specs = range_header[6:].split(",")
+        # Abusive multi-range requests are ignored (served as full 200) to avoid
+        # range-based amplification (CVE-2011-3192).
+        if len(specs) > _MAX_RANGES:
+            return None
+
+        ranges: list[tuple[int, int]] = []
+        any_unsatisfiable = False
+        for range_spec in specs:
             range_spec = range_spec.strip()
 
             if "-" not in range_spec:
@@ -537,20 +582,60 @@ class StaticFiles:
                     end = file_size - 1
                 elif end_str:
                     # bytes=-500 (last 500 bytes)
-                    start = max(0, file_size - int(end_str))
+                    suffix_len = int(end_str)
+                    if suffix_len <= 0:
+                        # bytes=-0 is malformed; ignore the header.
+                        return None
+                    start = max(0, file_size - suffix_len)
                     end = file_size - 1
                 else:
                     return None
             except ValueError:
                 return None
 
-            # Validate range
-            if start < 0 or end >= file_size or start > end:
+            # Negative offsets or reversed bounds are malformed -> ignore.
+            if start < 0 or start > end:
                 return None
+
+            # An explicit start beyond EOF is valid but unsatisfiable (416).
+            if start >= file_size:
+                any_unsatisfiable = True
+                continue
+
+            # Clamp an end that runs past EOF (RFC 7233 §2.1).
+            if end >= file_size:
+                end = file_size - 1
 
             ranges.append((start, end))
 
-        return ranges if ranges else None
+        if not ranges:
+            # Every part was unsatisfiable -> 416; otherwise nothing to serve.
+            return _RANGE_NOT_SATISFIABLE if any_unsatisfiable else None
+
+        return self._coalesce_ranges(ranges)
+
+    @staticmethod
+    def _coalesce_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+        """Merge overlapping or adjacent byte ranges.
+
+        Sorting then merging bounds the work (and response size) of a
+        multi-range request to the size of the file itself.
+
+        Returns:
+            Coalesced ranges sorted by start offset.
+
+        """
+        ordered = sorted(ranges)
+        merged: list[tuple[int, int]] = [ordered[0]]
+        for start, end in ordered[1:]:
+            last_start, last_end = merged[-1]
+            # Adjacent (last_end + 1 == start) or overlapping ranges merge.
+            if start <= last_end + 1:
+                if end > last_end:
+                    merged[-1] = (last_start, end)
+            else:
+                merged.append((start, end))
+        return merged
 
     def _get_header(self, headers: list[tuple[bytes, bytes]], name: bytes) -> bytes | None:
         """Get header value by name (case-insensitive).
@@ -572,14 +657,46 @@ class StaticFiles:
             (b"cache-control", file.cache_control.encode("latin1")),
         ]
 
-        # 304 must include Vary when the 200 would (RFC 7232 §4.1)
-        if file.encoding:
+        # 304 must include Vary when the 200 would (RFC 7232 §4.1). Emit it
+        # whenever content negotiation occurred, even for identity responses.
+        if file.vary:
             headers.append((b"vary", b"accept-encoding"))
 
         await send(
             {
                 "type": "http.response.start",
                 "status": 304,
+                "headers": headers,
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"",
+            }
+        )
+
+    async def _send_416(self, file: StaticFile, send: Send) -> None:
+        """Send 416 Range Not Satisfiable (RFC 7233 §4.4).
+
+        Includes ``Content-Range: bytes */<size>`` so the client learns the
+        current representation length, plus ETag and Accept-Ranges.
+        """
+        headers: list[tuple[bytes, bytes]] = [
+            (b"content-range", f"bytes */{file.size}".encode("latin1")),
+            (b"content-length", b"0"),
+            (b"accept-ranges", b"bytes"),
+            (b"etag", file.etag.encode("latin1")),
+            (b"cache-control", file.cache_control.encode("latin1")),
+        ]
+
+        if file.vary:
+            headers.append((b"vary", b"accept-encoding"))
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 416,
                 "headers": headers,
             }
         )
@@ -632,6 +749,7 @@ class StaticFiles:
 
         if file.encoding:
             headers.append((b"content-encoding", file.encoding.encode("latin1")))
+        if file.vary:
             headers.append((b"vary", b"accept-encoding"))
 
         await send(
@@ -694,7 +812,7 @@ class StaticFiles:
             (b"cache-control", file.cache_control.encode("latin1")),
         ]
 
-        if file.encoding:
+        if file.vary:
             headers.append((b"vary", b"accept-encoding"))
 
         await send(
@@ -765,6 +883,7 @@ class StaticFiles:
 
         if file.encoding:
             headers.append((b"content-encoding", file.encoding.encode("latin1")))
+        if file.vary:
             headers.append((b"vary", b"accept-encoding"))
 
         await send(
