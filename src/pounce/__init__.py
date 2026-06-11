@@ -115,6 +115,7 @@ class ServerConfigKwargs(TypedDict, total=False):
     h11_max_incomplete_event_size: int | None
     trusted_hosts: frozenset[str]
     trusted_hosts_wildcard: bool
+    forwarded_for_trusted_hops: int
     health_check_path: str | None
     introspection_enabled: bool
     introspection_bind: str
@@ -141,6 +142,7 @@ class ServerConfigKwargs(TypedDict, total=False):
     rate_limit_enabled: bool
     rate_limit_requests_per_second: float
     rate_limit_burst: int
+    rate_limit_max_tracked_ips: int
     request_queue_enabled: bool
     request_queue_max_depth: int
     http3_enabled: bool

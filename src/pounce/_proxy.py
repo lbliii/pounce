@@ -22,11 +22,14 @@ def apply_proxy_headers(
     scope: dict[str, Any],
     *,
     trusted_hosts: frozenset[str],
+    trusted_hops: int = 1,
 ) -> dict[str, Any]:
     """Rewrite ASGI scope fields using proxy headers from a trusted peer.
 
     When the direct peer is trusted:
-    - ``client`` is overwritten with the leftmost IP from ``X-Forwarded-For``
+    - ``client`` is overwritten with the client IP from ``X-Forwarded-For``,
+      selected ``trusted_hops`` positions from the RIGHT of the chain so a
+      client-supplied (leftmost) value cannot spoof the perceived client IP
     - ``scheme`` is overwritten from ``X-Forwarded-Proto``
     - ``server`` host is overwritten from ``X-Forwarded-Host``
     - ``Host`` is rewritten from ``X-Forwarded-Host`` for downstream routing
@@ -39,6 +42,11 @@ def apply_proxy_headers(
         scope: Mutable ASGI scope dict (modified in place and returned).
         trusted_hosts: Tuple of trusted peer IPs/hostnames.  The wildcard
             ``"*"`` trusts all peers (use only behind a known proxy layer).
+        trusted_hops: Number of trusted reverse-proxy hops in front of pounce.
+            The client IP is taken this many positions from the RIGHT of
+            ``X-Forwarded-For`` (each trusted proxy appends the peer it saw),
+            falling back to the direct peer when the chain is shorter.  Default
+            ``1`` matches a single trusted proxy.
 
     Returns:
         The same scope dict, modified.
@@ -70,9 +78,14 @@ def apply_proxy_headers(
         elif name == b"x-forwarded-host":
             forwarded_host = pair[1]
 
-    # X-Forwarded-For: client, proxy1, proxy2 → leftmost is the real client
+    # X-Forwarded-For grows left-to-right as each hop APPENDS the peer it saw:
+    #   "client, proxy1, proxy2"  (proxy2 is our direct, trusted peer)
+    # With N trusted hops, the real client sits N positions from the RIGHT.
+    # Counting from the right means a client-supplied leftmost entry can never
+    # be selected (it would require a longer-than-real trusted chain), so it
+    # cannot spoof the perceived client IP that feeds rate limiting and audit.
     if forwarded_for is not None:
-        real_ip = strip_crlf(forwarded_for.split(b",")[0].strip().decode("latin-1"))
+        real_ip = _select_forwarded_for(forwarded_for, trusted_hops)
         if real_ip:
             original_port = scope.get("client", ("", 0))[1]
             scope["client"] = (real_ip, original_port)
@@ -91,6 +104,30 @@ def apply_proxy_headers(
             scope["headers"] = _replace_header(headers, b"host", host.encode("latin-1"))
 
     return scope
+
+
+def _select_forwarded_for(forwarded_for: bytes, trusted_hops: int) -> str:
+    """Select the real client IP from an X-Forwarded-For chain by hop count.
+
+    Each trusted reverse proxy appends the peer it observed to the right of the
+    chain, so with ``trusted_hops`` trusted proxies the real client is the
+    entry ``trusted_hops`` positions from the RIGHT. When the chain is shorter
+    than the configured hop count (e.g. a direct connection, or fewer real
+    proxies than configured), fall back to the leftmost (oldest) entry.
+
+    Returns an empty string when no usable address is present.
+
+    """
+    parts = [strip_crlf(p.strip().decode("latin-1")) for p in forwarded_for.split(b",")]
+    parts = [p for p in parts if p]
+    if not parts:
+        return ""
+    hops = max(1, trusted_hops)
+    if hops >= len(parts):
+        # Chain shorter than the trusted-hop count: the oldest (leftmost) entry
+        # is the furthest-left value we can attribute; never reach past it.
+        return parts[0]
+    return parts[-hops]
 
 
 def _split_host_port(host: str, default_port: int) -> tuple[str, int]:

@@ -118,7 +118,11 @@ def build_h3_scope(
             "pounce.h3.is_0rtt": is_0rtt,
         },
     }
-    scope = apply_proxy_headers(scope, trusted_hosts=config.trusted_hosts)
+    scope = apply_proxy_headers(
+        scope,
+        trusted_hosts=config.trusted_hosts,
+        trusted_hops=config.forwarded_for_trusted_hops,
+    )
     if state is not None:
         scope["state"] = state
     return scope

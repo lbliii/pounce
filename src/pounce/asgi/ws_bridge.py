@@ -65,7 +65,11 @@ def build_ws_scope(
         client=client,
         root_path=config.root_path,
     )
-    scope = apply_proxy_headers(scope, trusted_hosts=config.trusted_hosts)
+    scope = apply_proxy_headers(
+        scope,
+        trusted_hosts=config.trusted_hosts,
+        trusted_hops=config.forwarded_for_trusted_hops,
+    )
     # The ASGI WebSocket Connection Scope (spec 2.4) has no ``method`` key —
     # it is HTTP-only. Leaving it set breaks routers (e.g. Litestar) that key
     # off scope shape, so strip it here for a spec-clean websocket scope.

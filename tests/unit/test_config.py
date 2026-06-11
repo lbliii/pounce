@@ -86,6 +86,18 @@ class TestServerConfigDefaults:
         config = ServerConfig()
         assert config.trusted_hosts == frozenset()
 
+    def test_default_forwarded_for_trusted_hops(self):
+        config = ServerConfig()
+        assert config.forwarded_for_trusted_hops == 1
+
+    def test_custom_forwarded_for_trusted_hops(self):
+        config = ServerConfig(forwarded_for_trusted_hops=2)
+        assert config.forwarded_for_trusted_hops == 2
+
+    def test_forwarded_for_trusted_hops_validation(self):
+        with pytest.raises(ValueError, match="forwarded_for_trusted_hops must be >= 1"):
+            ServerConfig(forwarded_for_trusted_hops=0)
+
     def test_default_ssl(self):
         config = ServerConfig()
         assert config.ssl_certfile is None

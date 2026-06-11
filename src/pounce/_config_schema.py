@@ -240,6 +240,7 @@ INFO_ALLOWLIST: dict[str, Classification] = {
     # Trust & networking
     "trusted_hosts": "REDACT_TO_BOOL",
     "trusted_hosts_wildcard": "EXPOSE",
+    "forwarded_for_trusted_hops": "EXPOSE",
     "health_check_path": "REDACT_TO_BOOL",
     "uds": "REDACT_TO_BOOL",
     "uds_permissions": "EXPOSE",
@@ -269,6 +270,7 @@ INFO_ALLOWLIST: dict[str, Classification] = {
     "rate_limit_enabled": "EXPOSE",
     "rate_limit_requests_per_second": "EXPOSE",
     "rate_limit_burst": "EXPOSE",
+    "rate_limit_max_tracked_ips": "EXPOSE",
     "request_queue_enabled": "EXPOSE",
     "request_queue_max_depth": "EXPOSE",
     # HTTP/3

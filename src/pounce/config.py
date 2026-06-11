@@ -140,6 +140,11 @@ class ServerConfig:
     # Headers to trust from proxy (empty = direct connection)
     trusted_hosts: frozenset[str] = field(default_factory=frozenset)
     trusted_hosts_wildcard: bool = False
+    # Number of trusted reverse-proxy hops in front of pounce. The real client
+    # IP is taken this many positions from the RIGHT of X-Forwarded-For, so a
+    # client-supplied (leftmost) value cannot spoof the perceived client IP.
+    # Default 1 matches a single trusted proxy. See issue #108.
+    forwarded_for_trusted_hops: int = 1
 
     # Built-in health check endpoint (None = disabled)
     health_check_path: str | None = None
@@ -193,6 +198,9 @@ class ServerConfig:
     rate_limit_enabled: bool = False  # Enable per-IP rate limiting
     rate_limit_requests_per_second: float = 100.0  # Requests per second per IP
     rate_limit_burst: int = 200  # Maximum burst size per IP
+    # Hard cap on distinct client IPs tracked by the limiter. Bounds memory
+    # under a unique-IP flood (LRU eviction when exceeded). See issue #110.
+    rate_limit_max_tracked_ips: int = 100_000
 
     # Request queuing and load shedding (phase 6.3)
     request_queue_enabled: bool = False  # Enable request queueing
@@ -366,6 +374,12 @@ class ServerConfig:
             raise ValueError(msg)
         if self.rate_limit_burst <= 0:
             msg = f"rate_limit_burst must be > 0 (got {self.rate_limit_burst})"
+            raise ValueError(msg)
+        if self.rate_limit_max_tracked_ips < 1:
+            msg = f"rate_limit_max_tracked_ips must be >= 1 (got {self.rate_limit_max_tracked_ips})"
+            raise ValueError(msg)
+        if self.forwarded_for_trusted_hops < 1:
+            msg = f"forwarded_for_trusted_hops must be >= 1 (got {self.forwarded_for_trusted_hops})"
             raise ValueError(msg)
         if self.request_queue_max_depth < 0:
             msg = f"request_queue_max_depth must be >= 0 (got {self.request_queue_max_depth})"

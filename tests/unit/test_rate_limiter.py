@@ -206,6 +206,99 @@ class TestRateLimiter:
         assert len(limiter._buckets) == 1
 
 
+class TestRateLimiterBounds:
+    """Regression tests for issue #110 — bounded per-IP bucket map."""
+
+    def test_unique_ip_flood_stays_bounded(self):
+        """A flood of unique client IPs cannot grow the map past the cap."""
+        cap = 50
+        limiter = RateLimiter(rate=10.0, burst=5, max_tracked_ips=cap)
+
+        # Far more distinct IPs than the cap (simulating an IPv6 source flood).
+        for i in range(cap * 20):
+            limiter.check_rate_limit(f"2001:db8::{i:x}")
+
+        assert len(limiter._buckets) <= cap
+
+    def test_sustained_flood_keeping_buckets_nonfull_stays_bounded(self):
+        """Sustained traffic that keeps buckets non-full is still bounded.
+
+        Each IP consumes enough tokens to keep its bucket below capacity, so
+        the old full-only cleanup would never reap them. The hard cap must
+        still hold.
+        """
+        cap = 25
+        limiter = RateLimiter(rate=1.0, burst=3, max_tracked_ips=cap)
+
+        for round_no in range(5):
+            for i in range(cap * 10):
+                ip = f"203.0.113.{round_no}.{i}"
+                # Drain tokens so the bucket is non-full when cleanup runs.
+                limiter.check_rate_limit(ip)
+                limiter.check_rate_limit(ip)
+                limiter.check_rate_limit(ip)
+            assert len(limiter._buckets) <= cap
+
+    def test_cap_evicts_least_recently_seen(self):
+        """When the cap is hit, the oldest (LRU) bucket is evicted first."""
+        limiter = RateLimiter(rate=10.0, burst=5, max_tracked_ips=2)
+
+        limiter.check_rate_limit("10.0.0.1")
+        limiter.check_rate_limit("10.0.0.2")
+        # Touch .1 so .2 becomes the least-recently-seen.
+        limiter.check_rate_limit("10.0.0.1")
+        # Inserting a third IP must evict .2 (the LRU), not .1.
+        limiter.check_rate_limit("10.0.0.3")
+
+        assert len(limiter._buckets) == 2
+        assert "10.0.0.1" in limiter._buckets
+        assert "10.0.0.3" in limiter._buckets
+        assert "10.0.0.2" not in limiter._buckets
+
+    def test_active_client_still_rate_limited_under_flood(self):
+        """A real client keeps a working bucket even while unique IPs flood in."""
+        limiter = RateLimiter(rate=1.0, burst=3, max_tracked_ips=1000)
+        victim = "198.51.100.42"
+
+        # Active client exhausts its burst.
+        assert limiter.check_rate_limit(victim) is True
+        assert limiter.check_rate_limit(victim) is True
+        assert limiter.check_rate_limit(victim) is True
+        # Now over its limit.
+        assert limiter.check_rate_limit(victim) is False
+
+        # Its bucket survives because it was recently used (LRU keeps it warm),
+        # and it stays rate limited.
+        for i in range(500):
+            limiter.check_rate_limit(f"2001:db8:1::{i:x}")
+        assert limiter.check_rate_limit(victim) is False
+
+    def test_idle_buckets_evicted_on_cleanup(self):
+        """Buckets idle past the idle window are reaped even when non-full."""
+        from pounce import _rate_limiter as rl
+
+        limiter = RateLimiter(rate=1.0, burst=5)
+        # Drain so the bucket is NOT full (full buckets were already reaped).
+        for _ in range(5):
+            limiter.check_rate_limit("192.0.2.1")
+        assert len(limiter._buckets) == 1
+        assert limiter.check_rate_limit("192.0.2.1") is False  # non-full
+
+        bucket = limiter._buckets["192.0.2.1"]
+        # Make the bucket look idle: push its last-refill far into the past.
+        bucket._last_refill -= rl._IDLE_EVICTION_SECONDS + 10.0
+
+        limiter._last_cleanup = time.monotonic() - limiter._cleanup_interval - 1
+        limiter._maybe_cleanup()
+
+        assert len(limiter._buckets) == 0
+
+    def test_max_tracked_ips_validation(self):
+        """max_tracked_ips must be >= 1."""
+        with pytest.raises(ValueError, match="max_tracked_ips must be >= 1"):
+            RateLimiter(rate=10.0, burst=5, max_tracked_ips=0)
+
+
 class TestRateLimitConfiguration:
     """Tests for rate limit configuration."""
 
@@ -233,6 +326,21 @@ class TestRateLimitConfiguration:
         )
         assert config.rate_limit_requests_per_second == 50.0
         assert config.rate_limit_burst == 100
+
+    def test_default_max_tracked_ips(self):
+        """Default tracked-IP cap is set."""
+        config = ServerConfig()
+        assert config.rate_limit_max_tracked_ips == 100_000
+
+    def test_custom_max_tracked_ips(self):
+        """Tracked-IP cap is configurable."""
+        config = ServerConfig(rate_limit_max_tracked_ips=500)
+        assert config.rate_limit_max_tracked_ips == 500
+
+    def test_max_tracked_ips_config_validation(self):
+        """rate_limit_max_tracked_ips must be >= 1."""
+        with pytest.raises(ValueError, match="rate_limit_max_tracked_ips must be >= 1"):
+            ServerConfig(rate_limit_max_tracked_ips=0)
 
     def test_rate_limit_requests_per_second_validation(self):
         """Test that rate_limit_requests_per_second must be positive."""

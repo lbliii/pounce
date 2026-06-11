@@ -772,6 +772,7 @@ class Server:
         rate_limiter = RateLimiter(
             rate=self._config.rate_limit_requests_per_second,
             burst=self._config.rate_limit_burst,
+            max_tracked_ips=self._config.rate_limit_max_tracked_ips,
         )
         self._app = cast("ASGIApp", create_rate_limit_wrapper(self._app, rate_limiter))
         logger.info(
