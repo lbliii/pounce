@@ -1113,6 +1113,7 @@ class Worker:
                 bytes_sent=send_state.bytes_sent,
                 duration_ms=elapsed_ms(request_start),
                 timestamp_ns=lifecycle_ns(),
+                method=scope.get("method", "unknown"),
             )
         )
 

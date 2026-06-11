@@ -1,13 +1,16 @@
 """
 OpenTelemetry integration for distributed tracing.
 
-Provides automatic span creation and context propagation for HTTP requests,
-enabling pounce to integrate with observability platforms like Jaeger, Datadog,
-Tempo, and others.
+Provides automatic span creation for HTTP requests and inbound W3C Trace
+Context extraction, enabling pounce to integrate with observability
+platforms like Jaeger, Datadog, Tempo, and others.
 
 Features:
 - Automatic span creation for each HTTP request
-- Context propagation via traceparent/tracestate headers (W3C Trace Context)
+- Inbound W3C Trace Context extraction (traceparent/tracestate parsed
+  from request headers so server spans join an upstream trace).  Pounce
+  is a server, not an outbound HTTP client, so it does not inject trace
+  context into downstream requests.
 - OTLP exporter configuration
 - Request/response attributes (method, path, status, duration)
 - Optional integration (graceful degradation if OTel not installed)
@@ -132,41 +135,13 @@ def extract_trace_context(headers: Sequence[tuple[bytes, bytes]]) -> Any:
     return _PROPAGATOR.extract(carrier=headers_dict)
 
 
-def inject_trace_context(headers: list[tuple[bytes, bytes]]) -> list[tuple[bytes, bytes]]:
-    """Inject trace context into outgoing HTTP headers.
-
-    Adds traceparent and tracestate headers to propagate trace context
-    to downstream services.
-
-    Args:
-        headers: Existing headers list.
-
-    Returns:
-        Updated headers list with trace context.
-
-    """
-    if not _HAS_OTEL:
-        return headers
-
-    # Create carrier dict for injection
-    carrier: dict[str, str] = {}
-    if _PROPAGATOR is None:
-        return headers
-    _PROPAGATOR.inject(carrier=carrier)
-
-    # Add injected headers
-    updated_headers = list(headers)
-    for name, value in carrier.items():
-        updated_headers.append((name.encode("latin1"), value.encode("latin1")))
-
-    return updated_headers
-
-
 class RequestSpanManager:
     """Manages OpenTelemetry spans for HTTP requests.
 
     Creates and manages the lifecycle of trace spans for incoming HTTP
-    requests, including context propagation and attribute recording.
+    requests, including inbound parent-context extraction (so server spans
+    join an upstream trace) and attribute recording.  Does not propagate
+    trace context to downstream services.
 
     """
 

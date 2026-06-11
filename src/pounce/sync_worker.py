@@ -477,6 +477,7 @@ class SyncWorker:
                                 bytes_sent=len(body_out),
                                 duration_ms=duration,
                                 timestamp_ns=lifecycle_ns(),
+                                method=request.method.decode("ascii", errors="replace"),
                             )
                         )
                         log_request(
@@ -525,6 +526,7 @@ class SyncWorker:
                             bytes_sent=len(body_bytes),
                             duration_ms=health_duration,
                             timestamp_ns=lifecycle_ns(),
+                            method="GET",
                         )
                     )
                     log_request(
@@ -718,6 +720,7 @@ class SyncWorker:
                         bytes_sent=len(body_out),
                         duration_ms=asgi_duration,
                         timestamp_ns=lifecycle_ns(),
+                        method=scope.get("method", "unknown"),
                     )
                 )
                 log_request(

@@ -9,7 +9,6 @@ from pounce._otel import (
     RequestSpanManager,
     _NoOpSpan,
     extract_trace_context,
-    inject_trace_context,
     is_otel_available,
 )
 from pounce.config import ServerConfig
@@ -55,30 +54,14 @@ class TestExtractTraceContext:
         assert context is None or context is not None
 
 
-class TestInjectTraceContext:
-    """Tests for W3C Trace Context injection."""
+class TestNoDownstreamInjection:
+    """Regression: dead downstream-propagation API was removed (#136)."""
 
-    def test_inject_without_otel(self):
-        """Test injection when OTel is not available."""
-        headers = [(b"content-type", b"application/json")]
+    def test_inject_trace_context_removed(self):
+        """inject_trace_context must not be exported — no downstream propagation."""
+        import pounce._otel as otel
 
-        result = inject_trace_context(headers)
-
-        # Should at least return the original headers
-        assert len(result) >= len(headers)
-
-    def test_inject_preserves_existing_headers(self):
-        """Test that injection preserves existing headers."""
-        headers = [
-            (b"content-type", b"application/json"),
-            (b"user-agent", b"test"),
-        ]
-
-        result = inject_trace_context(headers)
-
-        # Original headers should be preserved
-        assert (b"content-type", b"application/json") in result
-        assert (b"user-agent", b"test") in result
+        assert not hasattr(otel, "inject_trace_context")
 
 
 class TestRequestSpanManager:
