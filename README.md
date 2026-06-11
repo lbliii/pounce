@@ -243,7 +243,7 @@ def test_api(pounce_server, my_app):
 - **Pure Python.** No Rust, no C extensions in the server core. Debuggable, hackable,
   readable.
 - **Typed end-to-end.** Frozen config, typed ASGI definitions, and no new type suppressions without review.
-- **One dependency.** `h11` for HTTP/1.1 parsing. Everything else is optional.
+- **Lean dependencies.** Two required runtime deps: `h11` for HTTP/1.1 parsing and `milo-cli` for the CLI. The request hot path depends only on `h11`; everything else is optional.
 - **Observable by design.** Lifecycle events are public API — `from pounce import BufferedCollector, ResponseCompleted`. Frameworks build dashboards on typed events, not log parsing.
 - **Framework tested.** Verified against FastAPI, Starlette, Django, and Litestar with 48 integration tests.
 - **Optional helpers.** Static files, middleware, rate limiting, request queueing,

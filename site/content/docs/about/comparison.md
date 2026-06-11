@@ -23,7 +23,7 @@ automatic process fallback on GIL builds.
 - **Streaming-first** — Body chunks sent immediately to socket
 - **Fast-path parsing** — Built-in HTTP/1.1 parser on the sync worker hot path
 - **Thread-worker reload** — Rolling restart with generational worker swap on supported 3.14t thread-worker deployments
-- **Pure Python** — One dependency (h11). Debuggable, hackable, readable
+- **Pure Python** — Two required deps (h11 + milo-cli); the request hot path uses only h11. Debuggable, hackable, readable
 - **Optional extras** — HTTP/2, WebSocket, TLS, HTTP/3 via `bengal-pounce[h2]`, `bengal-pounce[ws]`, `bengal-pounce[tls]`, `bengal-pounce[h3]`
 
 ## When Pounce Fits
