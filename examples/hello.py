@@ -5,7 +5,7 @@ The simplest possible pounce app — no lifespan, no streaming, no
 dependencies.  This is the "start here" example.
 
 Run it:
-    pounce examples.hello:app
+    pounce serve --app examples.hello:app
 
 Then visit http://127.0.0.1:8000/ in a browser or:
     curl http://127.0.0.1:8000/

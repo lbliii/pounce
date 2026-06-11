@@ -21,7 +21,7 @@ Prerequisites:
     pip install bengal-pounce[ws]   # installs wsproto
 
 Run it:
-    pounce examples.websocket_chat:app --workers 4
+    pounce serve --app examples.websocket_chat:app --workers 4
 
 Open multiple browser tabs at http://127.0.0.1:8000/ and start
 chatting.  Messages appear in all tabs instantly.

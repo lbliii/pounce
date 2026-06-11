@@ -7,7 +7,7 @@ state uses ``threading.Lock`` so it is safe under pounce's free-threading
 worker model.
 
 Run it:
-    pounce examples.lifespan:app
+    pounce serve --app examples.lifespan:app
 
 Then visit http://127.0.0.1:8000/ — each request increments a counter.
 

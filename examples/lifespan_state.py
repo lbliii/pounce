@@ -5,7 +5,7 @@ Used by subinterpreter integration tests to verify lifespan state
 is passed through to workers.
 
 Run it:
-    pounce examples.lifespan_state:app
+    pounce serve --app examples.lifespan_state:app
 
 Then visit http://127.0.0.1:8000/ — returns the app_name from state.
 

@@ -15,7 +15,7 @@ it gives you this and much more, with proper type safety and
 composable middleware.
 
 Run it:
-    pounce examples.mini_router:app
+    pounce serve --app examples.mini_router:app
 
 Then try:
     curl http://127.0.0.1:8000/

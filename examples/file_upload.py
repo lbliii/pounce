@@ -23,7 +23,7 @@ This prevents unbounded memory growth for streaming responses with
 slow clients, without penalising small responses.
 
 Run it:
-    pounce examples.file_upload:app --server-timing
+    pounce serve --app examples.file_upload:app --server-timing
 
 Then open http://127.0.0.1:8000/ in a browser and upload a file, or:
 

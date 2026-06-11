@@ -9,10 +9,10 @@ no fork, no IPC, no duplicated memory.
 
 Run it:
     # Single worker — baseline
-    pounce examples.cpu_parallel:app --workers 1 --no-access-log
+    pounce serve --app examples.cpu_parallel:app --workers 1 --no-access-log
 
     # Multi-worker — threads on 3.14t, processes on GIL builds
-    pounce examples.cpu_parallel:app --workers 4 --no-access-log
+    pounce serve --app examples.cpu_parallel:app --workers 4 --no-access-log
 
 Benchmark:
     wrk -t4 -c100 -d10s http://127.0.0.1:8000/

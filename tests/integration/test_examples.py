@@ -240,6 +240,46 @@ def test_programmatic_server_example() -> None:
 
 
 @pytest.mark.timeout(10)
+def test_production_server_root() -> None:
+    """examples/production_server.py GET / returns 200 with the features JSON."""
+    from examples.production_server import app
+
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+
+    try:
+        response = send_raw_request(addr, _GET)
+        assert b"HTTP/1.1 200" in response
+        assert b"Hello from production pounce!" in response
+        # The dead "sentry" claim must not be advertised in the live response.
+        assert b"sentry" not in response
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
+
+
+@pytest.mark.timeout(10)
+def test_production_server_health() -> None:
+    """examples/production_server.py GET /health returns 200 healthy."""
+    from examples.production_server import app
+
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+
+    request = b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+
+    try:
+        response = send_raw_request(addr, request)
+        assert b"HTTP/1.1 200" in response
+        assert b"healthy" in response
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
+
+
+@pytest.mark.timeout(10)
 def test_websocket_chat_serves_html() -> None:
     """examples/websocket_chat.py GET / returns 200 with the chat HTML page."""
     from examples.websocket_chat import app

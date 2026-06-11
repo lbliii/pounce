@@ -10,7 +10,7 @@ Prerequisites:
     pip install bengal-pounce[ws]   # installs wsproto
 
 Run it:
-    pounce examples.websocket_echo:app
+    pounce serve --app examples.websocket_echo:app
 
 Test with websocat, wscat, or a browser console:
     websocat ws://127.0.0.1:8000/ws

@@ -5,8 +5,11 @@ This example demonstrates a production-ready pounce configuration with:
 - Prometheus metrics for monitoring
 - Rate limiting for abuse protection
 - Request queueing for overload handling
-- Sentry error tracking
 - Hot reload for zero-downtime deployments
+
+Sentry error tracking is supported but disabled by default; set the
+``SENTRY_DSN`` environment variable to enable it (see the config block
+below). The ``sentry-sdk`` package must be installed.
 
 Run:
     python examples/production_server.py
@@ -95,7 +98,7 @@ async def app(scope, receive, send):
     response = (
         b'{"message": "Hello from production pounce!", '
         b'"timestamp": ' + str(int(time.time())).encode() + b", "
-        b'"features": ["metrics", "rate-limiting", "queueing", "sentry", "hot-reload"]}'
+        b'"features": ["metrics", "rate-limiting", "queueing", "hot-reload"]}'
     )
 
     await send(
@@ -109,13 +112,19 @@ async def app(scope, receive, send):
 if __name__ == "__main__":
     # Production configuration with all Phase 6 features
     config = ServerConfig(
-        # Basic server config
-        host="0.0.0.0",
+        # Basic server config.
+        # 0.0.0.0 binds all interfaces (a deliberate production demo). The
+        # open /metrics endpoint below MUST be firewalled or placed behind
+        # auth before exposing this server publicly.
+        host="0.0.0.0",  # intentional public bind for the demo
         port=8000,
         workers=4,  # Multiple workers for zero-downtime reload
         # Built-in health check
         health_check_path="/health",
         # Phase 6.1: Prometheus Metrics
+        # SECURITY: /metrics is served with no auth. Before exposing this
+        # server publicly, firewall /metrics (or place it behind auth / a
+        # reverse proxy) so internal metrics are not leaked to the internet.
         metrics_enabled=True,
         metrics_path="/metrics",
         # Phase 6.2: Rate Limiting & Backpressure
@@ -125,12 +134,12 @@ if __name__ == "__main__":
         # Phase 6.3: Request Queueing & Load Shedding
         request_queue_enabled=True,
         request_queue_max_depth=100,  # Queue up to 100 requests
-        # Phase 6.4: Sentry Error Tracking (optional)
-        # Uncomment and set your Sentry DSN:
-        # sentry_dsn=os.getenv("SENTRY_DSN"),
-        # sentry_environment="production",
-        # sentry_release="demo@1.0.0",
-        # sentry_traces_sample_rate=0.1,
+        # Phase 6.4: Sentry Error Tracking (optional, requires sentry-sdk).
+        # Enabled only when SENTRY_DSN is set in the environment, so the
+        # advertised feature is real when configured and inert otherwise.
+        sentry_dsn=os.getenv("SENTRY_DSN"),
+        sentry_environment="production",
+        sentry_traces_sample_rate=0.1,
         # Phase 6.5: Hot Reload
         reload_timeout=30.0,  # Wait 30s for workers to drain during reload
         # Additional production features
