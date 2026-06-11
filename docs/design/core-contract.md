@@ -46,8 +46,8 @@ Normative language:
 | Static files | Optional server helper | `static_files` | Convenience ASGI handler. Must not alter protocol or worker contracts when disabled. |
 | Middleware | Optional server helper | `middleware` | ASGI middleware composition. Must not add framework-specific branches to the server core. |
 | Compression | Optional response helper | `compression`, `compression_dictionaries` | Negotiation and response encoding must preserve HTTP semantics and HEAD/content-length safety. |
-| Rate limiting | Optional backpressure helper | `rate_limit_enabled` | Per-IP token bucket. Not a security/auth boundary. |
-| Request queueing | Optional backpressure helper | `request_queue_enabled` | Load-shedding helper. Must preserve clear 503 behavior and bounded resource use. |
+| Rate limiting | Optional backpressure helper | `rate_limit_enabled` | Per-IP token bucket, enforced PER WORKER (shared only in thread mode). Aggregate per-IP ceiling is `rate x workers` on process/subinterpreter builds. Not a security/auth boundary. |
+| Request queueing | Optional backpressure helper | `request_queue_enabled` | Load-shedding helper, PER WORKER in ALL modes (per-event-loop semaphore). Effective shed depth is `max_depth x workers`. Must preserve clear 503 behavior and bounded resource use. |
 | Prometheus metrics | Optional operator endpoint | `metrics_enabled` | Endpoint and metric names are operator contracts once documented. |
 | OpenTelemetry | Optional integration | `otel_endpoint` | Integration wrapper only. Instrumentation must be removable when disabled. |
 | Sentry | Optional integration | `sentry_dsn` | Integration wrapper only. Error handling must remain correct without Sentry. |
@@ -71,7 +71,7 @@ Normative language:
 | `workers=1` | One app instance in the main process. | Development reload may restart the single worker path; SIGHUP-style rolling generation swap is not the primary contract. | Graceful shutdown via server shutdown event and lifespan shutdown. | No multi-worker drain generation. |
 | Thread workers on Python 3.14t | Multiple worker threads share one interpreter, app object, and frozen config. | Rolling generation swap can drain old thread workers while new workers start. | Per-worker drain and join behavior is supervised. | Shared mutable app state remains the app's responsibility. |
 | Process workers on GIL builds | Workers run in forked processes when available. | Process-mode reload may have different availability and downtime characteristics than thread-mode rolling reload. | Supervisor coordinates process shutdown and joins. | App import/fork constraints apply; no shared app object. |
-| Subinterpreter mode | Explicit `worker_mode="subinterpreter"` path. | Treat as limited/beta unless the specific lifecycle path has tests. | Requires explicit proof for state transfer and shutdown behavior. | Compatibility depends on subinterpreter-safe app/dependencies. |
+| Subinterpreter mode (beta) | Explicit `worker_mode="subinterpreter"` path. Beta: surfaced as `x-stability: beta` in `pounce config schema` and marked beta in the config docs. | Treat as limited/beta unless the specific lifecycle path has tests. | Requires explicit proof for state transfer and shutdown behavior. | Compatibility depends on subinterpreter-safe app/dependencies. See `docs/design/subinterpreter-workers.md` (status: beta). |
 
 Subprocess signal proof currently covers CLI SIGTERM clean exit and SIGHUP
 recovery to serving traffic in `tests/integration/test_signal_lifecycle.py`.

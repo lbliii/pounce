@@ -30,6 +30,33 @@ config = ServerConfig(
 )
 ```
 
+## Stability Tiers
+
+Not every knob carries the same maturity. Use the tier to decide what to lean on
+in production. The same classification is surfaced programmatically:
+`pounce config schema` stamps an `x-stability` annotation on each beta field.
+
+| Tier | Meaning |
+|------|---------|
+| **Stable** | Covered by the [core contract](https://github.com/lbliii/pounce/blob/main/docs/design/core-contract.md). Safe for production; behavior changes follow deprecation policy. |
+| **Beta** | Usable, but the behavior, surface, or proof is still firming up. Pin versions and validate in staging before relying on it. |
+
+**Stable knobs:** `host`/`port`/`uds`, `workers`/`backlog`, `worker_mode`
+values `auto`/`sync`/`async`, the timeouts (`*_timeout`), the limits (`max_*`),
+and logging (`access_log`/`log_level`/`log_format`).
+
+**Beta knobs:** `worker_mode="subinterpreter"` (PEP 734 — thread-like speed with
+process-like isolation, but limited lifecycle proof), rate limiting
+(`rate_limit_*`), request queueing (`request_queue_*`), introspection
+(`introspection_*`), HTTP/3 (`http3_*`), and the observability integrations
+(`otel_*`, `sentry_*`, `metrics_*`).
+
+::::{note}
+Beta is about *maturity*, not safety: beta knobs are off by default and removable
+from the request path when disabled. Inspect the live classification with
+`pounce config schema` (look for `"x-stability": "beta"`).
+::::
+
 ## Core Fields
 
 ### Bind Address
@@ -46,7 +73,7 @@ config = ServerConfig(
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `workers` | `int` | `1` | Worker count. 0 = auto-detect from CPU cores. 1 = single-worker (no supervisor). 2+ = multi-worker with supervisor. |
-| `worker_mode` | `str` | `"auto"` | Worker execution model: `auto` (sync on 3.14t, async on GIL), `sync` (blocking I/O fast path), `async` (event loop), or `subinterpreter`. |
+| `worker_mode` | `str` | `"auto"` | Worker execution model: `auto` (sync on 3.14t, async on GIL), `sync` (blocking I/O fast path), `async` (event loop), or `subinterpreter` (**beta**, PEP 734). |
 | `backlog` | `int` | `2048` | Socket listen backlog |
 | `cpu_affinity` | `bool` | `False` | Pin each worker to a CPU core (Linux only, reduces cache thrashing) |
 | `executor_threads_per_worker` | `int` | `0` | Per-worker thread pool size for `asyncio.to_thread()`. 0 = auto-size. |
@@ -217,16 +244,20 @@ These fields control optional features. Most have sensible defaults and don't ne
 ::::{dropdown} Rate Limiting
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `rate_limit_enabled` | `bool` | `False` | Enable per-IP rate limiting |
-| `rate_limit_requests_per_second` | `float` | `100.0` | Requests per second per IP |
-| `rate_limit_burst` | `int` | `200` | Maximum burst size per IP |
+| `rate_limit_enabled` | `bool` | `False` | Enable per-IP rate limiting (enforced per worker) |
+| `rate_limit_requests_per_second` | `float` | `100.0` | Requests per second per IP, **per worker** |
+| `rate_limit_burst` | `int` | `200` | Maximum burst size per IP, **per worker** |
+
+These limits are enforced **per worker** (shared only in thread mode); with `workers > 1` the aggregate per-IP ceiling is `rate x workers`. See [[docs/deployment/backpressure|Backpressure]].
 ::::
 
 ::::{dropdown} Request Queueing
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `request_queue_enabled` | `bool` | `False` | Enable request queueing and load shedding |
-| `request_queue_max_depth` | `int` | `1000` | Maximum queued requests (0 = unlimited) |
+| `request_queue_enabled` | `bool` | `False` | Enable request queueing and load shedding (per worker) |
+| `request_queue_max_depth` | `int` | `1000` | Maximum queued requests **per worker** (0 = unlimited) |
+
+The queue is **per worker in every mode** (it uses a per-event-loop `asyncio.Semaphore`), so the effective shed depth is `max_depth x workers`. See [[docs/deployment/backpressure|Backpressure]].
 ::::
 
 ::::{dropdown} Sentry

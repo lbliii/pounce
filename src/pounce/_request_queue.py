@@ -4,6 +4,12 @@ Request queuing and load shedding for pounce.
 Implements application-level request queueing with bounded capacity
 to gracefully handle server overload.
 
+Per-worker in ALL modes (issue #109): the queue is built on an
+``asyncio.Semaphore`` bound to a single event loop, so every worker -- thread,
+process, or subinterpreter -- gets its own queue. The effective load-shed depth
+is therefore ``max_depth x workers``, always. The configured ``max_depth`` is
+the aggregate only when ``workers=1``. See ``docs/deployment/backpressure.md``.
+
 """
 
 import asyncio
@@ -19,6 +25,11 @@ class RequestQueue:
     queue is full to shed load and prevent resource exhaustion.
 
     Thread-safe for concurrent request handling.
+
+    Per-worker (issue #109): one queue per worker in every worker mode, because
+    the underlying ``asyncio.Semaphore`` binds to a single event loop. The
+    aggregate shed depth is ``max_depth x workers`` -- see the module docstring
+    and ``docs/deployment/backpressure.md``.
 
     """
 

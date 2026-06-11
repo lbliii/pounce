@@ -18,7 +18,9 @@ from __future__ import annotations
 import json
 
 from pounce._config_schema import (
+    _BETA_FIELD_PREFIXES,
     INFO_ALLOWLIST,
+    _field_stability,
     assert_allowlist_covers_config,
     build_schema,
     build_toml_template,
@@ -73,6 +75,49 @@ class TestBuildSchema:
         schema = build_schema()
         encoded = json.dumps(schema, sort_keys=False, default=str)
         assert json.loads(encoded) == schema
+
+
+class TestStabilityTiers:
+    """Stability tier surfacing (issue #157).
+
+    Every ServerConfig field has a stability tier, and beta-tier fields carry
+    an ``x-stability`` annotation in the generated schema. Stable fields must
+    NOT carry it (they are the production-safe surface).
+    """
+
+    def test_every_field_has_a_classification(self) -> None:
+        # Fail-closed: a new field is classified by _field_stability (stable by
+        # default, beta if it matches a known beta prefix). The function must
+        # return a known tier for every schema field.
+        for name in build_schema()["properties"]:
+            assert _field_stability(name) in {"stable", "beta"}, name
+
+    def test_beta_fields_are_annotated(self) -> None:
+        props = build_schema()["properties"]
+        # Representative beta fields gain x-stability=beta and a note.
+        for name in ("rate_limit_enabled", "request_queue_max_depth", "sentry_dsn"):
+            assert props[name].get("x-stability") == "beta", name
+            assert "beta" in props[name].get("description", ""), name
+
+    def test_all_beta_prefix_fields_annotated(self) -> None:
+        props = build_schema()["properties"]
+        for name, prop in props.items():
+            if name.startswith(_BETA_FIELD_PREFIXES):
+                assert prop.get("x-stability") == "beta", name
+
+    def test_stable_fields_have_no_stability_annotation(self) -> None:
+        props = build_schema()["properties"]
+        # Core stable knobs must stay clean — they are the contract surface.
+        for name in ("host", "port", "workers", "log_level", "request_timeout"):
+            assert "x-stability" not in props[name], name
+
+    def test_worker_mode_marks_subinterpreter_beta(self) -> None:
+        wm = build_schema()["properties"]["worker_mode"]
+        # The field is stable, but the subinterpreter VALUE is beta.
+        assert wm.get("x-stability-values", {}).get("subinterpreter") == "beta"
+        assert "subinterpreter" in wm.get("description", "")
+        # auto/sync/async remain offered without a beta value marker.
+        assert "x-stability" not in wm
 
 
 class TestBuildTomlTemplate:

@@ -1,6 +1,6 @@
 # Design: Subinterpreter Workers (PEP 734)
 
-**Status**: Implemented (Sprints 0-6 complete)
+**Status**: Beta (Sprints 0-6 implemented; lifecycle/state-transfer proof still limited). Treat `worker_mode="subinterpreter"` as beta per `core-contract.md` until the specific lifecycle path has tests.
 **Date**: 2026-04-10
 **Python**: 3.14.2t (free-threaded, `concurrent.interpreters` available)
 
