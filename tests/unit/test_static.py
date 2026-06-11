@@ -333,6 +333,129 @@ class TestPrecompressedFiles:
         assert file.path == temp_static_dir / "style.css"
         assert file.encoding is None
 
+    def test_precompressed_gzip_qvalue_zero(self, static_handler, temp_static_dir):
+        """gzip;q=0 explicitly declines gzip -> serve identity, not .gz."""
+        file = static_handler._resolve_file("/static/style.css", b"gzip;q=0")
+
+        assert file is not None
+        assert file.path == temp_static_dir / "style.css"
+        assert file.encoding is None
+
+    def test_precompressed_zstd_preferred_over_gzip(self, temp_static_dir):
+        """When both variants exist, zstd wins over gzip by priority."""
+        from pounce._compression import _HAS_ZSTD
+
+        if not _HAS_ZSTD:
+            pytest.skip("zstd not available")
+
+        (temp_static_dir / "style.css.zst").write_bytes(b"\x28\xb5\x2f\xfd zstd-payload")
+        handler = create_static_handler({"/static": str(temp_static_dir)})
+
+        file = handler._resolve_file("/static/style.css", b"gzip, zstd;q=0.9")
+        assert file is not None
+        assert file.encoding == "zstd"
+        assert file.path == temp_static_dir / "style.css.zst"
+
+    def test_precompressed_zstd_declined_falls_back_to_gzip(self, temp_static_dir):
+        """zstd;q=0 with gzip accepted falls back to the .gz variant."""
+        (temp_static_dir / "style.css.zst").write_bytes(b"\x28\xb5\x2f\xfd zstd-payload")
+        handler = create_static_handler({"/static": str(temp_static_dir)})
+
+        file = handler._resolve_file("/static/style.css", b"zstd;q=0, gzip")
+        assert file is not None
+        assert file.encoding == "gzip"
+        assert file.path == temp_static_dir / "style.css.gz"
+
+    def test_precompressed_missing_top_priority_falls_back(self, static_handler, temp_static_dir):
+        """zstd accepted but only .gz exists -> serve gzip (no silent identity)."""
+        # Only style.css.gz exists in the fixture (no .zst).
+        file = static_handler._resolve_file("/static/style.css", b"zstd, gzip")
+        assert file is not None
+        assert file.encoding == "gzip"
+        assert file.path == temp_static_dir / "style.css.gz"
+
+
+class TestVaryHeader:
+    """Vary: accept-encoding is emitted on every response from a precompressed mount."""
+
+    @pytest.fixture
+    def vary_handler(self, temp_static_dir):
+        return create_static_handler({"/static": str(temp_static_dir)})
+
+    @pytest.fixture
+    def no_precompress_handler(self, temp_static_dir):
+        return create_static_handler({"/static": str(temp_static_dir)}, precompressed=False)
+
+    def _scope(self, path, method="GET", headers=None):
+        scope = {
+            "type": "http",
+            "method": method,
+            "path": path,
+            "headers": headers or [],
+            "query_string": b"",
+            "root_path": "",
+            "scheme": "http",
+            "server": ("127.0.0.1", 8000),
+        }
+        return scope
+
+    async def _run(self, handler, scope):
+        sent = []
+
+        async def mock_send(msg):
+            sent.append(msg)
+
+        await handler(scope, None, mock_send)
+        return sent
+
+    @pytest.mark.asyncio
+    async def test_vary_present_on_identity_200(self, vary_handler):
+        """Absent Accept-Encoding still serves identity but advertises Vary."""
+        sent = await self._run(vary_handler, self._scope("/static/style.css"))
+
+        assert sent[0]["status"] == 200
+        headers = dict(sent[0]["headers"])
+        assert b"content-encoding" not in headers  # identity
+        assert headers.get(b"vary") == b"accept-encoding"
+
+    @pytest.mark.asyncio
+    async def test_no_vary_when_precompress_disabled(self, no_precompress_handler):
+        """A non-negotiating mount does not emit Vary (no content negotiation)."""
+        sent = await self._run(no_precompress_handler, self._scope("/static/style.css"))
+
+        assert sent[0]["status"] == 200
+        headers = dict(sent[0]["headers"])
+        assert b"vary" not in headers
+
+    @pytest.mark.asyncio
+    async def test_vary_present_on_304(self, vary_handler):
+        """304 from a precompressed mount carries Vary (RFC 7232 §4.1)."""
+        file = vary_handler._resolve_file("/static/style.css", None)
+        assert file is not None
+        headers = [(b"if-none-match", file.etag.encode("latin1"))]
+        sent = await self._run(vary_handler, self._scope("/static/style.css", headers=headers))
+
+        assert sent[0]["status"] == 304
+        assert dict(sent[0]["headers"]).get(b"vary") == b"accept-encoding"
+
+    @pytest.mark.asyncio
+    async def test_vary_present_on_206_single(self, vary_handler):
+        """206 single-range from a precompressed mount carries Vary."""
+        headers = [(b"range", b"bytes=0-4")]
+        sent = await self._run(vary_handler, self._scope("/static/style.css", headers=headers))
+
+        assert sent[0]["status"] == 206
+        assert dict(sent[0]["headers"]).get(b"vary") == b"accept-encoding"
+
+    @pytest.mark.asyncio
+    async def test_vary_present_on_416(self, vary_handler):
+        """416 from a precompressed mount carries Vary."""
+        headers = [(b"range", b"bytes=9999-99999")]
+        sent = await self._run(vary_handler, self._scope("/static/style.css", headers=headers))
+
+        assert sent[0]["status"] == 416
+        assert dict(sent[0]["headers"]).get(b"vary") == b"accept-encoding"
+
 
 class TestRangeRequests:
     """Tests for Range request parsing."""
@@ -362,11 +485,55 @@ class TestRangeRequests:
         assert static_handler._parse_range_header("bytes=abc-def", 1000) is None
 
     def test_parse_unsatisfiable_range(self, static_handler):
-        """Test unsatisfiable range returns None."""
-        # Start beyond file size
-        assert static_handler._parse_range_header("bytes=2000-3000", 1000) is None
-        # Start > end
+        """Valid-but-unsatisfiable ranges signal 416; malformed ones are ignored."""
+        from pounce._static import _RANGE_NOT_SATISFIABLE
+
+        # Start beyond file size -> 416 (RFC 7233 §4.4), not a silent full 200.
+        assert static_handler._parse_range_header("bytes=2000-3000", 1000) is _RANGE_NOT_SATISFIABLE
+        # Start exactly at file size is also unsatisfiable.
+        assert static_handler._parse_range_header("bytes=1000-1000", 1000) is _RANGE_NOT_SATISFIABLE
+        # Start > end is malformed -> ignore the header (serve full 200).
         assert static_handler._parse_range_header("bytes=500-100", 1000) is None
+
+    def test_parse_end_past_eof_clamped(self, static_handler):
+        """An explicit end past EOF is clamped, not rejected."""
+        # bytes=500-999 on a 1000-byte file: end == file_size-1, satisfiable.
+        assert static_handler._parse_range_header("bytes=500-999", 1000) == [(500, 999)]
+        # bytes=900-5000 clamps the end to 999.
+        assert static_handler._parse_range_header("bytes=900-5000", 1000) == [(900, 999)]
+        # Open-ended bytes=500- runs to EOF.
+        assert static_handler._parse_range_header("bytes=500-", 1000) == [(500, 999)]
+
+    def test_parse_empty_file_range_unsatisfiable(self, static_handler):
+        """Any byte range against an empty file is unsatisfiable."""
+        from pounce._static import _RANGE_NOT_SATISFIABLE
+
+        assert static_handler._parse_range_header("bytes=0-0", 0) is _RANGE_NOT_SATISFIABLE
+
+    def test_parse_too_many_ranges_ignored(self, static_handler):
+        """A request with more than _MAX_RANGES parts is ignored (served as 200)."""
+        from pounce._static import _MAX_RANGES
+
+        spec = "bytes=" + ",".join(f"{i}-{i}" for i in range(_MAX_RANGES + 5))
+        assert static_handler._parse_range_header(spec, 1000) is None
+        # At the cap it is still honored (and coalesced).
+        ok = "bytes=" + ",".join(f"{i * 2}-{i * 2}" for i in range(_MAX_RANGES))
+        result = static_handler._parse_range_header(ok, 1000)
+        assert isinstance(result, list)
+        assert len(result) == _MAX_RANGES
+
+    def test_parse_overlapping_ranges_coalesced(self, static_handler):
+        """Overlapping and adjacent ranges are merged."""
+        # Overlapping: 0-50 and 40-90 -> 0-90.
+        assert static_handler._parse_range_header("bytes=0-50,40-90", 1000) == [(0, 90)]
+        # Adjacent: 0-9 and 10-19 -> 0-19.
+        assert static_handler._parse_range_header("bytes=0-9,10-19", 1000) == [(0, 19)]
+        # Out of order, disjoint, with a duplicate -> sorted and merged.
+        assert static_handler._parse_range_header("bytes=80-89,0-9,0-9", 1000) == [(0, 9), (80, 89)]
+
+    def test_parse_suffix_zero_malformed(self, static_handler):
+        """bytes=-0 is malformed and ignored (no negative-length range)."""
+        assert static_handler._parse_range_header("bytes=-0", 1000) is None
 
     def test_parse_multiple_ranges(self, static_handler):
         """Test parsing multiple comma-separated ranges."""
@@ -521,6 +688,78 @@ class TestMultipartRangeResponse:
 
         headers_dict = dict(sent[0]["headers"])
         assert b"etag" in headers_dict
+
+    @pytest.mark.asyncio
+    async def test_unsatisfiable_range_returns_416(self, range_handler):
+        """A range entirely past EOF returns 416 with Content-Range: bytes */size."""
+        sent = []
+
+        async def mock_send(msg):
+            sent.append(msg)
+
+        # alpha.txt is 26 bytes; bytes=100-200 is fully out of range.
+        await range_handler(self._scope(range_header="bytes=100-200"), None, mock_send)
+
+        assert sent[0]["status"] == 416
+        headers_dict = dict(sent[0]["headers"])
+        assert headers_dict[b"content-range"] == b"bytes */26"
+        assert headers_dict[b"content-length"] == b"0"
+        assert headers_dict[b"accept-ranges"] == b"bytes"
+        assert b"etag" in headers_dict
+        # Body must be empty.
+        body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+        assert body == b""
+
+    @pytest.mark.asyncio
+    async def test_malformed_range_serves_full_200(self, range_handler):
+        """A reversed (malformed) range is ignored: full 200, not 416."""
+        sent = []
+
+        async def mock_send(msg):
+            sent.append(msg)
+
+        await range_handler(self._scope(range_header="bytes=20-5"), None, mock_send)
+
+        assert sent[0]["status"] == 200
+        body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+        assert body == b"abcdefghijklmnopqrstuvwxyz"
+
+    @pytest.mark.asyncio
+    async def test_many_tiny_ranges_not_amplified(self, range_handler):
+        """A flood of tiny ranges does not produce a response larger than the file."""
+        from pounce._static import _MAX_RANGES
+
+        # Far more ranges than the cap: must be ignored and served as a 200.
+        spec = "bytes=" + ",".join("0-0" for _ in range(_MAX_RANGES + 50))
+        sent = []
+
+        async def mock_send(msg):
+            sent.append(msg)
+
+        await range_handler(self._scope(range_header=spec), None, mock_send)
+
+        assert sent[0]["status"] == 200
+        body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+        # Response body is the file itself (26 bytes), not 26 * many multipart parts.
+        assert len(body) == 26
+
+    @pytest.mark.asyncio
+    async def test_overlapping_ranges_merged_in_response(self, range_handler):
+        """Overlapping ranges coalesce into a single 206 (not multipart)."""
+        sent = []
+
+        async def mock_send(msg):
+            sent.append(msg)
+
+        # 0-4 and 3-9 overlap -> single range 0-9.
+        await range_handler(self._scope(range_header="bytes=0-4,3-9"), None, mock_send)
+
+        assert sent[0]["status"] == 206
+        headers_dict = dict(sent[0]["headers"])
+        # Coalesced to one range -> simple 206, not multipart.
+        assert headers_dict[b"content-range"] == b"bytes 0-9/26"
+        body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+        assert body == b"abcdefghij"
 
 
 class TestCreateStaticHandler:
