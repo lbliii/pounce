@@ -205,6 +205,7 @@ class AsyncPool:
             request_id=handoff.request_id,
             config=self._config,
             server=scope.get("server", ("localhost", 0)),
+            compression_min_size=self._config.compression_min_size,
         )
 
         scope = dict(scope)

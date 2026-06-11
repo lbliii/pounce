@@ -496,6 +496,112 @@ class TestCreateSend:
         assert after_chunk2 > after_chunk1  # sync_flush emitted data
 
 
+class TestCompressionMinSize:
+    """create_send() enforces ServerConfig.compression_min_size (issue #123).
+
+    A sub-threshold single-shot body must NOT be compressed even when a
+    compressor was negotiated from Accept-Encoding.  Above-threshold bodies
+    and genuinely streaming bodies (unknown size) still compress.
+    """
+
+    @pytest.mark.asyncio
+    async def test_below_threshold_single_shot_not_compressed(self):
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\nAccept-Encoding: gzip\r\n\r\n")
+
+        transport = _FakeTransport()
+        compressor = GzipCompressor()
+        send = create_send(
+            proto, transport, SendState(), compressor=compressor, compression_min_size=500
+        )
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"tiny", "more_body": False})
+
+        output = bytes(transport.data)
+        assert b"content-encoding" not in output.lower()
+        # Uncompressed body is sent verbatim (chunked-framed).
+        assert b"tiny" in output
+
+    @pytest.mark.asyncio
+    async def test_above_threshold_single_shot_compressed(self):
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\nAccept-Encoding: gzip\r\n\r\n")
+
+        transport = _FakeTransport()
+        compressor = GzipCompressor()
+        send = create_send(
+            proto, transport, SendState(), compressor=compressor, compression_min_size=500
+        )
+
+        body = b"x" * 600
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
+        await send({"type": "http.response.body", "body": body, "more_body": False})
+
+        output = bytes(transport.data)
+        assert b"content-encoding: gzip" in output.lower()
+
+    @pytest.mark.asyncio
+    async def test_app_content_length_below_threshold_not_compressed(self):
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\nAccept-Encoding: gzip\r\n\r\n")
+
+        transport = _FakeTransport()
+        compressor = GzipCompressor()
+        send = create_send(
+            proto, transport, SendState(), compressor=compressor, compression_min_size=500
+        )
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain"), (b"content-length", b"4")],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"tiny", "more_body": False})
+
+        output = bytes(transport.data)
+        assert b"content-encoding" not in output.lower()
+
+    @pytest.mark.asyncio
+    async def test_streaming_unknown_size_compressed(self):
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\nAccept-Encoding: gzip\r\n\r\n")
+
+        transport = _FakeTransport()
+        compressor = GzipCompressor()
+        send = create_send(
+            proto, transport, SendState(), compressor=compressor, compression_min_size=500
+        )
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
+        # First frame is small but more_body=True -> total size unknown.
+        await send({"type": "http.response.body", "body": b"a", "more_body": True})
+        await send({"type": "http.response.body", "body": b"b", "more_body": False})
+
+        output = bytes(transport.data)
+        assert b"content-encoding: gzip" in output.lower()
+
+
 class TestCreateEmptyReceive:
     """create_empty_receive() fast-path for bodyless requests."""
 

@@ -18,7 +18,27 @@ from pounce._compression import (
     negotiate_dictionary,
     negotiate_encoding,
     parse_sf_binary,
+    should_compress_body,
 )
+
+
+class TestShouldCompressBody:
+    """should_compress_body() enforces compression_min_size (issue #123)."""
+
+    def test_below_threshold_known_size(self):
+        assert should_compress_body(4, 500) is False
+
+    def test_at_threshold_known_size(self):
+        assert should_compress_body(500, 500) is True
+
+    def test_above_threshold_known_size(self):
+        assert should_compress_body(600, 500) is True
+
+    def test_unknown_size_streaming_always_compresses(self):
+        assert should_compress_body(None, 500) is True
+
+    def test_zero_threshold_always_compresses(self):
+        assert should_compress_body(0, 0) is True
 
 
 class TestNegotiateEncoding:

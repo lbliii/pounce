@@ -421,3 +421,26 @@ def _match_pattern(pattern: str, target: str) -> bool:
     if pattern.endswith("*"):
         return target.startswith(pattern[:-1])
     return target == pattern
+
+
+def should_compress_body(known_size: int | None, min_size: int) -> bool:
+    """Decide whether a response body of known size should be compressed.
+
+    Used by the async H1/H2/H3 bridges to enforce
+    ``ServerConfig.compression_min_size`` for the common single-shot case
+    (one ``http.response.body`` with ``more_body=False``, or an app-supplied
+    ``Content-Length`` at ``http.response.start``).
+
+    Args:
+        known_size: The body size in bytes when known, or ``None`` for a
+            genuinely streaming response of unknown total size.
+        min_size: The configured ``compression_min_size`` threshold.
+
+    Returns:
+        ``True`` if the body should be compressed.  Streaming responses of
+        unknown size (``known_size is None``) always compress -- the bridge
+        cannot buffer arbitrarily to learn the total size.
+    """
+    if known_size is None:
+        return True
+    return known_size >= min_size
