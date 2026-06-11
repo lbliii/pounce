@@ -6,7 +6,7 @@ This example shows that any chirp ``App`` works as an ASGI callable and
 can be served by pounce without modification.
 
 Prerequisites:
-    pip install chirp   # or: uv add chirp
+    pip install bengal-chirp   # or: uv add bengal-chirp
 
 Run it:
     pounce examples.chirp_app:app
@@ -18,7 +18,9 @@ Then visit http://127.0.0.1:8000/ in a browser.
 try:
     import chirp
 except ImportError as exc:
-    raise ImportError("This example requires chirp.  Install it with: pip install chirp") from exc
+    raise ImportError(
+        "This example requires chirp.  Install it with: pip install bengal-chirp"
+    ) from exc
 
 # ---------------------------------------------------------------------------
 # Build a minimal chirp application

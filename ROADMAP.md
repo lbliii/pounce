@@ -1,8 +1,8 @@
 # Pounce Roadmap
 
-**Current version:** 0.6.0
-**Updated:** May 2026
-**Active horizon:** May - September 2026
+**Current version:** 0.7.1
+**Updated:** June 2026
+**Active horizon:** June - September 2026
 
 ## Current Read
 
@@ -160,9 +160,6 @@ Work:
 - Maintain and expand the representative Chirp/LB Sonic fixture: host-based tenants, middleware,
   lifespan state, forms, streamed HTML or SSE, static assets, and optional
   WebSocket route if the product needs it.
-- Add Railway-style deployment recipe: bind `0.0.0.0:$PORT`, rely on platform
-  TLS termination, configure health path, use JSON logs, and set proxy trust
-  deliberately.
 - Add load profiles for sustained browsing, burst posting, streamed updates,
   queue saturation, rate limiting, and SIGTERM drain.
 - Add operator workflow: health for deploy readiness, metrics for dashboards,
@@ -199,8 +196,18 @@ Work:
   gaps, and release confidence gates.
 - Align worker-mode docs with `ServerConfig`, CLI, schema, README, and tests.
 - Fix middleware examples or implementation so docs match callable signatures.
-- Clarify introspection exposure: same listener with warning versus separate
-  loopback listener. The ADR, config fields, docs, and tests must agree.
+
+## Shipped Since 0.6.0
+
+Items that have landed in released versions. See `CHANGELOG.md` for full entries.
+
+- **Railway deployment recipe.** Railway deployment guidance for platform TLS,
+  `$PORT` binding, health checks, proxy trust, and drain-window alignment shipped
+  in 0.7.0 (CHANGELOG 0.7.0; `site/content/docs/deployment/railway.md`).
+- **Introspection same-listener clarification.** The `/_pounce/info` exposure
+  model — same listener with allowlist redaction and public-bind warning — was
+  reconciled across the ADR, config fields, docs, and tests in 0.7.0
+  (CHANGELOG 0.7.0; `docs/design/introspection-auth.md`).
 
 ## Not Now
 

@@ -50,7 +50,7 @@ uv sync --group dev
 
 ## Optional Extras
 
-Pounce ships with one dependency (`h11` for HTTP/1.1). Additional protocols are optional extras:
+Pounce ships with two required runtime dependencies: `h11` (HTTP/1.1 parsing) and `milo-cli` (the CLI). The request hot path depends only on `h11`. Additional protocols are optional extras:
 
 | Extra | Provides | Install |
 |-------|----------|---------|
