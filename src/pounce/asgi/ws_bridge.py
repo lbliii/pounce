@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from pounce._types import Receive, Send
 from pounce.asgi._scope import build_base_scope
+from pounce.asgi.bridge import _sanitize_headers
 from pounce.config import ServerConfig
 from pounce.protocols._base import RequestReceived
 
@@ -65,6 +66,10 @@ def build_ws_scope(
         root_path=config.root_path,
     )
     scope = apply_proxy_headers(scope, trusted_hosts=config.trusted_hosts)
+    # The ASGI WebSocket Connection Scope (spec 2.4) has no ``method`` key —
+    # it is HTTP-only. Leaving it set breaks routers (e.g. Litestar) that key
+    # off scope shape, so strip it here for a spec-clean websocket scope.
+    scope.pop("method", None)
     scope["subprotocols"] = subprotocols
     if state is not None:
         scope["state"] = state
@@ -178,16 +183,23 @@ def create_ws_send(
             close_event.set()
 
         elif msg_type == "websocket.http.response.start":
-            # WebSocket rejection — send HTTP response instead of upgrade
+            # WebSocket rejection — send HTTP response instead of upgrade.
+            # Coerce the status to an int so a malicious app cannot inject into
+            # the status line, and sanitize headers through the same CRLF guard
+            # used by every other response path (HTTP/1.1, H2, H3).
             closed = True
-            status = message.get("status", 403)
-            headers: list[tuple[bytes, bytes]] = [
+            raw_status = message.get("status", 403)
+            # Only an int (or int-like) status is allowed in the status line; a
+            # non-int value falls back to 403 so it cannot inject CRLF.
+            status = raw_status if isinstance(raw_status, int) else 403
+            decoded_headers: list[tuple[bytes, bytes]] = [
                 (
                     name if isinstance(name, bytes) else name.encode(),
                     value if isinstance(value, bytes) else value.encode(),
                 )
                 for name, value in message.get("headers", [])
             ]
+            headers = _sanitize_headers(decoded_headers)
             parts = [f"HTTP/1.1 {status} Rejected\r\n".encode()]
             for name, value in headers:
                 parts.extend((name, b": ", value, b"\r\n"))

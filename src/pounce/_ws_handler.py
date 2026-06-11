@@ -129,6 +129,10 @@ async def handle_websocket(
         # Wait for the app to accept before reading frames
         await accept_event.wait()
 
+        # Track whether we already enqueued a disconnect so the ``finally``
+        # block does not push a spurious 1006 after a clean client close.
+        # Per the ASGI spec exactly one ``websocket.disconnect`` is delivered.
+        disconnect_sent = False
         try:
             while not close_event.is_set():
                 try:
@@ -178,10 +182,13 @@ async def handle_websocket(
                                 "code": event.code,
                             }
                         )
+                        disconnect_sent = True
                         return
         finally:
-            # Ensure the app unblocks if still waiting on receive
-            if not close_event.is_set():
+            # Ensure the app unblocks if still waiting on receive. Only push a
+            # 1006 if no disconnect was already delivered (clean close) and the
+            # app did not itself initiate the close.
+            if not disconnect_sent and not close_event.is_set():
                 await receive_queue.put(
                     {
                         "type": "websocket.disconnect",
