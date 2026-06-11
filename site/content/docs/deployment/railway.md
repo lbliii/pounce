@@ -49,7 +49,7 @@ python railway_app.py
 For a plain import-string app that does not need custom `ServerConfig` values:
 
 ```bash
-pounce myapp:app --host 0.0.0.0 --port "$PORT" --workers 0 --health-check-path /health --log-format json --no-access-log
+pounce serve --app myapp:app --host 0.0.0.0 --port "$PORT" --workers 0 --health-check-path /health --log-format json --no-access-log
 ```
 
 ## Health Checks

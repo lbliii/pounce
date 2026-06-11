@@ -88,7 +88,7 @@ A slowloris attack holds connections open by sending HTTP headers very slowly â€
 Pounce protects against this with `header_timeout`:
 
 ```bash
-pounce myapp:app --header-timeout 10
+pounce serve --app myapp:app --header-timeout 10
 ```
 
 | Timeout | Purpose | Default |

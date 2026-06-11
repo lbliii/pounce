@@ -33,7 +33,7 @@ HTTP/2 provides:
 HTTP/2 requires TLS with ALPN negotiation:
 
 ```bash
-pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem
+pounce serve --app myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem
 ```
 
 When a client connects with TLS and advertises `h2` via ALPN, Pounce selects the HTTP/2 handler automatically. Clients that only support HTTP/1.1 continue to work.

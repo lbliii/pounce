@@ -66,7 +66,7 @@ config = ServerConfig(
 ```ini
 [Service]
 Type=notify
-ExecStart=/usr/bin/pounce serve myapp:app --workers=4
+ExecStart=/usr/bin/pounce serve --app myapp:app --workers=4
 ExecReload=/bin/kill -HUP $MAINPID
 ```
 

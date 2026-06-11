@@ -17,7 +17,7 @@ Pounce supports TLS termination using Python's stdlib `ssl` module, with optiona
 ## Basic Setup
 
 ```bash
-pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem
+pounce serve --app myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem
 ```
 
 Or programmatically:
@@ -48,7 +48,7 @@ openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem \
 Then run:
 
 ```bash
-pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem
+pounce serve --app myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem
 ```
 
 Your browser will warn about the self-signed certificate — this is expected in development.

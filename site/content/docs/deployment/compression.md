@@ -26,7 +26,7 @@ Compression is enabled by default:
 
 ```bash
 # Disabled (compression is enabled by default)
-pounce myapp:app --no-compression
+pounce serve --app myapp:app --no-compression
 ```
 
 Programmatically:

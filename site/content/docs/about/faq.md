@@ -48,7 +48,7 @@ For most use cases, yes. The CLI syntax is similar:
 uvicorn myapp:app --host 0.0.0.0 --port 8000 --workers 4
 
 # Pounce
-pounce myapp:app --host 0.0.0.0 --port 8000 --workers 4
+pounce serve --app myapp:app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
 See [[docs/tutorials/migrate-from-uvicorn|Migrate from Uvicorn]] for details.

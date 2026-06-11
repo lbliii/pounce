@@ -14,7 +14,7 @@ subinterpreter. This provides thread-like performance with process-like isolatio
 all in one process.
 
 ```
-pounce myapp:app --workers 4 --worker-mode subinterpreter
+pounce serve --app myapp:app --workers 4 --worker-mode subinterpreter
 ```
 
 ---
@@ -152,7 +152,7 @@ is logged and shutdown is forced.
 ## Known Limitations
 
 1. **App must be importable by path** — local closures and non-importable callables
-   don't work. Use `pounce myapp:app` syntax.
+   don't work. Use `pounce serve --app myapp:app` syntax.
 2. **Async workers only** — sync workers (SyncWorker + AsyncPool) can't share
    the AsyncPool across interpreter boundaries.
 3. **CPU affinity is per-process** — `sched_setaffinity()` operates on threads,

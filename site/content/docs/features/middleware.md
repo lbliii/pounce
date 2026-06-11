@@ -34,7 +34,7 @@ config = ServerConfig(
 
 ### CORSMiddleware
 
-Handles Cross-Origin Resource Sharing headers and preflight requests:
+Adds `Access-Control-*` CORS response headers to **every** response (a post-response hook). It does **not** short-circuit `OPTIONS` preflight requests — preflight requests still reach your app, which must answer them itself. The middleware only appends the configured headers (and skips any header your app already set):
 
 ```python
 from pounce import CORSMiddleware

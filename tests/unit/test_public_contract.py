@@ -277,8 +277,10 @@ class TestDocsCliSnippets:
             for name in inspect.signature(_cli._serve_impl).parameters
             if name != "app"
         }
-        # Milo exposes boolean negation flags from these implementation params.
-        serve_flags |= {"--no-compression", "--no-access-log"}
+        # ``--app`` is the documented flag form of the positional ``app`` param
+        # (`pounce serve --app myapp:app`); milo also exposes boolean negation
+        # flags from these implementation params.
+        serve_flags |= {"--app", "--no-compression", "--no-access-log"}
         bench_flags = {"--workers", "--duration", "--compare"}
         config_flags = {"--output-format"}
         global_flags = {"--help"}

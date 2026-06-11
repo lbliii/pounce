@@ -48,7 +48,7 @@ config = ServerConfig(
 Or from the CLI:
 
 ```bash
-pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem --http3
+pounce serve --app myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem --http3
 ```
 
 ## Tuning

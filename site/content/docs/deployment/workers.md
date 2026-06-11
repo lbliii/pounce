@@ -25,13 +25,13 @@ You don't need to configure this — the supervisor detects it at startup.
 
 ```bash
 # Single worker (no supervisor, lowest overhead)
-pounce myapp:app --workers 1
+pounce serve --app myapp:app --workers 1
 
 # Auto-detect from CPU cores
-pounce myapp:app --workers 0
+pounce serve --app myapp:app --workers 0
 
 # Explicit count
-pounce myapp:app --workers 4
+pounce serve --app myapp:app --workers 4
 ```
 
 ### Single Worker (workers=1)

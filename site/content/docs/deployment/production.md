@@ -13,7 +13,7 @@ category: how-to
 ## Recommended Configuration
 
 ```bash
-pounce myapp:app \
+pounce serve --app myapp:app \
     --host 0.0.0.0 \
     --port 8000 \
     --workers 0 \
@@ -69,7 +69,7 @@ server {
 Using a Unix socket eliminates TCP overhead and is the recommended approach when nginx and Pounce run on the same host.
 
 ```bash
-pounce myapp:app --uds /run/pounce.sock --workers 0
+pounce serve --app myapp:app --uds /run/pounce.sock --workers 0
 ```
 
 ```nginx
@@ -134,7 +134,7 @@ Never set `trusted_hosts=("*",)` in internet-facing deployments. A wildcard trus
 Pounce has a built-in health check endpoint that responds before the ASGI app is invoked — fast, lightweight, and independent of your application.
 
 ```bash
-pounce myapp:app --health-check-path /health
+pounce serve --app myapp:app --health-check-path /health
 ```
 
 The endpoint returns a JSON payload:
@@ -188,7 +188,7 @@ After=network.target
 Type=simple
 User=www-data
 WorkingDirectory=/opt/myapp
-ExecStart=/opt/myapp/.venv/bin/pounce myapp:app \
+ExecStart=/opt/myapp/.venv/bin/pounce serve --app myapp:app \
     --host 0.0.0.0 \
     --workers 0 \
     --health-check-path /health \
@@ -211,7 +211,7 @@ After=network.target
 Type=simple
 User=www-data
 WorkingDirectory=/opt/myapp
-ExecStart=/opt/myapp/.venv/bin/pounce myapp:app \
+ExecStart=/opt/myapp/.venv/bin/pounce serve --app myapp:app \
     --uds /run/pounce.sock \
     --workers 0 \
     --health-check-path /health \
