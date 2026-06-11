@@ -6,7 +6,7 @@ by calling a function rather than imported directly.  Useful when the
 app needs configuration or setup before it can handle requests.
 
 Run it:
-    pounce examples.factory_app:create_app()
+    pounce serve --app examples.factory_app:create_app()
 
 Then visit http://127.0.0.1:8000/ in a browser or:
     curl http://127.0.0.1:8000/

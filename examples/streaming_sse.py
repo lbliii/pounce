@@ -6,7 +6,7 @@ Streams named events with JSON payloads — more realistic than a bare
 body chunks flow directly to the socket, never buffered.
 
 Run it:
-    pounce examples.streaming_sse:app
+    pounce serve --app examples.streaming_sse:app
 
 Then open an SSE client:
     curl -N http://127.0.0.1:8000/

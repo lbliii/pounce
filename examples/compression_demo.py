@@ -10,7 +10,7 @@ need to do anything in your app code — pounce handles negotiation and
 encoding transparently.
 
 Run it:
-    pounce examples.compression_demo:app
+    pounce serve --app examples.compression_demo:app
 
 Test compression:
     # zstd (preferred — Python 3.14 stdlib, PEP 784)

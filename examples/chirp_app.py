@@ -9,7 +9,7 @@ Prerequisites:
     pip install bengal-chirp   # or: uv add bengal-chirp
 
 Run it:
-    pounce examples.chirp_app:app
+    pounce serve --app examples.chirp_app:app
 
 Then visit http://127.0.0.1:8000/ in a browser.
 

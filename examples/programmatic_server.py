@@ -1,7 +1,8 @@
 """
 Programmatic server control — start, serve, and shut down from code.
 
-Most examples use ``pounce myapp:app`` on the command line.  This example
+Most examples use ``pounce serve --app myapp:app`` on the command line.  This
+example
 shows the ``pounce.Server`` class directly, which is useful for:
 
 - **Embedding** pounce inside a larger application

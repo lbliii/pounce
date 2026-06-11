@@ -8,7 +8,7 @@ with process-like isolation, all in one process.
 Requires Python 3.14+ with ``concurrent.interpreters`` (PEP 734).
 
 Run it:
-    pounce examples.subinterpreter_server:app --workers 4 --worker-mode subinterpreter
+    pounce serve --app examples.subinterpreter_server:app --workers 4 --worker-mode subinterpreter
 
 Or programmatically:
     python examples/subinterpreter_server.py
