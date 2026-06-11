@@ -23,6 +23,8 @@ import os
 import secrets
 import stat as stat_mod
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from email.utils import formatdate, parsedate_to_datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -46,6 +48,32 @@ class _RangeNotSatisfiable(Enum):
 # A valid Range whose bytes lie entirely outside the file. Distinct from
 # ``None`` (malformed Range, which is ignored and served as a full 200).
 _RANGE_NOT_SATISFIABLE = _RangeNotSatisfiable.TOKEN
+
+
+def _http_date(mtime: float) -> str:
+    """Format an mtime (epoch seconds) as an RFC 9110 IMF-fixdate (GMT)."""
+    return formatdate(mtime, usegmt=True)
+
+
+def _parse_http_date(value: bytes) -> datetime | None:
+    """Parse an HTTP-date header value to a timezone-aware UTC datetime.
+
+    Returns ``None`` for unparseable input so callers can ignore a bad
+    conditional header and serve the full response (RFC 9110 §13.1.3).
+    """
+    try:
+        parsed = parsedate_to_datetime(value.decode("latin1"))
+    except ValueError:
+        # parsedate_to_datetime raises ValueError on malformed input (it is
+        # always given a str here, so TypeError cannot occur); some Python
+        # versions instead return None, which the caller handles below.
+        return None
+    if parsed is None:
+        return None
+    # A naive datetime from parsedate_to_datetime denotes GMT per RFC 9110.
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,14 +233,20 @@ class StaticFiles:
         # Extract needed headers in a single pass
         headers = scope.get("headers", [])
         if_none_match: bytes | None = None
+        if_modified_since: bytes | None = None
         range_header: bytes | None = None
+        if_range: bytes | None = None
         accept_encoding: bytes | None = None
         for hdr_name, hdr_value in headers:
             lower_name = hdr_name.lower()
             if lower_name == b"if-none-match":
                 if_none_match = hdr_value
+            elif lower_name == b"if-modified-since":
+                if_modified_since = hdr_value
             elif lower_name == b"range":
                 range_header = hdr_value
+            elif lower_name == b"if-range":
+                if_range = hdr_value
             elif lower_name == b"accept-encoding":
                 accept_encoding = hdr_value
 
@@ -243,13 +277,32 @@ class StaticFiles:
                 )
             return
 
-        # Check conditional requests (If-None-Match)
-        if if_none_match and if_none_match.decode("latin1").strip() == file.etag:
-            await self._send_304(file, send)
-            return
+        # Conditional requests. If-None-Match takes priority; If-Modified-Since
+        # is only evaluated when If-None-Match is absent (RFC 9110 §13.1.3,
+        # §13.2.2). Both apply to GET/HEAD (the only methods handled here).
+        if if_none_match is not None:
+            if if_none_match.decode("latin1").strip() == file.etag:
+                await self._send_304(file, send)
+                return
+        elif if_modified_since is not None:
+            since = _parse_http_date(if_modified_since)
+            # Ignore an unparseable date (serve full response). Otherwise 304
+            # when the file has not been modified after the supplied instant.
+            if since is not None and not self._modified_since(file, since):
+                await self._send_304(file, send)
+                return
 
-        # Check Range header
-        if range_header and method == "GET":
+        # Check Range header. If-Range gates the range request (RFC 9110
+        # §13.1.5): when it does not match the current representation, ignore
+        # Range and serve the full 200 entity. Pounce only emits weak ETags,
+        # which MUST NOT be used for an If-Range comparison, so an ETag-valued
+        # If-Range can never match here -> full 200. A date-valued If-Range
+        # matches only when the file has not been modified since that date.
+        if (
+            range_header
+            and method == "GET"
+            and (if_range is None or self._if_range_matches(if_range, file))
+        ):
             ranges = self._parse_range_header(range_header.decode("latin1"), file.size)
             if ranges is _RANGE_NOT_SATISFIABLE:
                 # Valid but unsatisfiable range -> 416 (RFC 7233 §4.4).
@@ -525,6 +578,43 @@ class StaticFiles:
         client_etag = if_none_match.decode("latin1").strip()
         return client_etag == file.etag
 
+    @staticmethod
+    def _modified_since(file: StaticFile, since: datetime) -> bool:
+        """Whether the file was modified after the supplied instant.
+
+        Compares whole seconds: HTTP-dates have one-second resolution, while a
+        filesystem mtime may carry sub-second precision. Truncating both to
+        seconds avoids spurious "modified" results from microsecond drift.
+        """
+        file_mtime = datetime.fromtimestamp(int(file.mtime), tz=UTC)
+        return file_mtime > since
+
+    def _if_range_matches(self, if_range: bytes, file: StaticFile) -> bool:
+        """Whether an If-Range value matches the current representation.
+
+        A range request guarded by If-Range serves 206 only on a match; on a
+        mismatch the full 200 entity is returned (RFC 9110 §13.1.5).
+
+        Pounce emits only weak ETags, which MUST NOT be used in an If-Range
+        comparison. So an ETag-valued If-Range (anything quoted or weak-prefixed)
+        can never match -> full 200. A date-valued If-Range matches only when
+        the file has not been modified since that date.
+        """
+        value = if_range.strip()
+        if not value:
+            return False
+
+        # An ETag form is quoted (``"..."``) or weak (``W/"..."``). Because our
+        # ETags are weak, no ETag-valued If-Range can ever strongly match.
+        if value.startswith((b'"', b"W/", b"w/")):
+            return False
+
+        since = _parse_http_date(value)
+        if since is None:
+            # Unparseable date -> treat as non-matching (serve full 200).
+            return False
+        return not self._modified_since(file, since)
+
     def _parse_range_header(
         self, range_header: str, file_size: int
     ) -> list[tuple[int, int]] | None | _RangeNotSatisfiable:
@@ -654,6 +744,7 @@ class StaticFiles:
         """Send 304 Not Modified response."""
         headers: list[tuple[bytes, bytes]] = [
             (b"etag", file.etag.encode("latin1")),
+            (b"last-modified", _http_date(file.mtime).encode("latin1")),
             (b"cache-control", file.cache_control.encode("latin1")),
         ]
 
@@ -744,6 +835,7 @@ class StaticFiles:
             (b"content-range", f"bytes {start}-{end}/{file.size}".encode("latin1")),
             (b"accept-ranges", b"bytes"),
             (b"etag", file.etag.encode("latin1")),
+            (b"last-modified", _http_date(file.mtime).encode("latin1")),
             (b"cache-control", file.cache_control.encode("latin1")),
         ]
 
@@ -809,6 +901,7 @@ class StaticFiles:
             (b"content-length", str(total_length).encode("latin1")),
             (b"accept-ranges", b"bytes"),
             (b"etag", file.etag.encode("latin1")),
+            (b"last-modified", _http_date(file.mtime).encode("latin1")),
             (b"cache-control", file.cache_control.encode("latin1")),
         ]
 
@@ -878,6 +971,7 @@ class StaticFiles:
             (b"content-length", str(file.size).encode("latin1")),
             (b"accept-ranges", b"bytes"),
             (b"etag", file.etag.encode("latin1")),
+            (b"last-modified", _http_date(file.mtime).encode("latin1")),
             (b"cache-control", file.cache_control.encode("latin1")),
         ]
 
