@@ -123,15 +123,16 @@ The installed package version, read from `importlib.metadata`.
 
 ### `CORSMiddleware`
 
-Built-in CORS middleware for cross-origin request handling.
+Built-in CORS middleware that appends `Access-Control-*` response headers to every response (a post-response hook). It does not intercept or answer `OPTIONS` preflight requests — those still reach your app.
 
 ```python
 from pounce import CORSMiddleware, ServerConfig
 
 cors = CORSMiddleware(
-    allow_origins=["https://example.com"],
-    allow_methods=["GET", "POST"],
-    allow_headers=["Authorization"],
+    allow_origin="https://example.com",
+    allow_methods="GET, POST",
+    allow_headers="Authorization",
+    max_age=3600,
 )
 config = ServerConfig(middleware=[cors])
 ```

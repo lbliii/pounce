@@ -99,7 +99,7 @@ trailer headers fall through to h11 or the async pool.
 On Linux, you can pin each worker to a dedicated CPU core with `--cpu-affinity`. This reduces cache thrashing and can improve throughput on multi-core systems:
 
 ```bash
-pounce myapp:app --workers 8 --cpu-affinity
+pounce serve --app myapp:app --workers 8 --cpu-affinity
 ```
 
 No-op on non-Linux platforms or when `sched_setaffinity` fails (e.g. restricted cpusets in containers).

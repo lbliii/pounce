@@ -48,7 +48,7 @@ python -c "import myapp"
 
 # Common fix: run from the project root
 cd /path/to/project
-pounce myapp:app
+pounce serve --app myapp:app
 ```
 
 ### `ssl_certfile and ssl_keyfile must both be set`
@@ -57,10 +57,10 @@ Both TLS options must be provided together:
 
 ```bash
 # Wrong
-pounce myapp:app --ssl-certfile cert.pem
+pounce serve --app myapp:app --ssl-certfile cert.pem
 
 # Correct
-pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem
+pounce serve --app myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem
 ```
 
 ## Runtime Issues
@@ -82,7 +82,7 @@ If you're on a GIL build, workers are processes — each with its own memory cop
 Increase `request_timeout` for slow endpoints:
 
 ```bash
-pounce myapp:app --request-timeout 60
+pounce serve --app myapp:app --request-timeout 60
 ```
 
 ### Connection refused
@@ -90,7 +90,7 @@ pounce myapp:app --request-timeout 60
 Check that the host and port are correct and not blocked by a firewall:
 
 ```bash
-pounce myapp:app --host 0.0.0.0 --port 8000
+pounce serve --app myapp:app --host 0.0.0.0 --port 8000
 ```
 
 `127.0.0.1` (default) only accepts local connections. Use `0.0.0.0` to accept connections from all interfaces.

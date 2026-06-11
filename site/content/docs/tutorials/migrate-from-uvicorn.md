@@ -21,7 +21,7 @@ If you're running an ASGI app with Uvicorn today, switching to Pounce is straigh
 uvicorn myapp:app --host 0.0.0.0 --port 8000 --workers 4 --reload
 
 # Pounce
-pounce myapp:app --host 0.0.0.0 --port 8000 --workers 4 --reload
+pounce serve --app myapp:app --host 0.0.0.0 --port 8000 --workers 4 --reload
 ```
 
 ## Flag Mapping
@@ -102,7 +102,7 @@ uv add bengal-pounce
 uvicorn myapp:app --host 0.0.0.0 --workers 4
 
 # After
-pounce myapp:app --host 0.0.0.0 --workers 4
+pounce serve --app myapp:app --host 0.0.0.0 --workers 4
 ```
 
 :::{/step}

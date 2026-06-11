@@ -37,7 +37,7 @@ async def app(scope, receive, send):
 ::::{tab-set}
 ::::{tab-item} Command Line
 ```bash
-pounce app:app
+pounce serve --app app:app
 ```
 ::::{/tab-item}
 
@@ -55,7 +55,7 @@ Open `http://127.0.0.1:8000` in your browser. You should see "Hello from Pounce!
 ## Enable Development Reload
 
 ```bash
-pounce app:app --reload
+pounce serve --app app:app --reload
 ```
 
 Pounce watches your source files and restarts workers automatically when changes are detected.
@@ -64,10 +64,10 @@ Pounce watches your source files and restarts workers automatically when changes
 
 ```bash
 # Auto-detect worker count (based on CPU cores)
-pounce app:app --workers 0
+pounce serve --app app:app --workers 0
 
 # Explicit 4 workers
-pounce app:app --workers 4
+pounce serve --app app:app --workers 4
 ```
 
 ::::{note}
@@ -78,7 +78,7 @@ pounce app:app --workers 4
 Pounce supports the app factory pattern with callable syntax:
 
 ```bash
-pounce myapp:create_app()
+pounce serve --app myapp:create_app()
 ```
 
 This calls `create_app()` in the `myapp` module and uses the returned ASGI application.

@@ -13,10 +13,10 @@ category: reference
 ## Usage
 
 ```bash
-pounce APP [OPTIONS]
+pounce serve --app APP [OPTIONS]
 ```
 
-The `APP` argument is a Python module path with an attribute, e.g. `myapp:app`. The app factory pattern is also supported: `myapp:create_app()`.
+The `--app` argument is a Python module path with an attribute, e.g. `myapp:app`. The app factory pattern is also supported: `myapp:create_app()`.
 
 ## Options
 
@@ -102,22 +102,22 @@ When `--log-format json` is set, all log output is emitted as structured JSON:
 
 ```bash
 # Development
-pounce myapp:app --reload --log-level debug
+pounce serve --app myapp:app --reload --log-level debug
 
 # Development with extra file watching
-pounce myapp:app --reload --reload-include ".html,.css,.md" --reload-dir ./templates
+pounce serve --app myapp:app --reload --reload-include ".html,.css,.md" --reload-dir ./templates
 
 # Production (TCP)
-pounce myapp:app --host 0.0.0.0 --workers 0 --no-access-log
+pounce serve --app myapp:app --host 0.0.0.0 --workers 0 --no-access-log
 
 # Production with JSON logs (for log aggregation)
-pounce myapp:app --host 0.0.0.0 --workers 0 --log-format json
+pounce serve --app myapp:app --host 0.0.0.0 --workers 0 --log-format json
 
 # Production with Unix domain socket (behind nginx/caddy)
-pounce myapp:app --uds /run/pounce.sock --workers 0
+pounce serve --app myapp:app --uds /run/pounce.sock --workers 0
 
 # Production with health checks and slowloris protection
-pounce myapp:app \
+pounce serve --app myapp:app \
     --host 0.0.0.0 \
     --workers 0 \
     --health-check-path /health \
@@ -125,13 +125,13 @@ pounce myapp:app \
     --log-format json
 
 # TLS
-pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem
+pounce serve --app myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem
 
 # TLS with HTTP/3
-pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem --http3
+pounce serve --app myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem --http3
 
 # Full production configuration
-pounce myapp:app \
+pounce serve --app myapp:app \
     --host 0.0.0.0 \
     --port 443 \
     --workers 4 \

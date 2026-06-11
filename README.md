@@ -119,12 +119,12 @@ pip install bengal-pounce[full]   # All protocol extras
 | Usage | Command |
 |-------|---------|
 | **Programmatic** | `pounce.run("myapp:app")` |
-| **CLI** | `pounce myapp:app` |
-| **Multi-worker** | `pounce myapp:app --workers 4` |
-| **TLS** | `pounce myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem` |
-| **HTTP/3** | `pounce myapp:app --http3 --ssl-certfile cert.pem --ssl-keyfile key.pem` |
-| **Dev reload** | `pounce myapp:app --reload` |
-| **App factory** | `pounce myapp:create_app()` |
+| **CLI** | `pounce serve --app myapp:app` |
+| **Multi-worker** | `pounce serve --app myapp:app --workers 4` |
+| **TLS** | `pounce serve --app myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem` |
+| **HTTP/3** | `pounce serve --app myapp:app --http3 --ssl-certfile cert.pem --ssl-keyfile key.pem` |
+| **Dev reload** | `pounce serve --app myapp:app --reload` |
+| **App factory** | `pounce serve --app myapp:create_app()` |
 | **Testing** | `with TestServer(app) as server: ...` |
 
 ---
@@ -153,6 +153,7 @@ pip install bengal-pounce[full]   # All protocol extras
 | **Request Queueing** | Optional bounded queue with 503 load shedding | [Request Queueing →](https://lbliii.github.io/pounce/docs/deployment/backpressure/) |
 | **Prometheus** | Optional `/metrics` endpoint | [Metrics →](https://lbliii.github.io/pounce/docs/deployment/observability/) |
 | **Sentry** | Optional error tracking and performance monitoring | [Sentry →](https://lbliii.github.io/pounce/docs/deployment/observability/) |
+| **Introspection** | Opt-in `/_pounce/info` endpoint for live config/runtime debugging (loopback-only by default) | [Introspection →](https://lbliii.github.io/pounce/docs/deployment/observability/) |
 | **Testing** | `TestServer` + pytest fixture for integration tests | [Testing →](https://lbliii.github.io/pounce/docs/testing/) |
 | **Benchmarking** | Built-in `pounce bench` command with comparative analysis | [Bench →](https://lbliii.github.io/pounce/docs/features/) |
 | **Lifecycle Events** | Public API for typed connection/request events | [API →](https://lbliii.github.io/pounce/docs/reference/api/) |
