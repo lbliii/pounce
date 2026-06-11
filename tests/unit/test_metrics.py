@@ -87,6 +87,7 @@ class TestPrometheusCollector:
                 bytes_sent=500,
                 duration_ms=10.0,
                 timestamp_ns=self._now(),
+                method="GET",
             )
         )
         collector.record(
@@ -107,12 +108,74 @@ class TestPrometheusCollector:
                 bytes_sent=100,
                 duration_ms=5.0,
                 timestamp_ns=self._now(),
+                method="POST",
             )
         )
 
         snap = collector.snapshot()
         assert snap["duration_count"] == 2
         assert snap["requests_in_flight"] == 0
+
+        # The exported counter must carry the real request method, not the
+        # "unknown" sentinel (regression test for method-label dropping).
+        text = collector.export()
+        assert 'http_requests_total{method="GET",status="200"} 1' in text
+        assert 'http_requests_total{method="POST",status="404"} 1' in text
+        assert 'method="unknown"' not in text
+
+    def test_export_method_label_uses_request_method(self):
+        """Exported http_requests_total carries the real method label."""
+        collector = PrometheusCollector()
+
+        collector.record(
+            ResponseCompleted(
+                connection_id=1,
+                worker_id=0,
+                status=200,
+                bytes_sent=10,
+                duration_ms=1.0,
+                timestamp_ns=self._now(),
+                method="GET",
+            )
+        )
+        collector.record(
+            ResponseCompleted(
+                connection_id=2,
+                worker_id=0,
+                status=404,
+                bytes_sent=10,
+                duration_ms=1.0,
+                timestamp_ns=self._now(),
+                method="POST",
+            )
+        )
+
+        text = collector.export()
+        assert 'http_requests_total{method="GET",status="200"} 1' in text
+        assert 'http_requests_total{method="POST",status="404"} 1' in text
+        # The empty string is never emitted; default is the stable sentinel.
+        assert 'method=""' not in text
+
+    def test_export_method_label_unknown_sentinel(self):
+        """Default/empty method falls back to the stable 'unknown' sentinel."""
+        collector = PrometheusCollector()
+
+        # ResponseCompleted constructed without a method (e.g. early-out
+        # error path) defaults to the "unknown" sentinel.
+        collector.record(
+            ResponseCompleted(
+                connection_id=1,
+                worker_id=0,
+                status=500,
+                bytes_sent=0,
+                duration_ms=1.0,
+                timestamp_ns=self._now(),
+            )
+        )
+
+        text = collector.export()
+        assert 'http_requests_total{method="unknown",status="500"} 1' in text
+        assert 'method=""' not in text
 
     def test_in_flight_gauge(self):
         """In-flight gauge tracks request start/complete."""

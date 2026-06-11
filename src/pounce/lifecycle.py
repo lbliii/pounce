@@ -61,7 +61,13 @@ class RequestStarted:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ResponseCompleted:
-    """An HTTP response was fully sent."""
+    """An HTTP response was fully sent.
+
+    ``method`` is the HTTP request method (e.g. ``"GET"``).  Use the
+    sentinel ``"unknown"`` on error/early-out paths where the method is
+    not known, never the empty string — metrics key the
+    ``http_requests_total`` counter on this label.
+    """
 
     connection_id: int
     worker_id: int
@@ -69,6 +75,7 @@ class ResponseCompleted:
     bytes_sent: int
     duration_ms: float
     timestamp_ns: int
+    method: str = "unknown"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

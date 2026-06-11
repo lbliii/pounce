@@ -11,6 +11,13 @@ Metrics:
     - ``http_connections_active`` — gauge of open connections
     - ``http_requests_in_flight`` — gauge of in-progress requests
 
+Label stability contract (``http_requests_total``):
+    - ``method`` — the uppercase HTTP request method as parsed (e.g.
+      ``"GET"``, ``"POST"``).  On error/early-out paths where the method
+      was never parsed, the stable sentinel ``"unknown"`` is used.  The
+      empty string is never emitted.
+    - ``status`` — the numeric HTTP status code rendered as a string.
+
 Thread-safe: all counters use ``threading.Lock`` for free-threading mode.
 
 """
@@ -110,9 +117,12 @@ class PrometheusCollector:
                     self._requests_in_flight += 1
                 case ResponseCompleted():
                     self._requests_in_flight = max(0, self._requests_in_flight - 1)
-                    # We don't have method in ResponseCompleted, use status only
+                    # Key on the real method carried by ResponseCompleted.
+                    # ``method`` defaults to the "unknown" sentinel on early-out
+                    # paths where the request method was never parsed.
                     status_str = str(event.status)
-                    self._requests_total[("", status_str)] += 1
+                    method = event.method or "unknown"
+                    self._requests_total[(method, status_str)] += 1
                     # Duration histogram — increment only the first matching
                     # bucket; export() computes the cumulative sum.
                     duration_s = event.duration_ms / 1000.0
