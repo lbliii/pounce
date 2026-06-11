@@ -188,6 +188,7 @@ async def handle_h2_connection(
             config=config,
             server=server,
             scheduler=scheduler,
+            compression_min_size=config.compression_min_size,
         )
 
         try:

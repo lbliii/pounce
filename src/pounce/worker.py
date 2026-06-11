@@ -1021,6 +1021,7 @@ class Worker:
             dictionary_hash=dictionary.sf_hash if dictionary else None,
             extra_headers=dict_advert_headers,
             sendfile_fn=sendfile_fn,
+            compression_min_size=self._config.compression_min_size,
         )
 
         # Create OpenTelemetry span for this request

@@ -557,6 +557,7 @@ def _create_zoomies_datagram_protocol(
                 compressor=compressor,
                 request_method=scope["method"],
                 request_id=request_id,
+                compression_min_size=self._config.compression_min_size,
             )
 
             try:

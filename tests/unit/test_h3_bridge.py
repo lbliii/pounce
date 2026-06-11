@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from pounce._compression import GzipCompressor
 from pounce.asgi.bridge import SendState
 from pounce.asgi.h3_bridge import (
     H3PseudoHeaderError,
@@ -583,6 +584,126 @@ class TestCreateH3Send:
         )
 
         compressor.compress.assert_not_called()
+
+    async def test_below_threshold_single_shot_not_compressed(self) -> None:
+        """Sub-threshold single-shot body is sent uncompressed (issue #123)."""
+        h3 = _MockH3Connection()
+        transmit = MagicMock()
+        state = SendState()
+        compressor = GzipCompressor()
+
+        send = create_h3_send(
+            h3,
+            stream_id=0,
+            transmit=transmit,
+            state=state,
+            compressor=compressor,
+            compression_min_size=500,
+        )
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"tiny", "more_body": False})
+
+        _, headers = h3.sent_headers[0]
+        header_dict = dict(headers)
+        assert b"content-encoding" not in header_dict
+        _, data, _ = h3.sent_data[0]
+        assert data == b"tiny"
+
+    async def test_above_threshold_single_shot_compressed(self) -> None:
+        """At/above-threshold single-shot body is compressed (issue #123)."""
+        h3 = _MockH3Connection()
+        transmit = MagicMock()
+        state = SendState()
+        compressor = GzipCompressor()
+
+        send = create_h3_send(
+            h3,
+            stream_id=0,
+            transmit=transmit,
+            state=state,
+            compressor=compressor,
+            compression_min_size=500,
+        )
+
+        body = b"x" * 600
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
+        await send({"type": "http.response.body", "body": body, "more_body": False})
+
+        _, headers = h3.sent_headers[0]
+        header_dict = dict(headers)
+        assert header_dict.get(b"content-encoding") == b"gzip"
+
+    async def test_app_content_length_below_threshold_not_compressed(self) -> None:
+        """App-supplied Content-Length below threshold disables compression."""
+        h3 = _MockH3Connection()
+        transmit = MagicMock()
+        state = SendState()
+        compressor = GzipCompressor()
+
+        send = create_h3_send(
+            h3,
+            stream_id=0,
+            transmit=transmit,
+            state=state,
+            compressor=compressor,
+            compression_min_size=500,
+        )
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain"), (b"content-length", b"4")],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"tiny", "more_body": False})
+
+        _, headers = h3.sent_headers[0]
+        header_dict = dict(headers)
+        assert b"content-encoding" not in header_dict
+
+    async def test_streaming_unknown_size_compressed(self) -> None:
+        """Streaming responses of unknown size still compress (issue #123)."""
+        h3 = _MockH3Connection()
+        transmit = MagicMock()
+        state = SendState()
+        compressor = GzipCompressor()
+
+        send = create_h3_send(
+            h3,
+            stream_id=0,
+            transmit=transmit,
+            state=state,
+            compressor=compressor,
+            compression_min_size=500,
+        )
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"a", "more_body": True})
+        await send({"type": "http.response.body", "body": b"b", "more_body": False})
+
+        _, headers = h3.sent_headers[0]
+        header_dict = dict(headers)
+        assert header_dict.get(b"content-encoding") == b"gzip"
 
     async def test_streaming_compression_sync_flush(self) -> None:
         """Streaming chunks use sync_flush, final chunk uses flush."""

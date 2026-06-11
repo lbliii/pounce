@@ -22,7 +22,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from pounce._compression import Compressor
+from pounce._compression import Compressor, should_compress_body
+from pounce._headers import get_header
 from pounce._sendfile import SendfileCallable, SendfileRegion
 from pounce._timing import ServerTiming
 from pounce._types import Receive, Send
@@ -276,6 +277,7 @@ def create_send(
     dictionary_hash: str | None = None,
     extra_headers: list[tuple[bytes, bytes]] | None = None,
     sendfile_fn: SendfileCallable | None = None,
+    compression_min_size: int = 0,
 ) -> Send:
     """Create an ASGI send callable that streams to the transport.
 
@@ -303,6 +305,75 @@ def create_send(
     # Buffer for write coalescing: holds the serialized response head
     # until the first body chunk arrives.
     pending_head: bytes = b""
+    # When compression is gated on ``compression_min_size`` but the app did
+    # not supply a Content-Length, the head commit is deferred until the
+    # first body frame so the single-shot body size is known. This holds the
+    # pending ``(status, headers)`` until that frame arrives.
+    deferred_start: tuple[int, list[tuple[bytes, bytes]]] | None = None
+
+    def _build_head(status: int, headers: list[tuple[bytes, bytes]]) -> bytes:
+        """Serialize response head, injecting Content-Encoding when compressing.
+
+        Reads the (possibly mutated) ``compressor`` nonlocal so callers can
+        disable compression just before committing the head.
+        """
+        nonlocal compressor
+        if compressor is not None:
+            filtered: list[tuple[bytes, bytes]] = []
+            has_transfer_encoding = False
+            has_content_encoding = False
+            is_sse = False
+            for n, v in headers:
+                nl = n.lower()
+                if nl == b"content-length":
+                    continue
+                if nl == b"transfer-encoding":
+                    has_transfer_encoding = True
+                elif nl == b"content-encoding":
+                    has_content_encoding = True
+                elif nl == b"content-type" and b"text/event-stream" in v:
+                    is_sse = True
+                filtered.append((n, v))
+            if is_sse or has_content_encoding:
+                # SSE must not be compressed -- EventSource API
+                # doesn't support it. Responses with Content-Encoding are
+                # already encoded, e.g. precompressed static assets.
+                # Restore original headers.
+                compressor = None
+            else:
+                headers = filtered
+                headers.append((b"content-encoding", compressor.encoding.encode("ascii")))
+                if dictionary_hash is not None:
+                    headers.append((b"used-dictionary", dictionary_hash.encode("ascii")))
+                # Compressor removed CL, so inject chunked if no TE
+                if not has_transfer_encoding:
+                    headers.append((b"transfer-encoding", b"chunked"))
+        else:
+            # No compressor -- check if CL or TE is present.
+            # Auto-inject chunked transfer encoding when the ASGI app
+            # doesn't provide Content-Length.  Without either CL or
+            # chunked TE, HTTP/1.1 keep-alive connections have no way
+            # to delimit response boundaries -- the browser hangs.
+            has_content_length = False
+            has_transfer_encoding = False
+            for n, _ in headers:
+                nl = n.lower()
+                if nl == b"content-length":
+                    has_content_length = True
+                elif nl == b"transfer-encoding":
+                    has_transfer_encoding = True
+                if has_content_length or has_transfer_encoding:
+                    break
+            if not has_content_length and not has_transfer_encoding:
+                headers.append((b"transfer-encoding", b"chunked"))
+
+        # Inject Server-Timing header
+        if timing is not None:
+            rendered = timing.render_bytes()
+            if rendered:
+                headers.append((b"server-timing", rendered))
+
+        return protocol.send_response(status, headers)
 
     async def _write_body_parts(parts: list[bytes | SendfileRegion]) -> None:
         nonlocal pending_head
@@ -324,7 +395,7 @@ def create_send(
             await writer.drain()
 
     async def send(message: dict[str, Any]) -> None:
-        nonlocal response_started, response_complete, pending_head, compressor
+        nonlocal response_started, response_complete, pending_head, compressor, deferred_start
 
         msg_type = message["type"]
 
@@ -386,68 +457,31 @@ def create_send(
             if compressor is not None and request_method == b"HEAD":
                 compressor = None
 
-            # Inject Content-Encoding if compressing.  Single pass over
-            # headers to: detect SSE (disable compressor), remove
-            # Content-Length, and detect Transfer-Encoding.
-            if compressor is not None:
-                filtered: list[tuple[bytes, bytes]] = []
-                has_transfer_encoding = False
-                has_content_encoding = False
-                is_sse = False
-                for n, v in headers:
-                    nl = n.lower()
-                    if nl == b"content-length":
-                        continue
-                    if nl == b"transfer-encoding":
-                        has_transfer_encoding = True
-                    elif nl == b"content-encoding":
-                        has_content_encoding = True
-                    elif nl == b"content-type" and b"text/event-stream" in v:
-                        is_sse = True
-                    filtered.append((n, v))
-                if is_sse or has_content_encoding:
-                    # SSE must not be compressed — EventSource API
-                    # doesn't support it. Responses with Content-Encoding are
-                    # already encoded, e.g. precompressed static assets.
-                    # Restore original headers.
-                    compressor = None
-                else:
-                    headers = filtered
-                    headers.append((b"content-encoding", compressor.encoding.encode("ascii")))
-                    if dictionary_hash is not None:
-                        headers.append((b"used-dictionary", dictionary_hash.encode("ascii")))
-                    # Compressor removed CL, so inject chunked if no TE
-                    if not has_transfer_encoding:
-                        headers.append((b"transfer-encoding", b"chunked"))
-            else:
-                # No compressor — check if CL or TE is present.
-                # Auto-inject chunked transfer encoding when the ASGI app
-                # doesn't provide Content-Length.  Without either CL or
-                # chunked TE, HTTP/1.1 keep-alive connections have no way
-                # to delimit response boundaries — the browser hangs.
-                has_content_length = False
-                has_transfer_encoding = False
-                for n, _ in headers:
-                    nl = n.lower()
-                    if nl == b"content-length":
-                        has_content_length = True
-                    elif nl == b"transfer-encoding":
-                        has_transfer_encoding = True
-                    if has_content_length or has_transfer_encoding:
-                        break
-                if not has_content_length and not has_transfer_encoding:
-                    headers.append((b"transfer-encoding", b"chunked"))
+            # Enforce compression_min_size (config-contract parity with the
+            # sync fast path).  The head -- including Content-Encoding and the
+            # Content-Length -> chunked rewrite -- is committed here, before any
+            # body frame, so the bridge cannot know the single-shot body size.
+            # When the app supplies a Content-Length we key off it directly;
+            # otherwise we defer the head commit until the first body frame so a
+            # below-threshold single-shot body is sent uncompressed.
+            if compressor is not None and compression_min_size > 0:
+                cl = get_header(headers, b"content-length")
+                if cl is not None:
+                    try:
+                        declared = int(cl)
+                    except ValueError:
+                        declared = None
+                    if declared is not None and declared < compression_min_size:
+                        compressor = None
+                elif request_method != b"HEAD":
+                    # No app Content-Length -- defer the head commit until the
+                    # first body frame reveals whether this is a small
+                    # single-shot response.  Streaming responses (more_body)
+                    # of unknown size still compress (documented fallback).
+                    deferred_start = (status, headers)
+                    return
 
-            # Inject Server-Timing header
-            if timing is not None:
-                rendered = timing.render_bytes()
-                if rendered:
-                    headers.append((b"server-timing", rendered))
-
-            raw = protocol.send_response(status, headers)
-
-            # Hold back the head for coalescing with the first body chunk.
-            pending_head = raw
+            pending_head = _build_head(status, headers)
 
         elif msg_type == "http.response.body":
             _req_ctx = (
@@ -475,6 +509,18 @@ def create_send(
             more_body: bool = message.get("more_body", False)
 
             original_len = len(body)
+
+            # Resolve a deferred head commit now that the body size is known.
+            # Single-shot (more_body=False) bodies below compression_min_size
+            # are sent uncompressed; streaming bodies (unknown total size) and
+            # bodies at/above the threshold are compressed.
+            if deferred_start is not None:
+                d_status, d_headers = deferred_start
+                deferred_start = None
+                known_size = original_len if not more_body else None
+                if not should_compress_body(known_size, compression_min_size):
+                    compressor = None
+                pending_head = _build_head(d_status, d_headers)
 
             if compressor is not None and body:
                 body = compressor.compress(body)

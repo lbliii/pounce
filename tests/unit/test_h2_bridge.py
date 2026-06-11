@@ -8,6 +8,7 @@ import asyncio
 from typing import Any
 from unittest.mock import MagicMock
 
+from pounce._compression import GzipCompressor
 from pounce.asgi.bridge import SendState
 from pounce.asgi.h2_bridge import build_h2_scope, create_h2_receive, create_h2_send
 from pounce.config import ServerConfig
@@ -405,6 +406,126 @@ class TestCreateH2Send:
         await send({"type": "http.response.body", "body": b"", "more_body": False})
 
         compressor.compress.assert_not_called()
+
+    async def test_below_threshold_single_shot_not_compressed(self) -> None:
+        """Sub-threshold single-shot body is sent uncompressed (issue #123)."""
+        h2 = _MockH2Connection()
+        writer = _MockWriter()
+        state = SendState()
+        compressor = GzipCompressor()
+
+        send = create_h2_send(
+            h2,
+            stream_id=1,
+            writer=writer,
+            state=state,
+            compressor=compressor,
+            compression_min_size=500,
+        )
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"tiny", "more_body": False})
+
+        _, _, headers = h2.sent_headers[0]
+        header_dict = dict(headers)
+        assert b"content-encoding" not in header_dict
+        _, data, _ = h2.sent_data[0]
+        assert data == b"tiny"
+
+    async def test_above_threshold_single_shot_compressed(self) -> None:
+        """At/above-threshold single-shot body is compressed (issue #123)."""
+        h2 = _MockH2Connection()
+        writer = _MockWriter()
+        state = SendState()
+        compressor = GzipCompressor()
+
+        send = create_h2_send(
+            h2,
+            stream_id=1,
+            writer=writer,
+            state=state,
+            compressor=compressor,
+            compression_min_size=500,
+        )
+
+        body = b"x" * 600
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
+        await send({"type": "http.response.body", "body": body, "more_body": False})
+
+        _, _, headers = h2.sent_headers[0]
+        header_dict = dict(headers)
+        assert header_dict.get(b"content-encoding") == b"gzip"
+
+    async def test_app_content_length_below_threshold_not_compressed(self) -> None:
+        """App-supplied Content-Length below threshold disables compression."""
+        h2 = _MockH2Connection()
+        writer = _MockWriter()
+        state = SendState()
+        compressor = GzipCompressor()
+
+        send = create_h2_send(
+            h2,
+            stream_id=1,
+            writer=writer,
+            state=state,
+            compressor=compressor,
+            compression_min_size=500,
+        )
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain"), (b"content-length", b"4")],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"tiny", "more_body": False})
+
+        _, _, headers = h2.sent_headers[0]
+        header_dict = dict(headers)
+        assert b"content-encoding" not in header_dict
+
+    async def test_streaming_unknown_size_compressed(self) -> None:
+        """Streaming responses of unknown size still compress (issue #123)."""
+        h2 = _MockH2Connection()
+        writer = _MockWriter()
+        state = SendState()
+        compressor = GzipCompressor()
+
+        send = create_h2_send(
+            h2,
+            stream_id=1,
+            writer=writer,
+            state=state,
+            compressor=compressor,
+            compression_min_size=500,
+        )
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"a", "more_body": True})
+        await send({"type": "http.response.body", "body": b"b", "more_body": False})
+
+        _, _, headers = h2.sent_headers[0]
+        header_dict = dict(headers)
+        assert header_dict.get(b"content-encoding") == b"gzip"
 
     async def test_empty_body_end_stream(self) -> None:
         """Empty body with end_stream sends zero-length DATA frame."""

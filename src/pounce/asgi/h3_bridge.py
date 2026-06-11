@@ -9,7 +9,8 @@ HTTP/3 uses QUIC (UDP) transport with TLS 1.3 built-in.
 import asyncio
 from typing import TYPE_CHECKING, Any
 
-from pounce._compression import Compressor
+from pounce._compression import Compressor, should_compress_body
+from pounce._headers import get_header
 from pounce._timing import ServerTiming
 from pounce._types import Receive, Send
 from pounce.asgi.bridge import SendState, _sanitize_headers
@@ -148,6 +149,7 @@ def create_h3_send(
     compressor: Compressor | None = None,
     request_method: str = "GET",
     request_id: str | None = None,
+    compression_min_size: int = 0,
 ) -> Send:
     """Create an ASGI send callable for an HTTP/3 stream.
 
@@ -157,9 +159,50 @@ def create_h3_send(
     """
     response_started = False
     response_complete = False
+    # When compression is gated on compression_min_size but the app did not
+    # supply a Content-Length, the header commit is deferred until the first
+    # body frame so the single-shot body size is known.
+    deferred_start: tuple[int, list[tuple[bytes, bytes]]] | None = None
+
+    def _commit_head(status: int, headers: list[tuple[bytes, bytes]]) -> None:
+        """Build and send response headers, injecting Content-Encoding.
+
+        Reads the (possibly mutated) ``compressor`` nonlocal so callers can
+        disable compression just before committing the head.
+        """
+        nonlocal compressor
+        if compressor is not None:
+            filtered: list[tuple[bytes, bytes]] = []
+            has_content_encoding = False
+            is_sse = False
+            for name, value in headers:
+                nl = name.lower()
+                if nl == b"content-type" and b"text/event-stream" in value.lower():
+                    is_sse = True
+                elif nl == b"content-encoding":
+                    has_content_encoding = True
+                if nl == b"content-length":
+                    continue
+                filtered.append((name, value))
+            if is_sse or has_content_encoding:
+                compressor = None
+            else:
+                filtered.append((b"content-encoding", compressor.encoding.encode("ascii")))
+                headers = filtered
+
+        if timing is not None:
+            rendered = timing.render_bytes()
+            if rendered:
+                headers.append((b"server-timing", rendered))
+
+        h3_conn.send_headers(
+            stream_id=stream_id,
+            headers=[(b":status", str(status).encode()), *headers],
+        )
+        transmit()
 
     async def send(message: dict[str, Any]) -> None:
-        nonlocal response_started, response_complete, compressor
+        nonlocal response_started, response_complete, compressor, deferred_start
 
         if message["type"] == "http.response.start":
             status: int = message["status"]
@@ -191,35 +234,25 @@ def create_h3_send(
                 compressor = None
             if compressor is not None and request_method == "HEAD":
                 compressor = None
-            if compressor is not None:
-                filtered: list[tuple[bytes, bytes]] = []
-                has_content_encoding = False
-                is_sse = False
-                for name, value in headers:
-                    nl = name.lower()
-                    if nl == b"content-type" and b"text/event-stream" in value.lower():
-                        is_sse = True
-                    elif nl == b"content-encoding":
-                        has_content_encoding = True
-                    if nl == b"content-length":
-                        continue
-                    filtered.append((name, value))
-                if is_sse or has_content_encoding:
-                    compressor = None
+
+            # Enforce compression_min_size (config-contract parity).  Key off an
+            # app-supplied Content-Length, else defer the head commit until the
+            # first body frame reveals the single-shot body size.  Streaming
+            # responses of unknown size still compress (documented fallback).
+            if compressor is not None and compression_min_size > 0:
+                cl = get_header(headers, b"content-length")
+                if cl is not None:
+                    try:
+                        declared = int(cl)
+                    except ValueError:
+                        declared = None
+                    if declared is not None and declared < compression_min_size:
+                        compressor = None
                 else:
-                    filtered.append((b"content-encoding", compressor.encoding.encode("ascii")))
-                    headers = filtered
+                    deferred_start = (status, headers)
+                    return
 
-            if timing is not None:
-                rendered = timing.render_bytes()
-                if rendered:
-                    headers.append((b"server-timing", rendered))
-
-            h3_conn.send_headers(
-                stream_id=stream_id,
-                headers=[(b":status", str(status).encode()), *headers],
-            )
-            transmit()
+            _commit_head(status, headers)
 
         elif message["type"] == "http.response.body":
             if not response_started:
@@ -231,6 +264,15 @@ def create_h3_send(
             more_body: bool = message.get("more_body", False)
 
             original_len = len(body)
+
+            # Resolve a deferred head commit now that the body size is known.
+            if deferred_start is not None:
+                d_status, d_headers = deferred_start
+                deferred_start = None
+                known_size = original_len if not more_body else None
+                if not should_compress_body(known_size, compression_min_size):
+                    compressor = None
+                _commit_head(d_status, d_headers)
 
             if compressor is not None and body:
                 body = compressor.compress(body)
