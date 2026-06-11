@@ -33,8 +33,6 @@ from pounce.server import Server
 
 
 class TestServer:
-    __test__ = False  # Prevent pytest from collecting this as a test class
-
     """Run a real pounce server in a background thread for testing.
 
     Args:
@@ -49,6 +47,8 @@ class TestServer:
             print(server.url)  # http://127.0.0.1:XXXXX
 
     """
+
+    __test__ = False  # Prevent pytest from collecting this as a test class
 
     def __init__(
         self,

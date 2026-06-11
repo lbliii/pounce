@@ -42,6 +42,16 @@ async def _test_app(scope: Scope, receive: Receive, send: Send) -> None:
 # ---------------------------------------------------------------------------
 
 
+class TestTestServerDocstring:
+    """Regression: docstring must attach to the class (issue #159)."""
+
+    def test_docstring_is_attached(self):
+        """``__test__ = False`` must not precede the docstring."""
+        assert TestServer.__doc__ is not None
+        assert TestServer.__doc__.strip()
+        assert "background thread" in TestServer.__doc__
+
+
 class TestTestServerProperties:
     """Test TestServer property access before/after start."""
 
