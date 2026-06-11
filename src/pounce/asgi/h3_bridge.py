@@ -113,7 +113,6 @@ def build_h3_scope(
         "client": client,
         "headers": header_list,
         "extensions": {
-            "http.response.push": {},
             "pounce.h3.stream_id": stream_id,
             "pounce.h3.is_0rtt": is_0rtt,
         },
@@ -253,5 +252,12 @@ def create_h3_send(
             if not more_body:
                 response_complete = True
                 state.response_complete = True
+
+        else:
+            raise RuntimeError(
+                f"Unexpected ASGI message type: {message['type']!r} for "
+                f"{request_method} {request_id or '?'}. "
+                f"Expected 'http.response.start' or 'http.response.body'."
+            )
 
     return send
