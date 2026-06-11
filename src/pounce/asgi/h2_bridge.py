@@ -57,7 +57,11 @@ def build_h2_scope(
         client=client,
         root_path=config.root_path,
     )
-    scope = apply_proxy_headers(scope, trusted_hosts=config.trusted_hosts)
+    scope = apply_proxy_headers(
+        scope,
+        trusted_hosts=config.trusted_hosts,
+        trusted_hops=config.forwarded_for_trusted_hops,
+    )
     if state is not None:
         scope["state"] = state
     return scope

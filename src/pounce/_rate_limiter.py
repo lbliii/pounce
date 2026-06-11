@@ -7,8 +7,19 @@ and load shedding for production overload protection.
 """
 
 import time
+from collections import OrderedDict
 from collections.abc import Callable
 from threading import Lock
+
+# Hard cap on the number of distinct client IPs tracked at once. Bounds memory
+# even under a flood of unique source IPs (e.g. a wide IPv6 /64). When the cap
+# is reached, the least-recently-seen bucket is evicted (LRU) to make room.
+DEFAULT_MAX_TRACKED_IPS = 100_000
+
+# Idle buckets (no request newer than this many seconds) are reaped during
+# cleanup regardless of their token level, so a sustained flood that keeps
+# buckets non-full cannot pin entries forever.
+_IDLE_EVICTION_SECONDS = 300.0
 
 
 class TokenBucket:
@@ -75,6 +86,18 @@ class TokenBucket:
             tokens_after_refill = min(self._capacity, self._tokens + elapsed * self._rate)
             return tokens_after_refill >= self._capacity
 
+    def idle_since(self, now: float) -> float:
+        """Return seconds since this bucket last refilled (i.e. last consume).
+
+        ``_last_refill`` advances on every :meth:`consume`, so it doubles as a
+        last-touched timestamp. Used by :class:`RateLimiter` cleanup to evict
+        buckets that have seen no traffic, even when they never refilled to
+        full capacity.
+
+        """
+        with self._lock:
+            return now - self._last_refill
+
 
 class RateLimiter:
     """Per-IP rate limiter with token buckets.
@@ -86,23 +109,45 @@ class RateLimiter:
 
     """
 
-    __slots__ = ("_buckets", "_burst", "_cleanup_interval", "_last_cleanup", "_lock", "_rate")
+    __slots__ = (
+        "_buckets",
+        "_burst",
+        "_cleanup_interval",
+        "_last_cleanup",
+        "_lock",
+        "_max_tracked_ips",
+        "_rate",
+    )
 
-    def __init__(self, rate: float, burst: int) -> None:
+    def __init__(
+        self,
+        rate: float,
+        burst: int,
+        max_tracked_ips: int = DEFAULT_MAX_TRACKED_IPS,
+    ) -> None:
         """Initialize rate limiter.
 
         Args:
             rate: Requests per second allowed per IP
             burst: Maximum burst size per IP
+            max_tracked_ips: Hard cap on the number of distinct client IPs
+                tracked at once. When exceeded, the least-recently-seen bucket
+                is evicted (LRU). Bounds memory under a unique-IP flood.
 
         Example:
             # Allow 100 req/s with burst of 200
             limiter = RateLimiter(rate=100.0, burst=200)
 
         """
+        if max_tracked_ips < 1:
+            msg = f"max_tracked_ips must be >= 1 (got {max_tracked_ips})"
+            raise ValueError(msg)
         self._rate = rate
         self._burst = burst
-        self._buckets: dict[str, TokenBucket] = {}
+        self._max_tracked_ips = max_tracked_ips
+        # OrderedDict gives O(1) LRU semantics: move_to_end on touch, popitem
+        # of the oldest entry when we hit the cap.
+        self._buckets: OrderedDict[str, TokenBucket] = OrderedDict()
         self._lock = Lock()
         self._cleanup_interval = 300.0  # Clean up every 5 minutes
         self._last_cleanup = time.monotonic()
@@ -117,43 +162,59 @@ class RateLimiter:
             True if request is allowed, False if rate limited
 
         """
-        # Periodic cleanup of stale buckets
+        # Periodic cleanup of stale buckets (time- or count-triggered).
         self._maybe_cleanup()
 
         with self._lock:
-            # Get or create bucket for this IP
-            if client_ip not in self._buckets:
-                self._buckets[client_ip] = TokenBucket(self._rate, self._burst)
-
-            bucket = self._buckets[client_ip]
+            # Get or create bucket for this IP, maintaining LRU ordering.
+            bucket = self._buckets.get(client_ip)
+            if bucket is None:
+                # Enforce the hard cap BEFORE inserting so the map can never
+                # exceed max_tracked_ips, even under a flood of unique IPs.
+                while len(self._buckets) >= self._max_tracked_ips:
+                    self._buckets.popitem(last=False)  # evict least-recently-seen
+                bucket = TokenBucket(self._rate, self._burst)
+                self._buckets[client_ip] = bucket
+            else:
+                # Mark as most-recently-seen for LRU eviction.
+                self._buckets.move_to_end(client_ip)
 
         # Try to consume a token (outside the lock for better concurrency)
         return bucket.consume()
 
     def _maybe_cleanup(self) -> None:
-        """Clean up stale buckets to prevent memory leaks.
+        """Clean up stale buckets to prevent unbounded growth.
 
-        Removes buckets that are full (no recent activity).
+        Triggers when the cleanup interval has elapsed OR the map has grown
+        past the tracked-IP cap. Evicts buckets that are either at full
+        capacity (no pending traffic) or idle (no request within the idle
+        window) so sustained floods cannot pin entries forever.
 
         """
         now = time.monotonic()
-        if now - self._last_cleanup < self._cleanup_interval:
-            return
-
         with self._lock:
+            over_cap = len(self._buckets) >= self._max_tracked_ips
+            if not over_cap and now - self._last_cleanup < self._cleanup_interval:
+                return
             # Snapshot bucket references under the outer lock so concurrent
             # insertions in check_rate_limit don't race with iteration, then
-            # probe each bucket under its own lock via is_full_at.
+            # probe each bucket under its own lock.
             snapshot = list(self._buckets.items())
 
-        stale = [ip for ip, bucket in snapshot if bucket.is_full_at(now)]
+        stale = [
+            ip
+            for ip, bucket in snapshot
+            if bucket.is_full_at(now) or bucket.idle_since(now) >= _IDLE_EVICTION_SECONDS
+        ]
 
         with self._lock:
             for ip in stale:
                 # A bucket may have been touched between probe and delete;
                 # only evict if it is still stale at deletion time.
                 bucket = self._buckets.get(ip)
-                if bucket is not None and bucket.is_full_at(now):
+                if bucket is not None and (
+                    bucket.is_full_at(now) or bucket.idle_since(now) >= _IDLE_EVICTION_SECONDS
+                ):
                     del self._buckets[ip]
 
             self._last_cleanup = now

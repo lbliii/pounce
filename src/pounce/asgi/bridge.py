@@ -121,7 +121,11 @@ def build_scope(
         client=client,
         root_path=config.root_path,
     )
-    scope = apply_proxy_headers(scope, trusted_hosts=config.trusted_hosts)
+    scope = apply_proxy_headers(
+        scope,
+        trusted_hosts=config.trusted_hosts,
+        trusted_hops=config.forwarded_for_trusted_hops,
+    )
 
     # Inject lifespan state (ASGI 3.0 spec)
     if state is not None:

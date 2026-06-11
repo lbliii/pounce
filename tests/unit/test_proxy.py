@@ -60,10 +60,15 @@ class TestApplyProxyHeaders:
         assert b"x-forwarded-for" not in header_names
 
     def test_trusted_peer_rewrites_client_from_xff(self):
-        """Trusted peer: X-Forwarded-For rewrites client IP."""
+        """Trusted peer: X-Forwarded-For rewrites client IP (1 hop = rightmost).
+
+        With the default single trusted hop, the real client is the rightmost
+        entry the trusted proxy appended (``203.0.113.50``), not any earlier
+        client-supplied value.
+        """
         scope = _scope(
             client=("10.0.0.1", 5000),
-            headers=[[b"x-forwarded-for", b"203.0.113.50, 10.0.0.1"]],
+            headers=[[b"x-forwarded-for", b"198.51.100.7, 203.0.113.50"]],
         )
         result = apply_proxy_headers(scope, trusted_hosts=("10.0.0.1",))
 
@@ -169,6 +174,55 @@ class TestApplyProxyHeaders:
         result = apply_proxy_headers(scope, trusted_hosts=("10.0.0.1",))
 
         assert result["client"] == ("203.0.113.1", 5000)
+
+    def test_spoofed_leftmost_xff_cannot_override_client(self):
+        """A client-supplied leftmost XFF value cannot become scope['client'].
+
+        Regression for #108: a malicious client sends ``X-Forwarded-For: 1.2.3.4``
+        hoping to impersonate that address. The trusted proxy appends the real
+        peer (``203.0.113.9``) to the right. With 1 trusted hop the rightmost
+        entry wins, so the spoofed leftmost value is ignored.
+        """
+        scope = _scope(
+            client=("10.0.0.1", 5000),
+            headers=[[b"x-forwarded-for", b"1.2.3.4, 203.0.113.9"]],
+        )
+        result = apply_proxy_headers(scope, trusted_hosts=("10.0.0.1",), trusted_hops=1)
+
+        assert result["client"] == ("203.0.113.9", 5000)
+        assert result["client"] != ("1.2.3.4", 5000)
+
+    def test_two_trusted_hops_selects_second_from_right(self):
+        """Two trusted proxies: select the entry two positions from the right."""
+        # client -> edge proxy -> internal proxy (our peer). XFF chain:
+        #   "<client-supplied spoof>, <real client>, <edge proxy>"
+        scope = _scope(
+            client=("10.0.0.1", 5000),
+            headers=[[b"x-forwarded-for", b"9.9.9.9, 203.0.113.9, 172.16.0.5"]],
+        )
+        result = apply_proxy_headers(scope, trusted_hosts=("10.0.0.1",), trusted_hops=2)
+
+        assert result["client"] == ("203.0.113.9", 5000)
+
+    def test_hop_count_longer_than_chain_falls_back_to_leftmost(self):
+        """When the chain is shorter than the hop count, use the leftmost entry."""
+        scope = _scope(
+            client=("10.0.0.1", 5000),
+            headers=[[b"x-forwarded-for", b"203.0.113.9"]],
+        )
+        result = apply_proxy_headers(scope, trusted_hosts=("10.0.0.1",), trusted_hops=3)
+
+        assert result["client"] == ("203.0.113.9", 5000)
+
+    def test_hop_count_handles_whitespace_and_empty_entries(self):
+        """Blank entries in the chain are ignored when counting hops."""
+        scope = _scope(
+            client=("10.0.0.1", 5000),
+            headers=[[b"x-forwarded-for", b"1.2.3.4 , , 203.0.113.9"]],
+        )
+        result = apply_proxy_headers(scope, trusted_hosts=("10.0.0.1",), trusted_hops=1)
+
+        assert result["client"] == ("203.0.113.9", 5000)
 
     def test_preserves_non_forwarded_headers(self):
         """Non-forwarded headers are never touched."""
