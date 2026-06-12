@@ -43,6 +43,35 @@ _JSON_PRIMITIVES: dict[type, str] = {
     bool: "boolean",
 }
 
+#: Stability tiers for ServerConfig fields. Every non-skipped field is either
+#: explicitly listed in ``_BETA_FIELD_PREFIXES`` (beta) or treated as stable.
+#: ``build_schema`` stamps the beta tier as an ``x-stability`` annotation so
+#: ``pounce config schema`` consumers can tell mature knobs from firming ones.
+#: This is a stability axis only -- it does not change the field set, names, or
+#: redaction (``INFO_ALLOWLIST``). See ``config.py`` docstring and
+#: ``docs/design/core-contract.md``. Tracked by issue #157.
+_BETA_FIELD_PREFIXES: tuple[str, ...] = (
+    "rate_limit_",
+    "request_queue_",
+    "introspection_",
+    "http3_",
+    "otel_",
+    "sentry_",
+    "metrics_",
+)
+
+_BETA_STABILITY_NOTE = (
+    "beta: behavior, surface, or proof is still firming up -- "
+    "pin versions and validate in staging before relying on it"
+)
+
+
+def _field_stability(name: str) -> str:
+    """Return the stability tier (``"stable"`` or ``"beta"``) for *name*."""
+    if name.startswith(_BETA_FIELD_PREFIXES):
+        return "beta"
+    return "stable"
+
 
 def _strip_none(tp: Any) -> tuple[Any, bool]:
     """For ``X | None``, return ``(X, True)``. Else ``(tp, False)``."""
@@ -128,6 +157,16 @@ def build_schema(cls: type = ServerConfig) -> dict[str, Any]:
             schema["default"] = default
         if f.name in enum_fields:
             schema["enum"] = sorted(enum_fields[f.name])
+        if _field_stability(f.name) == "beta":
+            schema["x-stability"] = "beta"
+            schema["description"] = _BETA_STABILITY_NOTE
+        elif f.name == "worker_mode":
+            # The field is stable, but the "subinterpreter" value is beta.
+            schema["x-stability-values"] = {"subinterpreter": "beta"}
+            schema["description"] = (
+                'worker_mode="subinterpreter" is beta (PEP 734, limited '
+                "lifecycle proof); auto/sync/async are stable"
+            )
         properties[f.name] = schema
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

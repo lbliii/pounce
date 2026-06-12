@@ -12,12 +12,16 @@ category: how-to
 
 # Backpressure
 
-Pounce provides two complementary load protection mechanisms: **rate limiting** (per-client) and **request queueing** (global). Use both together for comprehensive protection.
+Pounce provides two complementary load protection mechanisms: **rate limiting** (per-client) and **request queueing** (per-worker load shedding). Use both together for comprehensive protection.
+
+::::{warning}
+Both limits are enforced **per worker**, not per server. With `workers > 1` the real ceilings are the configured values multiplied by the worker count. See [Per-Worker Limits](#per-worker-limits-the-aggregate-is-limit--workers) below before sizing them.
+::::
 
 | | Rate Limiting | Request Queueing |
 |---|---|---|
 | Purpose | Prevent per-client abuse | Handle global overload |
-| Scope | Per IP address | All clients |
+| Scope | Per IP address, per worker | Per worker |
 | Response | 429 Too Many Requests | 503 Service Unavailable |
 | Algorithm | Token bucket | Bounded semaphore |
 
@@ -39,9 +43,9 @@ config = ServerConfig(
 
 | Option | Default | Description |
 |---|---|---|
-| `rate_limit_enabled` | `False` | Enable per-IP rate limiting |
-| `rate_limit_requests_per_second` | `100.0` | Token refill rate |
-| `rate_limit_burst` | `200` | Maximum bucket capacity |
+| `rate_limit_enabled` | `False` | Enable per-IP rate limiting (enforced per worker) |
+| `rate_limit_requests_per_second` | `100.0` | Token refill rate, per IP **per worker** |
+| `rate_limit_burst` | `200` | Maximum bucket capacity, per IP **per worker** |
 
 ### How It Works
 
@@ -72,7 +76,7 @@ config = ServerConfig(
 
 ## Request Queueing
 
-Global bounded queue with load shedding. When all workers are busy, requests queue up to a maximum depth. Beyond that, new requests get an immediate 503.
+Bounded queue with load shedding, maintained **per worker** (even in thread mode). When a worker is saturated, its requests queue up to `request_queue_max_depth`. Beyond that, new requests on that worker get an immediate 503.
 
 ### Configuration
 
@@ -85,8 +89,8 @@ config = ServerConfig(
 
 | Option | Default | Description |
 |---|---|---|
-| `request_queue_enabled` | `False` | Enable request queueing |
-| `request_queue_max_depth` | `1000` | Max queued requests (0 = unlimited) |
+| `request_queue_enabled` | `False` | Enable request queueing (per worker, all modes) |
+| `request_queue_max_depth` | `1000` | Max queued requests **per worker** (0 = unlimited) |
 
 ### Choosing Queue Depth
 
@@ -133,6 +137,50 @@ for attempt in range(max_retries):
     retry_after = int(response.headers.get("Retry-After", 1))
     time.sleep(retry_after * (2 ** attempt))
 ```
+
+## Per-Worker Limits: the aggregate is `limit x workers`
+
+Both backpressure helpers are wired around your app *before workers spawn*, and
+neither shares state across workers. The configured values are therefore
+**per worker**, and the server-wide ceiling scales with the worker count.
+
+| Helper | Thread mode (3.14t) | Process mode (GIL build, fork) | Subinterpreter mode |
+|---|---|---|---|
+| Rate limit | Shared (one limiter) | Per worker (independent copy) | Per worker (independent copy) |
+| Request queue | **Per worker** | **Per worker** | **Per worker** |
+
+The request queue is per worker in every mode because it is built on an
+`asyncio.Semaphore`, which binds to a single event loop. Rate limiting is shared
+only in thread mode, where all workers live in one interpreter; on process and
+subinterpreter builds each worker forks/imports its own token-bucket state with
+no IPC between them.
+
+### Reasoning about the aggregate
+
+For `N` effective workers (`workers=0` auto-detects to `os.cpu_count()`):
+
+```
+effective per-IP rate   = rate_limit_requests_per_second x N   (process/subinterpreter)
+effective per-IP burst  = rate_limit_burst              x N    (process/subinterpreter)
+effective shed depth    = request_queue_max_depth       x N    (all modes)
+```
+
+To hit a target *aggregate*, divide by the worker count yourself. For example,
+to cap each IP at a target aggregate rate across 4 process-mode workers, set
+`rate_limit_requests_per_second` to that target divided by 4. In thread mode the rate limiter is shared,
+so the configured rate already is the aggregate — only the queue depth scales.
+
+::::{note}
+Single-worker (`workers=1`) deployments need no adjustment: the configured value
+*is* the aggregate. The multiplier only matters once you scale workers.
+::::
+
+::::{tip}
+These helpers are not a security or auth boundary (a determined client can open
+many connections across workers). They protect against accidental overload. For
+hard per-IP guarantees, enforce limits at a shared upstream (nginx, HAProxy, an
+API gateway) where state is not per worker.
+::::
 
 ## Performance
 

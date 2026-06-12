@@ -4,6 +4,14 @@ Rate limiting and backpressure for pounce.
 Implements token bucket rate limiting per client IP with request queuing
 and load shedding for production overload protection.
 
+Per-worker semantics (issue #109): each worker holds its own token buckets.
+In thread mode (3.14t) one limiter is genuinely shared, but in process mode
+(GIL build, fork) and subinterpreter mode every worker inherits an independent
+copy of the bucket state with no IPC between them. The real per-IP ceiling is
+therefore ``rate x workers`` (burst ``burst x workers``). The configured number
+is the aggregate guarantee only when ``workers=1``. See
+``docs/deployment/backpressure.md``.
+
 """
 
 import time
@@ -32,6 +40,10 @@ class TokenBucket:
     - Requests are denied when bucket is empty
 
     Thread-safe for free-threading mode.
+
+    Per-worker (issue #109): a bucket lives in a single worker's address space.
+    With multiple workers the aggregate per-IP allowance scales with the worker
+    count -- see the module docstring and ``docs/deployment/backpressure.md``.
 
     """
 

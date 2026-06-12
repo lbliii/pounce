@@ -42,6 +42,28 @@ class ServerConfig:
     Example:
         config = ServerConfig(host="0.0.0.0", port=8000, workers=4)
 
+    Stability tiers:
+        Not every knob carries the same maturity. Treat the following as
+        guidance for production use; ``pounce config schema`` stamps the beta
+        tier as an ``x-stability`` annotation per field.
+
+        Stable -- safe for production, behavior is covered by the core
+        contract: ``host``/``port``/``uds``, ``workers``/``backlog``,
+        ``worker_mode`` values ``auto``/``sync``/``async``, the timeouts
+        (``*_timeout``), the limits (``max_*``), and logging
+        (``access_log``/``log_level``/``log_format``).
+
+        Beta -- usable but the behavior, surface, or proof is still firming up;
+        pin versions and validate in staging before relying on them:
+        ``worker_mode="subinterpreter"`` (PEP 734, limited lifecycle proof),
+        the rate-limit knobs (``rate_limit_*``), the request-queue knobs
+        (``request_queue_*``), introspection (``introspection_*``), HTTP/3
+        (``http3_*``), and the observability integrations
+        (``otel_*``/``sentry_*``/``metrics_*``).
+
+        See ``docs/design/core-contract.md`` for the per-feature contract and
+        required proof.
+
     """
 
     # Bind address
@@ -58,6 +80,9 @@ class ServerConfig:
     # "auto": sync on 3.14t, async on GIL (default)
     # "sync": force sync workers (fast path; streaming hands off to async pool)
     # "async": force async workers (current behavior)
+    # "subinterpreter": BETA (PEP 734) -- one subinterpreter per worker thread.
+    #   Limited lifecycle proof; pin deps and validate in staging. See
+    #   docs/design/subinterpreter-workers.md and core-contract.md.
     worker_mode: str = "auto"
 
     # Worker startup hook (pounce.worker.startup) failure policy.
@@ -195,16 +220,25 @@ class ServerConfig:
     metrics_path: str = "/metrics"  # Path for metrics endpoint
 
     # Rate limiting (phase 6.2)
-    rate_limit_enabled: bool = False  # Enable per-IP rate limiting
-    rate_limit_requests_per_second: float = 100.0  # Requests per second per IP
-    rate_limit_burst: int = 200  # Maximum burst size per IP
+    # PER-WORKER: each worker holds an independent token bucket in process/
+    # subinterpreter modes (fork copies, no shared IPC), so the real per-IP
+    # ceiling is rate x workers and burst x workers. In single-worker
+    # mode the configured value IS the aggregate. See issue #109 and
+    # docs/deployment/backpressure.md.
+    rate_limit_enabled: bool = False  # Enable per-IP rate limiting (per worker)
+    rate_limit_requests_per_second: float = 100.0  # Requests/sec per IP, per worker
+    rate_limit_burst: int = 200  # Maximum burst size per IP, per worker
     # Hard cap on distinct client IPs tracked by the limiter. Bounds memory
     # under a unique-IP flood (LRU eviction when exceeded). See issue #110.
     rate_limit_max_tracked_ips: int = 100_000
 
     # Request queuing and load shedding (phase 6.3)
-    request_queue_enabled: bool = False  # Enable request queueing
-    request_queue_max_depth: int = 1000  # Maximum queued requests (0 = unlimited)
+    # PER-WORKER in ALL modes (thread, process, subinterpreter): the queue uses
+    # an asyncio.Semaphore bound to one event loop, so every worker gets its own
+    # queue. The effective load-shed depth is max_depth x workers always. See
+    # issue #109 and docs/deployment/backpressure.md.
+    request_queue_enabled: bool = False  # Enable request queueing (per worker)
+    request_queue_max_depth: int = 1000  # Max queued requests per worker (0 = unlimited)
 
     # HTTP/3 (phase 5c) — QUIC/UDP, requires TLS
     http3_enabled: bool = False  # Enable HTTP/3 (requires ssl_certfile, ssl_keyfile)
