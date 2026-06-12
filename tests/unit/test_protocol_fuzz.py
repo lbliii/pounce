@@ -22,11 +22,24 @@ _ascii_path = st.text(
     max_size=100,
 )
 _path = _ascii_path.map(lambda s: s.encode("ascii"))
-_header_name = st.text(
-    alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-",
-    min_size=1,
-    max_size=64,
-).map(lambda s: s.encode("ascii"))
+
+# Framing headers (Content-Length / Transfer-Encoding) have syntactic rules that
+# h11 enforces: an empty or non-digit Content-Length, or a malformed
+# Transfer-Encoding, is correctly rejected as a *bad* request. The
+# arbitrary-header strategy must not emit these names, or it would generate
+# requests that h11 legitimately refuses -- falsifying the
+# "valid request does not raise" contract. We exclude them here and add a
+# dedicated well-formed framing-header strategy to preserve coverage.
+_FRAMING_HEADER_NAMES = frozenset({b"content-length", b"transfer-encoding"})
+_header_name = (
+    st.text(
+        alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-",
+        min_size=1,
+        max_size=64,
+    )
+    .map(lambda s: s.encode("ascii"))
+    .filter(lambda n: n.lower() not in _FRAMING_HEADER_NAMES)
+)
 _header_value = st.text(
     alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -.",
     min_size=0,
@@ -34,6 +47,17 @@ _header_value = st.text(
 ).map(lambda s: s.encode("ascii"))
 _header = st.tuples(_header_name, _header_value)
 _headers = st.lists(_header, max_size=20)
+
+# A well-formed framing header -- or none. Content-Length is always a valid
+# non-negative integer; Transfer-Encoding is the canonical "chunked". This keeps
+# genuine coverage of framing headers without ever emitting a malformed value.
+_framing_header = st.one_of(
+    st.none(),
+    st.integers(min_value=0, max_value=2**31).map(
+        lambda n: (b"Content-Length", str(n).encode("ascii"))
+    ),
+    st.just((b"Transfer-Encoding", b"chunked")),
+)
 
 
 def _build_valid_request(
@@ -67,11 +91,22 @@ class TestH1ProtocolFuzz:
         method=_http_method,
         path=_path,
         headers=_headers,
+        framing=_framing_header,
     )
-    def test_valid_request_does_not_raise(self, method: bytes, path: bytes, headers: list) -> None:
-        """Valid HTTP request bytes — receive_data does not raise."""
+    def test_valid_request_does_not_raise(
+        self,
+        method: bytes,
+        path: bytes,
+        headers: list,
+        framing: tuple[bytes, bytes] | None,
+    ) -> None:
+        """Valid HTTP request bytes -- receive_data does not raise."""
         proto = H1Protocol()
-        raw = _build_valid_request(method, path, headers)
+        # Append a well-formed framing header (if any). receive_data emits
+        # RequestReceived once the header block is complete, even when the body
+        # promised by Content-Length / chunked encoding has not yet arrived.
+        full_headers = [*headers, framing] if framing is not None else list(headers)
+        raw = _build_valid_request(method, path, full_headers)
         events = proto.receive_data(raw)
         assert len(events) >= 1
         assert isinstance(events[0], RequestReceived)
