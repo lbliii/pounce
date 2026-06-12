@@ -974,6 +974,16 @@ class Worker:
             timing = ServerTiming()
             timing.add("parse", elapsed_ms(request_start))
 
+        # Honour ``Expect: 100-continue``: a compliant client withholds the
+        # request body until it observes an interim ``100 Continue``. Emit it
+        # via h11's InformationalResponse before we read the body, otherwise
+        # such clients stall. h11 only reports this as True when a body is
+        # actually expected, so the final response still flows normally after.
+        # H1-only — H2/H3 do not use this mechanism. Trailers are unsupported.
+        if proto.client_is_waiting_for_100_continue:
+            writer.write(proto.send_100_continue())
+            await writer.drain()
+
         # Determine body status and create receive callable.
         # All paths now create a disconnect event so the ASGI app can
         # receive ``http.disconnect`` when the client drops — critical

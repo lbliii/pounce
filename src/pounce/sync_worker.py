@@ -56,6 +56,27 @@ from pounce.lifecycle import monotonic_ns as lifecycle_ns
 from pounce.protocols._base import RequestReceived
 from pounce.sync_protocol import RawRequest, SyncApp
 
+# Interim status line written before reading a body when a client sends
+# ``Expect: 100-continue``. H1-only; trailers remain unsupported on this path.
+_HTTP_100_CONTINUE: bytes = b"HTTP/1.1 100 Continue\r\n\r\n"
+_CRLFCRLF: bytes = b"\r\n\r\n"
+
+
+def _wants_100_continue(header_block: bytes) -> bool:
+    """Return True if the header block declares ``Expect: 100-continue``.
+
+    ``header_block`` is the raw bytes between the request line and the
+    blank-line terminator. Each CRLF-delimited line is checked so that an
+    ``expect:`` substring inside the request target or another header value
+    cannot trigger a false match; full header validation still happens in
+    ``_fast_h1.parse_request``.
+    """
+    for line in header_block.split(b"\r\n"):
+        name, sep, value = line.partition(b":")
+        if sep and name.strip().lower() == b"expect" and value.strip().lower() == b"100-continue":
+            return True
+    return False
+
 
 class _RequestMeta:
     """Pre-extracted header values from a single pass over request headers.
@@ -772,6 +793,7 @@ class SyncWorker:
         buf = self._recv_buf
         mv = memoryview(buf)
         total = self._recv_buf_len
+        sent_100 = False
 
         while True:
             try:
@@ -815,6 +837,22 @@ class SyncWorker:
                     buf[:leftover] = buf[consumed:total]
                 self._recv_buf_len = leftover
                 return (request, body)
+
+            # Headers are complete but the body has not fully arrived. If the
+            # client sent ``Expect: 100-continue`` it is deliberately
+            # withholding the body until it sees an interim 100 line; emit it
+            # once so the client unblocks instead of stalling until timeout.
+            if not sent_100:
+                header_end = bytes(mv[:total]).find(_CRLFCRLF)
+                if header_end != -1 and _wants_100_continue(bytes(mv[:header_end])):
+                    try:
+                        # ConnectionError is a subclass of OSError, so a single
+                        # base-class handler also covers a dropped client.
+                        conn.sendall(_HTTP_100_CONTINUE)
+                    except OSError:
+                        self._recv_buf_len = 0
+                        return (None, b"")
+                    sent_100 = True
 
             # Buffer full but still no complete request — reject
             if total >= len(buf):
