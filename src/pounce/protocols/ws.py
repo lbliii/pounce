@@ -115,6 +115,15 @@ class WSProtocol:
     Args:
         subprotocol: The negotiated subprotocol (if any).
         enable_compression: Enable permessage-deflate compression (default: False).
+        compression_offer: The client's ``permessage-deflate`` extension offer
+            (the single extension segment, e.g.
+            ``"permessage-deflate; client_max_window_bits=10"``). When provided
+            alongside ``enable_compression`` it is run through wsproto's
+            RFC 7692 negotiation (``PerMessageDeflate.accept``) so the agreed
+            window-bits / no-context-takeover parameters are echoed back and the
+            LZ77 window is constrained accordingly. When ``None`` the extension
+            is negotiated with no parameters and a bare ``permessage-deflate``
+            token is echoed.
 
     Raises:
         RuntimeError: If wsproto is not installed.
@@ -128,16 +137,32 @@ class WSProtocol:
         *,
         subprotocol: str | None = None,
         enable_compression: bool = False,
+        compression_offer: str | None = None,
     ) -> None:
         if not _HAS_WSPROTO:
             raise RuntimeError(
                 "WebSocket support requires wsproto. Install with: pip install bengal-pounce[ws]"
             )
 
-        # Configure extensions if compression is enabled
+        # Configure extensions if compression is enabled. The extension must be
+        # ``accept()``-ed for wsproto to actually enable it (an un-accepted
+        # ``PerMessageDeflate`` reports ``enabled() is False`` and is silently
+        # dropped by the frame protocol), and ``accept()`` returns the agreed
+        # RFC 7692 parameter string we echo in ``Sec-WebSocket-Extensions``.
         extensions_list: list[Any] = []
+        self._extensions_response: str | None = None
         if enable_compression:
-            extensions_list.append(wsproto.extensions.PerMessageDeflate())
+            deflate = wsproto.extensions.PerMessageDeflate()
+            # ``accept`` parses ``client_max_window_bits`` / ``server_max_window_bits``
+            # / ``*_no_context_takeover`` and constrains the window. A missing or
+            # parameterless offer yields an empty string -> echo the bare token.
+            offer = compression_offer if compression_offer is not None else "permessage-deflate"
+            agreed = deflate.accept(offer)
+            extensions_list.append(deflate)
+            if isinstance(agreed, str) and agreed:
+                self._extensions_response = f"permessage-deflate; {agreed}"
+            else:
+                self._extensions_response = "permessage-deflate"
 
         # Server-side connection — starts in OPEN state in wsproto 1.x
         self._conn = wsproto.connection.Connection(
@@ -145,11 +170,6 @@ class WSProtocol:
             extensions=extensions_list if extensions_list else None,
         )
         self._subprotocol = subprotocol
-
-        # Build the Sec-WebSocket-Extensions response header value
-        self._extensions_response: str | None = None
-        if enable_compression:
-            self._extensions_response = "permessage-deflate"
 
         self._closed = False
 
