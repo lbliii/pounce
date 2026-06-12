@@ -175,14 +175,16 @@ class TestAccessLog:
 
         assert caplog.records[0].levelno == logging.INFO
 
-    def test_text_access_log_includes_request_id(self, caplog):
-        """Text access log appends truncated request ID."""
+    def test_text_access_log_includes_full_request_id(self, caplog):
+        """Text access log appends the full (untruncated) request ID."""
         configure_logging(ServerConfig(log_format="text"))
+        rid = "abcdef0123456789abcdef0123456789"
         with caplog.at_level(logging.INFO, logger="pounce.access"):
-            access_log("GET", "/", 200, 0, 1.0, "client:80", request_id="abcdef123456789")
+            access_log("GET", "/", 200, 0, 1.0, "client:80", request_id=rid)
 
         msg = caplog.records[0].getMessage()
-        assert "[abcdef123456]" in msg
+        # Full id so it matches the X-Request-ID header exactly (issue #138).
+        assert f"[{rid}]" in msg
 
     def test_text_access_log_no_suffix_without_request_id(self, caplog):
         """Text access log has no trailing bracket when no request_id."""
@@ -248,7 +250,8 @@ class TestJSONAccessLog:
         )
         assert "ts" in parsed
         assert "req_id" in parsed
-        assert parsed["req_id"] == "abcdef12"  # Truncated to 8 chars
+        # Full id (issue #138) — matches the X-Request-ID header exactly.
+        assert parsed["req_id"] == "abcdef1234567890"
 
     def test_json_5xx_level_is_warn(self):
         parsed = self._capture_json_line(
@@ -329,6 +332,122 @@ class TestJSONAccessLog:
             client="c:80",
         )
         assert "worker" not in parsed
+
+    def test_json_schema_exact_key_set_minimal(self):
+        """Stability contract: minimal line has exactly the documented keys."""
+        parsed = self._capture_json_line(
+            method="GET",
+            path="/api",
+            status=200,
+            bytes_sent=512,
+            duration_ms=3.5,
+            client="127.0.0.1:5000",
+        )
+        # Documented always-present field set (issue #138).
+        assert set(parsed) == {
+            "ts",
+            "level",
+            "method",
+            "path",
+            "status",
+            "bytes",
+            "duration_ms",
+            "client",
+        }
+
+    def test_json_schema_exact_key_set_full(self):
+        """Stability contract: with req_id + worker, all documented keys appear."""
+        parsed = self._capture_json_line(
+            method="GET",
+            path="/api",
+            status=500,
+            bytes_sent=21,
+            duration_ms=98.9,
+            client="127.0.0.1:5000",
+            request_id="a1b2c3d4e5f67890a1b2c3d4e5f67890",
+            worker_id=0,
+        )
+        assert set(parsed) == {
+            "ts",
+            "level",
+            "method",
+            "path",
+            "status",
+            "bytes",
+            "duration_ms",
+            "client",
+            "req_id",
+            "worker",
+        }
+
+    def test_json_schema_field_types(self):
+        """Stability contract: documented value types hold."""
+        parsed = self._capture_json_line(
+            method="GET",
+            path="/api",
+            status=200,
+            bytes_sent=512,
+            duration_ms=3.5,
+            client="127.0.0.1:5000",
+            request_id="a1b2c3d4e5f67890a1b2c3d4e5f67890",
+            worker_id=2,
+        )
+        assert isinstance(parsed["ts"], str)
+        assert isinstance(parsed["level"], str)
+        assert isinstance(parsed["method"], str)
+        assert isinstance(parsed["path"], str)
+        assert isinstance(parsed["status"], int)
+        assert isinstance(parsed["bytes"], int)
+        assert isinstance(parsed["duration_ms"], int | float)
+        assert isinstance(parsed["client"], str)
+        assert isinstance(parsed["req_id"], str)
+        assert isinstance(parsed["worker"], int)
+
+    def test_json_req_id_is_full_matches_header_policy(self):
+        """req_id is the full id, byte-for-byte equal to X-Request-ID."""
+        rid = "a1b2c3d4e5f67890a1b2c3d4e5f67890"
+        parsed = self._capture_json_line(
+            method="GET",
+            path="/api",
+            status=200,
+            bytes_sent=0,
+            duration_ms=1.0,
+            client="c:80",
+            request_id=rid,
+        )
+        assert parsed["req_id"] == rid
+
+    def test_json_req_id_no_length_assumption_for_proxy_value(self):
+        """A trusted-proxy id (non-UUID4, arbitrary length) is preserved verbatim."""
+        rid = "trace-1234567890-from-upstream-proxy"
+        parsed = self._capture_json_line(
+            method="GET",
+            path="/api",
+            status=200,
+            bytes_sent=0,
+            duration_ms=1.0,
+            client="c:80",
+            request_id=rid,
+        )
+        assert parsed["req_id"] == rid
+
+    def test_json_req_id_matches_generated_request_id_full(self):
+        """req_id correlates exactly with a freshly generated request id."""
+        from pounce._request_id import generate_request_id
+
+        rid = generate_request_id()
+        parsed = self._capture_json_line(
+            method="GET",
+            path="/api",
+            status=200,
+            bytes_sent=0,
+            duration_ms=1.0,
+            client="c:80",
+            request_id=rid,
+        )
+        # Full 32-char hex preserved — exact correlation with X-Request-ID.
+        assert parsed["req_id"] == rid
+        assert len(parsed["req_id"]) == 32
 
 
 class TestPrettyAccessLog:
