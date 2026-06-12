@@ -27,6 +27,12 @@ import socket
 try:
     from zoomies.core import QuicConfiguration
 
+    # NOTE: create_zoomies_datagram_protocol_factory is an INTERNAL API
+    # (underscore module, not in pounce.__all__). It is used here deliberately:
+    # HTTP/3 is an unstable, optional-limited prototype and pounce exposes no
+    # stable public H3 entry point yet. This mirrors the production path in
+    # src/pounce/h3_worker.py. Do not depend on this import in real apps; a
+    # public H3 API would be a separate, deliberate addition.
     from pounce._h3_handler import create_zoomies_datagram_protocol_factory
     from pounce.config import ServerConfig
 
@@ -76,12 +82,13 @@ async def main() -> None:
         )
         return
 
-    config = ServerConfig(
-        host="0.0.0.0",
-        port=4433,
-        ssl_certfile="cert.pem",
-        ssl_keyfile="key.pem",
-    )
+    # The factory consumes config fields like max_request_size, http3_*, and
+    # trusted_hosts, so a ServerConfig is required. The bind address and TLS do
+    # NOT come from config on this path: the bind is the manual UDP socket below
+    # and TLS comes from QuicConfiguration (cert/key bytes read directly).
+    # Passing host/port/ssl_certfile/ssl_keyfile here would be dead wiring, so
+    # they are omitted.
+    config = ServerConfig()
 
     quic_config = QuicConfiguration(
         certificate=cert_bytes,

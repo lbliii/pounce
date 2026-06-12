@@ -13,9 +13,10 @@ pounce serve --app examples.<name>:app
 ```
 
 A few examples (`production_server`, `metrics_monitoring`, `rate_limiting_demo`,
-`static_files`, `http3_prototype`, `programmatic_server`, `subinterpreter_server`)
-configure the server in code and are launched with `python examples/<name>.py`.
-The run command in the index below is authoritative for each example.
+`static_files`, `http3_prototype`, `programmatic_server`, `subinterpreter_server`,
+`railway_deploy`, `multi_tenant_app`) configure the server in code and can be
+launched with `python examples/<name>.py`. The run command in the index below is
+authoritative for each example.
 
 Optional extras some examples need:
 
@@ -27,7 +28,7 @@ pip install bengal-chirp         # chirp framework example
 
 ## Index
 
-All 19 examples (excluding `__init__.py`) are listed below. The smoke tests in
+All 21 examples (excluding `__init__.py`) are listed below. The smoke tests in
 [`tests/integration/test_examples.py`](../tests/integration/test_examples.py)
 keep these run commands and endpoints honest.
 
@@ -46,6 +47,7 @@ keep these run commands and endpoints honest.
 | File | What it shows | Run | Endpoints / output | Extras | Status |
 |------|---------------|-----|--------------------|--------|--------|
 | `mini_router.py` | Routing + middleware as plain function composition on raw ASGI. | `pounce serve --app examples.mini_router:app` | `GET /` (routes JSON), `GET /users/{id}`, `POST /echo`, 404 otherwise | none | example |
+| `multi_tenant_app.py` | Host-based multi-tenant routing (Chirp-shaped) with proxy-trust for `X-Forwarded-Host`. | `pounce serve --app examples.multi_tenant_app:app` | `GET /` with `Host: alpha.example` / `beta.example` → per-tenant HTML | none | example |
 | `compression_demo.py` | Automatic zstd/gzip negotiation on a ~2 KB payload. | `pounce serve --app examples.compression_demo:app` | `GET /` → JSON; observe `Content-Encoding` | none | production |
 | `static_files.py` | `StaticFiles` mounts with custom cache control and MIME types. | `python examples/static_files.py` | `GET /` (API), `/static/`, `/assets/` | none | production |
 | `file_upload.py` | Streaming uploads with visible backpressure / flow control. | `pounce serve --app examples.file_upload:app --server-timing` | `GET /` (upload form), `POST /upload` → byte stats JSON | none | production |
@@ -72,6 +74,7 @@ keep these run commands and endpoints honest.
 | `production_server.py` | Full production config: metrics, rate limiting, queueing, hot reload, optional Sentry. | `python examples/production_server.py` | `GET /`, `/health`, `/metrics`, `/slow`, `/error` | `sentry-sdk` (optional, via `SENTRY_DSN`) | production |
 | `rate_limiting_demo.py` | Token-bucket per-IP rate limiting (5 req/s, burst 10) with a dashboard. | `python examples/rate_limiting_demo.py` | `GET /` (dashboard), `/api`, `/metrics`; 429 when limited | none | example |
 | `metrics_monitoring.py` | Live Prometheus metrics + dashboard. | `python examples/metrics_monitoring.py` | `GET /` (dashboard), `/metrics`, `/api/fast`, `/api/slow`, `/api/error` | none | example |
+| `railway_deploy.py` | Railway/PaaS recipe: bind `0.0.0.0:$PORT`, platform TLS, `/health`, JSON logs, proxy-trust off by default. | `pounce serve --app examples.railway_deploy:app --host 0.0.0.0 --port "$PORT" --health-check-path /health --log-format json --no-access-log` | `GET /health` → `{"status": "ok"}`; `GET /` → JSON | none | production |
 
 ### Prototypes
 

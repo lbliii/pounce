@@ -403,3 +403,189 @@ def test_mini_router_404() -> None:
         worker.shutdown()
         thread.join(timeout=3)
         sock.close()
+
+
+# ---------------------------------------------------------------------------
+# Railway / PaaS deploy example (#151)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.timeout(10)
+def test_railway_deploy_reads_port_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """examples/railway_deploy.py build_config() binds 0.0.0.0 on $PORT."""
+    from examples.railway_deploy import build_config
+
+    monkeypatch.setenv("PORT", "9137")
+    config = build_config()
+
+    assert config.host == "0.0.0.0"
+    assert config.port == 9137  # reads the injected PORT
+    assert config.health_check_path == "/health"
+    assert config.log_format == "json"
+    # Platform-terminated TLS: no in-container certs.
+    assert config.ssl_certfile is None
+    assert config.ssl_keyfile is None
+    # Proxy trust OFF by default (forwarded headers stripped).
+    assert not config.trusted_hosts
+
+
+@pytest.mark.timeout(10)
+def test_railway_deploy_health(monkeypatch: pytest.MonkeyPatch) -> None:
+    """examples/railway_deploy.py GET /health returns 200 healthy JSON.
+
+    Serves with the example's documented health_check_path so the built-in
+    healthcheck path is exercised (port overridden to 0 for the test bind).
+    """
+    from dataclasses import replace
+
+    from examples.railway_deploy import app, build_config
+
+    monkeypatch.setenv("PORT", "8000")
+    config = replace(build_config(), host="127.0.0.1", port=0, access_log=False)
+    worker, sock, thread = start_worker(app, config)
+    addr = sock.getsockname()
+
+    request = b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+
+    try:
+        response = send_raw_request(addr, request)
+        assert b"HTTP/1.1 200" in response
+        assert b'"status": "ok"' in response
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
+
+
+@pytest.mark.timeout(10)
+def test_railway_deploy_strips_untrusted_forwarded() -> None:
+    """Untrusted X-Forwarded-Proto is stripped: app sees scheme 'http'.
+
+    Enforces the example's documented trust boundary — with trusted_hosts empty
+    (the example default), forwarded headers from an untrusted peer must not
+    influence the scope.
+    """
+    from examples.railway_deploy import app
+
+    # Default config => trusted_hosts empty => forwarded headers stripped.
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+
+    request = (
+        b"GET / HTTP/1.1\r\n"
+        b"Host: localhost\r\n"
+        b"X-Forwarded-Proto: https\r\n"
+        b"Connection: close\r\n"
+        b"\r\n"
+    )
+
+    try:
+        response = send_raw_request(addr, request)
+        assert b"HTTP/1.1 200" in response
+        # Spoofed X-Forwarded-Proto must be ignored: scheme stays http.
+        assert b'"scheme": "http"' in response
+        assert b'"scheme": "https"' not in response
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
+
+
+# ---------------------------------------------------------------------------
+# Host-based multi-tenant routing example (#152)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.timeout(10)
+def test_multi_tenant_routes_by_host() -> None:
+    """examples/multi_tenant_app.py: different Host values yield different tenants."""
+    from examples.multi_tenant_app import app
+
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+
+    alpha = b"GET / HTTP/1.1\r\nHost: alpha.example\r\nConnection: close\r\n\r\n"
+    beta = b"GET / HTTP/1.1\r\nHost: beta.example\r\nConnection: close\r\n\r\n"
+
+    try:
+        resp_alpha = send_raw_request(addr, alpha)
+        resp_beta = send_raw_request(addr, beta)
+        assert b"HTTP/1.1 200" in resp_alpha
+        assert b"Alpha Company" in resp_alpha
+        assert b"HTTP/1.1 200" in resp_beta
+        assert b"Beta Company" in resp_beta
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
+
+
+@pytest.mark.timeout(10)
+def test_multi_tenant_ignores_untrusted_forwarded_host() -> None:
+    """Spoofed X-Forwarded-Host from an untrusted peer is NOT honored.
+
+    With trusted_hosts empty (the safe default), the forwarded header is
+    stripped and the tenant resolves from the real Host (alpha.example), not the
+    spoofed beta.example.
+    """
+    from examples.multi_tenant_app import app
+
+    # start_worker default config => trusted_hosts empty.
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+
+    request = (
+        b"GET / HTTP/1.1\r\n"
+        b"Host: alpha.example\r\n"
+        b"X-Forwarded-Host: beta.example\r\n"
+        b"Connection: close\r\n"
+        b"\r\n"
+    )
+
+    try:
+        response = send_raw_request(addr, request)
+        assert b"HTTP/1.1 200" in response
+        assert b"Alpha Company" in response  # real Host wins
+        assert b"Beta Company" not in response  # spoof ignored
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
+
+
+@pytest.mark.timeout(10)
+def test_multi_tenant_honors_trusted_forwarded_host() -> None:
+    """A trusted peer's X-Forwarded-Host DOES drive tenant selection.
+
+    With the direct peer (127.0.0.1) in trusted_hosts, pounce rewrites the scope
+    Host from X-Forwarded-Host before dispatch, so the forwarded beta.example
+    resolves to the Beta tenant even though the direct Host is alpha.example.
+    """
+    from examples.multi_tenant_app import app
+    from pounce.config import ServerConfig
+
+    config = ServerConfig(
+        host="127.0.0.1",
+        port=0,
+        access_log=False,
+        trusted_hosts=frozenset({"127.0.0.1"}),
+    )
+    worker, sock, thread = start_worker(app, config)
+    addr = sock.getsockname()
+
+    request = (
+        b"GET / HTTP/1.1\r\n"
+        b"Host: alpha.example\r\n"
+        b"X-Forwarded-Host: beta.example\r\n"
+        b"Connection: close\r\n"
+        b"\r\n"
+    )
+
+    try:
+        response = send_raw_request(addr, request)
+        assert b"HTTP/1.1 200" in response
+        assert b"Beta Company" in response  # forwarded host honored
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
