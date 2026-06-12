@@ -6,7 +6,7 @@ Frozen after creation — the server reads config but never mutates it.
 
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -498,3 +498,20 @@ class ServerConfig:
         import json
 
         return cls.from_iic_dict(json.loads(s))
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> ServerConfig:
+        """Build a ``ServerConfig`` from an untyped key/value mapping.
+
+        This is the typed construction site for merged config dicts (e.g. the
+        output of :func:`pounce._config_file.load_config_with_overrides`, which
+        is ``dict[str, Any]``). It owns the single unavoidable cast from an
+        ``object``-valued mapping to the keyword-only constructor, so callers
+        can splat config without sprinkling per-site type-ignore comments.
+
+        Validation is unchanged from direct construction: unknown keys raise
+        ``TypeError`` and out-of-range/invalid values raise ``ValueError`` via
+        :meth:`__post_init__`.
+
+        """
+        return cls(**dict(mapping))

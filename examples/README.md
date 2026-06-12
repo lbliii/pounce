@@ -91,7 +91,7 @@ keep these run commands and endpoints honest.
 
 **File:** `production_server.py`
 
-Complete production configuration demonstrating all Phase 6 features:
+Complete production configuration demonstrating the full production feature set:
 - Prometheus metrics endpoint
 - Per-IP rate limiting
 - Request queueing and load shedding

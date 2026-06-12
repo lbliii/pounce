@@ -21,7 +21,7 @@ logger = logging.getLogger("pounce.net.tls")
 
 # Optional truststore support (bengal-pounce[tls] extra)
 try:
-    import truststore  # type: ignore[import-untyped]
+    import truststore
 
     _HAS_TRUSTSTORE = True
 except ImportError:

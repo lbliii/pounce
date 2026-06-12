@@ -92,7 +92,7 @@ def _install_branded_help(parser: argparse.ArgumentParser) -> None:
         except Exception:
             return original()
 
-    parser.format_help = branded_format_help  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+    parser.format_help = branded_format_help  # ty: ignore[invalid-assignment]
 
     if parser._subparsers:
         for action in parser._subparsers._actions:
@@ -406,7 +406,7 @@ def _serve_impl(
     config_path = Path(config) if config else None
     merged = load_config_with_overrides(cli_overrides, config_path=config_path)
 
-    server_config = ServerConfig(**merged)
+    server_config = ServerConfig.from_mapping(merged)
 
     # Merge branding: CLI flags override config-file values.
     effective_name = app_name or server_config.app_name
@@ -530,7 +530,9 @@ def _diagnostics_for_os_error(exc: OSError) -> list[dict[str, str]] | None:
                 {"label": "PID using port", "value": f"{pid} ({proc_name})"},
                 {"label": "Quick fix", "value": f"kill {pid}"},
             ]
-    except FileNotFoundError, subprocess.TimeoutExpired:
+    except FileNotFoundError:
+        pass
+    except subprocess.TimeoutExpired:
         pass
     return None
 
@@ -752,7 +754,7 @@ def check(
 
     if config_check["status"] != "error":
         # Config is valid — construct typed config for pre-flight checks.
-        cfg = ServerConfig(**merged)  # type: ignore[arg-type]
+        cfg = ServerConfig.from_mapping(merged)
         if not cfg.uds:
             checks.append(_check_port_available(cfg.host, cfg.port))
         if cfg.ssl_certfile:
@@ -959,7 +961,7 @@ def _check_config_valid(
 def _check_merged_config_valid(merged: dict[str, object]) -> dict[str, str]:
     """Try to construct ServerConfig from merged config dict and catch validation errors."""
     try:
-        ServerConfig(**merged)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        ServerConfig.from_mapping(merged)
         return {"name": "Config validation", "status": "success", "detail": "Valid", "hint": ""}
     except (ValueError, TypeError) as exc:
         return {
@@ -1101,7 +1103,7 @@ def config_show(
     config_path = Path(config) if config else None
     try:
         merged = load_config_with_overrides(cli_overrides, config_path=config_path)
-        server_config = ServerConfig(**merged)
+        server_config = ServerConfig.from_mapping(merged)
     except (ValueError, TypeError) as exc:
         _die(str(exc))
         return

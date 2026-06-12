@@ -798,7 +798,8 @@ class SyncWorker:
         while True:
             try:
                 n = conn.recv_into(mv[total:])
-            except ConnectionError, OSError, TimeoutError:
+            except OSError:
+                # ConnectionError and TimeoutError are OSError subclasses.
                 self._recv_buf_len = 0
                 return (None, b"")
 
