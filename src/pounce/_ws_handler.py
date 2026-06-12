@@ -30,16 +30,32 @@ from pounce.protocols._base import (
 )
 
 
-def _client_requested_permessage_deflate(headers: tuple[tuple[bytes, bytes], ...]) -> bool:
-    """Return True when the client offered permessage-deflate."""
+def _permessage_deflate_offer(headers: tuple[tuple[bytes, bytes], ...]) -> str | None:
+    """Return the client's ``permessage-deflate`` extension offer segment.
+
+    Scans every ``Sec-WebSocket-Extensions`` header for a comma-separated
+    ``permessage-deflate`` token and returns that single extension segment
+    (token plus any ``;``-delimited parameters) so it can be fed verbatim to
+    wsproto's RFC 7692 negotiation. Returns ``None`` when the client did not
+    offer permessage-deflate.
+    """
     for name, value in headers:
         if name.lower() != b"sec-websocket-extensions":
             continue
-        for extension in value.lower().split(b","):
-            token = extension.split(b";", 1)[0].strip()
+        for extension in value.split(b","):
+            segment = extension.strip()
+            token = segment.split(b";", 1)[0].strip().lower()
             if token == b"permessage-deflate":
-                return True
-    return False
+                # Preserve the offered parameter values (e.g. window bits) but
+                # normalise the token casing so the offer parses cleanly.
+                params = segment[len(b"permessage-deflate") :]
+                return ("permessage-deflate" + params.decode("ascii", errors="replace")).strip()
+    return None
+
+
+def _client_requested_permessage_deflate(headers: tuple[tuple[bytes, bytes], ...]) -> bool:
+    """Return True when the client offered permessage-deflate."""
+    return _permessage_deflate_offer(headers) is not None
 
 
 async def handle_websocket(
@@ -97,10 +113,15 @@ async def handle_websocket(
 
     # Create protocol and ASGI bridge. Compression is negotiated only when
     # both config allows it and the client explicitly offers permessage-deflate.
-    compression_enabled = config.websocket_compression and _client_requested_permessage_deflate(
-        request.headers
+    # The full offer segment (including any window-bits parameters) is threaded
+    # through so wsproto can run RFC 7692 negotiation and echo agreed params.
+    deflate_offer = (
+        _permessage_deflate_offer(request.headers) if config.websocket_compression else None
     )
-    ws_proto = WSProtocol(enable_compression=compression_enabled)
+    ws_proto = WSProtocol(
+        enable_compression=deflate_offer is not None,
+        compression_offer=deflate_offer,
+    )
     accept_event = asyncio.Event()
     close_event = asyncio.Event()
 

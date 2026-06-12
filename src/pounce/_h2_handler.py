@@ -26,7 +26,7 @@ from pounce._priority import PriorityScheduler, parse_priority
 from pounce._request_id import extract_or_generate
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
-from pounce.asgi.bridge import SendState
+from pounce.asgi.bridge import SendState, _sanitize_headers
 from pounce.asgi.h2_bridge import build_h2_scope, create_h2_receive, create_h2_send
 from pounce.asgi.ws_bridge import build_ws_scope
 from pounce.config import ServerConfig
@@ -390,6 +390,15 @@ async def handle_h2_websocket_stream(
     stream.  Data frames on this stream carry WebSocket frames (via
     wsproto), and the ASGI app sees a standard ``websocket`` scope.
 
+    This path mirrors the HTTP/1.1 WebSocket handler (``_ws_handler``):
+    it enforces ``websocket_max_message_size`` (WS close 1009 + RST
+    stream), negotiates permessage-deflate from the CONNECT headers,
+    guards ``websocket.send`` against send-before-accept / send-after-close,
+    and implements the ``websocket.http.response.start`` / ``.body`` reject
+    path. Unlike H1 the 200 acceptance headers are deferred until the app
+    sends ``websocket.accept`` so the negotiated ``Sec-WebSocket-Extensions``
+    can be echoed (and a reject can send a non-200 status instead).
+
     Args:
         app: The ASGI application callable.
         config: Immutable server configuration.
@@ -404,17 +413,22 @@ async def handle_h2_websocket_stream(
         client_str: Formatted ``"host:port"`` string for logging.
 
     """
+    from pounce._ws_handler import _permessage_deflate_offer
     from pounce.protocols.ws import WSProtocol, is_wsproto_available
 
     if not is_wsproto_available():
         logger.warning("WebSocket over H2 requested but wsproto not installed")
         return
 
-    ws_proto = WSProtocol()
-
-    # Send 200 OK response headers to accept the Extended CONNECT
-    h2_conn.send_response_headers(stream_id, 200, [])  # type: ignore[union-attr]
-    writer.write(h2_conn.data_to_send())  # type: ignore[union-attr]
+    # Negotiate permessage-deflate from the Extended CONNECT headers, exactly
+    # like the H1 path: only when config allows it AND the client offered it.
+    deflate_offer = (
+        _permessage_deflate_offer(request.headers) if config.websocket_compression else None
+    )
+    ws_proto = WSProtocol(
+        enable_compression=deflate_offer is not None,
+        compression_offer=deflate_offer,
+    )
 
     # Build WebSocket ASGI scope
     scope = build_ws_scope(request, config, client, server, state=lifespan_state)
@@ -429,32 +443,85 @@ async def handle_h2_websocket_stream(
         return await receive_queue.get()
 
     accepted = False
+    closed = False
 
     async def _ws_send(message: dict) -> None:
-        nonlocal accepted
+        nonlocal accepted, closed
 
         msg_type = message["type"]
 
         if msg_type == "websocket.accept":
             accepted = True
-            # Already sent 200 OK; no further handshake needed for H2 WS
+            # Send the deferred 200 OK response, echoing the negotiated
+            # Sec-WebSocket-Extensions (and subprotocol) so a strict client can
+            # size its decompression context correctly.
+            accept_headers: list[tuple[bytes, bytes]] = []
+            subprotocol = message.get("subprotocol")
+            if subprotocol:
+                accept_headers.append((b"sec-websocket-protocol", subprotocol.encode("ascii")))
+            if ws_proto.extensions_response:
+                accept_headers.append(
+                    (
+                        b"sec-websocket-extensions",
+                        ws_proto.extensions_response.encode("ascii"),
+                    )
+                )
+            h2_conn.send_response_headers(stream_id, 200, accept_headers)
+            writer.write(h2_conn.data_to_send())
 
         elif msg_type == "websocket.send":
+            if not accepted:
+                raise RuntimeError("Cannot send WebSocket data before websocket.accept")
+            if closed:
+                raise RuntimeError("Cannot send WebSocket data after websocket.close")
+
             data = message.get("text")
             if data is not None:
                 raw = ws_proto.send_message(data)
             else:
                 raw = ws_proto.send_message(message.get("bytes", b""))
-            h2_conn.send_data(stream_id, raw)  # type: ignore[union-attr]
-            writer.write(h2_conn.data_to_send())  # type: ignore[union-attr]
+            h2_conn.send_data(stream_id, raw)
+            writer.write(h2_conn.data_to_send())
 
         elif msg_type == "websocket.close":
-            code = message.get("code", 1000)
-            reason = message.get("reason", "")
-            raw = ws_proto.close(code=code, reason=reason)
-            h2_conn.send_data(stream_id, raw, end_stream=True)  # type: ignore[union-attr]
-            writer.write(h2_conn.data_to_send())  # type: ignore[union-attr]
+            closed = True
+            if not accepted:
+                # Reject before acceptance: 403 on the still-open CONNECT stream.
+                h2_conn.send_response_headers(stream_id, 403, [], end_stream=True)
+                writer.write(h2_conn.data_to_send())
+            else:
+                code = message.get("code", 1000)
+                reason = message.get("reason", "")
+                raw = ws_proto.close(code=code, reason=reason)
+                h2_conn.send_data(stream_id, raw, end_stream=True)
+                writer.write(h2_conn.data_to_send())
             close_event.set()
+
+        elif msg_type == "websocket.http.response.start":
+            # WebSocket rejection — send an HTTP response instead of accepting.
+            # Coerce the status to an int (non-int falls back to 403) and run
+            # headers through the same CRLF guard as every other response path.
+            closed = True
+            raw_status = message.get("status", 403)
+            status = raw_status if isinstance(raw_status, int) else 403
+            decoded_headers: list[tuple[bytes, bytes]] = [
+                (
+                    name if isinstance(name, bytes) else name.encode(),
+                    value if isinstance(value, bytes) else value.encode(),
+                )
+                for name, value in message.get("headers", [])
+            ]
+            headers = _sanitize_headers(decoded_headers)
+            h2_conn.send_response_headers(stream_id, status, headers)
+            writer.write(h2_conn.data_to_send())
+
+        elif msg_type == "websocket.http.response.body":
+            body = message.get("body", b"")
+            more_body = message.get("more_body", False)
+            h2_conn.send_data(stream_id, body, end_stream=not more_body)
+            writer.write(h2_conn.data_to_send())
+            if not more_body:
+                close_event.set()
 
     # Run the ASGI app
     async def _run_app() -> None:
@@ -478,10 +545,21 @@ async def handle_h2_websocket_stream(
             if raw_data:
                 events, outbound = ws_proto.receive_data(raw_data)
                 if outbound:
-                    h2_conn.send_data(stream_id, outbound)  # type: ignore[union-attr]
-                    writer.write(h2_conn.data_to_send())  # type: ignore[union-attr]
+                    h2_conn.send_data(stream_id, outbound)
+                    writer.write(h2_conn.data_to_send())
                 for ws_event in events:
                     if isinstance(ws_event, WebSocketDataReceived):
+                        msg_size = len(ws_event.data)
+                        if msg_size > config.websocket_max_message_size:
+                            # RFC 6455 §7.4.1: 1009 = Message Too Big. Send a
+                            # close frame, then RST the stream and stop reading.
+                            close_data = ws_proto.close(1009, "Message too large")
+                            h2_conn.send_data(stream_id, close_data, end_stream=True)
+                            writer.write(h2_conn.data_to_send())
+                            h2_conn.reset_stream(stream_id)
+                            writer.write(h2_conn.data_to_send())
+                            close_event.set()
+                            return
                         if isinstance(ws_event.data, str):
                             await receive_queue.put(
                                 {

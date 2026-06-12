@@ -173,3 +173,63 @@ class TestCompressionNegotiation:
         assert isinstance(close_frame, bytes)
         assert len(close_frame) > 0
         assert ws_proto.is_closed is True
+
+
+class TestWindowBitsNegotiation:
+    """RFC 7692 window-bits negotiation from the client offer (#116)."""
+
+    def test_no_offer_echoes_bare_token(self):
+        """No offer (None) negotiates with no params and echoes bare token."""
+        ws_proto = WSProtocol(enable_compression=True, compression_offer=None)
+        assert ws_proto.extensions_response == "permessage-deflate"
+
+    def test_bare_offer_echoes_bare_token(self):
+        """A bare permessage-deflate offer echoes the bare token."""
+        ws_proto = WSProtocol(
+            enable_compression=True,
+            compression_offer="permessage-deflate",
+        )
+        assert ws_proto.extensions_response == "permessage-deflate"
+
+    def test_client_max_window_bits_echoed(self):
+        """An offered client_max_window_bits is echoed and constrains the window."""
+        ws_proto = WSProtocol(
+            enable_compression=True,
+            compression_offer="permessage-deflate; client_max_window_bits=10",
+        )
+        assert ws_proto.extensions_response == "permessage-deflate; client_max_window_bits=10"
+
+    def test_server_max_window_bits_echoed(self):
+        """An offered server_max_window_bits is echoed in the response."""
+        ws_proto = WSProtocol(
+            enable_compression=True,
+            compression_offer="permessage-deflate; server_max_window_bits=11",
+        )
+        assert ws_proto.extensions_response == "permessage-deflate; server_max_window_bits=11"
+
+    def test_negotiated_extension_is_actually_enabled(self):
+        """The negotiated PerMessageDeflate must be enabled (not silently dropped).
+
+        Regression for #116: before negotiation the extension was constructed
+        but never ``accept()``-ed, so wsproto's FrameProtocol filtered it out
+        (``enabled() is False``) and no compression actually happened.
+        """
+        ws_proto = WSProtocol(
+            enable_compression=True,
+            compression_offer="permessage-deflate; client_max_window_bits=10",
+        )
+        active = ws_proto._conn._proto.extensions
+        assert len(active) == 1
+        assert active[0].enabled() is True
+        assert active[0].client_max_window_bits == 10
+
+    def test_compression_functional_after_negotiation(self):
+        """A large repetitive payload is genuinely compressed once negotiated."""
+        ws_proto = WSProtocol(
+            enable_compression=True,
+            compression_offer="permessage-deflate",
+        )
+        frame = ws_proto.send_message("A" * 1000)
+        # 1000 bytes of repetition deflates to a tiny frame; an un-enabled
+        # extension would leave the frame at full size.
+        assert len(frame) < 100

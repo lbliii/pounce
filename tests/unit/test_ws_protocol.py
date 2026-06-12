@@ -615,3 +615,161 @@ class TestWSCleanCloseDisconnect:
         disconnects = [m for m in received if m["type"] == "websocket.disconnect"]
         assert len(disconnects) == 1
         assert disconnects[0]["code"] == 1000
+
+
+# ---------------------------------------------------------------------------
+# permessage-deflate offer extraction + H1 negotiation threading (#116)
+# ---------------------------------------------------------------------------
+
+
+class TestPermessageDeflateOffer:
+    """_permessage_deflate_offer returns the offered extension segment."""
+
+    def test_no_offer_returns_none(self) -> None:
+        from pounce._ws_handler import _permessage_deflate_offer
+
+        assert _permessage_deflate_offer(((b"host", b"x"),)) is None
+
+    def test_bare_offer(self) -> None:
+        from pounce._ws_handler import _permessage_deflate_offer
+
+        offer = _permessage_deflate_offer(((b"sec-websocket-extensions", b"permessage-deflate"),))
+        assert offer == "permessage-deflate"
+
+    def test_offer_with_window_bits(self) -> None:
+        from pounce._ws_handler import _permessage_deflate_offer
+
+        offer = _permessage_deflate_offer(
+            ((b"sec-websocket-extensions", b"permessage-deflate; client_max_window_bits=10"),)
+        )
+        assert offer == "permessage-deflate; client_max_window_bits=10"
+
+    def test_offer_case_insensitive_token(self) -> None:
+        from pounce._ws_handler import _permessage_deflate_offer
+
+        offer = _permessage_deflate_offer(
+            ((b"Sec-WebSocket-Extensions", b"PerMessage-Deflate; client_max_window_bits=12"),)
+        )
+        assert offer == "permessage-deflate; client_max_window_bits=12"
+
+    def test_offer_picked_from_comma_list(self) -> None:
+        from pounce._ws_handler import _permessage_deflate_offer
+
+        offer = _permessage_deflate_offer(
+            (
+                (
+                    b"sec-websocket-extensions",
+                    b"x-other; q=1, permessage-deflate; server_max_window_bits=11",
+                ),
+            )
+        )
+        assert offer == "permessage-deflate; server_max_window_bits=11"
+
+    def test_unsupported_extension_returns_none(self) -> None:
+        from pounce._ws_handler import _permessage_deflate_offer
+
+        assert (
+            _permessage_deflate_offer(((b"sec-websocket-extensions", b"x-webkit-deflate-frame"),))
+            is None
+        )
+
+
+class TestH1CompressionNegotiation:
+    """The H1 handler threads the offer into WSProtocol and echoes 101 params."""
+
+    async def test_h1_window_bits_echoed_in_101(self) -> None:
+        import wsproto.connection
+
+        from pounce._ws_handler import handle_websocket
+        from pounce.config import ServerConfig
+
+        # Client close frame so the reader loop terminates after accept.
+        client = wsproto.connection.Connection(
+            wsproto.connection.ConnectionType.CLIENT,
+        )
+        close_bytes = client.send(wsproto.events.CloseConnection(code=1000, reason="bye"))
+
+        async def app(scope: dict, receive, send) -> None:
+            assert (await receive())["type"] == "websocket.connect"
+            await send({"type": "websocket.accept"})
+            while True:
+                msg = await asyncio.wait_for(receive(), timeout=0.25)
+                if msg["type"] == "websocket.disconnect":
+                    return
+
+        request = RequestReceived(
+            method=b"GET",
+            target=b"/ws",
+            headers=(
+                (b"host", b"localhost:8000"),
+                (b"upgrade", b"websocket"),
+                (b"connection", b"Upgrade"),
+                (b"sec-websocket-key", b"dGhlIHNhbXBsZSBub25jZQ=="),
+                (b"sec-websocket-version", b"13"),
+                (b"sec-websocket-extensions", b"permessage-deflate; client_max_window_bits=10"),
+            ),
+            http_version="1.1",
+        )
+        writer = _FakeWSWriter()
+        reader = _FakeReader([close_bytes])
+
+        await asyncio.wait_for(
+            handle_websocket(
+                app,  # type: ignore[arg-type]
+                ServerConfig(access_log=False, websocket_compression=True),
+                logging.getLogger("test-ws"),
+                request,
+                reader,  # type: ignore[arg-type]
+                writer,  # type: ignore[arg-type]
+                client=("127.0.0.1", 54321),
+                server=("127.0.0.1", 8000),
+                client_str="127.0.0.1:54321",
+            ),
+            timeout=5.0,
+        )
+
+        raw = bytes(writer.data)
+        assert b"101 Switching Protocols" in raw
+        assert b"Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits=10" in raw
+
+    async def test_h1_no_offer_no_extensions_header(self) -> None:
+        import wsproto.connection
+
+        from pounce._ws_handler import handle_websocket
+        from pounce.config import ServerConfig
+
+        client = wsproto.connection.Connection(
+            wsproto.connection.ConnectionType.CLIENT,
+        )
+        close_bytes = client.send(wsproto.events.CloseConnection(code=1000, reason="bye"))
+
+        async def app(scope: dict, receive, send) -> None:
+            await receive()
+            await send({"type": "websocket.accept"})
+            while True:
+                msg = await asyncio.wait_for(receive(), timeout=0.25)
+                if msg["type"] == "websocket.disconnect":
+                    return
+
+        request = _ws_upgrade_request()
+        writer = _FakeWSWriter()
+        reader = _FakeReader([close_bytes])
+
+        await asyncio.wait_for(
+            handle_websocket(
+                app,  # type: ignore[arg-type]
+                ServerConfig(access_log=False, websocket_compression=True),
+                logging.getLogger("test-ws"),
+                request,
+                reader,  # type: ignore[arg-type]
+                writer,  # type: ignore[arg-type]
+                client=("127.0.0.1", 54321),
+                server=("127.0.0.1", 8000),
+                client_str="127.0.0.1:54321",
+            ),
+            timeout=5.0,
+        )
+
+        raw = bytes(writer.data)
+        assert b"101 Switching Protocols" in raw
+        assert b"Sec-WebSocket-Extensions:" not in raw
