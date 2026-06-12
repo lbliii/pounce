@@ -161,3 +161,98 @@ def test_http1_static_sendfile_survives_slow_client_backpressure(tmp_path) -> No
     assert b"HTTP/1.1 200" in head
     assert f"content-length: {len(body)}".encode() in head.lower()
     assert received == body  # full file, no truncation
+
+
+def _read_http1_response(sock: socket.socket, timeout: float = 5.0) -> tuple[bytes, bytes]:
+    """Read exactly one HTTP/1.1 keep-alive response: ``(head, body)``.
+
+    Reads headers, then exactly ``Content-Length`` body bytes, leaving any
+    subsequent pipelined data in the kernel buffer for the next call.
+    """
+    sock.settimeout(timeout)
+    buf = b""
+    # Read until end of headers.
+    while b"\r\n\r\n" not in buf:
+        chunk = sock.recv(4096)
+        if not chunk:
+            raise AssertionError("connection closed before headers completed")
+        buf += chunk
+    head, _, rest = buf.partition(b"\r\n\r\n")
+
+    # Parse Content-Length.
+    content_length = 0
+    for line in head.split(b"\r\n"):
+        if line.lower().startswith(b"content-length:"):
+            content_length = int(line.split(b":", 1)[1].strip())
+            break
+
+    body = rest
+    while len(body) < content_length:
+        chunk = sock.recv(65536)
+        if not chunk:
+            raise AssertionError("connection closed before body completed")
+        body += chunk
+    return head, body[:content_length]
+
+
+def test_http1_static_sendfile_keepalive_no_stall(tmp_path) -> None:
+    """Many sequential keep-alive requests over the sendfile path must not stall.
+
+    Regression test for the Bengal ~9.5 RPS anomaly (issue #126), which was a
+    keep-alive sendfile stall: the pre-#73 code ran a raw ``os.sendfile`` loop
+    against the fd asyncio still owned on the selector, corrupting the
+    transport read state so the connection wedged after 1-2 requests. The fix
+    (``loop.sendfile``, #73) is already in main; this locks it.
+
+    The file is sized above ``_static._SENDFILE_MIN_SIZE`` so the request
+    actually takes the zero-copy sendfile path (issue #127 makes tiny files use
+    read()+write() instead), and no ``Connection: close`` is sent so a single
+    socket carries every request.
+    """
+    public = tmp_path / "public"
+    public.mkdir()
+    # 64 KiB: comfortably above the sendfile minimum-size gate (16 KiB) so the
+    # response is served via the zero-copy sendfile path.
+    body = bytes(range(256)) * 256  # 65536 bytes, deterministic
+    (public / "page.html").write_bytes(body)
+
+    app = StaticFiles(mounts=[StaticMount("/", public)])
+    # Compression off + plain HTTP is the exact profile that advertises
+    # pounce.sendfile in the worker.
+    config = ServerConfig(host="127.0.0.1", port=0, access_log=False, compression=False)
+    worker, sock, thread = start_worker(app, config=config)
+    addr = sock.getsockname()
+
+    n_requests = 100
+    request = b"GET /page.html HTTP/1.1\r\nHost: localhost\r\n\r\n"
+    elapsed = 0.0
+    try:
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # A tight per-response timeout: a keep-alive stall (the regression)
+        # would block here instead of streaming the next response promptly.
+        client.settimeout(5.0)
+        client.connect(addr)
+
+        start = time.perf_counter()
+        for i in range(n_requests):
+            client.sendall(request)
+            head, received = _read_http1_response(client)
+            assert b"HTTP/1.1 200" in head, f"request {i} did not return 200: {head!r}"
+            assert b"connection: close" not in head.lower(), (
+                f"request {i} closed the keep-alive connection"
+            )
+            assert received == body, f"request {i} body mismatch/truncation"
+        elapsed = time.perf_counter() - start
+        client.close()
+    finally:
+        worker.shutdown()
+        thread.join(timeout=5)
+        sock.close()
+
+    assert thread.is_alive() is False  # worker exited cleanly
+    # Sustained throughput sanity bound: 100 sequential sendfile responses on a
+    # single keep-alive connection over loopback complete well under a second
+    # in practice. A generous 10s ceiling still catches the regression's
+    # per-request multi-second stalls (the anomaly was ~9.5 RPS == >10s here)
+    # without being flaky under CI load.
+    assert elapsed < 10.0, f"100 keep-alive sendfile requests took {elapsed:.2f}s (possible stall)"

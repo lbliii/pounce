@@ -256,10 +256,18 @@ class TestCreateSendfileCallable:
 class TestStaticFilesSendfile:
     """Tests that StaticFiles emits sendfile intents when the scope advertises support."""
 
+    # A body must be at least this large for StaticFiles to emit a sendfile
+    # intent (matches ``_static._SENDFILE_MIN_SIZE``). Tests use a file well
+    # above it so the intent path is exercised; small-file tests assert the
+    # fallback path is taken instead (issue #127).
+    LARGE_SIZE = 32 * 1024  # 32 KiB, comfortably above the 16 KiB gate
+
     @pytest.fixture
     def static_dir(self, tmp_path):
         (tmp_path / "hello.txt").write_text("Hello, World!")
         (tmp_path / "index.html").write_text("<h1>Index</h1>")
+        # A file large enough to clear the sendfile minimum-size gate.
+        (tmp_path / "big.bin").write_bytes(b"\xa5" * self.LARGE_SIZE)
         return tmp_path
 
     @pytest.fixture
@@ -283,9 +291,13 @@ class TestStaticFilesSendfile:
 
     @pytest.mark.asyncio
     async def test_sendfile_intent_used_for_full_file(self, handler, static_dir):
-        """When sendfile is advertised, StaticFiles emits a file-range intent."""
+        """When sendfile is advertised, StaticFiles emits a file-range intent.
+
+        Uses a file above the sendfile minimum-size gate (issue #127) so the
+        intent path — not the small-file fallback — is exercised.
+        """
         sent = _SentMessages()
-        scope = self._scope(sendfile_enabled=True)
+        scope = self._scope(path="/static/big.bin", sendfile_enabled=True)
         await handler(scope, None, sent)
 
         assert len(sent.messages) == 2
@@ -293,11 +305,32 @@ class TestStaticFilesSendfile:
         assert sent.messages[0]["status"] == 200
         assert sent.messages[1] == {
             "type": "pounce.response.sendfile",
-            "path": static_dir / "hello.txt",
+            "path": static_dir / "big.bin",
             "offset": 0,
-            "count": 13,
+            "count": self.LARGE_SIZE,
             "more_body": False,
         }
+
+    @pytest.mark.asyncio
+    async def test_small_file_skips_sendfile_intent(self, handler, static_dir):
+        """A body below the minimum-size gate falls through to read()+write().
+
+        Even with sendfile advertised, a tiny file (13 bytes here) must NOT
+        emit ``pounce.response.sendfile``; the per-response transport detach
+        cost is not justified below the threshold (issue #127). Byte and
+        Content-Length accounting must stay correct on the fallback path.
+        """
+        sent = _SentMessages()
+        scope = self._scope(path="/static/hello.txt", sendfile_enabled=True)
+        await handler(scope, None, sent)
+
+        assert sent.messages[0]["status"] == 200
+        content_length = dict(sent.messages[0]["headers"]).get(b"content-length")
+        assert content_length == b"13"
+        assert all(m["type"] != "pounce.response.sendfile" for m in sent.messages)
+        body_msgs = [m for m in sent.messages if m["type"] == "http.response.body"]
+        total_body = b"".join(m["body"] for m in body_msgs)
+        assert total_body == b"Hello, World!"
 
     @pytest.mark.asyncio
     async def test_fallback_without_sendfile(self, handler, static_dir):
@@ -314,16 +347,38 @@ class TestStaticFilesSendfile:
 
     @pytest.mark.asyncio
     async def test_sendfile_intent_used_for_range_request(self, handler, static_dir):
-        """Range requests emit sendfile intents when support is advertised."""
+        """Large range requests emit sendfile intents when support is advertised."""
         sent = _SentMessages()
-        scope = self._scope(sendfile_enabled=True)
-        scope["headers"] = [(b"range", b"bytes=0-4")]
+        scope = self._scope(path="/static/big.bin", sendfile_enabled=True)
+        # Request a range comfortably above the minimum-size gate.
+        last = self.LARGE_SIZE - 1
+        scope["headers"] = [(b"range", f"bytes=0-{last}".encode())]
         await handler(scope, None, sent)
 
         assert sent.messages[0]["status"] == 206
         assert sent.messages[1]["type"] == "pounce.response.sendfile"
         assert sent.messages[1]["offset"] == 0
-        assert sent.messages[1]["count"] == 5
+        assert sent.messages[1]["count"] == self.LARGE_SIZE
+
+    @pytest.mark.asyncio
+    async def test_small_range_request_skips_sendfile_intent(self, handler, static_dir):
+        """A tiny range falls through to read()+write() with correct bytes.
+
+        The gate keys on the bytes actually transferred, so a 5-byte range of
+        a large file skips sendfile and the partial body still matches.
+        """
+        sent = _SentMessages()
+        scope = self._scope(path="/static/big.bin", sendfile_enabled=True)
+        scope["headers"] = [(b"range", b"bytes=0-4")]
+        await handler(scope, None, sent)
+
+        assert sent.messages[0]["status"] == 206
+        content_length = dict(sent.messages[0]["headers"]).get(b"content-length")
+        assert content_length == b"5"
+        assert all(m["type"] != "pounce.response.sendfile" for m in sent.messages)
+        body_msgs = [m for m in sent.messages if m["type"] == "http.response.body"]
+        total_body = b"".join(m["body"] for m in body_msgs)
+        assert total_body == b"\xa5" * 5
 
     @pytest.mark.asyncio
     async def test_head_does_not_use_sendfile(self, handler):

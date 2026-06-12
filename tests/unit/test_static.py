@@ -3,6 +3,7 @@ Tests for static file serving.
 
 """
 
+import os
 from pathlib import Path
 
 import pytest
@@ -1008,3 +1009,175 @@ class TestLastModifiedAndConditionalDates:
         sent = await self._run(handler, self._scope("/static/style.css", headers=headers))
 
         assert sent[0]["status"] == 200
+
+
+class TestStatCache:
+    """Tests for the opt-in, bounded, mtime-validated stat cache (issue #130)."""
+
+    @pytest.fixture
+    def cache_dir(self, tmp_path):
+        (tmp_path / "page.html").write_text("<h1>v1</h1>")
+        (tmp_path / "asset.css").write_text("body{}")
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "deep.txt").write_text("deep")
+        return tmp_path
+
+    def _handler(self, directory, **mount_kwargs):
+        return StaticFiles(
+            mounts=[
+                StaticMount(
+                    url_path="/static",
+                    directory=directory,
+                    precompressed=False,
+                    **mount_kwargs,
+                )
+            ]
+        )
+
+    def test_disabled_by_default_no_cache(self, cache_dir):
+        """Default mount has no stat cache (opt-in)."""
+        handler = self._handler(cache_dir)
+        assert handler._stat_cache is None
+        # Resolution still works.
+        assert handler._resolve_file("/static/page.html", None) is not None
+
+    def test_enabled_populates_cache(self, cache_dir):
+        """A first resolve on a cache-enabled mount stores an entry."""
+        handler = self._handler(cache_dir, stat_cache=True)
+        assert handler._stat_cache is not None
+        assert len(handler._stat_cache) == 0
+        f1 = handler._resolve_file("/static/page.html", None)
+        assert f1 is not None
+        assert len(handler._stat_cache) == 1
+
+    def test_cache_hit_skips_resolution(self, cache_dir, monkeypatch):
+        """A warm hit revalidates with stat() and skips the full resolver."""
+        handler = self._handler(cache_dir, stat_cache=True)
+        first = handler._resolve_file("/static/page.html", None)
+        assert first is not None
+
+        # The uncached resolver must NOT run on a warm, unchanged hit. Patch
+        # the class (instance attrs are read-only under __slots__).
+        called = {"n": 0}
+        original = StaticFiles._resolve_file_uncached
+
+        def _spy(self, url_path, accept_encoding):
+            called["n"] += 1
+            return original(self, url_path, accept_encoding)
+
+        monkeypatch.setattr(StaticFiles, "_resolve_file_uncached", _spy)
+        second = handler._resolve_file("/static/page.html", None)
+        assert second is first  # same cached object returned
+        assert called["n"] == 0
+
+    def test_mtime_change_invalidates(self, cache_dir):
+        """Overwriting a served file (new mtime/size) yields new content/etag."""
+        handler = self._handler(cache_dir, stat_cache=True)
+        page = cache_dir / "page.html"
+
+        f1 = handler._resolve_file("/static/page.html", None)
+        assert f1 is not None
+        etag1 = f1.etag
+        size1 = f1.size
+
+        # Simulate a Bengal rebuild: new content + a strictly later mtime so
+        # the change is detectable even on coarse-resolution filesystems.
+        page.write_text("<h1>v2 — longer content</h1>")
+        st = page.stat()
+        os.utime(page, (st.st_atime, st.st_mtime + 5))
+
+        f2 = handler._resolve_file("/static/page.html", None)
+        assert f2 is not None
+        assert f2.size != size1
+        assert f2.etag != etag1
+        assert f2.size == page.stat().st_size
+        # Cache now holds the refreshed entry, not the stale one.
+        cached = handler._resolve_file("/static/page.html", None)
+        assert cached is not None
+        assert cached.etag == f2.etag
+
+    def test_deleted_file_falls_through_safely(self, cache_dir):
+        """A cached entry whose file is deleted returns None (no stale serve)."""
+        handler = self._handler(cache_dir, stat_cache=True)
+        target = cache_dir / "asset.css"
+
+        assert handler._resolve_file("/static/asset.css", None) is not None
+        target.unlink()
+        # Revalidation stat() fails -> entry dropped, full re-resolve returns None.
+        assert handler._resolve_file("/static/asset.css", None) is None
+        # Entry was evicted, not left dangling.
+        assert ("/static/asset.css", b"") not in handler._stat_cache
+
+    def test_bound_evicts_lru(self, cache_dir):
+        """The cache never grows past its configured size (LRU eviction)."""
+        # Create enough distinct files to overflow a size-2 cache.
+        for i in range(5):
+            (cache_dir / f"f{i}.txt").write_text(str(i))
+        handler = self._handler(cache_dir, stat_cache=True, stat_cache_size=2)
+
+        for i in range(5):
+            assert handler._resolve_file(f"/static/f{i}.txt", None) is not None
+        assert len(handler._stat_cache) <= 2
+
+    def test_traversal_still_blocked_with_cache(self, cache_dir):
+        """Path traversal is rejected even with the cache enabled."""
+        handler = self._handler(cache_dir, stat_cache=True)
+        assert handler._resolve_file("/static/../../../etc/passwd", None) is None
+        # Nothing unsafe was cached.
+        assert len(handler._stat_cache) == 0
+
+    def test_symlink_still_blocked_with_cache(self, cache_dir):
+        """A symlink escaping the mount is rejected even with the cache enabled."""
+        outside = cache_dir.parent / "secret.txt"
+        outside.write_text("top secret")
+        link = cache_dir / "link.txt"
+        try:
+            link.symlink_to(outside)
+        except OSError, NotImplementedError:
+            pytest.skip("symlinks unsupported on this platform")
+
+        # follow_symlinks defaults to False -> rejected.
+        handler = self._handler(cache_dir, stat_cache=True)
+        assert handler._resolve_file("/static/link.txt", None) is None
+        assert len(handler._stat_cache) == 0
+
+    def test_accept_encoding_keyed_separately(self, cache_dir):
+        """Different Accept-Encoding values get distinct cache keys."""
+        handler = self._handler(cache_dir, stat_cache=True)
+        handler._resolve_file("/static/page.html", None)
+        handler._resolve_file("/static/page.html", b"gzip")
+        # Two keys: identity (b"") and b"gzip" (both identity content here
+        # since precompressed=False, so both are cacheable).
+        assert len(handler._stat_cache) == 2
+
+    def test_precompressed_variant_not_cached(self, cache_dir):
+        """Precompressed (non-identity) responses are not cached.
+
+        Their mtime is the original file's while path points at the variant,
+        so a single revalidation stat() could not soundly confirm freshness.
+        """
+        import gzip
+
+        css = cache_dir / "asset.css"
+        gz = cache_dir / "asset.css.gz"
+        gz.write_bytes(gzip.compress(css.read_bytes()))
+        # Make the variant newer so it is selected.
+        st = css.stat()
+        os.utime(gz, (st.st_atime, st.st_mtime + 1))
+
+        handler = StaticFiles(
+            mounts=[
+                StaticMount(
+                    url_path="/static",
+                    directory=cache_dir,
+                    precompressed=True,
+                    stat_cache=True,
+                )
+            ]
+        )
+        f = handler._resolve_file("/static/asset.css", b"gzip")
+        assert f is not None
+        assert f.encoding == "gzip"
+        # The negotiated variant response is NOT cached.
+        assert ("/static/asset.css", b"gzip") not in handler._stat_cache

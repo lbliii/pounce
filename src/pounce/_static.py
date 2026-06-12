@@ -22,6 +22,7 @@ import mimetypes
 import os
 import secrets
 import stat as stat_mod
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email.utils import formatdate, parsedate_to_datetime
@@ -37,6 +38,17 @@ from pounce._types import ASGIApp, Receive, Send
 # range-based amplification (CVE-2011-3192 style). RFC 7233 permits a server to
 # ignore the Range header for any request it considers abusive.
 _MAX_RANGES = 10
+
+# Minimum body size (bytes) that justifies the zero-copy ``loop.sendfile``
+# path. Below this, the per-response transport detach/re-attach plus the
+# pre-send ``writer.drain()`` cost more than a single buffered ``read()`` +
+# ``write()`` (issue #127). The constant is measured, not guessed: on a
+# loopback keep-alive connection ``loop.sendfile`` is ~3-7x slower than a
+# buffered write for files under ~16 KiB and only pulls ahead at and above
+# 16 KiB, where the saved userspace copy and selector-driven back-pressure
+# begin to dominate. Tiny static assets (e.g. a 551-byte Bengal home page)
+# therefore fall through to the chunked read()+write() path instead.
+_SENDFILE_MIN_SIZE = 16 * 1024  # 16 KiB
 
 
 class _RangeNotSatisfiable(Enum):
@@ -88,6 +100,15 @@ class StaticMount:
         follow_symlinks: Allow serving symlinked files
         index_file: Filename to serve for directories (e.g., "index.html")
         extra_mime_types: Additional extension-to-MIME mappings (e.g., {".wasm": "application/wasm"})
+        stat_cache: Opt-in bounded, mtime-validated metadata cache for the
+            resolve hot path. OFF by default. When enabled, a repeated GET/HEAD
+            for the same URL revalidates with a single ``stat()`` instead of
+            re-running ``resolve()``/``lstat()`` and the precompressed probes,
+            invalidating automatically when the file's mtime or size changes
+            (e.g. a Bengal rebuild). Path-traversal and symlink defenses still
+            run on every cache miss/insert.
+        stat_cache_size: Maximum number of resolved entries retained per
+            handler when ``stat_cache`` is enabled (LRU eviction).
 
     """
 
@@ -98,6 +119,8 @@ class StaticMount:
     follow_symlinks: bool = False
     index_file: str | None = "index.html"
     extra_mime_types: dict[str, str] = field(default_factory=dict)
+    stat_cache: bool = False
+    stat_cache_size: int = 1024
 
 
 # Common modern MIME types not yet in stdlib mimetypes database
@@ -156,7 +179,7 @@ class StaticFiles:
 
     """
 
-    __slots__ = ("_app", "_mounts")
+    __slots__ = ("_app", "_mounts", "_stat_cache", "_stat_cache_max")
 
     def __init__(
         self,
@@ -173,6 +196,21 @@ class StaticFiles:
         """
         self._app = app
         self._mounts = self._prepare_mounts(mounts)
+        # Opt-in, bounded, mtime-validated resolve cache (issue #130). Enabled
+        # only when at least one mount sets ``stat_cache``; the bound is the
+        # largest configured ``stat_cache_size`` across cache-enabled mounts.
+        # Keyed on (normalized url_path, accept_encoding) -> validated
+        # StaticFile; an OrderedDict gives O(1) LRU move/evict. The cache is
+        # NOT thread-safe by itself, so a single event loop owns it per worker;
+        # cross-thread sharing is avoided because each Worker builds its own
+        # handler instance.
+        cache_mounts = [m for m in self._mounts if m.stat_cache]
+        if cache_mounts:
+            self._stat_cache: OrderedDict[tuple[str, bytes], StaticFile] | None = OrderedDict()
+            self._stat_cache_max = max(1, max(m.stat_cache_size for m in cache_mounts))
+        else:
+            self._stat_cache = None
+            self._stat_cache_max = 0
 
     def _prepare_mounts(self, mounts: list[StaticMount]) -> list[StaticMount]:
         """Normalize and validate mount configurations.
@@ -203,6 +241,8 @@ class StaticFiles:
                     follow_symlinks=mount.follow_symlinks,
                     index_file=mount.index_file,
                     extra_mime_types=mount.extra_mime_types,
+                    stat_cache=mount.stat_cache,
+                    stat_cache_size=mount.stat_cache_size,
                 )
             )
 
@@ -316,7 +356,76 @@ class StaticFiles:
         await self._send_file(file, method, send, sendfile_enabled=sendfile_enabled)
 
     def _resolve_file(self, url_path: str, accept_encoding: bytes | None) -> StaticFile | None:
-        """Resolve URL path to static file.
+        """Resolve URL path to static file, using the opt-in stat cache.
+
+        When the cache is enabled (at least one mount sets ``stat_cache``) a
+        repeat request revalidates the cached entry with a single ``stat()``
+        on the already-resolved path; if mtime and size are unchanged it is
+        returned directly, skipping ``resolve()``, ``lstat()``, and the
+        precompressed probes. A changed mtime/size (e.g. a Bengal rebuild) or
+        a now-missing file invalidates the entry and falls through to a full,
+        security-checked re-resolution.
+
+        Returns:
+            StaticFile if found and valid, None otherwise
+
+        """
+        if self._stat_cache is None:
+            # Caching disabled: no key computation or lookup overhead.
+            return self._resolve_file_uncached(url_path, accept_encoding)
+
+        cache = self._stat_cache
+        key = (os.path.normpath(url_path), accept_encoding or b"")
+        cached = cache.get(key)
+        if cached is not None:
+            # Single stat() on the validated path. mtime+size unchanged means
+            # the cached metadata (and its security verdict) still holds.
+            try:
+                st = cached.path.stat()
+            except OSError:
+                # File vanished/unreadable since caching — drop and re-resolve.
+                cache.pop(key, None)
+            else:
+                if st.st_mtime == cached.mtime and st.st_size == cached.size:
+                    cache.move_to_end(key)
+                    return cached
+                # Changed on disk (rebuild) — invalidate and re-resolve fully.
+                cache.pop(key, None)
+
+        resolved = self._resolve_file_uncached(url_path, accept_encoding)
+        if resolved is not None and resolved.encoding is None and self._mount_caches(url_path):
+            # Only cache identity responses. A precompressed entry's ``mtime``
+            # is the ORIGINAL file's while ``path`` points at the ``.gz``/``.zst``
+            # variant, so a single revalidation ``stat()`` on ``path`` could not
+            # soundly confirm the variant is still the right (newer) choice.
+            # Identity entries stat the exact file whose mtime/size were cached,
+            # so revalidation is correct. Only fully validated entries reach
+            # here, so caching never bypasses the traversal/symlink/hidden-file
+            # checks.
+            cache[key] = resolved
+            cache.move_to_end(key)
+            while len(cache) > self._stat_cache_max:
+                cache.popitem(last=False)
+        return resolved
+
+    def _mount_caches(self, url_path: str) -> bool:
+        """Whether the mount serving ``url_path`` opts into the stat cache."""
+        normalized = os.path.normpath(url_path)
+        for mount in self._mounts:
+            if mount.url_path == "/":
+                matches = normalized == "/" or normalized.startswith("/")
+            else:
+                matches = normalized == mount.url_path or normalized.startswith(
+                    mount.url_path + "/"
+                )
+            if matches:
+                return mount.stat_cache
+        return False
+
+    def _resolve_file_uncached(
+        self, url_path: str, accept_encoding: bytes | None
+    ) -> StaticFile | None:
+        """Resolve URL path to static file (full security-checked path).
 
         Returns:
             StaticFile if found and valid, None otherwise
@@ -1018,8 +1127,13 @@ class StaticFiles:
 
         Falls back to chunked reads through ASGI send otherwise.
 
+        Tiny bodies (``count < _SENDFILE_MIN_SIZE``) always take the
+        read()+write() fallback even when sendfile is advertised: the
+        per-response transport detach/re-attach overhead outweighs the
+        zero-copy benefit below that measured threshold (issue #127).
+
         """
-        if sendfile_enabled:
+        if sendfile_enabled and count >= _SENDFILE_MIN_SIZE:
             await send(
                 {
                     "type": "pounce.response.sendfile",
