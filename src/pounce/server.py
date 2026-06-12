@@ -161,6 +161,7 @@ class Server:
         mode = detect_worker_mode()
         if self._config.worker_mode == "subinterpreter":
             mode = WorkerMode.SUBINTERPRETER
+        self._log_worker_mode_notice(mode)
 
         # Create TLS context if certificate is configured
         if is_tls_configured(self._config):
@@ -658,6 +659,32 @@ class Server:
     # Helpers
     # ------------------------------------------------------------------
 
+    def _effective_worker_mode(self) -> WorkerMode:
+        """Return the worker spawning strategy that ``run()`` will use.
+
+        Mirrors the resolution in :meth:`run`: an explicit
+        ``worker_mode="subinterpreter"`` wins, otherwise the GIL state
+        decides between thread (3.14t) and process (GIL build) mode. Used to
+        reason about whether in-process backpressure state is shared (thread
+        mode) or copied per worker (process/subinterpreter mode).
+        """
+        if self._config.worker_mode == "subinterpreter":
+            return WorkerMode.SUBINTERPRETER
+        return detect_worker_mode()
+
+    def _log_worker_mode_notice(self, mode: WorkerMode) -> None:
+        """Emit a one-line notice when the beta subinterpreter mode is used.
+
+        Subinterpreter workers (PEP 734) are a beta path with limited
+        lifecycle proof; operators should see at startup that they opted into
+        it rather than the stable thread/process modes.
+        """
+        if mode is WorkerMode.SUBINTERPRETER:
+            logger.info(
+                "Worker mode: subinterpreter (beta) — PEP 734 isolated "
+                "interpreters; limited lifecycle proof, expect rough edges"
+            )
+
     def _apply_integrations(self) -> None:
         """Configure optional integrations and wrap the app.
 
@@ -780,6 +807,28 @@ class Server:
             self._config.rate_limit_requests_per_second,
             self._config.rate_limit_burst,
         )
+        # The token bucket is in-process with no IPC. In thread mode (3.14t) a
+        # single limiter is genuinely shared, so the configured value is the
+        # aggregate. In process/subinterpreter mode each worker inherits an
+        # independent copy, so the real per-IP ceiling is rate x workers.
+        rate = self._config.rate_limit_requests_per_second
+        burst = self._config.rate_limit_burst
+        if self._effective_worker_mode() is WorkerMode.THREAD:
+            logger.info(
+                "Rate limiting: %.1f req/s per IP shared across workers "
+                "(thread mode; aggregate = configured)",
+                rate,
+            )
+        else:
+            workers = self._config.resolve_workers()
+            logger.info(
+                "Rate limiting: %.1f req/s per IP per worker x %d workers "
+                "= ~%.1f req/s aggregate per IP (burst ~%d)",
+                rate,
+                workers,
+                rate * workers,
+                burst * workers,
+            )
 
     def _apply_request_queue(self) -> None:
         """Configure request queueing (load shedding) if enabled.
@@ -813,6 +862,17 @@ class Server:
             "Request queueing enabled: max depth %d",
             max_depth if max_depth > 0 else -1,
         )
+        # The queue uses per-event-loop asyncio primitives, so every worker
+        # gets its own RequestQueue in ALL worker modes (including thread
+        # mode). The aggregate load-shed depth is therefore depth x workers.
+        if max_depth > 0:
+            workers = self._config.resolve_workers()
+            logger.info(
+                "Request queueing: max depth %d per worker x %d workers = ~%d aggregate queued",
+                max_depth,
+                workers,
+                max_depth * workers,
+            )
 
     def _apply_sentry(self) -> None:
         """Configure Sentry error tracking if DSN is set."""
