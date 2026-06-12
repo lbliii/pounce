@@ -9,7 +9,10 @@ from benchmarks.run_benchmark import (
     _command_string,
     _nearest_rank,
     _sample_plan,
+    _sample_process_stats,
     _server_command,
+    _telemetry_block,
+    _TelemetrySampler,
     build_artifact,
 )
 
@@ -135,6 +138,7 @@ def test_build_artifact_has_required_schema_fields(monkeypatch: pytest.MonkeyPat
         "comparison_target",
         "comparison_target_version",
         "samples",
+        "telemetry",
         "variance",
         "raw_output",
         "summary",
@@ -250,3 +254,138 @@ def test_build_artifact_summarizes_repeated_samples() -> None:
     assert group["server_rss_bytes"]["max"] == 20_480
     assert group["errors_total"] == 1
     assert artifact["variance"]["groups"] == artifact["summary"]["groups"]
+
+
+# ── Process telemetry (#139) ─────────────────────────────────────────
+
+
+def test_sample_process_stats_parses_ps_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Result:
+        stdout = "  100  20480  12.5\n  101  10240   7.5\n"
+
+    monkeypatch.setattr(runner.subprocess, "run", lambda *a, **k: _Result())
+    stats = _sample_process_stats([100, 101])
+    assert stats[100] == {"rss_bytes": 20480 * 1024.0, "cpu_percent": 12.5}
+    assert stats[101] == {"rss_bytes": 10240 * 1024.0, "cpu_percent": 7.5}
+
+
+def test_sample_process_stats_empty_for_no_pids() -> None:
+    assert _sample_process_stats([]) == {}
+
+
+def test_process_tree_pids_includes_supervisor(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runner, "_child_pids_proc", lambda pid: [])
+    monkeypatch.setattr(runner, "_child_pids_ps", lambda pid: [200, 201])
+    assert runner._process_tree_pids(100) == [100, 200, 201]
+
+
+def test_telemetry_sampler_aggregates_tree(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runner, "_process_tree_pids", lambda pid: [10, 11])
+    monkeypatch.setattr(
+        runner,
+        "_sample_process_stats",
+        lambda pids: {
+            10: {"rss_bytes": 30_000_000.0, "cpu_percent": 60.0},
+            11: {"rss_bytes": 20_000_000.0, "cpu_percent": 40.0},
+        },
+    )
+    sampler = _TelemetrySampler(10, interval=0.01)
+    sampler._poll_once()
+    result = sampler.result()
+    assert result.supported is True
+    # Peak RSS is summed across the whole tree (child workers included).
+    assert result.peak_rss_bytes == 50_000_000
+    # CPU% is aggregated across the tree per sample.
+    assert result.cpu_percent_peak == 100.0
+    assert result.cpu_percent_mean == 100.0
+    assert result.worker_pids == [10, 11]
+
+
+def test_telemetry_sampler_degrades_when_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runner, "_process_tree_pids", lambda pid: [10])
+    monkeypatch.setattr(runner, "_sample_process_stats", lambda pids: {})
+    sampler = _TelemetrySampler(10, interval=0.01)
+    sampler._poll_once()
+    result = sampler.result()
+    assert result.supported is False
+    assert result.peak_rss_bytes is None
+    assert result.cpu_percent_peak is None
+    assert result.worker_pids == []
+
+
+def test_telemetry_block_reports_peak_and_cpu() -> None:
+    samples = [
+        {
+            "peak_rss_bytes": 50_000_000,
+            "cpu_percent_mean": 80.0,
+            "cpu_percent_peak": 120.0,
+            "worker_pids": [10, 11],
+        },
+        {
+            "peak_rss_bytes": 70_000_000,
+            "cpu_percent_mean": 90.0,
+            "cpu_percent_peak": 150.0,
+            "worker_pids": [10, 12],
+        },
+    ]
+    block = _telemetry_block(samples)
+    assert block["supported"] is True
+    assert block["peak_rss_bytes"] == 70_000_000
+    assert block["cpu_percent"]["peak"] == 150.0
+    assert block["cpu_percent"]["mean"] == 85.0
+    assert block["worker_pids"] == [10, 11, 12]
+
+
+def test_telemetry_block_unsupported_when_no_telemetry() -> None:
+    block = _telemetry_block([{"req_per_sec": 1000.0}])
+    assert block["supported"] is False
+    assert block["peak_rss_bytes"] is None
+    assert block["cpu_percent"]["peak"] is None
+    assert block["worker_pids"] == []
+
+
+def test_build_artifact_includes_telemetry_and_summary_fields() -> None:
+    suite = BenchmarkSuite(
+        timestamp="2026-05-22T120000-0400",
+        python_version="3.14.2 free-threaded",
+        platform="test-os",
+        results=[
+            {
+                "server": "pounce",
+                "workload": "chirp",
+                "workers": 4,
+                "req_per_sec": 1000.0,
+                "p99_latency_ms": 2.0,
+                "errors": 0,
+                "sample_index": 1,
+                "server_rss_bytes": 10_240,
+                "peak_rss_bytes": 60_000_000,
+                "cpu_percent_mean": 80.0,
+                "cpu_percent_peak": 120.0,
+                "worker_pids": [10, 11, 12],
+            }
+        ],
+    )
+
+    artifact = build_artifact(
+        suite,
+        command=["python", "benchmarks/run_benchmark.py", "--workload", "chirp"],
+        workload="chirp",
+        workers=4,
+        duration=30,
+        connections=100,
+        threads=4,
+        load_tool="wrk",
+        load_tool_version="wrk 4.2.0",
+        compare=False,
+    )
+
+    assert artifact["telemetry"]["supported"] is True
+    assert artifact["telemetry"]["peak_rss_bytes"] == 60_000_000
+    assert artifact["telemetry"]["cpu_percent"]["peak"] == 120.0
+    assert artifact["telemetry"]["worker_pids"] == [10, 11, 12]
+
+    [group] = artifact["summary"]["groups"]
+    assert group["peak_rss_bytes"]["max"] == 60_000_000
+    assert group["cpu_percent"]["max"] == 120.0
+    assert group["worker_pids"] == [10, 11, 12]

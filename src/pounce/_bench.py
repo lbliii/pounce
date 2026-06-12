@@ -218,6 +218,20 @@ def _write_bench_app(path: str) -> None:
 
 # ── Output helpers ───────────────────────────────────────────────────
 
+# `pounce bench` is a convenience driver: an http.client thread driver that
+# prints a plain-text table. It is NOT the governed artifact pipeline. Public
+# numeric performance claims must come from `benchmarks/run_benchmark.py`, which
+# emits schema-compatible artifacts (`benchmarks/artifact-schema.json`) with
+# git SHA, variance, raw load-tool output, and process telemetry. This banner
+# keeps the CLI snapshot from being mistaken for a governed artifact.
+_SNAPSHOT_CAVEAT = (
+    "  LOCAL SNAPSHOT - not a governed benchmark artifact.\n"
+    "  These numbers are an ad-hoc local measurement, not a product claim.\n"
+    "  For reproducible, citable evidence (git SHA, variance, CPU/RSS telemetry)\n"
+    "  use: python benchmarks/run_benchmark.py --artifact-output <path>\n"
+    "  See benchmarks/artifact-schema.json and benchmarks/README.md."
+)
+
 
 def _emit(msg: str) -> None:
     """Write a benchmark progress message to stderr."""
@@ -436,7 +450,9 @@ def _format_results(suites: list[BenchSuite]) -> str:
     # Header
     lines.append("")
     lines.append("=" * 90)
-    lines.append("  Pounce Benchmark Results")
+    lines.append("  Pounce Benchmark Results (local snapshot)")
+    lines.append("=" * 90)
+    lines.append(_SNAPSHOT_CAVEAT)
     lines.append("=" * 90)
     lines.append("")
 
@@ -479,6 +495,8 @@ def _format_results(suites: list[BenchSuite]) -> str:
             lines.append("")
 
     lines.append("=" * 90)
+    lines.append(_SNAPSHOT_CAVEAT)
+    lines.append("=" * 90)
     lines.append("")
     return "\n".join(lines)
 
@@ -499,7 +517,7 @@ def register_bench_command(cli: Any) -> None:
 
     @cli.command(  # type: ignore[attr-defined]
         "bench",
-        description="Run standardized performance benchmarks",
+        description="Run a local benchmark snapshot (not a governed artifact)",
         display_result=False,
     )
     def bench(
@@ -508,11 +526,17 @@ def register_bench_command(cli: Any) -> None:
         connections: int = 50,
         compare: bool = False,
     ) -> None:
-        """Run standardized performance benchmarks.
+        """Run a local benchmark snapshot.
 
         Spawns pounce (and optionally uvicorn) with a built-in ASGI app
         and drives load from multiple threads.  Reports throughput,
         latency percentiles, and RSS memory.
+
+        This is a convenience driver, NOT the governed artifact pipeline.
+        Its output is labelled a local snapshot and must not be cited as a
+        product claim. For reproducible, citable evidence (git SHA, variance,
+        CPU/RSS telemetry) use ``benchmarks/run_benchmark.py --artifact-output``,
+        which emits artifacts following ``benchmarks/artifact-schema.json``.
         """
         suites: list[BenchSuite] = []
 

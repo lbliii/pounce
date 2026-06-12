@@ -234,6 +234,7 @@ class TestBenchmarkArtifactPolicy:
         "comparison_target",
         "comparison_target_version",
         "samples",
+        "telemetry",
         "variance",
         "raw_output",
         "summary",

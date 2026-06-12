@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pounce._bench import (
+    _SNAPSHOT_CAVEAT,
     BenchSuite,
     WorkloadResult,
     _find_free_port,
@@ -63,6 +64,18 @@ class TestFormatResults:
         output = _format_results([s1, s2])
         assert "Comparison" in output
         assert "pounce vs uvicorn" in output
+
+    def test_output_is_labelled_a_local_snapshot(self) -> None:
+        """`pounce bench` output must not be mistaken for a governed artifact."""
+        suite = BenchSuite("pounce", workers=1, connections=10, duration=5)
+        suite.workloads.append(WorkloadResult("hello", 5000, 0, 5.0, [1.0], 40.0))
+        output = _format_results([suite])
+        assert "local snapshot" in output
+        assert _SNAPSHOT_CAVEAT in output
+        # Points to the governed artifact pipeline.
+        assert "benchmarks/run_benchmark.py" in output
+        assert "benchmarks/artifact-schema.json" in output
+        assert "not a governed benchmark artifact" in output
 
 
 # ── _run_bench command construction ─────────────────────────────────

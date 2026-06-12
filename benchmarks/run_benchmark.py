@@ -24,6 +24,7 @@ Prerequisites:
 """
 
 import argparse
+import contextlib
 import json
 import math
 import platform
@@ -32,6 +33,7 @@ import signal
 import statistics
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -42,6 +44,8 @@ _LOAD_TOOL_VERSION_ERRORS = (FileNotFoundError, subprocess.TimeoutExpired)
 _RSS_PARSE_ERRORS = (IndexError, ValueError)
 _SERVER_START_RETRY_ERRORS = (ConnectionRefusedError, OSError)
 _UVICORN_COMPARISON_ERRORS = (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired)
+_PROCESS_QUERY_ERRORS = (FileNotFoundError, subprocess.TimeoutExpired)
+_PROCESS_PARSE_ERRORS = (IndexError, ValueError)
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +67,11 @@ class BenchmarkResult:
     errors: int
     sample_index: int = 1
     server_rss_bytes: int | None = None
+    peak_rss_bytes: int | None = None
+    cpu_percent_mean: float | None = None
+    cpu_percent_peak: float | None = None
+    cpu_seconds: float | None = None
+    worker_pids: list[int] = field(default_factory=list)
     load_tool_stdout: str = ""
     load_tool_stderr: str = ""
 
@@ -285,6 +294,187 @@ def _process_rss_bytes(proc: subprocess.Popen) -> int | None:
     except _RSS_PARSE_ERRORS:
         return None
     return rss_kib * 1024
+
+
+# ---------------------------------------------------------------------------
+# Process telemetry (peak RSS + CPU, incl. child/worker processes)
+# ---------------------------------------------------------------------------
+
+
+def _child_pids_proc(pid: int) -> list[int]:
+    """Discover direct child pids via /proc (Linux), best-effort."""
+    children: list[int] = []
+    try:
+        tasks = Path(f"/proc/{pid}/task")
+        for task_dir in tasks.iterdir():
+            child_file = task_dir / "children"
+            try:
+                raw = child_file.read_text()
+            except OSError:
+                continue
+            children.extend(int(tok) for tok in raw.split() if tok.isdigit())
+    except OSError:
+        return []
+    return children
+
+
+def _child_pids_ps(pid: int) -> list[int]:
+    """Discover descendant pids via ``ps`` (macOS/BSD/Linux), best-effort."""
+    try:
+        result = subprocess.run(
+            ["ps", "-Ao", "pid=,ppid="],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except _PROCESS_QUERY_ERRORS:
+        return []
+    parent_to_children: dict[int, list[int]] = {}
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        try:
+            child, parent = int(parts[0]), int(parts[1])
+        except _PROCESS_PARSE_ERRORS:
+            continue
+        parent_to_children.setdefault(parent, []).append(child)
+    # Walk the tree to collect every descendant of ``pid``.
+    descendants: list[int] = []
+    stack = list(parent_to_children.get(pid, []))
+    seen: set[int] = set()
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        descendants.append(current)
+        stack.extend(parent_to_children.get(current, []))
+    return descendants
+
+
+def _process_tree_pids(pid: int) -> list[int]:
+    """Return ``pid`` plus its descendant worker pids (best-effort, dedup)."""
+    children = _child_pids_proc(pid) or _child_pids_ps(pid)
+    ordered: list[int] = [pid]
+    for child in children:
+        if child not in ordered:
+            ordered.append(child)
+    return ordered
+
+
+def _sample_process_stats(pids: list[int]) -> dict[int, dict[str, float]]:
+    """Return per-pid {rss_bytes, cpu_percent} via a single ``ps`` call.
+
+    Cross-platform best-effort: returns an empty mapping if ``ps`` is
+    unavailable or yields nothing parseable.
+    """
+    if not pids:
+        return {}
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "pid=,rss=,%cpu=", "-p", ",".join(str(p) for p in pids)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except _PROCESS_QUERY_ERRORS:
+        return {}
+    stats: dict[int, dict[str, float]] = {}
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        try:
+            sampled_pid = int(parts[0])
+            rss_kib = int(parts[1])
+            cpu_percent = float(parts[2])
+        except _PROCESS_PARSE_ERRORS:
+            continue
+        stats[sampled_pid] = {
+            "rss_bytes": float(rss_kib * 1024),
+            "cpu_percent": cpu_percent,
+        }
+    return stats
+
+
+@dataclass(slots=True)
+class _ProcessTelemetry:
+    """Aggregated under-load telemetry for a server process tree."""
+
+    peak_rss_bytes: int | None = None
+    cpu_percent_mean: float | None = None
+    cpu_percent_peak: float | None = None
+    worker_pids: list[int] = field(default_factory=list)
+    sample_count: int = 0
+    supported: bool = False
+
+
+class _TelemetrySampler:
+    """Background poller for peak RSS and CPU% of a process tree.
+
+    Polls ``ps`` for the supervisor pid and every descendant worker pid at a
+    fixed interval. Records the peak aggregate RSS (summed across the whole
+    tree, so process-mode runs include forked children) and the per-sample
+    aggregate CPU% (mean and peak). Degrades gracefully: if no process stats
+    can be read it reports ``supported=False`` and null metrics.
+    """
+
+    def __init__(self, pid: int, *, interval: float = 0.2) -> None:
+        self._pid = pid
+        self._interval = max(0.01, interval)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="bench-telemetry", daemon=True)
+        self._peak_rss = 0
+        self._cpu_samples: list[float] = []
+        self._worker_pids: set[int] = set()
+        self._any_sample = False
+
+    def _poll_once(self) -> None:
+        pids = _process_tree_pids(self._pid)
+        stats = _sample_process_stats(pids)
+        if not stats:
+            return
+        self._any_sample = True
+        self._worker_pids.update(stats.keys())
+        total_rss = int(sum(entry["rss_bytes"] for entry in stats.values()))
+        total_cpu = sum(entry["cpu_percent"] for entry in stats.values())
+        self._peak_rss = max(self._peak_rss, total_rss)
+        self._cpu_samples.append(total_cpu)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            # Telemetry must never crash a benchmark run.
+            with contextlib.suppress(Exception):
+                self._poll_once()
+            self._stop.wait(self._interval)
+
+    def __enter__(self) -> _TelemetrySampler:
+        # Take one synchronous sample so very short runs still capture data.
+        self._poll_once()
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._stop.set()
+        self._thread.join(timeout=5)
+        # Final sample for the tail of the load window.
+        with contextlib.suppress(Exception):
+            self._poll_once()
+
+    def result(self) -> _ProcessTelemetry:
+        if not self._any_sample:
+            return _ProcessTelemetry(supported=False)
+        cpu_mean = statistics.fmean(self._cpu_samples) if self._cpu_samples else None
+        cpu_peak = max(self._cpu_samples) if self._cpu_samples else None
+        return _ProcessTelemetry(
+            peak_rss_bytes=self._peak_rss or None,
+            cpu_percent_mean=round(cpu_mean, 2) if cpu_mean is not None else None,
+            cpu_percent_peak=round(cpu_peak, 2) if cpu_peak is not None else None,
+            worker_pids=sorted(self._worker_pids),
+            sample_count=len(self._cpu_samples),
+            supported=True,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -535,14 +725,16 @@ def run_benchmark(
 
     try:
         print(f"  Running {tool} ({duration}s, {connections} connections)...")
-        raw = runner(
-            _benchmark_url(port, workload),
-            duration=duration,
-            threads=threads,
-            connections=connections,
-            method=method,
-            body_size=body_size,
-        )
+        with _TelemetrySampler(pounce_proc.pid) as sampler:
+            raw = runner(
+                _benchmark_url(port, workload),
+                duration=duration,
+                threads=threads,
+                connections=connections,
+                method=method,
+                body_size=body_size,
+            )
+        telemetry = sampler.result()
         server_rss_bytes = _process_rss_bytes(pounce_proc)
         results.append(
             BenchmarkResult(
@@ -554,6 +746,10 @@ def run_benchmark(
                 connections=connections,
                 sample_index=sample_index,
                 server_rss_bytes=server_rss_bytes,
+                peak_rss_bytes=telemetry.peak_rss_bytes,
+                cpu_percent_mean=telemetry.cpu_percent_mean,
+                cpu_percent_peak=telemetry.cpu_percent_peak,
+                worker_pids=telemetry.worker_pids,
                 **raw,
             )
         )
@@ -571,14 +767,16 @@ def run_benchmark(
             time.sleep(0.5)
 
             print(f"  Running {tool} ({duration}s, {connections} connections)...")
-            raw = runner(
-                _benchmark_url(uvicorn_port, workload),
-                duration=duration,
-                threads=threads,
-                connections=connections,
-                method=method,
-                body_size=body_size,
-            )
+            with _TelemetrySampler(uvicorn_proc.pid) as sampler:
+                raw = runner(
+                    _benchmark_url(uvicorn_port, workload),
+                    duration=duration,
+                    threads=threads,
+                    connections=connections,
+                    method=method,
+                    body_size=body_size,
+                )
+            telemetry = sampler.result()
             server_rss_bytes = _process_rss_bytes(uvicorn_proc)
             results.append(
                 BenchmarkResult(
@@ -590,6 +788,10 @@ def run_benchmark(
                     connections=connections,
                     sample_index=sample_index,
                     server_rss_bytes=server_rss_bytes,
+                    peak_rss_bytes=telemetry.peak_rss_bytes,
+                    cpu_percent_mean=telemetry.cpu_percent_mean,
+                    cpu_percent_peak=telemetry.cpu_percent_peak,
+                    worker_pids=telemetry.worker_pids,
                     **raw,
                 )
             )
@@ -610,13 +812,22 @@ def run_benchmark(
 def print_markdown_table(results: list[BenchmarkResult]) -> None:
     """Print results as a markdown table."""
     print("\n## Benchmark Results\n")
-    print("| Server | Workload | Workers | Req/s | Avg (ms) | p50 (ms) | p99 (ms) | Errors |")
-    print("|--------|----------|---------|-------|----------|----------|----------|--------|")
+    print(
+        "| Server | Workload | Workers | Req/s | Avg (ms) | p50 (ms) | p99 (ms) | "
+        "Errors | Peak RSS (MB) | CPU% |"
+    )
+    print(
+        "|--------|----------|---------|-------|----------|----------|----------|"
+        "--------|---------------|------|"
+    )
     for r in results:
+        peak_rss = f"{r.peak_rss_bytes / 1_048_576:.1f}" if r.peak_rss_bytes is not None else "n/a"
+        cpu = f"{r.cpu_percent_peak:.0f}" if r.cpu_percent_peak is not None else "n/a"
         print(
             f"| {r.server} | {r.workload} | {r.workers} | "
             f"{r.req_per_sec:,.0f} | {r.avg_latency_ms:.2f} | "
-            f"{r.p50_latency_ms:.2f} | {r.p99_latency_ms:.2f} | {r.errors} |"
+            f"{r.p50_latency_ms:.2f} | {r.p99_latency_ms:.2f} | {r.errors} | "
+            f"{peak_rss} | {cpu} |"
         )
 
     # Print pounce vs uvicorn ratios if comparison data exists
@@ -744,6 +955,9 @@ def _group_sample_summaries(samples: list[dict]) -> list[dict]:
     summaries = []
     for (server, workload, workers), rows in sorted(groups.items()):
         rss_rows = [row for row in rows if row.get("server_rss_bytes") is not None]
+        peak_rows = [row for row in rows if row.get("peak_rss_bytes") is not None]
+        cpu_rows = [row for row in rows if row.get("cpu_percent_peak") is not None]
+        worker_pids = sorted({pid for row in rows for pid in (row.get("worker_pids") or [])})
         summaries.append(
             {
                 "server": server,
@@ -755,10 +969,53 @@ def _group_sample_summaries(samples: list[dict]) -> list[dict]:
                 "server_rss_bytes": _metric_summary(rss_rows, "server_rss_bytes")
                 if rss_rows
                 else None,
+                "peak_rss_bytes": _metric_summary(peak_rows, "peak_rss_bytes")
+                if peak_rows
+                else None,
+                "cpu_percent": _metric_summary(cpu_rows, "cpu_percent_peak") if cpu_rows else None,
+                "worker_pids": worker_pids,
                 "errors_total": sum(int(row.get("errors", 0)) for row in rows),
             }
         )
     return summaries
+
+
+def _telemetry_block(samples: list[dict]) -> dict:
+    """Summarize per-process telemetry captured under load.
+
+    Reports whether the platform exposed process telemetry, the aggregate
+    peak RSS (summed across the supervisor and any forked worker processes),
+    CPU% (mean of per-sample peaks, and the maximum observed), CPU-seconds
+    when available, and the union of observed worker pids.
+    """
+    peak_values = [
+        float(row["peak_rss_bytes"]) for row in samples if row.get("peak_rss_bytes") is not None
+    ]
+    cpu_peak_values = [
+        float(row["cpu_percent_peak"]) for row in samples if row.get("cpu_percent_peak") is not None
+    ]
+    cpu_mean_values = [
+        float(row["cpu_percent_mean"]) for row in samples if row.get("cpu_percent_mean") is not None
+    ]
+    cpu_seconds_values = [
+        float(row["cpu_seconds"]) for row in samples if row.get("cpu_seconds") is not None
+    ]
+    worker_pids = sorted({pid for row in samples for pid in (row.get("worker_pids") or [])})
+    return {
+        "supported": bool(peak_values or cpu_peak_values),
+        "peak_rss_bytes": int(max(peak_values)) if peak_values else None,
+        "cpu_percent": {
+            "mean": round(statistics.fmean(cpu_mean_values), 2) if cpu_mean_values else None,
+            "peak": round(max(cpu_peak_values), 2) if cpu_peak_values else None,
+        },
+        "cpu_seconds": round(max(cpu_seconds_values), 3) if cpu_seconds_values else None,
+        "worker_pids": worker_pids,
+        "note": (
+            "peak_rss_bytes is the max under-load RSS summed across the supervisor and "
+            "forked worker processes; cpu_percent aggregates the whole process tree. "
+            "Null fields mean the platform did not expose process telemetry."
+        ),
+    }
 
 
 def build_artifact(
@@ -779,6 +1036,7 @@ def build_artifact(
     created_at = suite.timestamp or time.strftime("%Y-%m-%dT%H:%M:%S%z")
     samples = _artifact_samples(suite.results)
     summaries = _group_sample_summaries(samples)
+    telemetry = _telemetry_block(samples)
     server_commands: dict[str, str] = {}
     workloads = list(WORKLOADS) if workload == "all" else [workload]
     for wl in workloads:
@@ -811,6 +1069,7 @@ def build_artifact(
         "comparison_target": "uvicorn" if compare else None,
         "comparison_target_version": _server_version("uvicorn") if compare else None,
         "samples": samples,
+        "telemetry": telemetry,
         "variance": {
             "sample_count": len(samples),
             "groups": summaries,
