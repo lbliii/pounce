@@ -823,3 +823,188 @@ class TestConditionalRequests:
         is_not_modified = static_handler._check_not_modified(headers, file)
 
         assert is_not_modified is False
+
+
+class TestLastModifiedAndConditionalDates:
+    """Last-Modified emission plus If-Modified-Since / If-Range (date) handling.
+
+    Covers RFC 9110 §13.1.3/§13.1.5: Last-Modified on 200/206/304, date-based
+    304 revalidation (with If-None-Match precedence), and If-Range gating of
+    range requests (weak-ETag fallback + stale/fresh date behavior).
+    """
+
+    @pytest.fixture
+    def handler(self, temp_static_dir):
+        return create_static_handler({"/static": str(temp_static_dir)})
+
+    def _scope(self, path, method="GET", headers=None):
+        return {
+            "type": "http",
+            "method": method,
+            "path": path,
+            "headers": headers or [],
+            "query_string": b"",
+            "root_path": "",
+            "scheme": "http",
+            "server": ("127.0.0.1", 8000),
+        }
+
+    async def _run(self, handler, scope):
+        sent = []
+
+        async def mock_send(msg):
+            sent.append(msg)
+
+        await handler(scope, None, mock_send)
+        return sent
+
+    @staticmethod
+    def _expected_last_modified(handler, path):
+        from pounce._static import _http_date
+
+        file = handler._resolve_file(path, None)
+        assert file is not None
+        return _http_date(file.mtime), file
+
+    # --- Last-Modified presence + format ------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_last_modified_on_200(self, handler):
+        """200 carries a correctly formatted Last-Modified (GMT IMF-fixdate)."""
+        expected, _ = self._expected_last_modified(handler, "/static/style.css")
+        sent = await self._run(handler, self._scope("/static/style.css"))
+
+        assert sent[0]["status"] == 200
+        headers = dict(sent[0]["headers"])
+        assert headers.get(b"last-modified") == expected.encode("latin1")
+        # RFC 9110 IMF-fixdate always ends in GMT.
+        assert headers[b"last-modified"].endswith(b" GMT")
+
+    @pytest.mark.asyncio
+    async def test_last_modified_on_206(self, handler):
+        """206 single-range carries Last-Modified."""
+        expected, _ = self._expected_last_modified(handler, "/static/style.css")
+        headers = [(b"range", b"bytes=0-4")]
+        sent = await self._run(handler, self._scope("/static/style.css", headers=headers))
+
+        assert sent[0]["status"] == 206
+        assert dict(sent[0]["headers"]).get(b"last-modified") == expected.encode("latin1")
+
+    @pytest.mark.asyncio
+    async def test_last_modified_on_304(self, handler):
+        """304 carries Last-Modified."""
+        expected, file = self._expected_last_modified(handler, "/static/style.css")
+        headers = [(b"if-none-match", file.etag.encode("latin1"))]
+        sent = await self._run(handler, self._scope("/static/style.css", headers=headers))
+
+        assert sent[0]["status"] == 304
+        assert dict(sent[0]["headers"]).get(b"last-modified") == expected.encode("latin1")
+
+    # --- If-Modified-Since --------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_if_modified_since_equal_mtime_304(self, handler):
+        """If-Modified-Since == current mtime (truncated) -> 304."""
+        last_modified, _ = self._expected_last_modified(handler, "/static/style.css")
+        headers = [(b"if-modified-since", last_modified.encode("latin1"))]
+        sent = await self._run(handler, self._scope("/static/style.css", headers=headers))
+
+        assert sent[0]["status"] == 304
+
+    @pytest.mark.asyncio
+    async def test_if_modified_since_older_200(self, handler):
+        """If-Modified-Since older than mtime -> full 200."""
+        headers = [(b"if-modified-since", b"Mon, 01 Jan 1990 00:00:00 GMT")]
+        sent = await self._run(handler, self._scope("/static/style.css", headers=headers))
+
+        assert sent[0]["status"] == 200
+
+    @pytest.mark.asyncio
+    async def test_if_modified_since_future_304(self, handler):
+        """If-Modified-Since in the future (file not modified after) -> 304."""
+        headers = [(b"if-modified-since", b"Tue, 01 Jan 2999 00:00:00 GMT")]
+        sent = await self._run(handler, self._scope("/static/style.css", headers=headers))
+
+        assert sent[0]["status"] == 304
+
+    @pytest.mark.asyncio
+    async def test_if_none_match_takes_priority_over_if_modified_since(self, handler):
+        """A non-matching If-None-Match suppresses If-Modified-Since (RFC 9110 §13.1.3)."""
+        # If-Modified-Since alone would 304, but a stale If-None-Match must win
+        # and force the full 200.
+        last_modified, _ = self._expected_last_modified(handler, "/static/style.css")
+        headers = [
+            (b"if-none-match", b'W/"stale-etag"'),
+            (b"if-modified-since", last_modified.encode("latin1")),
+        ]
+        sent = await self._run(handler, self._scope("/static/style.css", headers=headers))
+
+        assert sent[0]["status"] == 200
+
+    @pytest.mark.asyncio
+    async def test_if_modified_since_unparseable_ignored_200(self, handler):
+        """An unparseable If-Modified-Since is ignored -> full 200 (no crash)."""
+        headers = [(b"if-modified-since", b"not-a-date")]
+        sent = await self._run(handler, self._scope("/static/style.css", headers=headers))
+
+        assert sent[0]["status"] == 200
+
+    # --- If-Range -----------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_if_range_fresh_date_206(self, handler):
+        """If-Range with a date >= mtime (not modified) -> 206 partial."""
+        last_modified, _ = self._expected_last_modified(handler, "/static/style.css")
+        headers = [
+            (b"range", b"bytes=0-4"),
+            (b"if-range", last_modified.encode("latin1")),
+        ]
+        sent = await self._run(handler, self._scope("/static/style.css", headers=headers))
+
+        assert sent[0]["status"] == 206
+
+    @pytest.mark.asyncio
+    async def test_if_range_stale_date_full_200(self, handler):
+        """If-Range with a stale date (file modified since) -> full 200, not 206."""
+        headers = [
+            (b"range", b"bytes=0-4"),
+            (b"if-range", b"Mon, 01 Jan 1990 00:00:00 GMT"),
+        ]
+        sent = await self._run(handler, self._scope("/static/style.css", headers=headers))
+
+        assert sent[0]["status"] == 200
+        # Full entity, not a partial slice.
+        assert dict(sent[0]["headers"]).get(b"content-length") != b"5"
+
+    @pytest.mark.asyncio
+    async def test_if_range_weak_etag_full_200(self, handler):
+        """If-Range with a (weak) ETag never strongly matches -> full 200 (RFC 9110 §13.1.5)."""
+        file = handler._resolve_file("/static/style.css", None)
+        assert file is not None
+        assert file.etag.startswith('W/"')  # confirm weak validator
+        headers = [
+            (b"range", b"bytes=0-4"),
+            (b"if-range", file.etag.encode("latin1")),
+        ]
+        sent = await self._run(handler, self._scope("/static/style.css", headers=headers))
+
+        assert sent[0]["status"] == 200
+
+    @pytest.mark.asyncio
+    async def test_if_range_absent_still_206(self, handler):
+        """A plain Range request (no If-Range) is unaffected -> 206."""
+        headers = [(b"range", b"bytes=0-4")]
+        sent = await self._run(handler, self._scope("/static/style.css", headers=headers))
+
+        assert sent[0]["status"] == 206
+
+    @pytest.mark.asyncio
+    async def test_if_range_unparseable_date_full_200(self, handler):
+        """An unparseable If-Range value does not match -> full 200 (no crash)."""
+        headers = [
+            (b"range", b"bytes=0-4"),
+            (b"if-range", b"garbage-value"),
+        ]
+        sent = await self._run(handler, self._scope("/static/style.css", headers=headers))
+
+        assert sent[0]["status"] == 200

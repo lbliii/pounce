@@ -807,3 +807,123 @@ class TestStaticOnlyMode:
 
         assert response_started is not None
         assert response_started["status"] == 404
+
+
+class TestLastModifiedConditional:
+    """End-to-end Last-Modified / If-Modified-Since / If-Range behavior (issue #128)."""
+
+    @staticmethod
+    async def _drive(app, scope):
+        response_started = None
+        response_body = []
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = message
+            elif message["type"] == "http.response.body":
+                response_body.append(message["body"])
+
+        await app(scope, receive, send)
+        return response_started, b"".join(response_body)
+
+    @staticmethod
+    def _last_modified(app, path):
+        from pounce._static import _http_date
+
+        file = app._resolve_file(path, None)
+        assert file is not None
+        return _http_date(file.mtime).encode("latin1"), file
+
+    async def test_last_modified_present_on_200(self, static_app):
+        """200 response advertises a GMT-formatted Last-Modified."""
+        expected, _ = self._last_modified(static_app, "/index.html")
+        started, _body = await self._drive(
+            static_app, {"type": "http", "method": "GET", "path": "/index.html", "headers": []}
+        )
+        headers = dict(started["headers"])
+        assert headers[b"last-modified"] == expected
+        assert headers[b"last-modified"].endswith(b" GMT")
+
+    async def test_if_modified_since_current_mtime_304(self, static_app):
+        """If-Modified-Since equal to the file's Last-Modified -> 304 with empty body."""
+        last_modified, _ = self._last_modified(static_app, "/index.html")
+        started, body = await self._drive(
+            static_app,
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/index.html",
+                "headers": [(b"if-modified-since", last_modified)],
+            },
+        )
+        assert started["status"] == 304
+        assert body == b""
+        assert dict(started["headers"])[b"last-modified"] == last_modified
+
+    async def test_if_modified_since_old_200(self, static_app):
+        """If-Modified-Since older than mtime -> full 200 entity."""
+        started, body = await self._drive(
+            static_app,
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/index.html",
+                "headers": [(b"if-modified-since", b"Mon, 01 Jan 1990 00:00:00 GMT")],
+            },
+        )
+        assert started["status"] == 200
+        assert body == b"<h1>Hello World</h1>"
+
+    async def test_if_range_fresh_date_206(self, static_app):
+        """If-Range date matching current representation -> 206 partial."""
+        last_modified, _ = self._last_modified(static_app, "/large.txt")
+        started, body = await self._drive(
+            static_app,
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/large.txt",
+                "headers": [(b"range", b"bytes=0-999"), (b"if-range", last_modified)],
+            },
+        )
+        assert started["status"] == 206
+        assert len(body) == 1000
+
+    async def test_if_range_stale_date_full_200(self, static_app):
+        """If-Range with a stale date -> full 200 entity, not 206."""
+        started, body = await self._drive(
+            static_app,
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/large.txt",
+                "headers": [
+                    (b"range", b"bytes=0-999"),
+                    (b"if-range", b"Mon, 01 Jan 1990 00:00:00 GMT"),
+                ],
+            },
+        )
+        assert started["status"] == 200
+        assert len(body) == 100_000
+
+    async def test_if_range_weak_etag_full_200(self, static_app):
+        """If-Range with our weak ETag never matches -> full 200 (RFC 9110 §13.1.5)."""
+        _expected, file = self._last_modified(static_app, "/large.txt")
+        started, body = await self._drive(
+            static_app,
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/large.txt",
+                "headers": [
+                    (b"range", b"bytes=0-999"),
+                    (b"if-range", file.etag.encode("latin1")),
+                ],
+            },
+        )
+        assert started["status"] == 200
+        assert len(body) == 100_000
