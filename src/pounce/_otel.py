@@ -94,7 +94,10 @@ def configure_otel(
         endpoint=endpoint if endpoint.endswith("/v1/traces") else f"{endpoint}/v1/traces",
     )
 
-    # Add batch span processor
+    # Add batch span processor.  Its background export thread is re-spawned in
+    # forked child workers automatically by the SDK's ``os.register_at_fork``
+    # hook (opentelemetry-sdk >= 1.20), so fork mode inherits a working export
+    # path — but the SDK never flushes on process exit (see ``flush_otel``).
     provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
 
     # Set global tracer provider
@@ -105,6 +108,27 @@ def configure_otel(
         endpoint,
         service_name,
     )
+
+
+def flush_otel(timeout_millis: int = 5000) -> None:
+    """Flush in-flight spans from the active provider's processors.
+
+    The ``BatchSpanProcessor`` only exports on its ``schedule_delay`` timer (or
+    when its queue fills), and the SDK does not flush on process exit.  Spans
+    created shortly before a worker stops are therefore dropped unless flushed
+    explicitly.  Worker shutdown calls this so those spans are exported instead
+    of lost (issue #133).  Safe to call when OTel is unavailable or unconfigured.
+    """
+    if not _HAS_OTEL:
+        return
+    provider = trace.get_tracer_provider()
+    force_flush = getattr(provider, "force_flush", None)
+    if force_flush is None:
+        return
+    try:
+        force_flush(timeout_millis)
+    except Exception:  # pragma: no cover - defensive; never fail shutdown
+        logger.debug("OpenTelemetry force_flush failed on shutdown", exc_info=True)
 
 
 def extract_trace_context(headers: Sequence[tuple[bytes, bytes]]) -> Any:
@@ -171,6 +195,7 @@ class RequestSpanManager:
         scheme: str = "http",
         server_host: str = "localhost",
         server_port: int = 8000,
+        route: str | None = None,
     ) -> Any:
         """Create a span for an HTTP request.
 
@@ -181,6 +206,9 @@ class RequestSpanManager:
             scheme: URL scheme (http or https).
             server_host: Server hostname.
             server_port: Server port.
+            route: Low-cardinality route template (e.g. ``/users/{id}``) when
+                the app exposes one.  Used in the span name to keep cardinality
+                bounded; ``None`` falls back to just the method.
 
         Returns:
             Span context manager (use with `with` statement).
@@ -192,19 +220,26 @@ class RequestSpanManager:
         # Extract parent context from headers
         parent_context = extract_trace_context(headers)
 
+        # Low-cardinality span name: never the raw path (which embeds IDs and
+        # would explode cardinality in Tempo/Jaeger/Datadog — issue #135).
+        # Use the route template when available, otherwise just the method.
+        span_name = f"{method} {route}" if route else method
+
         # Create span with HTTP semantic conventions
         span = self._tracer.start_span(
-            f"{method} {path}",
+            span_name,
             context=parent_context,
             kind=trace.SpanKind.SERVER,
         )
 
-        # Set HTTP attributes (following OpenTelemetry semantic conventions)
-        span.set_attribute("http.method", method)
-        span.set_attribute("http.target", path)
-        span.set_attribute("http.scheme", scheme)
-        span.set_attribute("http.host", server_host)
-        span.set_attribute("net.host.port", server_port)
+        # Stable OpenTelemetry HTTP semantic conventions (>= 1.20 / 1.40).
+        span.set_attribute("http.request.method", method)
+        span.set_attribute("url.path", path)
+        span.set_attribute("url.scheme", scheme)
+        span.set_attribute("server.address", server_host)
+        span.set_attribute("server.port", server_port)
+        if route:
+            span.set_attribute("http.route", route)
 
         return span
 
@@ -226,11 +261,11 @@ class RequestSpanManager:
         if not self._enabled or span is None:
             return
 
-        # Set status code
-        span.set_attribute("http.status_code", status_code)
+        # Stable OpenTelemetry HTTP semantic conventions (issue #135).
+        span.set_attribute("http.response.status_code", status_code)
 
         if response_size > 0:
-            span.set_attribute("http.response_content_length", response_size)
+            span.set_attribute("http.response.body.size", response_size)
 
         # Set span status based on HTTP status code
         if status_code >= 500:
