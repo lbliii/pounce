@@ -78,6 +78,18 @@ The `run_benchmark.py --output` file is structured runner output. Treat it as a
 raw input for analysis. Use `--artifact-output` when a PR or release needs
 metadata shaped for `benchmarks/artifact-schema.json`.
 
+### Authoritative pipeline vs the `pounce bench` snapshot
+
+`benchmarks/run_benchmark.py` is the authoritative, governed pipeline: it is the
+only driver that emits schema-compatible artifacts (`--artifact-output`) with a
+git SHA, repeated-sample variance, raw load-tool output, and under-load process
+telemetry. Cite its `--artifact-output` JSON for any public numeric claim.
+
+The `pounce bench` CLI command is a convenience driver only. It uses an
+`http.client` thread driver, prints a plain-text table explicitly labelled a
+local snapshot, and does **not** emit an artifact. Use it for quick local
+sanity checks, never as benchmark evidence.
+
 Required metadata:
 
 - command and server command
@@ -91,6 +103,9 @@ Required metadata:
 - comparison target and version, when comparing
 - sample count and grouped variance by server, workload, and worker count
 - per-sample server RSS when the platform exposes it
+- under-load process telemetry (`telemetry`): peak RSS summed across the
+  supervisor and any forked worker processes, mean/peak CPU%, and the observed
+  worker pids; best-effort and null when the platform does not expose it
 - raw load-tool stdout/stderr entries per sample
 - summary table
 
