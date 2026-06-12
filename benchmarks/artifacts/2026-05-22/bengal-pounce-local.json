@@ -2,6 +2,12 @@
   "artifact_id": "pounce-bengal-2026-05-22T151631-0400",
   "created_at": "2026-05-22T15:16:31-0400",
   "git_sha": "f008a32515443c7ea4f3b42a264dcf66a8a1150e",
+  "annotation": {
+    "status": "stale-superseded",
+    "issue": "https://github.com/lbliii/pounce/issues/126",
+    "reason": "Captured at git_sha f008a32 (2026-05-22), which PREDATES the sendfile fixes in #66/#73 (commit a1e2a7c, merged 2026-06-10). The ~9.5 req/s below reflects a keep-alive sendfile stall, NOT current behavior: the pre-#73 code ran a raw os.sendfile loop against an fd asyncio still owned on the selector, corrupting the transport read state so the connection wedged after 1-2 requests. Current code uses loop.sendfile (src/pounce/_sendfile.py), which detaches and correctly restores the transport; the keep-alive sendfile path is now exercised by tests/integration/test_static_config.py::test_http1_static_sendfile_keepalive_no_stall.",
+    "do_not_cite": "These req/s figures are obsolete and must not be used as a current or public performance claim. Re-run benchmarks/run_benchmark.py --workload bengal on a free-threaded build to refresh."
+  },
   "command": "python benchmarks/run_benchmark.py --workload bengal --workers 1 --duration 5 --threads 4 --connections 50 --repeat 5 --artifact-output benchmarks/artifacts/2026-05-22/bengal-pounce-local.json",
   "server_command": {
     "pounce:bengal": "python -m pounce serve --app benchmarks.apps.bengal_static:app --host 127.0.0.1 --port 8100 --workers 1 --no-access-log --no-compression"
