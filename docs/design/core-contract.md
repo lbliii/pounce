@@ -78,6 +78,60 @@ recovery to serving traffic in `tests/integration/test_signal_lifecycle.py`.
 Load-bearing reload/drain claims still require mixed-traffic proof with bounded
 503/disconnect behavior and orphan-worker checks.
 
+## Observability Name Contract
+
+The following identifier names are stable operator contracts: renaming or
+removing one is a breaking change and requires a deprecation note. The set of
+names is the contract; the data shape and label values are documented at each
+source of truth. These are enabled only when the relevant feature is turned on
+(see Optional Surface).
+
+### Prometheus metric names
+
+Source of truth: `src/pounce/metrics.py` (`PrometheusCollector.render`), served
+at `metrics_path` when `metrics_enabled`.
+
+| Metric | Type |
+|---|---|
+| `http_requests_total` | counter (labels: `method`, `status`) |
+| `http_request_duration_seconds` | histogram (`_bucket`/`_sum`/`_count`) |
+| `http_connections_active` | gauge |
+| `http_requests_in_flight` | gauge |
+| `http_bytes_sent_total` | counter |
+
+### Lifecycle event names
+
+Source of truth: `src/pounce/lifecycle.py`. These are the values of the `event`
+field emitted by `LoggingCollector` and the event class names consumed by any
+`LifecycleCollector`.
+
+| Event | Meaning |
+|---|---|
+| `ConnectionOpened` | TCP connection accepted |
+| `RequestStarted` | HTTP request head fully parsed |
+| `ResponseCompleted` | HTTP response fully sent |
+| `ClientDisconnected` | client closed the connection unexpectedly |
+| `ConnectionCompleted` | TCP connection closed |
+
+### Access/structured log field names
+
+Source of truth: `src/pounce/lifecycle.py` (`LoggingCollector.record`,
+`enabled` via `lifecycle_logging`). Each event serializes its dataclass fields
+plus the injected `event` and `timestamp` fields; `ResponseCompleted` adds
+`slow` when over the slow-request threshold.
+
+| Field | Present on |
+|---|---|
+| `event` | all events (the lifecycle event name above) |
+| `timestamp` | all events (replaces the internal `timestamp_ns`) |
+| `connection_id`, `worker_id` | all events |
+| `client_addr`, `client_port`, `server_addr`, `server_port`, `protocol` | `ConnectionOpened` |
+| `method`, `path`, `http_version` | `RequestStarted` |
+| `status`, `bytes_sent`, `duration_ms`, `method` | `ResponseCompleted` |
+| `slow` | `ResponseCompleted` (only when over the slow-request threshold) |
+| `during_streaming` | `ClientDisconnected` |
+| `requests_served`, `total_bytes_sent`, `duration_ms`, `reason` | `ConnectionCompleted` |
+
 ## Claim Ledger
 
 Public claims must be phrased at the strongest level the proof supports.

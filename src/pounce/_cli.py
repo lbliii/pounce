@@ -110,7 +110,7 @@ _SERVE_HELP = {
     "host": "Bind address",
     "port": "Bind port",
     "workers": "Number of workers; 0 = auto-detect",
-    "worker_mode": "Worker model: auto, sync, async, or subinterpreter",
+    "worker_mode": "Worker model: auto, sync, async, or subinterpreter (beta)",
     "cpu_affinity": "Pin each worker to a CPU core (Linux only)",
     "log_level": "Log level",
     "log_format": "Log format: auto, text, or json",
