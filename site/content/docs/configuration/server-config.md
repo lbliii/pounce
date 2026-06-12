@@ -147,8 +147,16 @@ Request IDs are always generated (or extracted from trusted proxies). Every resp
 |-------|------|---------|-------------|
 | `debug` | `bool` | `False` | Enable rich error pages (never use in production) |
 | `reload` | `bool` | `False` | Watch source files and restart workers on changes |
-| `reload_include` | `tuple[str, ...]` | `()` | Extra file extensions to watch (e.g. `(".html", ".css", ".md")`) |
+| `reload_include` | `tuple[str, ...]` | `()` | Extra file extensions to watch beyond the default set (e.g. `(".rst", ".scss")`) |
 | `reload_dirs` | `tuple[str, ...]` | `()` | Extra directories to watch alongside the current working directory |
+
+When `reload` is enabled, the default watch set is `.py`, `.pyi`, `.yaml`,
+`.yml`, `.toml`, `.json`, `.cfg`, `.ini`, `.md`, `.html`, `.css`, `.js`, `.svg`.
+Static-site authoring edits (Markdown, HTML, CSS, JS, SVG) therefore trigger a
+reload without `reload_include`. The watcher scans the current working
+directory, every `reload_dirs` entry, and the directories behind any
+configured `static_files` mounts; assets stored elsewhere need a matching
+`reload_dirs` entry.
 
 ### Protocol Tuning
 

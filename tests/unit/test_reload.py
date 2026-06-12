@@ -131,38 +131,74 @@ class TestExcludeDirs:
         assert "venv" in _EXCLUDE_DIRS
 
 
-class TestExtraExtensions:
-    """Extra extensions are merged with the built-in set."""
+class TestDefaultWatchSet:
+    """The built-in watch set covers static-site authoring files (issue #132)."""
 
-    def test_html_not_watched_by_default(self) -> None:
-        assert _should_watch(Path("index.html")) is False
+    def test_python_watched_by_default(self) -> None:
+        # .py watching must remain intact.
+        assert _should_watch(Path("app.py")) is True
 
-    def test_html_watched_with_extra(self) -> None:
-        extra = _WATCH_EXTENSIONS | frozenset({".html"})
-        assert _should_watch(Path("index.html"), extra) is True
+    def test_static_authoring_extensions_in_default_set(self) -> None:
+        # Content/asset authoring files reload out of the box under --reload.
+        for ext in (".md", ".html", ".css", ".js", ".svg"):
+            assert ext in _WATCH_EXTENSIONS, ext
 
-    def test_css_watched_with_extra(self) -> None:
-        extra = _WATCH_EXTENSIONS | frozenset({".css"})
-        assert _should_watch(Path("style.css"), extra) is True
+    def test_html_watched_by_default(self) -> None:
+        assert _should_watch(Path("index.html")) is True
 
-    def test_extra_extensions_merged_in_snapshot(self) -> None:
+    def test_markdown_watched_by_default(self) -> None:
+        assert _should_watch(Path("content/post.md")) is True
+
+    def test_css_js_svg_watched_by_default(self) -> None:
+        assert _should_watch(Path("style.css")) is True
+        assert _should_watch(Path("app.js")) is True
+        assert _should_watch(Path("logo.svg")) is True
+
+    def test_unwatched_asset_still_excluded(self) -> None:
+        # Binary assets we never want to poll on remain out of the set.
+        assert _should_watch(Path("logo.png")) is False
+        assert _should_watch(Path("data.txt")) is False
+
+    def test_static_files_in_default_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             p = Path(tmpdir)
             (p / "app.py").write_text("# code")
             (p / "index.html").write_text("<h1>Hi</h1>")
             (p / "style.css").write_text("body {}")
+            (p / "post.md").write_text("# Hi")
+            (p / "logo.png").write_bytes(b"\x89PNG")
 
-            # Default: only .py
             default = _snapshot([p])
             assert str(p / "app.py") in default
-            assert str(p / "index.html") not in default
+            assert str(p / "index.html") in default
+            assert str(p / "style.css") in default
+            assert str(p / "post.md") in default
+            assert str(p / "logo.png") not in default
 
-            # With extras: .py + .html + .css
-            ext = _WATCH_EXTENSIONS | frozenset({".html", ".css"})
+
+class TestExtraExtensions:
+    """Extra extensions are merged with the built-in set."""
+
+    def test_extra_extension_watched(self) -> None:
+        extra = _WATCH_EXTENSIONS | frozenset({".rst"})
+        assert _should_watch(Path("doc.rst"), extra) is True
+
+    def test_extra_extensions_merged_in_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = Path(tmpdir)
+            (p / "app.py").write_text("# code")
+            (p / "doc.rst").write_text("Title")
+
+            # Default: .rst not watched.
+            default = _snapshot([p])
+            assert str(p / "app.py") in default
+            assert str(p / "doc.rst") not in default
+
+            # With extras: .py + .rst
+            ext = _WATCH_EXTENSIONS | frozenset({".rst"})
             extended = _snapshot([p], ext)
             assert str(p / "app.py") in extended
-            assert str(p / "index.html") in extended
-            assert str(p / "style.css") in extended
+            assert str(p / "doc.rst") in extended
 
     def test_extra_extensions_in_detect_changes(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -285,3 +321,46 @@ class TestWatchForChanges:
             finally:
                 stop.set()
                 t.join(timeout=2.0)
+
+
+class TestReloadWatchDirs:
+    """``Server._reload_watch_dirs`` includes static mount dirs (issue #132)."""
+
+    @staticmethod
+    async def _app(scope, receive, send):  # pragma: no cover - never invoked
+        raise AssertionError
+
+    def _server(self, **config_kwargs):
+        from pounce.config import ServerConfig
+        from pounce.server import Server
+
+        return Server(ServerConfig(**config_kwargs), self._app)
+
+    def test_includes_cwd(self) -> None:
+        server = self._server()
+        dirs = server._reload_watch_dirs()
+        assert Path.cwd() in dirs
+
+    def test_includes_reload_dirs(self, tmp_path: Path) -> None:
+        extra = tmp_path / "templates"
+        extra.mkdir()
+        server = self._server(reload_dirs=(str(extra),))
+        assert extra.resolve() in server._reload_watch_dirs()
+
+    def test_includes_static_mount_dirs(self, tmp_path: Path) -> None:
+        # Static assets served from OUTSIDE cwd must still be watched so that
+        # editing them triggers a reload (issue #132).
+        assets = tmp_path / "site_assets"
+        assets.mkdir()
+        server = self._server(static_files={"/static": str(assets)})
+        assert assets.resolve() in server._reload_watch_dirs()
+
+    def test_deduplicates(self, tmp_path: Path) -> None:
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        server = self._server(
+            reload_dirs=(str(shared),),
+            static_files={"/static": str(shared)},
+        )
+        dirs = server._reload_watch_dirs()
+        assert dirs.count(shared.resolve()) == 1
