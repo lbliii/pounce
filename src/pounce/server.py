@@ -21,6 +21,7 @@ import socket
 import sys
 import threading
 from dataclasses import replace
+from pathlib import Path
 from typing import Any, cast
 
 import pounce.logging as pounce_logging
@@ -230,6 +231,27 @@ class Server:
             cleanup_unix_socket(self._config)
             dispatch(SHUTDOWN_COMPLETE)
 
+    def _reload_watch_dirs(self) -> list[Path]:
+        """Directories the file watcher should scan in ``--reload`` mode.
+
+        Always includes the current working directory and any explicit
+        ``reload_dirs``. Also includes configured static-mount directories
+        (``static_files`` is ``{url_path: directory}``) so that editing
+        content/assets served from *outside* cwd still triggers a reload.
+        Duplicates and missing directories are tolerated by the watcher.
+        """
+        dirs: list[Path] = [Path.cwd()]
+        dirs.extend(Path(d).resolve() for d in self._config.reload_dirs)
+        dirs.extend(Path(directory).resolve() for directory in self._config.static_files.values())
+        # De-duplicate while preserving order.
+        seen: set[Path] = set()
+        unique: list[Path] = []
+        for d in dirs:
+            if d not in seen:
+                seen.add(d)
+                unique.append(d)
+        return unique
+
     def _run_single_with_reload(self) -> None:
         """Single-worker mode with auto-reload on source changes.
 
@@ -239,8 +261,6 @@ class Server:
         with a fresh socket and event loop.
 
         """
-        from pathlib import Path
-
         from pounce._reload import watch_for_changes
 
         reload_requested = threading.Event()
@@ -250,7 +270,7 @@ class Server:
             reload_requested.set()
             self.shutdown()
 
-        watch_dirs = [Path.cwd(), *(Path(d).resolve() for d in self._config.reload_dirs)]
+        watch_dirs = self._reload_watch_dirs()
         watcher = threading.Thread(
             target=watch_for_changes,
             args=(watch_dirs, _on_change),
@@ -479,8 +499,6 @@ class Server:
         # Start file watcher for reload mode
         stop_watcher: threading.Event | None = None
         if self._config.reload:
-            from pathlib import Path
-
             from pounce._reload import watch_for_changes
 
             stop_watcher = threading.Event()
@@ -489,7 +507,7 @@ class Server:
             def _on_change() -> None:
                 supervisor_ref.restart_workers()
 
-            watch_dirs = [Path.cwd(), *(Path(d).resolve() for d in self._config.reload_dirs)]
+            watch_dirs = self._reload_watch_dirs()
             watcher = threading.Thread(
                 target=watch_for_changes,
                 args=(watch_dirs, _on_change),
@@ -737,8 +755,6 @@ class Server:
         """Wrap app with configured static file mounts."""
         if not self._config.static_files:
             return
-        from pathlib import Path
-
         from pounce._static import StaticFiles, StaticMount
 
         mounts = [

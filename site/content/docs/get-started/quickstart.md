@@ -60,6 +60,13 @@ pounce serve --app app:app --reload
 
 Pounce watches your source files and restarts workers automatically when changes are detected.
 
+The default watch set covers Python and config sources plus common static-site
+authoring files — `.md`, `.html`, `.css`, `.js`, and `.svg` — so editing
+content, templates, or styles also triggers a reload. The watcher scans the
+current working directory, any `--reload-dir` paths, and any configured
+static-mount directories. Use `--reload-include ".rst,.scss"` to watch
+extensions outside the default set.
+
 ## Configure Workers
 
 ```bash

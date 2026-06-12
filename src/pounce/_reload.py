@@ -41,9 +41,16 @@ _EXCLUDE_DIRS: Final[frozenset[str]] = frozenset(
     }
 )
 
-# File extensions to watch
+# File extensions to watch by default.
+#
+# Covers Python sources/config plus the common content/asset authoring files
+# (Markdown, HTML, CSS, JS, SVG) so that the flagship static-site dev-server
+# use case (e.g. Bengal) reloads when editing content, templates, or styles
+# under a watched directory — without needing ``--reload-include``. The watcher
+# only runs when ``--reload`` is active, so pure-API users are unaffected.
 _WATCH_EXTENSIONS: Final[frozenset[str]] = frozenset(
     {
+        # Python sources / config
         ".py",
         ".pyi",
         ".yaml",
@@ -52,6 +59,12 @@ _WATCH_EXTENSIONS: Final[frozenset[str]] = frozenset(
         ".json",
         ".cfg",
         ".ini",
+        # Content / asset authoring (static-site dev server)
+        ".md",
+        ".html",
+        ".css",
+        ".js",
+        ".svg",
     }
 )
 
@@ -139,7 +152,10 @@ def watch_for_changes(
         interval: Polling interval in seconds (default: 1.0).
         stop_event: Optional threading.Event to stop the watcher.
         extra_extensions: Additional file extensions to watch beyond
-            the built-in set (e.g. ``(".html", ".css", ".md")``).
+            the built-in set. The built-in set already covers Python,
+            config, and the common static-site authoring files
+            (``.md``, ``.html``, ``.css``, ``.js``, ``.svg``); use this
+            for anything further (e.g. ``(".rst", ".scss")``).
 
     """
     if stop_event is None:

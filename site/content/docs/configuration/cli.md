@@ -80,8 +80,20 @@ The field set, types, and the `req_id` policy are a stability contract — see
 | `--server-timing` | `disabled` | Enable Server-Timing header |
 | `--http3` | `disabled` | Enable HTTP/3 (QUIC/UDP). Requires `--ssl-certfile` and `--ssl-keyfile`. |
 | `--reload` | `disabled` | Watch files and restart on changes |
-| `--reload-include TEXT` | — | Extra file extensions to watch (comma-separated, e.g. `".html,.css,.md"`) |
+| `--reload-include TEXT` | — | Extra file extensions to watch beyond the default set (comma-separated, e.g. `".rst,.scss"`) |
 | `--reload-dir PATH` | — | Extra directory to watch (repeatable) |
+
+The default reload watch set covers Python and config sources plus the common
+static-site authoring files:
+
+`.py`, `.pyi`, `.yaml`, `.yml`, `.toml`, `.json`, `.cfg`, `.ini`, `.md`, `.html`, `.css`, `.js`, `.svg`
+
+Editing a `.md`, `.html`, or `.css` file under a watched directory triggers a
+reload without `--reload-include`. The watcher scans the current working
+directory, any `--reload-dir` paths, and any configured static-mount
+directories. Assets served from outside those locations need an explicit
+`--reload-dir`. Use `--reload-include` only for extensions outside the default
+set.
 
 ### TLS
 
@@ -108,8 +120,11 @@ The field set, types, and the `req_id` policy are a stability contract — see
 # Development
 pounce serve --app myapp:app --reload --log-level debug
 
-# Development with extra file watching
-pounce serve --app myapp:app --reload --reload-include ".html,.css,.md" --reload-dir ./templates
+# Development: .md/.html/.css/.js/.svg are watched by default under --reload
+pounce serve --app myapp:app --reload --reload-dir ./templates
+
+# Watch additional extensions beyond the default set
+pounce serve --app myapp:app --reload --reload-include ".rst,.scss"
 
 # Production (TCP)
 pounce serve --app myapp:app --host 0.0.0.0 --workers 0 --no-access-log
