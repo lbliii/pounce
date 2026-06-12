@@ -1,5 +1,7 @@
 """Unit tests for the standalone benchmark runner."""
 
+from pathlib import Path
+
 import pytest
 
 import benchmarks.run_benchmark as runner
@@ -14,6 +16,8 @@ from benchmarks.run_benchmark import (
     _telemetry_block,
     _TelemetrySampler,
     build_artifact,
+    build_profile_artifact,
+    compare_artifact,
 )
 
 
@@ -389,3 +393,224 @@ def test_build_artifact_includes_telemetry_and_summary_fields() -> None:
     assert group["peak_rss_bytes"]["max"] == 60_000_000
     assert group["cpu_percent"]["max"] == 120.0
     assert group["worker_pids"] == [10, 11, 12]
+
+
+# ── Regression gate (#140) ───────────────────────────────────────────
+
+
+def _grouped_artifact(
+    *,
+    req_per_sec_median: float,
+    p99_median: float,
+    sample_count: int = 5,
+    server: str = "pounce",
+    workload: str = "chirp",
+    workers: int = 1,
+) -> dict:
+    """Build a minimal artifact with one variance group for gate tests."""
+    group = {
+        "server": server,
+        "workload": workload,
+        "workers": workers,
+        "sample_count": sample_count,
+        "req_per_sec": {"median": req_per_sec_median},
+        "p99_latency_ms": {"median": p99_median},
+    }
+    return {"variance": {"sample_count": sample_count, "groups": [group]}}
+
+
+def test_compare_artifact_passes_when_metrics_hold() -> None:
+    baseline = _grouped_artifact(req_per_sec_median=10_000.0, p99_median=10.0)
+    candidate = _grouped_artifact(req_per_sec_median=10_050.0, p99_median=9.8)
+    report = compare_artifact(baseline, candidate)
+    assert report.regressed is False
+    assert len(report.comparisons) == 1
+    assert report.regressions == []
+
+
+def test_compare_artifact_fails_on_throughput_regression() -> None:
+    baseline = _grouped_artifact(req_per_sec_median=10_000.0, p99_median=10.0)
+    # 30% req/s drop, well beyond the default 10% tolerance.
+    candidate = _grouped_artifact(req_per_sec_median=7_000.0, p99_median=10.0)
+    report = compare_artifact(baseline, candidate)
+    assert report.regressed is True
+    [regression] = report.regressions
+    assert regression.server == "pounce"
+    assert regression.req_per_sec_change < -0.1
+    assert any("req/s regressed" in reason for reason in regression.reasons)
+
+
+def test_compare_artifact_fails_on_p99_latency_regression() -> None:
+    baseline = _grouped_artifact(req_per_sec_median=10_000.0, p99_median=10.0)
+    # p99 doubles — beyond the default 20% tolerance.
+    candidate = _grouped_artifact(req_per_sec_median=10_000.0, p99_median=20.0)
+    report = compare_artifact(baseline, candidate)
+    assert report.regressed is True
+    [regression] = report.regressions
+    assert regression.p99_latency_change > 0.2
+    assert any("p99 latency rose" in reason for reason in regression.reasons)
+
+
+def test_compare_artifact_respects_custom_tolerance() -> None:
+    baseline = _grouped_artifact(req_per_sec_median=10_000.0, p99_median=10.0)
+    candidate = _grouped_artifact(req_per_sec_median=9_400.0, p99_median=10.0)
+    # 6% drop passes the default 10% gate...
+    assert compare_artifact(baseline, candidate).regressed is False
+    # ...but fails a tightened 5% gate.
+    assert compare_artifact(baseline, candidate, rps_tolerance=0.05).regressed is True
+
+
+def test_compare_artifact_skips_snapshot_groups() -> None:
+    baseline = _grouped_artifact(req_per_sec_median=10_000.0, p99_median=10.0, sample_count=1)
+    # Massive regression, but the baseline is a 1-sample snapshot -> skipped.
+    candidate = _grouped_artifact(req_per_sec_median=1.0, p99_median=999.0, sample_count=5)
+    report = compare_artifact(baseline, candidate)
+    assert report.regressed is False
+    assert report.comparisons == []
+    assert len(report.skipped) == 1
+    assert "snapshot" in report.skipped[0]["reason"]
+
+
+def test_compare_artifact_reports_groups_missing_from_baseline() -> None:
+    baseline = _grouped_artifact(req_per_sec_median=10_000.0, p99_median=10.0, workload="chirp")
+    candidate = _grouped_artifact(req_per_sec_median=5_000.0, p99_median=99.0, workload="bengal")
+    report = compare_artifact(baseline, candidate)
+    # A candidate group with no baseline counterpart cannot gate.
+    assert report.regressed is False
+    assert report.comparisons == []
+    assert report.missing == [{"server": "pounce", "workload": "bengal", "workers": 1}]
+
+
+def test_compare_artifact_end_to_end_against_committed_baseline() -> None:
+    """The chirp local-snapshot artifact compared to a deliberately regressed copy."""
+    import copy
+    import json
+
+    baseline = json.loads(
+        Path("benchmarks/artifacts/2026-05-22/chirp-pounce-local.json").read_text()
+    )
+    candidate = copy.deepcopy(baseline)
+    group = candidate["variance"]["groups"][0]
+    group["req_per_sec"]["median"] = group["req_per_sec"]["median"] * 0.5
+    report = compare_artifact(baseline, candidate)
+    assert report.regressed is True
+
+
+# ── Generic profile artifact builder (#141) ──────────────────────────
+
+
+def test_build_profile_artifact_has_required_schema_fields() -> None:
+    samples = [
+        {
+            "server": "thread",
+            "workload": "worker_mode_comparison",
+            "workers": 2,
+            "req_per_sec": 2000.0,
+            "p99_latency_ms": 5.0,
+            "errors": 0,
+            "sample_index": 1,
+        },
+        {
+            "server": "subinterpreter",
+            "workload": "worker_mode_comparison",
+            "workers": 2,
+            "req_per_sec": 3500.0,
+            "p99_latency_ms": 3.0,
+            "errors": 0,
+            "sample_index": 1,
+        },
+    ]
+    artifact = build_profile_artifact(
+        profile="worker_mode_comparison",
+        command=["python", "-m", "benchmarks.worker_modes"],
+        server_command={"thread": "python -m pounce serve ..."},
+        samples=samples,
+        workers=2,
+        duration=0,
+        connections=10,
+        threads=0,
+        load_tool="worker_modes.py",
+        load_tool_version="in-process driver",
+        worker_mode="comparison",
+    )
+    required = {
+        "artifact_id",
+        "created_at",
+        "git_sha",
+        "command",
+        "server_command",
+        "workload",
+        "python_version",
+        "python_gil_mode",
+        "os",
+        "hardware",
+        "worker_mode",
+        "workers",
+        "duration_seconds",
+        "connections",
+        "threads",
+        "load_tool",
+        "load_tool_version",
+        "comparison_target",
+        "comparison_target_version",
+        "samples",
+        "telemetry",
+        "variance",
+        "raw_output",
+        "summary",
+    }
+    assert required <= artifact.keys()
+    assert artifact["workload"] == "worker_mode_comparison"
+    assert artifact["worker_mode"] == "comparison"
+    # One variance group per mode, so the gate can diff modes against a baseline.
+    servers = {g["server"] for g in artifact["variance"]["groups"]}
+    assert servers == {"thread", "subinterpreter"}
+
+
+def test_build_profile_artifact_is_gate_comparable() -> None:
+    """A profile artifact built by build_profile_artifact feeds the gate."""
+    baseline = build_profile_artifact(
+        profile="streaming",
+        command=["python", "-m", "benchmarks.streaming_profile"],
+        server_command={"pounce:streaming": "python -m pounce serve ..."},
+        samples=[
+            {
+                "server": "pounce",
+                "workload": "streaming",
+                "workers": 1,
+                "req_per_sec": 100.0,
+                "p99_latency_ms": 5.0,
+                "sample_index": i,
+            }
+            for i in range(1, 4)
+        ],
+        workers=1,
+        duration=10,
+        connections=100,
+        threads=1,
+        load_tool="streaming_profile.py",
+        load_tool_version="driver",
+    )
+    candidate = build_profile_artifact(
+        profile="streaming",
+        command=["python", "-m", "benchmarks.streaming_profile"],
+        server_command={"pounce:streaming": "python -m pounce serve ..."},
+        samples=[
+            {
+                "server": "pounce",
+                "workload": "streaming",
+                "workers": 1,
+                "req_per_sec": 50.0,  # event rate halved -> regression
+                "p99_latency_ms": 5.0,
+                "sample_index": i,
+            }
+            for i in range(1, 4)
+        ],
+        workers=1,
+        duration=10,
+        connections=100,
+        threads=1,
+        load_tool="streaming_profile.py",
+        load_tool_version="driver",
+    )
+    assert compare_artifact(baseline, candidate).regressed is True
