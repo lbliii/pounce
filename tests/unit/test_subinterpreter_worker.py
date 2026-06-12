@@ -500,3 +500,184 @@ class TestConfigRoundTripFuzz:
             for key, val in original.to_iic_dict().items():
                 restored_val = restored.to_iic_dict()[key]
                 assert val == restored_val, f"Field {key!r} mismatch: {val!r} != {restored_val!r}"
+
+
+# ---------------------------------------------------------------------------
+# FD leak prevention (issue #106)
+# ---------------------------------------------------------------------------
+
+
+def _fd_is_open(fd: int) -> bool:
+    """Return True if ``fd`` refers to an open descriptor in this process."""
+    import os
+
+    try:
+        os.fstat(fd)
+        return True
+    except OSError:
+        return False
+
+
+class TestBootstrapClosesListenerFD:
+    """bootstrap() releases its dup'd listener FD on every exit path (issue #106).
+
+    Subinterpreters share the parent's FD table, so the dup'd descriptor and the
+    reconstructed socket are the same FD number.  Before the fix the FD was only
+    closed inside the clean-drain path, so abnormal failures (bad app import,
+    start_server error, startup-hook failure) leaked it.
+    """
+
+    def _run_bootstrap(self, app_path: str) -> tuple[int, list[tuple]]:
+        """Dup a real listener FD, run bootstrap, return (dup_fd, status_msgs)."""
+        import socket
+        import sys
+
+        from pounce._subinterpreter_bootstrap import bootstrap
+
+        lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            lsock.bind(("127.0.0.1", 0))
+            lsock.listen(8)
+
+            import os
+
+            dup_fd = os.dup(lsock.fileno())
+            assert _fd_is_open(dup_fd)
+
+            ctrl_q: queue.Queue = queue.Queue()
+            status_q: queue.Queue = queue.Queue()
+            config_json = ServerConfig(worker_mode="subinterpreter").to_json()
+
+            with pytest.raises(Exception):  # noqa: B017,PT011 — any failure is fine
+                bootstrap(
+                    ctrl_q,
+                    status_q,
+                    config_json,
+                    "{}",
+                    app_path,
+                    dup_fd,
+                    int(socket.AF_INET),
+                    0,
+                    tuple(sys.path),
+                )
+
+            msgs = []
+            while not status_q.empty():
+                msgs.append(status_q.get_nowait())
+            return dup_fd, msgs
+        finally:
+            lsock.close()
+
+    def test_fd_closed_on_bad_app_import(self) -> None:
+        """A failing app import must not leak the reconstructed listener FD."""
+        dup_fd, _msgs = self._run_bootstrap("nonexistent.module:app")
+        assert not _fd_is_open(dup_fd), "dup'd listener FD leaked after import failure"
+
+    def test_emits_fd_closed_status(self) -> None:
+        """bootstrap signals STATUS_FD_CLOSED so the supervisor can skip closing."""
+        from pounce._subinterpreter_bootstrap import STATUS_FD_CLOSED
+
+        _dup_fd, msgs = self._run_bootstrap("nonexistent.module:app")
+        assert any(m[0] == STATUS_FD_CLOSED for m in msgs)
+
+
+class TestReclaimSubinterpFD:
+    """Supervisor._reclaim_subinterp_fd closes leaked FDs without double-close."""
+
+    def _make_supervisor(self):
+        from pounce.supervisor import Supervisor
+
+        config = ServerConfig(worker_mode="subinterpreter")
+        sup = Supervisor.__new__(Supervisor)
+        sup._mode = "subinterpreter"
+        sup._config = config
+        return sup
+
+    def _make_handle(self, *, alive: bool, sock_fd, status_queue):
+        import threading
+
+        from pounce.supervisor import _WorkerHandle
+
+        class _FakeTarget:
+            def __init__(self, alive: bool) -> None:
+                self._alive = alive
+
+            def is_alive(self) -> bool:
+                return self._alive
+
+        handle = _WorkerHandle(0, threading.Thread(target=lambda: None), None)
+        handle.target = _FakeTarget(alive)  # type: ignore[assignment]
+        handle.sock_fd = sock_fd
+        handle.status_queue = status_queue
+        return handle
+
+    def test_closes_orphaned_fd_when_thread_dead_no_signal(self) -> None:
+        """Dead worker with no self-close signal: supervisor closes the leaked FD."""
+        import os
+
+        r, w = os.pipe()
+        os.close(w)  # only track r as the "listener" fd
+        sup = self._make_supervisor()
+        handle = self._make_handle(alive=False, sock_fd=r, status_queue=None)
+
+        assert _fd_is_open(r)
+        sup._reclaim_subinterp_fd(handle)
+        assert not _fd_is_open(r), "supervisor did not reclaim leaked listener FD"
+        assert handle.sock_fd is None
+        assert handle.fd_self_closed is True
+
+    def test_skips_close_when_self_close_signalled(self) -> None:
+        """If the worker signalled STATUS_FD_CLOSED, do NOT close (double-close guard).
+
+        The FD value may have been reassigned by the OS; closing it would corrupt
+        an unrelated descriptor.
+        """
+        import os
+
+        from pounce._subinterpreter_bootstrap import STATUS_FD_CLOSED
+
+        # A live, unrelated FD standing in for a reassigned value.
+        sentinel_fd = os.dup(0)
+        status_q: queue.Queue = queue.Queue()
+        status_q.put((STATUS_FD_CLOSED,))
+        sup = self._make_supervisor()
+        handle = self._make_handle(alive=False, sock_fd=sentinel_fd, status_queue=status_q)
+
+        try:
+            sup._reclaim_subinterp_fd(handle)
+            assert _fd_is_open(sentinel_fd), "supervisor double-closed a self-closed FD"
+            assert handle.fd_self_closed is True
+            assert handle.sock_fd is None
+        finally:
+            if _fd_is_open(sentinel_fd):
+                os.close(sentinel_fd)
+
+    def test_skips_close_when_thread_still_alive(self) -> None:
+        """A still-running worker owns its socket; the supervisor must not close it."""
+        import os
+
+        sentinel_fd = os.dup(0)
+        sup = self._make_supervisor()
+        handle = self._make_handle(alive=True, sock_fd=sentinel_fd, status_queue=None)
+
+        try:
+            sup._reclaim_subinterp_fd(handle)
+            assert _fd_is_open(sentinel_fd), "supervisor closed FD of a live worker"
+            assert handle.sock_fd == sentinel_fd, "FD prematurely dropped from handle"
+            assert handle.fd_self_closed is False
+        finally:
+            os.close(sentinel_fd)
+
+    def test_idempotent_no_double_close(self) -> None:
+        """Calling reclaim twice never issues a second close()."""
+        import os
+
+        r, w = os.pipe()
+        os.close(w)
+        sup = self._make_supervisor()
+        handle = self._make_handle(alive=False, sock_fd=r, status_queue=None)
+
+        sup._reclaim_subinterp_fd(handle)
+        # Second call is a no-op (sock_fd cleared, fd_self_closed set).
+        sup._reclaim_subinterp_fd(handle)
+        assert handle.sock_fd is None

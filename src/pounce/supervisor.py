@@ -20,6 +20,7 @@ import concurrent.futures
 import contextlib
 import logging
 import multiprocessing
+import os
 import queue
 import signal
 import socket
@@ -47,6 +48,7 @@ from pounce._state import (
     WORKER_STARTED,
     dispatch,
 )
+from pounce._subinterpreter_bootstrap import STATUS_FD_CLOSED as _STATUS_FD_CLOSED
 from pounce._types import ASGIApp
 from pounce.accept_distributor import AcceptDistributor, is_shared_socket
 from pounce.async_pool import AsyncPool
@@ -140,11 +142,14 @@ class _WorkerHandle:
 
     __slots__ = (
         "_exc_holder",
+        "fd_self_closed",
         "generation",
         "last_exception",
         "restart_count",
         "restarts",
+        "sock_fd",
         "started_at",
+        "status_queue",
         "target",
         "worker",
         "worker_id",
@@ -166,6 +171,13 @@ class _WorkerHandle:
         self.generation = generation  # Used for rolling restart
         self.last_exception: BaseException | None = None
         self._exc_holder: list[BaseException | None] | None = None
+        # Subinterpreter-only FD accounting (issue #106): the dup'd listener FD
+        # owned by this worker, the worker's status queue (to observe the
+        # self-close signal), and whether the FD has already been released
+        # (either by the worker's bootstrap finally or by the supervisor).
+        self.sock_fd: int | None = None
+        self.status_queue: Any = None
+        self.fd_self_closed: bool = False
 
 
 class _H3WorkerHandle:
@@ -500,6 +512,12 @@ class Supervisor:
         # Clear shutdown event for new workers
         self._shutdown_event.clear()
 
+        # Reclaim any orphaned dup'd listener FDs before dropping the handles
+        # (issue #106) — workers reach here only after they have stopped.
+        if self._mode == "subinterpreter":
+            for handle in self._handles:
+                self._reclaim_subinterp_fd(handle)
+
         # Reset restart counts and IIC queues for fresh workers
         self._handles.clear()
         self._h3_handles.clear()
@@ -712,6 +730,15 @@ class Supervisor:
             if handle.target.is_alive():
                 self._force_stop(handle, join_per)
 
+        # Reclaim each old generation's dup'd listener FD on the generational
+        # swap so reloads — including a force-stopped, non-draining old worker —
+        # do not leak FDs (issue #106).  Workers that drained/shut down cleanly
+        # already self-closed; this is a no-op for them and closes only an
+        # orphaned FD whose owning thread has exited without signalling.
+        if self._mode == "subinterpreter":
+            for handle in old_handles:
+                self._reclaim_subinterp_fd(handle)
+
         # Replace handles with new generation
         self._handles = new_handles
         self._iic_queues = new_iic_queues
@@ -878,7 +905,6 @@ class Supervisor:
         and the socket as a dup'd file descriptor — all IIC-safe types.
         """
         import concurrent.interpreters as ci
-        import os
 
         if not self._app_path:
             raise SupervisorError(
@@ -968,6 +994,10 @@ class Supervisor:
 
         # No direct worker ref — drain control goes through IIC
         handle = _WorkerHandle(worker_id, target, None, generation=self._generation)
+        # Track the dup'd listener FD so the supervisor can reclaim it if the
+        # worker terminates abnormally without running its self-close (issue #106).
+        handle.sock_fd = sock_fd
+        handle.status_queue = status_queue
         if worker_id < len(self._handles):
             self._handles[worker_id] = handle
         else:
@@ -1055,6 +1085,13 @@ class Supervisor:
                 worker_id,
             )
             return
+
+        # Reclaim the crashed worker's dup'd listener FD before the replacement
+        # dups a fresh one, so abnormal crash/respawn cycles do not leak FDs
+        # (issue #106).  The crashed thread is already dead, so this either
+        # observes its clean self-close signal or closes the orphaned FD.
+        if self._mode == "subinterpreter":
+            self._reclaim_subinterp_fd(handle)
 
         self._spawn_worker(worker_id)
 
@@ -1148,6 +1185,9 @@ class Supervisor:
                 self._force_stop(handle, per)
             else:
                 logger.debug("Worker %d stopped cleanly", handle.worker_id)
+            if self._mode == "subinterpreter":
+                # Reclaim any orphaned dup'd listener FD (issue #106).
+                self._reclaim_subinterp_fd(handle)
 
         if self._h3_handles:
             _parallel_join_targets([h.target for h in self._h3_handles], per)
@@ -1186,6 +1226,62 @@ class Supervisor:
                 "daemon thread may still run until process exit",
                 handle.worker_id,
                 join_timeout,
+            )
+
+    def _reclaim_subinterp_fd(self, handle: _WorkerHandle) -> None:
+        """Close a stopped subinterpreter worker's dup'd listener FD if leaked.
+
+        Subinterpreters share the parent's FD table, so the dup'd descriptor
+        and the worker's reconstructed socket are the *same* FD number.  On the
+        normal path the worker's bootstrap closes it (signalled via
+        ``STATUS_FD_CLOSED``).  This reclaims the FD only on abnormal exits
+        where that signal never arrived — and only once the worker thread has
+        actually stopped — to recover the leak described in issue #106.
+
+        Double-close safety (critical, per issue #106): closing the FD value
+        after the OS may have reassigned it would corrupt an unrelated
+        descriptor.  We therefore (1) never close while the worker thread is
+        still alive (it still owns the socket), (2) skip if the worker already
+        signalled a clean self-close, and (3) mark the FD reclaimed so we never
+        close the same value twice.
+        """
+        if handle.sock_fd is None or handle.fd_self_closed:
+            return
+
+        # Drain the worker's status queue: if the bootstrap finally ran, it put
+        # STATUS_FD_CLOSED, meaning the worker already closed this FD.
+        if handle.status_queue is not None:
+            while True:
+                msg = _try_iic_get(handle.status_queue)
+                if msg is None:
+                    break
+                if msg[0] == _STATUS_FD_CLOSED:
+                    handle.fd_self_closed = True
+                    handle.sock_fd = None
+                    return
+
+        # If the worker thread is still running it still owns the socket; closing
+        # now would race a live accept loop and risk closing a reused FD value.
+        if handle.target.is_alive():
+            return
+
+        fd = handle.sock_fd
+        handle.sock_fd = None
+        handle.fd_self_closed = True
+        try:
+            os.close(fd)
+            logger.debug(
+                "Reclaimed leaked listener FD %d from subinterpreter worker %d",
+                fd,
+                handle.worker_id,
+            )
+        except OSError:
+            # Already closed (e.g. self-close raced our read of the queue) —
+            # nothing to recover.
+            logger.debug(
+                "Listener FD %d for subinterpreter worker %d was already closed",
+                fd,
+                handle.worker_id,
             )
 
     # ------------------------------------------------------------------

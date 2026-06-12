@@ -26,6 +26,7 @@ This keeps Worker as the single source of truth for request handling.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import logging
 import os
@@ -48,6 +49,10 @@ STATUS_DRAINING = "draining"
 STATUS_IDLE = "idle"
 STATUS_STOPPED = "stopped"
 STATUS_ERROR = "error"
+# Emitted once the worker has closed its own copy of the dup'd listener FD.
+# The supervisor uses this to avoid double-closing an FD value the OS may
+# have reassigned (issue #106).
+STATUS_FD_CLOSED = "fd_closed"
 
 
 def bootstrap(
@@ -75,7 +80,26 @@ def bootstrap(
 
     status_queue.put((STATUS_STARTED,))
 
+    # Reconstruct the socket from the dup'd FD up front so a Python ``socket``
+    # object owns the descriptor as early as possible.  The ``finally`` below
+    # then guarantees the worker's copy of the FD is released on *every* exit
+    # path — including app-import failures, ``start_server`` errors and
+    # startup-hook failures — not just the clean drain path (issue #106).
+    server_sock: socket.socket | None = None
     try:
+        try:
+            server_sock = socket.socket(
+                socket.AddressFamily(sock_family),
+                socket.SOCK_STREAM,
+                fileno=sock_fd,
+            )
+        except OSError:
+            # Could not wrap the raw FD in a socket object — close it directly
+            # so the dup'd descriptor does not leak.
+            with contextlib.suppress(OSError):
+                os.close(sock_fd)
+            raise
+
         # --- Reconstruct config ---
         from pounce.config import ServerConfig
 
@@ -86,13 +110,6 @@ def bootstrap(
 
         # --- Import ASGI app ---
         app = _import_app(app_import_path)
-
-        # --- Reconstruct socket from dup'd FD ---
-        server_sock = socket.socket(
-            socket.AddressFamily(sock_family),
-            socket.SOCK_STREAM,
-            fileno=sock_fd,
-        )
 
         # --- Create Worker (no shutdown_event — IIC bridge replaces it) ---
         from pounce.worker import Worker
@@ -122,6 +139,17 @@ def bootstrap(
     except Exception as exc:
         status_queue.put((STATUS_ERROR, str(exc)))
         raise
+    finally:
+        # Release this worker's copy of the dup'd listener FD.  ``socket.close``
+        # is idempotent, so this is safe even after ``_run_worker_with_iic``
+        # already closed it via ``server.close()`` on the clean path.  Signalling
+        # STATUS_FD_CLOSED lets the supervisor know the FD is gone so it does not
+        # re-close an FD value the OS may have reassigned.
+        if server_sock is not None:
+            with contextlib.suppress(OSError):
+                server_sock.close()
+        with contextlib.suppress(Exception):  # best-effort IIC status
+            status_queue.put((STATUS_FD_CLOSED,))
 
     status_queue.put((STATUS_STOPPED,))
 

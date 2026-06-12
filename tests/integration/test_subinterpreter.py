@@ -769,3 +769,104 @@ class TestSubinterpreterWorker:
             supervisor.shutdown()
             sup_thread.join(timeout=5.0)
             _close_sockets(sockets)
+
+
+def _count_open_fds() -> int:
+    """Count open file descriptors for this process (macOS /dev/fd, Linux /proc)."""
+    import os
+
+    for path in ("/proc/self/fd", "/dev/fd"):
+        if os.path.isdir(path):
+            try:
+                return len(os.listdir(path))
+            except OSError:
+                continue
+    pytest.skip("No /proc/self/fd or /dev/fd to count FDs on this platform")
+    raise AssertionError  # unreachable
+
+
+class TestSubinterpreterFDLeak:
+    """No FD leak across abnormal crash/respawn and reload cycles (issue #106)."""
+
+    def test_no_fd_leak_across_abnormal_respawns_and_reloads(self) -> None:
+        """Run N abnormal respawns + N reloads; open-FD count must not grow.
+
+        Abnormal respawn: kill the worker via IIC shutdown so the supervisor's
+        health monitor respawns it (a fresh os.dup per spawn).  Reload: includes
+        a non-draining worker forced to stop after reload_timeout.  Each cycle
+        previously leaked the parent-side dup'd listener FD.
+        """
+        port = _find_free_port()
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=port,
+            workers=1,
+            worker_mode="subinterpreter",
+            access_log=False,
+            reload_timeout=1.0,
+        )
+
+        sockets = create_listeners(config, count=1, shared=True)
+
+        supervisor = Supervisor(
+            config,
+            app=None,
+            mode=WorkerMode.SUBINTERPRETER,
+            app_path=APP_PATH,
+        )
+        supervisor.set_lifespan_state({})
+
+        sup_thread = threading.Thread(target=supervisor.run, args=(sockets,), daemon=True)
+        sup_thread.start()
+
+        try:
+            time.sleep(1.0)
+            status, _ = _http_get("127.0.0.1", port)
+            assert status == 200
+
+            # Quiesce, then take the baseline after the first worker is steady.
+            time.sleep(0.5)
+            baseline = _count_open_fds()
+
+            # --- N abnormal respawns ---
+            for _ in range(4):
+                assert len(supervisor._iic_queues) >= 1
+                ctrl_queue, _ = supervisor._iic_queues[0]
+                ctrl_queue.put(("shutdown",))  # abrupt stop -> health monitor respawns
+                # Wait for respawn to bring serving back up.
+                deadline = time.monotonic() + 8.0
+                while time.monotonic() < deadline:
+                    try:
+                        s, _b = _http_get("127.0.0.1", port)
+                        if s == 200:
+                            break
+                    except OSError:
+                        pass
+                    time.sleep(0.2)
+                else:
+                    raise AssertionError("worker did not respawn after abnormal stop")
+
+            # --- N graceful reloads (each old worker is non-draining here) ---
+            for _ in range(4):
+                reload_thread = threading.Thread(target=supervisor.graceful_reload, daemon=True)
+                reload_thread.start()
+                reload_thread.join(timeout=20.0)
+                assert not reload_thread.is_alive(), "reload did not complete"
+
+            # Let any final force-stopped old workers exit and self-close.
+            time.sleep(1.5)
+            status, _ = _http_get("127.0.0.1", port)
+            assert status == 200
+            time.sleep(0.5)
+
+            after = _count_open_fds()
+            # Allow small slack for transient connection FDs / thread pools, but
+            # 8 cycles must not accumulate ~8 leaked listener FDs.
+            assert after <= baseline + 3, (
+                f"FD leak: baseline={baseline}, after 8 abnormal cycles={after}"
+            )
+
+        finally:
+            supervisor.shutdown()
+            sup_thread.join(timeout=5.0)
+            _close_sockets(sockets)
