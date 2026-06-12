@@ -61,6 +61,22 @@ After the timeout, idle connections are closed. Set `max_requests_per_connection
 
 Pounce handles chunked transfer encoding transparently. When your ASGI app sends multiple `http.response.body` events with `more_body=True`, Pounce uses chunked encoding automatically.
 
+## Expect: 100-continue
+
+When a client sends an `Expect: 100-continue` request header, it withholds the
+request body until the server acknowledges with an interim `100 Continue`
+status line. Pounce emits that interim response before reading the body on both
+the async (h11) and sync (fast parser) HTTP/1.1 worker paths, so clients that
+wait for it do not stall. This is HTTP/1.1 only; HTTP/2 and HTTP/3 use their own
+flow-control mechanisms instead.
+
+## Trailers
+
+HTTP/1.1 trailing headers (sent after a chunked body) are not supported. Pounce
+does not surface request trailers to the ASGI app and does not emit response
+trailers. Applications that rely on trailers should not depend on them with
+Pounce.
+
 ## Limits
 
 | Setting | Default | Description |

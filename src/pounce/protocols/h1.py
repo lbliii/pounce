@@ -107,6 +107,23 @@ class H1Protocol:
         )
         return self._conn.send(response)
 
+    def send_100_continue(self) -> bytes:
+        """Serialize an interim ``100 Continue`` informational response.
+
+        A client that sends ``Expect: 100-continue`` withholds the request
+        body until it observes this interim status line. h11 models it as an
+        :class:`h11.InformationalResponse` (status 1xx), which does not
+        terminate the request-response cycle, so the final response is still
+        sent normally afterwards.
+
+        Returns:
+            Serialized ``HTTP/1.1 100 Continue`` head bytes.
+
+        """
+        return self._conn.send(
+            h11.InformationalResponse(status_code=100, headers=[], reason=b"Continue")
+        )
+
     def send_body(self, data: bytes, more: bool = False) -> bytes:
         """Serialize a response body chunk into bytes.
 

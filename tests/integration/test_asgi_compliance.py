@@ -699,28 +699,56 @@ class TestRequestBody:
             sock.close()
 
     def test_expect_100_continue(self):
-        """Request with Expect: 100-continue receives a valid response.
+        """Async (h11) worker sends 100 Continue before reading a withheld body.
 
-        Server may send 100 Continue before body, or go straight to final
-        response. Either way, client must not hang.
+        A compliant ``Expect: 100-continue`` client deliberately withholds the
+        request body until it observes the interim status line. This test sends
+        only the headers, blocks reading the socket until ``100 Continue``
+        arrives, *then* sends the body — proving the server emits the interim
+        response before the body, and that such a client does not stall (#122).
         """
         worker, sock, thread = start_worker(_body_echo_app)
         addr = sock.getsockname()
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(3.0)
         try:
             payload = b"hello"
-            request = (
+            headers = (
                 b"POST / HTTP/1.1\r\n"
                 b"Host: localhost\r\n"
                 b"Expect: 100-continue\r\n"
                 b"Content-Length: " + str(len(payload)).encode() + b"\r\n"
                 b"Connection: close\r\n"
-                b"\r\n" + payload
+                b"\r\n"
             )
-            response = send_raw_request(addr, request, timeout=3.0)
-            assert b"HTTP/1.1" in response
-            # Either 100 Continue or 200 OK — server must respond
-            assert b"100" in response or b"200" in response
+            client.connect(addr)
+            # Send only the headers; withhold the body until 100 is seen.
+            client.sendall(headers)
+
+            # Read until the interim 100 Continue line arrives. If the server
+            # never sends it (the bug), recv blocks and the test times out.
+            interim = b""
+            while b"\r\n\r\n" not in interim:
+                chunk = client.recv(4096)
+                assert chunk, "connection closed before 100 Continue"
+                interim += chunk
+            assert interim.startswith(b"HTTP/1.1 100 Continue\r\n"), interim
+
+            # Now release the body and collect the final response.
+            client.sendall(payload)
+            response = interim
+            while True:
+                try:
+                    chunk = client.recv(4096)
+                except TimeoutError:
+                    break
+                if not chunk:
+                    break
+                response += chunk
+            assert b"HTTP/1.1 200" in response
+            assert payload in response
         finally:
+            client.close()
             worker.shutdown()
             thread.join(timeout=2)
             sock.close()

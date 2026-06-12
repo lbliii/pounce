@@ -18,7 +18,7 @@ from pounce.async_pool import StreamingHandoff, WebSocketHandoff
 from pounce.config import ServerConfig
 from pounce.protocols._base import RequestReceived
 from pounce.sync_protocol import RawRequest, RawResponse, SyncApp
-from pounce.sync_worker import SyncWorker, _classify_request
+from pounce.sync_worker import SyncWorker, _classify_request, _wants_100_continue
 
 # ---------------------------------------------------------------------------
 # Fixtures: mock socket and helpers
@@ -182,6 +182,24 @@ async def _streaming_asgi_app(scope: Scope, receive: Receive, send: Send) -> Non
     """ASGI app that returns a streaming response (triggers NeedsAsyncError)."""
     await send({"type": "http.response.start", "status": 200, "headers": []})
     await send({"type": "http.response.body", "body": b"chunk1", "more_body": True})
+
+
+async def _echo_body_app(scope: Scope, receive: Receive, send: Send) -> None:
+    """Reads the full request body and echoes it back (200)."""
+    body = b""
+    while True:
+        message = await receive()
+        body += message.get("body", b"")
+        if not message.get("more_body", False):
+            break
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-length", str(len(body)).encode())],
+        }
+    )
+    await send({"type": "http.response.body", "body": body, "more_body": False})
 
 
 # ---------------------------------------------------------------------------
@@ -502,6 +520,128 @@ class TestSyncWorkerErrorPaths:
         assert b"\r\nInjected: yes" not in response
         assert b"\r\ninjected: yes" not in response.lower()
         assert b"x-evil: valueinjected: yes" in response.lower()
+
+
+class _StagedExpectSocket(_MockSocketBase):
+    """Socket that withholds the body until ``100 Continue`` is observed (#122).
+
+    Mimics a compliant ``Expect: 100-continue`` client: ``recv_into`` first
+    delivers only the request headers. The body is *not* released until the
+    server has written the interim ``100 Continue`` line, proving the server
+    sends it before reading the withheld body. Send/recv events are recorded
+    in order so the test can assert the interim status precedes body delivery.
+    """
+
+    def __init__(self, headers: bytes, body: bytes) -> None:
+        super().__init__(b"")
+        self._headers = headers
+        self._body = body
+        self._headers_sent = False
+        self._continue_seen = False
+        self._body_sent = False
+        # Ordered log of ("send100", ...) / ("recv_body", ...) events.
+        self.events: list[str] = []
+
+    def _note_send(self, data: bytes | bytearray) -> None:
+        self.sent_data.extend(data)
+        if not self._continue_seen and b"100 Continue" in bytes(self.sent_data):
+            self._continue_seen = True
+            self.events.append("send100")
+
+    def sendall(self, data: bytes | bytearray) -> None:
+        self._note_send(data)
+
+    def sendmsg(self, buffers: list[bytes | bytearray]) -> int:
+        total = 0
+        for buf in buffers:
+            self._note_send(buf)
+            total += len(buf)
+        return total
+
+    def recv_into(self, buf: memoryview | bytearray) -> int:
+        if not self._headers_sent:
+            self._headers_sent = True
+            n = len(self._headers)
+            buf[:n] = self._headers
+            return n
+        # Body is withheld until the server emits 100 Continue.
+        if self._continue_seen and not self._body_sent:
+            self._body_sent = True
+            self.events.append("recv_body")
+            n = len(self._body)
+            buf[:n] = self._body
+            return n
+        # No more data (request fully delivered).
+        return 0
+
+
+class TestSyncWorkerExpect100Continue:
+    """Sync worker emits 100 Continue before reading a withheld body (#122)."""
+
+    def test_sends_100_continue_before_body(self) -> None:
+        payload = b"hello-body"
+        headers = (
+            b"POST / HTTP/1.1\r\n"
+            b"Host: localhost\r\n"
+            b"Expect: 100-continue\r\n"
+            b"Content-Length: " + str(len(payload)).encode() + b"\r\n"
+            b"Connection: close\r\n"
+            b"\r\n"
+        )
+        mock_sock = _StagedExpectSocket(headers, payload)
+        worker = _make_worker(app=_echo_body_app)
+        runner = asyncio.Runner()
+        try:
+            worker._handle_connection(mock_sock, ("127.0.0.1", 54321), runner)
+        finally:
+            runner.close()
+
+        response = bytes(mock_sock.sent_data)
+        # The interim 100 Continue line was written...
+        assert b"HTTP/1.1 100 Continue\r\n\r\n" in response
+        # ...and the final response (with the echoed body) followed.
+        assert b"HTTP/1.1 200" in response
+        assert payload in response
+        # Crucially: 100 Continue was emitted BEFORE the body was read off the
+        # socket. Without the fix the body recv blocks first (or never sends
+        # 100 at all), so this ordering would fail.
+        assert mock_sock.events == ["send100", "recv_body"]
+
+    def test_wants_100_continue_detection(self) -> None:
+        """Line-anchored Expect detection: real header yes, stray substring no."""
+        # Real Expect header (request line + header, no trailing blank line).
+        block = b"POST / HTTP/1.1\r\nHost: x\r\nExpect: 100-continue"
+        assert _wants_100_continue(block) is True
+        # Case-insensitive.
+        assert _wants_100_continue(b"POST / HTTP/1.1\r\nexpect:  100-CONTINUE") is True
+        # No Expect header.
+        assert _wants_100_continue(b"POST / HTTP/1.1\r\nHost: x") is False
+        # ``expect:`` appearing inside another header value must NOT match.
+        stray = b"POST / HTTP/1.1\r\nX-Note: please expect: 100-continue soon"
+        assert _wants_100_continue(stray) is False
+
+    def test_no_100_continue_without_expect_header(self) -> None:
+        """A normal body request (no Expect) gets no interim 100 line."""
+        payload = b"plain"
+        request = (
+            b"POST / HTTP/1.1\r\n"
+            b"Host: localhost\r\n"
+            b"Content-Length: " + str(len(payload)).encode() + b"\r\n"
+            b"Connection: close\r\n"
+            b"\r\n" + payload
+        )
+        mock_sock = MockSocket(request)
+        worker = _make_worker(app=_echo_body_app)
+        runner = asyncio.Runner()
+        try:
+            worker._handle_connection(mock_sock, ("127.0.0.1", 54321), runner)
+        finally:
+            runner.close()
+
+        response = bytes(mock_sock.sent_data)
+        assert b"100 Continue" not in response
+        assert b"HTTP/1.1 200" in response
+        assert payload in response
 
 
 # ---------------------------------------------------------------------------

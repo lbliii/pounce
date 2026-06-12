@@ -137,6 +137,50 @@ class TestH1SendResponse:
         assert b"404" in raw
 
 
+class TestH1Expect100Continue:
+    """H1Protocol emits an interim 100 Continue for Expect: 100-continue (#122)."""
+
+    def _headers_only(self, body_len: int) -> bytes:
+        # Request head only — the body is withheld (Expect: 100-continue).
+        lines = [
+            "POST /upload HTTP/1.1",
+            "host: localhost",
+            "expect: 100-continue",
+            f"content-length: {body_len}",
+            "",
+            "",
+        ]
+        return "\r\n".join(lines).encode("ascii")
+
+    def test_client_is_waiting_when_body_withheld(self):
+        proto = H1Protocol()
+        events = proto.receive_data(self._headers_only(5))
+        # Headers parsed into a request, but the body has not arrived yet.
+        assert any(isinstance(e, RequestReceived) for e in events)
+        assert proto.client_is_waiting_for_100_continue is True
+
+    def test_send_100_continue_wire_format(self):
+        proto = H1Protocol()
+        proto.receive_data(self._headers_only(5))
+
+        interim = proto.send_100_continue()
+        assert interim == b"HTTP/1.1 100 Continue\r\n\r\n"
+        # The interim response does not terminate the cycle: the final
+        # response is still sent normally afterwards.
+        assert proto.client_is_waiting_for_100_continue is False
+        proto.receive_data(b"hello")
+        final = proto.send_response(200, [(b"content-length", b"0")])
+        assert b"200" in final
+
+    def test_no_waiting_without_expect_header(self):
+        proto = H1Protocol()
+        raw = _make_request("POST", "/upload", headers={"content-length": "5"})
+        # Feed only the head; without Expect, h11 does not flag a wait.
+        head = raw.split(b"\r\n\r\n", 1)[0] + b"\r\n\r\n"
+        proto.receive_data(head)
+        assert proto.client_is_waiting_for_100_continue is False
+
+
 class TestH1SendBody:
     """H1Protocol.send_body() serializes response body chunks."""
 
