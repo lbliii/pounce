@@ -76,6 +76,7 @@ class AsyncPool:
         "_lifespan_state",
         "_logger",
         "_loop",
+        "_pool_shutdown",
         "_queue",
         "_ssl_context",
     )
@@ -98,11 +99,34 @@ class AsyncPool:
         self._queue: queue.Queue[HandoffRequest] = queue.Queue()
         self._handoff_tasks: set[asyncio.Task[None]] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
+        # Per-pool shutdown, distinct from the shared ``_ext_shutdown`` so a
+        # single old pool can be retired on graceful reload (issue #102)
+        # without signalling the supervisor-wide shutdown event.
+        self._pool_shutdown = threading.Event()
         self._logger = logging.getLogger("pounce.async_pool")
 
     def set_lifespan_state(self, state: dict[str, Any]) -> None:
         """Set the lifespan state dict shared with all requests."""
         self._lifespan_state = state
+
+    def set_app(self, app: ASGIApp) -> None:
+        """Swap the ASGI app used for future handoffs.
+
+        Safe to call while the pool is running: ``self._app`` is read once per
+        handoff (in ``_handle_streaming_handoff`` / ``_handle_websocket_handoff``),
+        not captured at loop start. Used by graceful reload to point a freshly
+        built pool at the reimported app (issue #102).
+        """
+        self._app = app
+
+    def request_shutdown(self) -> None:
+        """Signal this pool's serve loop to stop accepting new handoffs.
+
+        Distinct from the shared ``_ext_shutdown``: retires only this pool so a
+        graceful reload can drain the old generation without tearing down the
+        whole server (issue #102).
+        """
+        self._pool_shutdown.set()
 
     def accept_handoff(self, handoff: HandoffRequest) -> None:
         """Accept a handoff from a SyncWorker (thread-safe)."""
@@ -113,19 +137,95 @@ class AsyncPool:
         asyncio.run(self._serve())
 
     async def _serve(self) -> None:
-        """Event loop: process handoffs until shutdown."""
+        """Event loop: process handoffs until shutdown.
+
+        The pool retires on its OWN ``_pool_shutdown`` event, NOT on the shared
+        ``_ext_shutdown`` (#104). On a FULL shutdown the supervisor sets
+        ``_ext_shutdown`` immediately but only calls ``request_shutdown()``
+        (which sets ``_pool_shutdown``) AFTER the sync workers have drained —
+        because a draining worker can still be SERVING an in-flight
+        streaming/WebSocket request that it hands off to this pool. Retiring on
+        ``_ext_shutdown`` would close the pool before that late handoff arrives,
+        orphaning the connection (empty response). A safety deadline keyed off
+        ``_ext_shutdown`` guarantees the pool still self-retires even if
+        ``request_shutdown()`` is never delivered (e.g. a supervisor fault).
+        """
         self._loop = asyncio.get_running_loop()
 
-        while not (self._ext_shutdown and self._ext_shutdown.is_set()):
+        safety_deadline: float | None = None
+        while not self._pool_shutdown.is_set():
+            if self._ext_shutdown is not None and self._ext_shutdown.is_set():
+                if safety_deadline is None:
+                    # 2x the per-pool drain budget: ample for the workers to
+                    # finish draining and enqueue their final handoffs.
+                    safety_deadline = self._loop.time() + 2 * self._config.shutdown_timeout
+                elif self._loop.time() >= safety_deadline:
+                    break
             try:
                 handoff = self._queue.get_nowait()
             except queue.Empty:
-                await asyncio.sleep(0.25)
+                await asyncio.sleep(0.05)
                 continue
 
-            task = asyncio.create_task(self._handle_handoff_async(handoff))
-            self._handoff_tasks.add(task)
-            task.add_done_callback(self._handoff_tasks.discard)
+            self._start_handoff(handoff)
+
+        # Drain any handoffs that landed just as the pool was retiring, then
+        # await every in-flight task. Both bounded by ``shutdown_timeout`` so an
+        # unbounded stream cannot pin the pool forever; survivors are cancelled.
+        await self._drain_queued_handoffs(self._config.shutdown_timeout)
+        await self._drain_handoffs(self._config.shutdown_timeout)
+
+    def _start_handoff(self, handoff: HandoffRequest) -> None:
+        """Schedule a handoff as a tracked task."""
+        task = asyncio.create_task(self._handle_handoff_async(handoff))
+        self._handoff_tasks.add(task)
+        task.add_done_callback(self._handoff_tasks.discard)
+
+    async def _drain_queued_handoffs(self, timeout: float) -> None:
+        """Pull and start any handoffs that land during the drain window.
+
+        On a FULL shutdown the sync workers retire concurrently and hand off
+        their last in-flight streaming/WebSocket requests to this pool. The pool
+        may observe shutdown and exit its main loop *before* those handoffs are
+        enqueued, so keep polling the queue here until it has stayed empty AND
+        no handoff task is in flight for a sustained idle interval (the workers
+        have finished enqueuing). Bounded by *timeout* so this can never spin
+        forever; in-flight tasks themselves are awaited by ``_drain_handoffs``.
+        """
+        loop = self._loop
+        deadline = (loop.time() + timeout) if loop is not None else timeout
+        # Require a sustained idle stretch (queue empty + nothing in flight)
+        # before concluding the workers are done enqueuing.
+        idle_needed = 6  # 6 * 0.05s = 0.3s of sustained idle
+        idle_polls = 0
+        while loop is None or loop.time() < deadline:
+            try:
+                handoff = self._queue.get_nowait()
+            except queue.Empty:
+                if not any(not t.done() for t in self._handoff_tasks):
+                    idle_polls += 1
+                    if idle_polls >= idle_needed:
+                        return
+                else:
+                    idle_polls = 0
+                await asyncio.sleep(0.05)
+                continue
+            idle_polls = 0
+            self._start_handoff(handoff)
+
+    async def _drain_handoffs(self, timeout: float) -> None:
+        """Await in-flight handoff tasks up to *timeout*, then cancel stragglers."""
+        pending = [t for t in self._handoff_tasks if not t.done()]
+        if not pending:
+            return
+        self._logger.debug("AsyncPool draining %d in-flight handoff(s)", len(pending))
+        _done, still_pending = await asyncio.wait(pending, timeout=timeout)
+        for task in still_pending:
+            task.cancel()
+        if still_pending:
+            # return_exceptions=True swallows the CancelledError(s) from the
+            # tasks we just cancelled — nothing propagates out of gather().
+            await asyncio.gather(*still_pending, return_exceptions=True)
 
     async def _handle_handoff_async(self, handoff: HandoffRequest) -> None:
         """Handle a handoff (async task)."""
