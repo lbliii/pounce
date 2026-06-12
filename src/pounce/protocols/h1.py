@@ -107,6 +107,24 @@ class H1Protocol:
         )
         return self._conn.send(response)
 
+    def send_informational(self, status: int, headers: list[tuple[bytes, bytes]]) -> bytes:
+        """Serialize a 1xx informational response (e.g. 103 Early Hints).
+
+        h11 models interim 1xx responses as :class:`h11.InformationalResponse`,
+        which does not terminate the request-response cycle, so the final
+        response is still serialized and sent afterwards. Modern browsers
+        (Chrome 103+, Firefox) honour 103 Early Hints over HTTP/1.1.
+
+        Args:
+            status: 1xx HTTP status code.
+            headers: Response headers as (name, value) byte pairs.
+
+        Returns:
+            Serialized interim response head bytes.
+
+        """
+        return self._conn.send(h11.InformationalResponse(status_code=status, headers=headers))
+
     def send_100_continue(self) -> bytes:
         """Serialize an interim ``100 Continue`` informational response.
 

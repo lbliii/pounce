@@ -218,10 +218,14 @@ def create_h3_send(
                 for name, value in message.get("headers", [])
             ]
 
+            # 103 Early Hints — informational response (RFC 8297).
+            # Behaviour is consistent with the H1 and H2 bridges: default-on,
+            # headers sanitized, response_started left False so the final
+            # response is still committed afterwards.
             if status == 103:
                 h3_conn.send_headers(
                     stream_id=stream_id,
-                    headers=[(b":status", str(status).encode()), *headers],
+                    headers=[(b":status", str(status).encode()), *_sanitize_headers(headers)],
                 )
                 transmit()
                 return

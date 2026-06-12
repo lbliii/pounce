@@ -116,6 +116,9 @@ class TestProtocolHandlerConformance:
             def send_response(self, status: int, headers: list[tuple[bytes, bytes]]) -> bytes:
                 return b""
 
+            def send_informational(self, status: int, headers: list[tuple[bytes, bytes]]) -> bytes:
+                return b""
+
             def send_body(self, data: bytes, more: bool = False) -> bytes:
                 return b""
 

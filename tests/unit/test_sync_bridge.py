@@ -16,6 +16,19 @@ async def _streaming_app(scope: Scope, receive: object, send: Send) -> None:
     await send({"type": "http.response.body", "body": b"chunk1", "more_body": True})
 
 
+async def _early_hints_app(scope: Scope, receive: object, send: Send) -> None:
+    """ASGI app that sends a 103 Early Hints interim response before the final 200."""
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 103,
+            "headers": [(b"link", b"</style.css>; rel=preload; as=style")],
+        }
+    )
+    await send({"type": "http.response.start", "status": 200, "headers": []})
+    await send({"type": "http.response.body", "body": b"hello", "more_body": False})
+
+
 def test_call_asgi_sync_simple_response() -> None:
     """call_asgi_sync returns complete response for non-streaming app."""
     scope: Scope = {
@@ -45,6 +58,21 @@ def test_call_asgi_sync_streaming_sets_needs_async() -> None:
     assert response.needs_async
     assert response.status == 200
     assert response.body == b"chunk1"
+
+
+def test_call_asgi_sync_hands_off_on_103_early_hints() -> None:
+    """A 1xx interim response (103) forces handoff to async — the sync bridge
+    cannot write an interim status line, so it must defer to the async worker
+    that emits 103 via send_informational (parity with the async H1 path)."""
+    scope: Scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "headers": [],
+        "asgi": {"version": "3.0"},
+    }
+    response = call_asgi_sync(_early_hints_app, scope, b"")
+    assert response.needs_async
 
 
 async def _crlf_header_app(scope: Scope, receive: object, send: Send) -> None:

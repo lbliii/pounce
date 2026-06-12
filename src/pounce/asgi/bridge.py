@@ -406,9 +406,24 @@ def create_send(
         if msg_type == "http.response.start":
             status: int = message["status"]
 
-            # 103 Early Hints — informational response (RFC 8297)
-            # Skip for HTTP/1.1 as browser support is limited
+            # 103 Early Hints — informational response (RFC 8297).
+            # Emitted over HTTP/1.1 for parity with the H2/H3 bridges:
+            # modern browsers (Chrome 103+) honour Early Hints over H1.
+            # h11 models it as an InformationalResponse, which does NOT
+            # terminate the cycle, so response_started stays False and the
+            # final response is still sent afterwards.  Written immediately
+            # (bypassing the pending_head coalescing buffer) so the hint
+            # reaches the wire before the final status line.
             if status == 103:
+                early_headers: list[tuple[bytes, bytes]] = [
+                    (
+                        name if isinstance(name, bytes) else name.encode(),
+                        value if isinstance(value, bytes) else value.encode(),
+                    )
+                    for name, value in message.get("headers", [])
+                ]
+                early_headers = _sanitize_headers(early_headers)
+                writer.write(protocol.send_informational(103, early_headers))
                 return
 
             response_started = True

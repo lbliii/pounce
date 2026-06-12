@@ -291,6 +291,41 @@ class TestCreateH3Send:
         assert state.response_started is True
         transmit.assert_called_once()
 
+    async def test_103_early_hints_does_not_start_response(self) -> None:
+        """103 Early Hints over H3 — parity with H1/H2 bridges (#124).
+
+        The hint is emitted to the wire but must not consume the cycle, so
+        ``response_started`` stays False and the final response still sends.
+        """
+        h3 = _MockH3Connection()
+        transmit = MagicMock()
+        state = SendState()
+        send = create_h3_send(h3, stream_id=0, transmit=transmit, state=state)
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 103,
+                "headers": [(b"link", b"</style.css>; rel=preload; as=style")],
+            }
+        )
+        assert len(h3.sent_headers) == 1
+        _stream_id, headers = h3.sent_headers[0]
+        assert dict(headers).get(b":status") == b"103"
+        assert state.response_started is False
+        transmit.assert_called_once()
+
+        # Final response still accepted afterwards.
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain")],
+            }
+        )
+        assert state.response_started is True
+        assert state.status == 200
+
     async def test_response_body_sends_data(self) -> None:
         h3 = _MockH3Connection()
         transmit = MagicMock()

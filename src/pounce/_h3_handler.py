@@ -485,6 +485,42 @@ def _create_zoomies_datagram_protocol(
             conn.stream_body_bytes.pop(stream_id, None)
             return True
 
+        def _signal_stop_sending(self, conn: _ZoomiesConnection, stream_id: int) -> bool:
+            """Best-effort QUIC STOP_SENDING / RESET_STREAM for a rejected stream.
+
+            The H2 path emits RST_STREAM after a 413 so the peer stops uploading
+            (issue #125).  The QUIC equivalent is STOP_SENDING (refuse the
+            inbound half) or RESET_STREAM.  zoomies' outbound reset API is not
+            stable across versions, so probe known method names duck-typed and
+            stay API-agnostic.  Returns True if a signal was emitted.
+
+            QUIC application error code ``0x10b`` mirrors HTTP/3's
+            H3_REQUEST_CANCELLED / "enough" semantics for a refused body.
+            """
+            quic = conn.quic
+            err = 0x10B  # H3-layer application error: request body refused
+            for method_name in (
+                "stop_sending",
+                "send_stop_sending",
+                "reset_stream",
+                "send_reset_stream",
+            ):
+                method = getattr(quic, method_name, None)
+                if not callable(method):
+                    continue
+                try:
+                    method(stream_id, error_code=err)
+                    return True
+                except TypeError:
+                    # Signature differs (e.g. positional error code or no
+                    # error_code kwarg) — try positional before giving up.
+                    try:
+                        method(stream_id, err)
+                        return True
+                    except TypeError:
+                        continue
+            return False
+
         def _send_request_too_large(
             self,
             conn: _ZoomiesConnection,
@@ -505,6 +541,17 @@ def _create_zoomies_datagram_protocol(
                 data=b"Content Too Large",
                 end_stream=True,
             )
+            # Tell the peer to stop uploading.  The 413 with end_stream only
+            # closes our send side; without a stop-sending/reset the client may
+            # keep streaming body on a stream we have already abandoned.  Mirror
+            # H2's post-413 RST_STREAM.  Best-effort: zoomies may not expose an
+            # outbound reset API, in which case drain behaviour is unchanged.
+            if not self._signal_stop_sending(conn, stream_id):
+                self._logger.debug(
+                    "H3 stream %d: no QUIC stop-sending API available; "
+                    "relying on stream_body_ended guard to drop further body",
+                    stream_id,
+                )
             self._flush(conn, addr)
 
         def _send_bad_request(

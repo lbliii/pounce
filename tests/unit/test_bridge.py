@@ -1418,3 +1418,97 @@ class TestHeadCompressionGuard:
         assert b"content-encoding" not in output.lower()
         # Content-Length is preserved (not stripped for compression)
         assert b"content-length: 1000" in output.lower()
+
+
+class TestEarlyHintsH1:
+    """103 Early Hints over HTTP/1.1 (#124).
+
+    The H1 bridge must emit 103 informational responses for parity with the
+    H2/H3 bridges: written to the wire before the final response, without
+    terminating the request-response cycle.
+    """
+
+    @pytest.mark.asyncio
+    async def test_103_reaches_wire_before_final_response(self):
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        send = create_send(proto, transport, SendState())
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 103,
+                "headers": [(b"link", b"</style.css>; rel=preload; as=style")],
+            }
+        )
+        # 103 must hit the wire immediately, before the final response.
+        assert len(transport.data) > 0, "103 Early Hints not written to the wire"
+        early_bytes = len(transport.data)
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/plain"), (b"content-length", b"2")],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"ok"})
+
+        # Parse the full byte stream with an h11 *client* and confirm the
+        # informational 103 (with its Link header) precedes the 200.
+        client = h11.Connection(our_role=h11.CLIENT)
+        client.send(h11.Request(method="GET", target="/", headers=[("host", "localhost")]))
+        client.send(h11.EndOfMessage())
+        client.receive_data(bytes(transport.data))
+
+        events: list[object] = []
+        while True:
+            event = client.next_event()
+            if event in (h11.NEED_DATA, h11.PAUSED):
+                break
+            events.append(event)
+            if isinstance(event, h11.EndOfMessage):
+                break
+
+        informational = [e for e in events if isinstance(e, h11.InformationalResponse)]
+        final = [e for e in events if isinstance(e, h11.Response)]
+        assert informational, "expected an InformationalResponse (103) on the wire"
+        assert informational[0].status_code == 103
+        link_headers = [v for (k, v) in informational[0].headers if k.lower() == b"link"]
+        assert link_headers
+        assert b"preload" in link_headers[0]
+        assert final
+        assert final[0].status_code == 200
+        # Ordering: the 103 bytes were flushed before the 200 head was built.
+        assert early_bytes < len(transport.data)
+
+    @pytest.mark.asyncio
+    async def test_103_does_not_mark_response_started(self):
+        """A 103 must not consume the cycle; the final response still sends."""
+        proto = H1Protocol()
+        proto.receive_data(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        state = SendState()
+        send = create_send(proto, transport, state)
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 103,
+                "headers": [(b"link", b"</a.js>; rel=preload; as=script")],
+            }
+        )
+        assert state.response_started is False
+        # The final response is accepted (would raise if 103 had started it).
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", b"2")],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"hi"})
+        assert state.status == 200
