@@ -67,6 +67,9 @@ python benchmarks/run_benchmark.py --workload chirp --artifact-output artifacts/
 | `--compare` | off | Also benchmark uvicorn |
 | `--output` | none | Save structured runner output to JSON. This is not a benchmark artifact unless it contains the metadata required by `artifact-schema.json`. |
 | `--artifact-output` | none | Save artifact-schema-compatible metadata for PR/release evidence. |
+| `--compare-baseline` | none | Regression gate: diff this run against a committed baseline artifact and exit non-zero on regression (see below). |
+| `--rps-tolerance` | `0.10` | Allowed fractional median req/s drop before the gate fails. |
+| `--p99-tolerance` | `0.20` | Allowed fractional median p99 latency rise before the gate fails. |
 
 ## Benchmark Artifacts
 
@@ -119,6 +122,63 @@ Current local snapshot artifacts:
 |----------|-------|--------|
 | `benchmarks/artifacts/2026-05-22/bengal-pounce-local.json` | Bengal home page, pounce-only, 5 samples, 5s each | Local macOS/free-threaded run; use as investigation input, not a release claim. |
 | `benchmarks/artifacts/2026-05-22/chirp-pounce-local.json` | Chirp thread page, pounce-only, 5 samples, 5s each | Local macOS/free-threaded run; no uvicorn comparison. |
+
+## Regression Gate
+
+The runner can compare a fresh run against a committed baseline artifact and
+fail when a key metric regresses. This is the gate that would have caught a
+keep-alive RPS collapse before it shipped.
+
+```bash
+# 1. Record a baseline once (repeat for stable variance), commit it.
+python benchmarks/run_benchmark.py --workload chirp --workers 4 --repeat 5 \
+    --artifact-output benchmarks/artifacts/<date>/chirp-baseline.json
+
+# 2. On a later run, gate against that baseline. Exits non-zero on regression.
+python benchmarks/run_benchmark.py --workload chirp --workers 4 --repeat 5 \
+    --artifact-output /tmp/chirp-candidate.json \
+    --compare-baseline benchmarks/artifacts/<date>/chirp-baseline.json
+```
+
+For each `(server, workload, workers)` group present in both artifacts the gate
+compares **median `req_per_sec`** and **median `p99_latency_ms`**:
+
+- It fails when median req/s drops by more than `--rps-tolerance` (default 10%)
+  **or** median p99 latency rises by more than `--p99-tolerance` (default 20%).
+- Groups with `sample_count < 2` in either artifact are **skipped** (snapshots,
+  not regression evidence) and never fail the gate.
+- Candidate groups absent from the baseline are reported but do not gate.
+
+Use a `--repeat` of at least 2 (ideally 5) so groups carry real variance; a
+single-sample run is treated as a snapshot and skipped by the gate. A
+`workflow_dispatch`/cron CI job (never per-PR) can run Bengal + Chirp + hello
+against committed baselines on a free-threaded build.
+
+## Profiles
+
+Beyond steady-state throughput, two profiles capture flagship behavior as
+artifact-schema JSON:
+
+```bash
+# Sustained streaming: hold N SSE streams through the real CLI, record
+# per-stream time-to-first-event, inter-event latency, and RSS/CPU over time.
+python benchmarks/streaming_profile.py --streams 100 --duration 15 \
+    --artifact-output benchmarks/artifacts/<date>/streaming.json
+
+# Worker-mode comparison: drive thread and subinterpreter modes through the
+# SAME Supervisor machinery and emit one variance group per mode.
+python benchmarks/worker_modes.py --requests 2000 --concurrency 20 --workers 4 \
+    --artifact-output benchmarks/artifacts/<date>/worker-modes.json
+```
+
+Both emit `artifact-schema.json`-compatible JSON, so their output feeds the
+regression gate above (each worker mode is recorded as a distinct `server`).
+
+> **Deferred:** the reload/drain-under-load profile (drive load through the CLI,
+> send SIGHUP/SIGTERM, record active-request completion and 503/disconnect rate)
+> lands with the reload/drain lifecycle work in #83, which is still in progress
+> and unstable on free-threaded builds. Until then,
+> `tests/integration/test_signal_lifecycle.py` covers clean exit/recovery.
 
 ## Pytest Benchmarks
 
