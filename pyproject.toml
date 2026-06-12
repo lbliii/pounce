@@ -155,12 +155,25 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-addopts = ["-ra", "-q", "--strict-markers", "-m", "not benchmark"]
+# --timeout/--timeout-method localize a hung socket/drain test to a per-test
+# traceback instead of stalling the whole job to the CI wall clock. 60s sits
+# above the slowest legitimate integration test; benchmarks are excluded here
+# (-m "not benchmark") so the bound never trips a long-running benchmark.
+addopts = [
+    "-ra",
+    "-q",
+    "--strict-markers",
+    "-m",
+    "not benchmark",
+    "--timeout=60",
+    "--timeout-method=thread",
+]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: full server integration tests",
     "benchmark: performance benchmarks",
     "timeout: per-test timeout (requires pytest-timeout)",
+    "process: process/fork worker-mode tests (GIL build only)",
 ]
 
 # =============================================================================

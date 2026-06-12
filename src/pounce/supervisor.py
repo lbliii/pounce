@@ -26,6 +26,7 @@ import socket
 import ssl
 import threading
 import time
+from multiprocessing.process import BaseProcess
 from typing import Any, Final, Protocol
 
 from pounce._errors import SupervisorError
@@ -1076,7 +1077,7 @@ class Supervisor:
                         break
 
                     exit_info = ""
-                    if isinstance(handle.target, multiprocessing.Process):
+                    if isinstance(handle.target, BaseProcess):
                         exit_info = f" (exitcode={handle.target.exitcode})"
 
                     # Pull exception from capture wrapper if available
@@ -1169,7 +1170,7 @@ class Supervisor:
         Process workers receive SIGTERM then SIGKILL. Thread workers cannot be
         terminated from Python; they are daemon threads and may outlive this join.
         """
-        if isinstance(handle.target, multiprocessing.Process):
+        if isinstance(handle.target, BaseProcess):
             logger.warning(
                 "Worker %d (process) did not exit after %.1fs — sending SIGTERM",
                 handle.worker_id,
@@ -1249,6 +1250,6 @@ def _try_iic_get(queue: Any) -> tuple[Any, ...] | None:
 
 def _target_id(target: threading.Thread | multiprocessing.Process) -> str:
     """Return an identifier string for a thread or process."""
-    if isinstance(target, multiprocessing.Process):
+    if isinstance(target, BaseProcess):
         return str(target.pid or "starting")
     return str(target.ident or "starting")

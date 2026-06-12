@@ -115,6 +115,28 @@ Then add a matching entry in `docs/troubleshooting.md` so the coverage test
 (`tests/unit/test_troubleshooting_catalog.py`) stays green. See
 [docs/design/error-codes.md](docs/design/error-codes.md) for the naming scheme.
 
+## Releasing
+
+Releases publish to PyPI from a GitHub release (see
+`.github/workflows/python-publish.yml`). The publish workflow asserts the
+release tag equals `v<pyproject version>` and runs `twine check --strict` on
+the built artifacts, so a mistagged release or a metadata-broken wheel fails
+before anything is published.
+
+Cut a release:
+
+1. Add a Towncrier news fragment for each change in `changelog.d/`
+   (`<ISSUE>.<added|changed|deprecated|removed|fixed|security>.md`).
+2. Compile the changelog: `poe changelog` (runs `towncrier build --yes`).
+3. Bump `version` in `pyproject.toml` (`[project]`).
+4. Commit the changelog + version bump, then tag: `git tag vX.Y.Z` matching the
+   new `pyproject.toml` version (the publish workflow rejects a mismatch).
+5. Run `make gh-release` (derives `v$VERSION` from `pyproject.toml` and creates
+   the GitHub release, which triggers the PyPI publish workflow).
+
+`make gh-release` keeps the tag and `pyproject.toml` version in lockstep; a
+hand-cut GitHub release works too, but you must tag `vX.Y.Z` exactly.
+
 ## PR expectations
 
 - **Tight diff.** One concern per PR. Section headers in a diff mean it's two

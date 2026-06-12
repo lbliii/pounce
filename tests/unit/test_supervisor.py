@@ -1,6 +1,7 @@
 """Tests for pounce.supervisor — worker lifecycle management."""
 
 import contextlib
+import multiprocessing
 import socket
 import threading
 import time
@@ -11,7 +12,11 @@ import pytest
 from pounce._errors import SupervisorError
 from pounce._types import Receive, Scope, Send
 from pounce.config import ServerConfig
-from pounce.supervisor import Supervisor, _parallel_join_targets, _WorkerHandle
+from pounce.supervisor import (
+    Supervisor,
+    _parallel_join_targets,
+    _WorkerHandle,
+)
 
 
 def _wait_for_handles(
@@ -402,3 +407,61 @@ class TestParallelJoinTargets:
         assert len(results) == 5
         assert all(not t.is_alive() for t in threads)
         assert elapsed < 0.5
+
+
+def _noop_target() -> None:
+    """Module-level target so a fork-context Process is picklable/forkable."""
+
+
+def _sleep_forever() -> None:
+    """Block until terminated — used to test forced shutdown of a worker."""
+    import time as _time
+
+    while True:
+        _time.sleep(3600)
+
+
+@pytest.mark.skipif(
+    "fork" not in multiprocessing.get_all_start_methods(),
+    reason="fork start method unavailable on this platform",
+)
+class TestForkContextProcessRecognition:
+    """Regression: fork-context workers must be recognized as processes.
+
+    ``multiprocessing.Process`` is the *default-context* class (SpawnProcess on
+    macOS). A fork-context worker is a ``ForkProcess``, which is NOT an instance
+    of ``multiprocessing.Process`` but IS a ``BaseProcess``. The supervisor must
+    branch on ``BaseProcess`` so process workers get SIGTERM/SIGKILL on shutdown
+    (otherwise forked workers orphan and the parent hangs at exit).
+    """
+
+    def test_fork_process_is_not_default_process_instance(self) -> None:
+        ctx = multiprocessing.get_context("fork")
+        proc = ctx.Process(target=_noop_target)
+        # The buggy guard used this and silently treated the worker as a thread.
+        assert not isinstance(proc, multiprocessing.Process)
+
+    def test_force_stop_terminates_fork_worker_process(self) -> None:
+        """_force_stop must SIGTERM a forked worker that ignores the drain.
+
+        With the buggy ``isinstance(handle.target, multiprocessing.Process)``
+        guard this took the thread branch and never called ``terminate()``, so
+        the child survived shutdown. The BaseProcess guard reaches the process
+        branch and the child is terminated.
+        """
+        ctx = multiprocessing.get_context("fork")
+        proc = ctx.Process(target=_sleep_forever)
+        proc.start()
+        try:
+            assert proc.is_alive()
+            config = ServerConfig(workers=1, host="127.0.0.1", port=0, access_log=False)
+            with patch("pounce.supervisor._get_fork_context", return_value=ctx):
+                sup = Supervisor(config, _noop_app, mode="process")
+            handle = _WorkerHandle(0, proc, worker=None)
+            sup._force_stop(handle, 0.1)
+            proc.join(timeout=5.0)
+            assert not proc.is_alive(), "forked worker not terminated by _force_stop"
+        finally:
+            if proc.is_alive():
+                proc.kill()
+                proc.join(timeout=5.0)
