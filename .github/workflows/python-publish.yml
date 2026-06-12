@@ -26,10 +26,27 @@ jobs:
         with:
           python-version: "3.14t"
 
+      - name: Assert release tag matches pyproject version
+        # A hand-cut GitHub release bypasses `make gh-release`, which derives the
+        # tag from pyproject. Fail fast on a mistagged release (issue #167).
+        run: |
+          PKG_VERSION="$(python -c 'import tomllib,pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          TAG="${{ github.event.release.tag_name }}"
+          echo "pyproject version: ${PKG_VERSION}"
+          echo "release tag:       ${TAG}"
+          if [ "${TAG}" != "v${PKG_VERSION}" ]; then
+            echo "::error::Release tag '${TAG}' does not match pyproject version 'v${PKG_VERSION}'." >&2
+            exit 1
+          fi
+
       - name: Build release distributions
         run: |
-          python -m pip install build
+          python -m pip install --upgrade build twine
           python -m build
+
+      - name: Verify built artifacts (twine check)
+        # Catch metadata-broken wheels/sdists before they reach PyPI (issue #167).
+        run: python -m twine check --strict dist/*
 
       - name: Upload distributions
         uses: actions/upload-artifact@v7

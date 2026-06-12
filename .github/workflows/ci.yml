@@ -76,11 +76,47 @@ jobs:
         run: uv sync --group dev --extra h2 --extra h3 --extra ws --extra tls
 
       - name: Run tests
-        run: uv run pytest tests/ -ra -q --maxfail=5
+        # --timeout/--timeout-method localize a hung socket/drain test to a
+        # per-test traceback instead of stalling to the job's timeout-minutes wall.
+        run: uv run pytest tests/ -ra -q --maxfail=5 --timeout=60 --timeout-method=thread
 
       - name: Verify GIL status (free-threaded only)
         if: matrix.python-version == '3.14t'
         run: uv run python -c "import sys; assert not sys._is_gil_enabled(), 'GIL should be disabled on 3.14t'"
+
+  process-workers:
+    name: Process Workers (Python 3.14 GIL build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          # Stock 3.14 (GIL enabled) — detect_worker_mode() picks PROCESS/fork,
+          # which the 3.14t lanes never exercise (they pick THREAD). This is the
+          # production path on stock CPython 3.14.
+          python-version: "3.14"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --group dev --extra h2 --extra h3 --extra ws --extra tls
+
+      - name: Verify GIL is enabled (process/fork path)
+        run: uv run python -c "import sys; assert sys._is_gil_enabled(), 'GIL should be enabled on a stock 3.14 build'"
+
+      - name: Run process/fork worker-mode integration tests
+        # `-m process` selects the fork-spawn / SIGTERM-reap integration tests
+        # (they skip on 3.14t thread mode); this is the production fork path the
+        # 3.14t lanes never exercise.
+        run: >-
+          uv run pytest tests/integration/test_process_workers.py
+          -m process -ra -q --timeout=90 --timeout-method=thread
+
+      - name: Run supervisor unit suite
+        # Covers spawn/drain/reap branch logic, including the BaseProcess
+        # process-vs-thread regression, on the GIL/process path.
+        run: uv run pytest tests/unit/test_supervisor.py -ra -q --timeout=90 --timeout-method=thread
 
   framework-compat:
     name: Framework Compatibility
@@ -98,4 +134,38 @@ jobs:
         run: uv sync --group dev --group test-frameworks --extra h2 --extra ws --extra tls
 
       - name: Run framework tests
-        run: uv run pytest tests/integration/frameworks/ -ra -q --maxfail=5
+        run: uv run pytest tests/integration/frameworks/ -ra -q --maxfail=5 --timeout=60 --timeout-method=thread
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.14t"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --group dev --extra h2 --extra h3 --extra ws --extra tls
+
+      - name: Run tests with coverage
+        # ADVISORY until coverage reaches the pyproject [tool.coverage.report]
+        # fail_under=80 floor (measured ~68% at the time this lane was added).
+        # Flip continue-on-error to false once the suite clears 80% so a PR that
+        # drops a hot-path module below the floor fails CI (issue #165).
+        continue-on-error: true
+        run: >-
+          uv run pytest tests/
+          --cov=pounce --cov-report=term-missing --cov-report=xml
+          --timeout=60 --timeout-method=thread
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore

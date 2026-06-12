@@ -1,0 +1,36 @@
+# Pre-commit hooks for Pounce. Mirrors the CI lint job (.github/workflows/ci.yml)
+# so local commits catch the same issues CI does.
+#
+# Install once:  uv run pre-commit install
+# Run manually:  uv run pre-commit run --all-files
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: ty
+        name: ty check
+        entry: uv run ty check src/pounce/
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+        require_serial: true
+
+      - id: check-silent-exceptions
+        name: check silent exceptions
+        entry: bash scripts/check_silent_exceptions.sh src/pounce
+        language: system
+        pass_filenames: false
+        require_serial: true
