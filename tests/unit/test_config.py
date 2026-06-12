@@ -545,3 +545,47 @@ class TestServerConfigHypothesisRoundTrip:
         assert restored.access_log == config.access_log
         assert restored.compression == config.compression
         assert restored.debug == config.debug
+
+
+class TestServerConfigFromMapping:
+    """``from_mapping`` is the typed construction site for merged config dicts.
+
+    It owns the single cast from an ``object``-valued mapping (e.g. the output
+    of ``load_config_with_overrides``, typed ``dict[str, Any]``) to the
+    keyword-only constructor, so CLI splat sites no longer need per-call
+    type-ignore comments.
+    """
+
+    def test_builds_from_object_valued_dict(self):
+        # A dict[str, object] is exactly what the CLI pre-flight check splats;
+        # direct ServerConfig(**merged) on this type tripped ty's arg-type rule.
+        merged: dict[str, object] = {"host": "0.0.0.0", "port": 9100, "workers": 3}
+        cfg = ServerConfig.from_mapping(merged)
+        assert cfg.host == "0.0.0.0"
+        assert cfg.port == 9100
+        assert cfg.workers == 3
+
+    def test_empty_mapping_yields_defaults(self):
+        cfg = ServerConfig.from_mapping({})
+        assert cfg == ServerConfig()
+
+    def test_accepts_arbitrary_mapping(self):
+        from types import MappingProxyType
+
+        proxy = MappingProxyType({"port": 8123})
+        cfg = ServerConfig.from_mapping(proxy)
+        assert cfg.port == 8123
+
+    def test_unknown_key_raises_type_error(self):
+        # The CLI config-validation check relies on this to report bad keys.
+        with pytest.raises(TypeError):
+            ServerConfig.from_mapping({"definitely_not_a_field": 1})
+
+    def test_invalid_value_raises_value_error(self):
+        # __post_init__ validation must still fire through the factory.
+        with pytest.raises(ValueError, match="port must be 0-65535"):
+            ServerConfig.from_mapping({"port": 99999})
+
+    def test_matches_direct_construction(self):
+        kwargs = {"host": "10.0.0.5", "port": 7000, "compression": False}
+        assert ServerConfig.from_mapping(kwargs) == ServerConfig(**kwargs)

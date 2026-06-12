@@ -100,7 +100,7 @@ def import_app(app_path: str) -> ASGIApp:
             "Expected an ASGI application (async callable)."
         )
 
-    return obj  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
+    return obj  # ty: ignore[invalid-return-type]
 
 
 def reimport_app(app_path: str, base_dirs: list[str] | None = None) -> ASGIApp:
