@@ -180,10 +180,13 @@ def create_h2_send(
                 for name, value in message.get("headers", [])
             ]
 
-            # 103 Early Hints — informational response (RFC 8297)
-            # Can be sent multiple times before the final response
+            # 103 Early Hints — informational response (RFC 8297).
+            # Can be sent multiple times before the final response.  Behaviour
+            # is consistent with the H1 and H3 bridges: default-on, headers
+            # sanitized, response_started left False so the final response is
+            # still committed afterwards.
             if status == 103:
-                h2_conn.send_response_headers(stream_id, 103, headers)
+                h2_conn.send_response_headers(stream_id, 103, _sanitize_headers(headers))
                 _flush(h2_conn, writer)
                 return  # Don't mark response_started yet
 

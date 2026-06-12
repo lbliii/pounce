@@ -169,6 +169,21 @@ class ProtocolHandler(Protocol):
         """
         ...
 
+    def send_informational(self, status: int, headers: list[tuple[bytes, bytes]]) -> bytes:
+        """Serialize a 1xx informational response (e.g. 103 Early Hints).
+
+        Informational responses do not terminate the request-response cycle,
+        so the final response is still serialized and sent afterwards.
+
+        Args:
+            status: 1xx HTTP status code.
+            headers: Response headers as (name, value) byte pairs.
+
+        Returns:
+            Serialized bytes to write to the socket.
+        """
+        ...
+
     def send_body(self, data: bytes, more: bool = False) -> bytes:
         """Serialize a response body chunk into bytes.
 

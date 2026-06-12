@@ -511,6 +511,69 @@ class TestErrorPaths:
         assert conn.h3.sent_headers[0][1][0] == (b":status", b"413")
         assert conn.h3.sent_data[0] == (0, b"Content Too Large", True)
 
+    def test_handle_data_body_exceeded_signals_stop_sending(self) -> None:
+        """After a 413, the H3 path tells the peer to stop sending body (#125).
+
+        Mirrors the H2 RST_STREAM.  When the QUIC connection exposes a
+        stop-sending/reset API, ``_send_request_too_large`` must invoke it for
+        the rejected stream so the client learns the upload was refused.
+        """
+        from zoomies.core import QuicConfiguration
+
+        from pounce._h3_handler import _create_zoomies_datagram_protocol, _ZoomiesConnection
+
+        class _StopSendingQuic(_FakeQuicConnection):
+            def __init__(self, cids: tuple[bytes, ...] = (b"\x01",)) -> None:
+                super().__init__(cids=cids)
+                self.stop_sending_calls: list[tuple[int, int]] = []
+
+            def stop_sending(self, stream_id: int, error_code: int = 0) -> None:
+                self.stop_sending_calls.append((stream_id, error_code))
+
+        config = _make_config(max_request_size=100)
+        quic_config = QuicConfiguration(certificate=b"cert", private_key=b"key")
+        cls = _create_zoomies_datagram_protocol(
+            _dummy_app, config, logging.getLogger("test"), _SERVER, quic_config
+        )
+        protocol = cls()
+        transport = MagicMock(spec=asyncio.DatagramTransport)
+        protocol.connection_made(transport)
+
+        quic = _StopSendingQuic()
+        conn = _ZoomiesConnection(quic=quic, h3=_FakeH3Connection(), last_addr=_ADDR_A)
+        body_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        task = MagicMock()
+        conn.stream_tasks[0] = (task, body_queue)
+
+        @dataclass(frozen=True)
+        class FakeH3DataReceived:
+            stream_id: int = 0
+            data: bytes = b"x" * 200  # > 100 byte limit
+            end_stream: bool = False
+
+        protocol._handle_data(conn, FakeH3DataReceived(), _ADDR_A)
+
+        # 413 still sent...
+        assert conn.h3.sent_headers[0][1][0] == (b":status", b"413")
+        # ...and the peer was told to stop sending on the rejected stream.
+        assert quic.stop_sending_calls, "expected QUIC stop-sending after 413"
+        assert quic.stop_sending_calls[0][0] == 0
+
+    def test_send_request_too_large_without_reset_api_does_not_raise(self) -> None:
+        """When zoomies exposes no outbound reset API, 413 still succeeds (#125).
+
+        The current zoomies release has no public stop-sending/reset method, so
+        the H3 path must degrade gracefully: send the 413, log, and not crash.
+        """
+        protocol, _ = _build_protocol()
+        conn = _make_connection(addr=_ADDR_A)
+
+        # _FakeQuicConnection has no stop_sending/reset_stream — probe fails.
+        protocol._send_request_too_large(conn, 0, _ADDR_A)
+
+        assert conn.h3.sent_headers[0][1][0] == (b":status", b"413")
+        assert conn.h3.sent_data[0] == (0, b"Content Too Large", True)
+
     def test_handle_data_after_truncation_ignored(self) -> None:
         """Further data after body truncation is silently dropped."""
         protocol, _ = _build_protocol()

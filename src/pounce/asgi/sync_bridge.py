@@ -96,8 +96,17 @@ def call_asgi_sync(
         nonlocal response_started, status, headers, body_parts, needs_async
         msg_type = message["type"]
         if msg_type == "http.response.start":
+            status_code = message["status"]
+            # 1xx interim responses (e.g. 103 Early Hints, RFC 8297) must write
+            # an interim status line *before* the final response — which the
+            # buffering sync bridge cannot do. Hand off to the async worker,
+            # which emits informational responses via protocol.send_informational,
+            # keeping H1 103 behavior consistent across the sync and async paths.
+            if 100 <= status_code < 200:
+                needs_async = True
+                raise NeedsAsyncError()
             response_started = True
-            status = message["status"]
+            status = status_code
             raw_headers = message.get("headers", [])
             # Defense-in-depth: strip CR/LF and drop empty names, matching the
             # async/H2/H3 bridges. Without this, an app-supplied CRLF header

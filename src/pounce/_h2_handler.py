@@ -37,6 +37,11 @@ from pounce.protocols._base import (
     WebSocketDisconnected,
 )
 
+# RFC 7540 §7: ENHANCE_YOUR_CALM (0xb) signals the peer is exceeding a limit
+# (here: the request body exceeded ``max_request_size``).  Sent via RST_STREAM
+# after a 413 so the client learns the upload was refused and stops sending.
+_H2_ERROR_ENHANCE_YOUR_CALM = 0xB
+
 
 async def handle_h2_connection(
     app: ASGIApp,
@@ -109,6 +114,12 @@ async def handle_h2_connection(
             return False
 
     def _send_request_too_large(stream_id: int) -> None:
+        # Capture whether the inbound (request) half is still open *before*
+        # closing our send side with the 413.  RST_STREAM is only meaningful
+        # — and only legal in the h2 state machine — while the stream is not
+        # fully closed; if the client already ended its body it has stopped
+        # uploading and there is nothing left to refuse.
+        inbound_open = not h2_conn.stream_ended(stream_id)
         h2_conn.send_response_headers(
             stream_id,
             413,
@@ -118,10 +129,26 @@ async def handle_h2_connection(
             ],
             end_stream=True,
         )
+        if inbound_open:
+            # Signal the peer to stop uploading via RST_STREAM.  The 413 with
+            # end_stream only half-closes the outbound direction; without a
+            # reset the inbound half stays open, the client keeps sending body,
+            # and the protocol layer keeps re-crediting its flow-control window
+            # for bytes we discard.  ENHANCE_YOUR_CALM tells the client the
+            # upload was refused for exceeding a limit.  ``reset_stream`` drops
+            # the stream from H2Connection bookkeeping, so subsequent in-flight
+            # DATA frames produce no ``H2BodyReceived`` event and are not
+            # flow-control-acknowledged.
+            h2_conn.reset_stream(stream_id, error_code=_H2_ERROR_ENHANCE_YOUR_CALM)
+        else:
+            # Body already ended: no reset needed, just drop bookkeeping.
+            h2_conn.remove_stream(stream_id)
         writer.write(h2_conn.data_to_send())
-        h2_conn.remove_stream(stream_id)
         scheduler.remove_stream(stream_id)
         stream_body_bytes.pop(stream_id, None)
+        # Keep the stream_body_rejected guard so any DATA frame already parsed
+        # in this batch (before the peer observes the reset) is dropped without
+        # touching app state.
         stream_body_rejected.add(stream_id)
 
     async def _run_stream(
