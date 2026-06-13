@@ -62,6 +62,13 @@ from pounce.sync_protocol import RawRequest, SyncApp
 _HTTP_100_CONTINUE: bytes = b"HTTP/1.1 100 Continue\r\n\r\n"
 _CRLFCRLF: bytes = b"\r\n\r\n"
 
+# Full-shutdown late-arrival 503 window: a brief grace for connections racing in
+# during teardown, capped so an idle worker exits promptly instead of spinning the
+# whole ``shutdown_timeout`` (issue #100 — the sync analogue of the async worker's
+# ``wait_closed()`` returning when ``active == 0``).
+_DRAIN_ACCEPT_GRACE_S: float = 0.5
+_DRAIN_ACCEPT_POLL_S: float = 0.1
+
 
 def _wants_100_continue(header_block: bytes) -> bool:
     """Return True if the header block declares ``Expect: 100-continue``.
@@ -337,18 +344,24 @@ class SyncWorker:
             # Graceful reload (or no external shutdown): the new generation
             # serves new connections — do not accept here, just exit promptly.
             return
-        deadline = time.monotonic() + self._config.shutdown_timeout
+        # Cap the window at a short grace, not the full shutdown_timeout: an idle
+        # worker must exit promptly so a clean SIGTERM is not artificially delayed
+        # (issue #100). New connections racing in still get a bounded clean 503.
+        deadline = time.monotonic() + min(self._config.shutdown_timeout, _DRAIN_ACCEPT_GRACE_S)
         while time.monotonic() < deadline:
-            remaining = deadline - time.monotonic()
             try:
                 # settimeout must be inside the guard: in thread mode the
                 # listener socket is shared, so a concurrent close during full
                 # shutdown makes settimeout itself raise EBADF. Treat any socket
                 # error (closed/torn-down listener) as "stop draining" rather
                 # than letting the worker crash.
-                self._sock.settimeout(min(0.25, max(0.0, remaining)))
+                self._sock.settimeout(_DRAIN_ACCEPT_POLL_S)
                 conn, _addr = self._sock.accept()
             except TimeoutError:
+                # No new connection this slice. Once this worker is idle there is
+                # nothing left to drain — exit now rather than spin the window.
+                if self.is_idle():
+                    break
                 continue
             except OSError:
                 break

@@ -799,7 +799,9 @@ class Worker:
                 # Check if we can do another cycle (keep-alive)
                 try:
                     proto.start_new_cycle()
-                except h11.LocalProtocolError, RuntimeError:
+                except h11.LocalProtocolError:
+                    break  # Connection can't be reused
+                except RuntimeError:
                     break  # Connection can't be reused
 
                 # Next read is the start of a new request — use header_timeout

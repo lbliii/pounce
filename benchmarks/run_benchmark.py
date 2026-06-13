@@ -18,6 +18,11 @@ Usage:
     # All workloads
     python benchmarks/run_benchmark.py --workload all --compare
 
+    # Regression gate against a committed baseline artifact
+    python benchmarks/run_benchmark.py --workload chirp --repeat 5 \\
+        --artifact-output candidate.json \\
+        --compare-baseline benchmarks/artifacts/<date>/chirp-baseline.json
+
 Prerequisites:
     brew install wrk    # or: go install github.com/rakyll/hey@latest
 
@@ -1083,10 +1088,313 @@ def build_artifact(
     }
 
 
+def build_profile_artifact(
+    *,
+    profile: str,
+    command: list[str],
+    server_command: dict[str, str],
+    samples: list[dict],
+    workers: int,
+    duration: int,
+    connections: int,
+    threads: int,
+    load_tool: str,
+    load_tool_version: str,
+    worker_mode: str = "auto",
+    comparison_target: str | None = None,
+    comparison_target_version: str | None = None,
+    raw_output: list[dict] | None = None,
+    timestamp: str = "",
+    python_version: str = "",
+    os_name: str = "",
+    extra: dict | None = None,
+) -> dict:
+    """Assemble an artifact-schema-compatible dict for a custom profile.
+
+    Unlike :func:`build_artifact` (which is wired to the wrk/hey workload
+    runner), this builds the same schema from pre-computed sample rows so that
+    in-process profiles — sustained streaming, worker-mode comparison — emit
+    governed artifacts too. Each sample row should carry at least ``server``,
+    ``workload``, ``workers``, ``req_per_sec``, and ``p99_latency_ms`` so the
+    grouped variance and regression gate work against it.
+    """
+    created_at = timestamp or time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    clean_samples = _artifact_samples(samples)
+    summaries = _group_sample_summaries(clean_samples)
+    telemetry = _telemetry_block(clean_samples)
+    artifact = {
+        "artifact_id": f"pounce-{profile}-{created_at.replace(':', '').replace('+', '-')}",
+        "created_at": created_at,
+        "git_sha": _git_sha(),
+        "command": _command_string(command),
+        "server_command": server_command,
+        "workload": profile,
+        "python_version": python_version or sys.version,
+        "python_gil_mode": _python_gil_mode(),
+        "os": os_name or platform.platform(),
+        "hardware": f"{platform.machine()} {platform.processor()}".strip(),
+        "worker_mode": worker_mode,
+        "workers": workers,
+        "duration_seconds": duration,
+        "connections": connections,
+        "threads": threads,
+        "load_tool": load_tool,
+        "load_tool_version": load_tool_version,
+        "comparison_target": comparison_target,
+        "comparison_target_version": comparison_target_version,
+        "samples": clean_samples,
+        "telemetry": telemetry,
+        "variance": {
+            "sample_count": len(clean_samples),
+            "groups": summaries,
+            "note": "sample groups with sample_count < 2 are snapshots, not regression evidence",
+        },
+        "raw_output": raw_output if raw_output is not None else [],
+        "summary": {
+            "groups": summaries,
+            "results": clean_samples,
+        },
+    }
+    if extra:
+        artifact.update(extra)
+    return artifact
+
+
 def save_artifact(artifact: dict, path: Path) -> None:
     """Save a benchmark artifact JSON file."""
     path.write_text(json.dumps(artifact, indent=2) + "\n")
     print(f"\nBenchmark artifact saved to {path}")
+
+
+# ---------------------------------------------------------------------------
+# Regression gate (baseline comparison)
+# ---------------------------------------------------------------------------
+
+# Default tolerances for the regression gate. A run fails when median req/s
+# drops by more than ``DEFAULT_RPS_TOLERANCE`` *or* median p99 latency rises by
+# more than ``DEFAULT_P99_TOLERANCE`` relative to the committed baseline.
+DEFAULT_RPS_TOLERANCE = 0.10  # 10% throughput drop
+DEFAULT_P99_TOLERANCE = 0.20  # 20% tail-latency rise
+
+# Minimum repeated samples a group needs before it counts as regression
+# evidence. Groups below this are snapshots, per the variance note, and are
+# skipped (never fail the gate) but reported as ``skipped``.
+MIN_REGRESSION_SAMPLES = 2
+
+
+@dataclass(frozen=True, slots=True)
+class GroupComparison:
+    """Per-group baseline-vs-candidate comparison for the regression gate."""
+
+    server: str
+    workload: str
+    workers: int
+    baseline_req_per_sec: float
+    candidate_req_per_sec: float
+    req_per_sec_change: float
+    baseline_p99_latency_ms: float
+    candidate_p99_latency_ms: float
+    p99_latency_change: float
+    regressed: bool
+    reasons: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonReport:
+    """Outcome of comparing a candidate artifact against a baseline."""
+
+    comparisons: list[GroupComparison] = field(default_factory=list)
+    regressions: list[GroupComparison] = field(default_factory=list)
+    skipped: list[dict] = field(default_factory=list)
+    missing: list[dict] = field(default_factory=list)
+
+    @property
+    def regressed(self) -> bool:
+        """Return whether any comparable group regressed beyond tolerance."""
+        return bool(self.regressions)
+
+
+def _artifact_groups(artifact: dict) -> dict[tuple[str, str, int], dict]:
+    """Index an artifact's variance groups by (server, workload, workers)."""
+    variance = artifact.get("variance") or {}
+    groups = variance.get("groups") or []
+    indexed: dict[tuple[str, str, int], dict] = {}
+    for group in groups:
+        key = (
+            str(group.get("server", "unknown")),
+            str(group.get("workload", "unknown")),
+            int(group.get("workers", 0)),
+        )
+        indexed[key] = group
+    return indexed
+
+
+def _group_median(group: dict, metric: str) -> float | None:
+    """Return the median value for ``metric`` in a variance group, if present."""
+    summary = group.get(metric)
+    if not isinstance(summary, dict):
+        return None
+    median = summary.get("median")
+    return float(median) if median is not None else None
+
+
+def compare_artifact(
+    baseline: dict,
+    candidate: dict,
+    *,
+    rps_tolerance: float = DEFAULT_RPS_TOLERANCE,
+    p99_tolerance: float = DEFAULT_P99_TOLERANCE,
+    min_samples: int = MIN_REGRESSION_SAMPLES,
+) -> ComparisonReport:
+    """Compare a candidate artifact against a stored baseline artifact.
+
+    For each ``(server, workload, workers)`` group present in both artifacts
+    with enough repeated samples, flag a regression when median ``req_per_sec``
+    drops by more than ``rps_tolerance`` (fractional, e.g. 0.10 == 10%) or
+    median ``p99_latency_ms`` rises by more than ``p99_tolerance``.
+
+    Groups with fewer than ``min_samples`` repeats in either artifact are
+    skipped (snapshots, not regression evidence, per the variance note) and
+    never fail the gate. Candidate groups absent from the baseline are reported
+    as ``missing`` and likewise do not fail the gate.
+
+    Returns a :class:`ComparisonReport`; ``report.regressed`` is the pass/fail
+    signal the CLI gate turns into an exit code.
+    """
+    baseline_groups = _artifact_groups(baseline)
+    candidate_groups = _artifact_groups(candidate)
+
+    comparisons: list[GroupComparison] = []
+    regressions: list[GroupComparison] = []
+    skipped: list[dict] = []
+    missing: list[dict] = []
+
+    for key, cand_group in sorted(candidate_groups.items()):
+        server, workload, workers = key
+        base_group = baseline_groups.get(key)
+        if base_group is None:
+            missing.append({"server": server, "workload": workload, "workers": workers})
+            continue
+
+        base_samples = int(base_group.get("sample_count", 0))
+        cand_samples = int(cand_group.get("sample_count", 0))
+        if base_samples < min_samples or cand_samples < min_samples:
+            skipped.append(
+                {
+                    "server": server,
+                    "workload": workload,
+                    "workers": workers,
+                    "baseline_sample_count": base_samples,
+                    "candidate_sample_count": cand_samples,
+                    "reason": f"sample_count < {min_samples} (snapshot, not regression evidence)",
+                }
+            )
+            continue
+
+        base_rps = _group_median(base_group, "req_per_sec")
+        cand_rps = _group_median(cand_group, "req_per_sec")
+        base_p99 = _group_median(base_group, "p99_latency_ms")
+        cand_p99 = _group_median(cand_group, "p99_latency_ms")
+        if base_rps is None or cand_rps is None or base_p99 is None or cand_p99 is None:
+            skipped.append(
+                {
+                    "server": server,
+                    "workload": workload,
+                    "workers": workers,
+                    "reason": "missing median metrics",
+                }
+            )
+            continue
+
+        # Fractional change: negative req/s change == throughput drop;
+        # positive p99 change == latency rise.
+        rps_change = (cand_rps - base_rps) / base_rps if base_rps else 0.0
+        p99_change = (cand_p99 - base_p99) / base_p99 if base_p99 else 0.0
+
+        reasons: list[str] = []
+        if rps_change < -rps_tolerance:
+            reasons.append(
+                f"req/s regressed {rps_change * -100:.1f}% "
+                f"(median {base_rps:,.0f} -> {cand_rps:,.0f}, "
+                f"tolerance {rps_tolerance * 100:.0f}%)"
+            )
+        if p99_change > p99_tolerance:
+            reasons.append(
+                f"p99 latency rose {p99_change * 100:.1f}% "
+                f"(median {base_p99:.2f}ms -> {cand_p99:.2f}ms, "
+                f"tolerance {p99_tolerance * 100:.0f}%)"
+            )
+
+        comparison = GroupComparison(
+            server=server,
+            workload=workload,
+            workers=workers,
+            baseline_req_per_sec=base_rps,
+            candidate_req_per_sec=cand_rps,
+            req_per_sec_change=rps_change,
+            baseline_p99_latency_ms=base_p99,
+            candidate_p99_latency_ms=cand_p99,
+            p99_latency_change=p99_change,
+            regressed=bool(reasons),
+            reasons=reasons,
+        )
+        comparisons.append(comparison)
+        if comparison.regressed:
+            regressions.append(comparison)
+
+    return ComparisonReport(
+        comparisons=comparisons,
+        regressions=regressions,
+        skipped=skipped,
+        missing=missing,
+    )
+
+
+def print_comparison_report(report: ComparisonReport) -> None:
+    """Print a human-readable regression-gate report."""
+    print("\n## Regression Gate (candidate vs baseline)\n")
+    if not report.comparisons and not report.skipped and not report.missing:
+        print("No comparable groups found between baseline and candidate artifacts.")
+        return
+
+    print("| Server | Workload | Workers | d req/s | d p99 | Status |")
+    print("|--------|----------|---------|---------|-------|--------|")
+    for c in report.comparisons:
+        status = "REGRESSED" if c.regressed else "ok"
+        print(
+            f"| {c.server} | {c.workload} | {c.workers} | "
+            f"{c.req_per_sec_change * 100:+.1f}% | {c.p99_latency_change * 100:+.1f}% | {status} |"
+        )
+
+    for c in report.regressions:
+        for reason in c.reasons:
+            print(f"  - REGRESSION [{c.server}/{c.workload}/{c.workers}w]: {reason}")
+
+    for entry in report.skipped:
+        print(
+            f"  - skipped [{entry['server']}/{entry['workload']}/{entry['workers']}w]: "
+            f"{entry['reason']}"
+        )
+    for entry in report.missing:
+        print(
+            f"  - missing from baseline "
+            f"[{entry['server']}/{entry['workload']}/{entry['workers']}w] "
+            "(not gated)"
+        )
+
+    if report.regressed:
+        print(f"\nFAIL: {len(report.regressions)} group(s) regressed beyond tolerance.")
+    else:
+        print("\nPASS: no group regressed beyond tolerance.")
+
+
+def load_artifact(path: Path) -> dict:
+    """Load a benchmark artifact JSON file."""
+    data = json.loads(path.read_text())
+    if not isinstance(data, dict):
+        msg = f"artifact {path} is not a JSON object"
+        raise ValueError(msg)
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -1129,9 +1437,39 @@ def main() -> None:
         default=None,
         help="Save artifact-schema-compatible metadata JSON",
     )
+    parser.add_argument(
+        "--compare-baseline",
+        type=str,
+        default=None,
+        help=(
+            "Regression gate: compare this run against a committed baseline "
+            "artifact JSON and exit non-zero when a metric regresses beyond "
+            "tolerance. Groups with sample_count < 2 are skipped."
+        ),
+    )
+    parser.add_argument(
+        "--rps-tolerance",
+        type=float,
+        default=DEFAULT_RPS_TOLERANCE,
+        help=(
+            "Allowed fractional median req/s drop before the gate fails "
+            f"(default: {DEFAULT_RPS_TOLERANCE}, i.e. {DEFAULT_RPS_TOLERANCE * 100:.0f}%%)"
+        ),
+    )
+    parser.add_argument(
+        "--p99-tolerance",
+        type=float,
+        default=DEFAULT_P99_TOLERANCE,
+        help=(
+            "Allowed fractional median p99 latency rise before the gate fails "
+            f"(default: {DEFAULT_P99_TOLERANCE}, i.e. {DEFAULT_P99_TOLERANCE * 100:.0f}%%)"
+        ),
+    )
     args = parser.parse_args()
     if args.repeat < 1:
         parser.error("--repeat must be >= 1")
+    if args.rps_tolerance < 0 or args.p99_tolerance < 0:
+        parser.error("--rps-tolerance and --p99-tolerance must be >= 0")
 
     suite = BenchmarkSuite(
         timestamp=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -1173,7 +1511,10 @@ def main() -> None:
     if args.output:
         save_json(suite, Path(args.output))
 
-    if args.artifact_output:
+    # Build the candidate artifact once if either output or the regression
+    # gate needs it.
+    artifact: dict | None = None
+    if args.artifact_output or args.compare_baseline:
         artifact = build_artifact(
             suite,
             command=[sys.executable, *sys.argv],
@@ -1186,7 +1527,21 @@ def main() -> None:
             load_tool_version=_load_tool_version(load_tool),
             compare=args.compare,
         )
+
+    if args.artifact_output and artifact is not None:
         save_artifact(artifact, Path(args.artifact_output))
+
+    if args.compare_baseline and artifact is not None:
+        baseline = load_artifact(Path(args.compare_baseline))
+        report = compare_artifact(
+            baseline,
+            artifact,
+            rps_tolerance=args.rps_tolerance,
+            p99_tolerance=args.p99_tolerance,
+        )
+        print_comparison_report(report)
+        if report.regressed:
+            sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -52,6 +52,11 @@ For a plain import-string app that does not need custom `ServerConfig` values:
 pounce serve --app myapp:app --host 0.0.0.0 --port "$PORT" --workers 0 --health-check-path /health --log-format json --no-access-log
 ```
 
+A checked-in, smoke-tested version of this recipe lives at
+[examples/railway_deploy.py](https://github.com/lbliii/pounce/blob/main/examples/railway_deploy.py).
+Copy it as a starting point — it reads `$PORT`, binds `0.0.0.0`, serves
+`/health`, emits JSON logs, and keeps proxy trust off by default.
+
 ## Health Checks
 
 Configure Railway's healthcheck path to `/health`, matching

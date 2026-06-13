@@ -1,5 +1,5 @@
 """
-Production server example with all Phase 6 features enabled.
+Production server example with the full production feature set enabled.
 
 This example demonstrates a production-ready pounce configuration with:
 - Prometheus metrics for monitoring
@@ -110,7 +110,7 @@ async def app(scope, receive, send):
 
 
 if __name__ == "__main__":
-    # Production configuration with all Phase 6 features
+    # Production configuration with the full production feature set
     config = ServerConfig(
         # Basic server config.
         # 0.0.0.0 binds all interfaces (a deliberate production demo). The
@@ -121,26 +121,26 @@ if __name__ == "__main__":
         workers=4,  # Multiple workers for zero-downtime reload
         # Built-in health check
         health_check_path="/health",
-        # Phase 6.1: Prometheus Metrics
+        # Prometheus metrics: expose request/latency counters for scraping.
         # SECURITY: /metrics is served with no auth. Before exposing this
         # server publicly, firewall /metrics (or place it behind auth / a
         # reverse proxy) so internal metrics are not leaked to the internet.
         metrics_enabled=True,
         metrics_path="/metrics",
-        # Phase 6.2: Rate Limiting & Backpressure
+        # Rate limiting & backpressure: cap per-IP request rate to resist abuse.
         rate_limit_enabled=True,
         rate_limit_requests_per_second=10.0,  # 10 req/s per IP (low for demo)
         rate_limit_burst=20,  # Allow bursts up to 20
-        # Phase 6.3: Request Queueing & Load Shedding
+        # Request queueing & load shedding: bound in-flight work under overload.
         request_queue_enabled=True,
         request_queue_max_depth=100,  # Queue up to 100 requests
-        # Phase 6.4: Sentry Error Tracking (optional, requires sentry-sdk).
+        # Sentry error tracking (optional, requires sentry-sdk): report uncaught errors.
         # Enabled only when SENTRY_DSN is set in the environment, so the
         # advertised feature is real when configured and inert otherwise.
         sentry_dsn=os.getenv("SENTRY_DSN"),
         sentry_environment="production",
         sentry_traces_sample_rate=0.1,
-        # Phase 6.5: Hot Reload
+        # Hot reload: drain workers gracefully for zero-downtime config/code reloads.
         reload_timeout=30.0,  # Wait 30s for workers to drain during reload
         # Additional production features
         lifecycle_logging=True,  # Structured event logging

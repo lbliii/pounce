@@ -649,7 +649,7 @@ class Supervisor:
                     worker=worker,
                     generation=self._generation,
                 )
-                handle._exc_holder = exc_holder  # type: ignore[attr-defined]
+                handle._exc_holder = exc_holder
                 new_handles.append(handle)
 
         logger.info("New workers spawned. Draining old workers (generation %d)...", old_generation)
@@ -1325,7 +1325,7 @@ def _serialize_lifespan_state(state: dict[str, Any]) -> str:
 def _try_iic_get(queue: Any) -> tuple[Any, ...] | None:
     """Non-blocking get from an IIC queue. Returns None if empty or unbound."""
     try:
-        msg = queue.get_nowait()  # type: ignore[union-attr]
+        msg = queue.get_nowait()
         # Guard against UnboundQueueItem (interpreter destroyed before read)
         if not isinstance(msg, tuple):
             return None

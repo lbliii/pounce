@@ -118,7 +118,7 @@ async def app(scope: Scope, receive: Receive, send: Send) -> None:
             )
             await asyncio.sleep(_HEARTBEAT_INTERVAL)
 
-    except asyncio.CancelledError, ConnectionError, OSError:
+    except (asyncio.CancelledError, ConnectionError, OSError):  # fmt: skip
         # Client disconnected — graceful exit.
         pass
 
