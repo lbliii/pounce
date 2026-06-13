@@ -28,6 +28,7 @@ from pounce._compression import (
 )
 from pounce._cpu_affinity import maybe_pin_worker
 from pounce._dictionary_endpoint import build_dictionary_response, use_as_dictionary_headers
+from pounce._drain import write_drain_503_sync
 from pounce._fast_h1 import ParseError
 from pounce._fast_h1 import parse_request as _fast_parse
 from pounce._health import build_health_response
@@ -60,6 +61,13 @@ from pounce.sync_protocol import RawRequest, SyncApp
 # ``Expect: 100-continue``. H1-only; trailers remain unsupported on this path.
 _HTTP_100_CONTINUE: bytes = b"HTTP/1.1 100 Continue\r\n\r\n"
 _CRLFCRLF: bytes = b"\r\n\r\n"
+
+# Full-shutdown late-arrival 503 window: a brief grace for connections racing in
+# during teardown, capped so an idle worker exits promptly instead of spinning the
+# whole ``shutdown_timeout`` (issue #100 — the sync analogue of the async worker's
+# ``wait_closed()`` returning when ``active == 0``).
+_DRAIN_ACCEPT_GRACE_S: float = 0.5
+_DRAIN_ACCEPT_POLL_S: float = 0.1
 
 
 def _wants_100_continue(header_block: bytes) -> bool:
@@ -233,6 +241,15 @@ class SyncWorker:
             except queue.Empty:
                 continue
             self._handle_connection(conn, cast("tuple[str, int]", addr), runner)
+        # Drain (#104): on a FULL shutdown, any connection still sitting in the
+        # shared queue was accepted by the distributor BEFORE drain began — the
+        # client has already sent its request and is in-flight, so it must be
+        # SERVED to completion, not reset. (The distributor 503s connections it
+        # accepts AFTER drain; nothing new lands in this queue once draining.)
+        # Bounded by shutdown_timeout so a slow handler cannot pin the worker.
+        # On a graceful RELOAD this is a no-op — the new generation keeps serving
+        # the shared queue (issue #102); see _drain_pending_queue.
+        self._drain_pending_queue(runner)
 
     def _run_accept_loop(self, poll_interval: float, runner: asyncio.Runner) -> None:
         """Accept directly from socket (SO_REUSEPORT or single worker)."""
@@ -258,6 +275,104 @@ class SyncWorker:
                     conn.close()
                     continue
             self._handle_connection(conn, addr, runner)
+        # Drain (issue #101): on a FULL shutdown, answer any client that races in
+        # during the bounded grace window with an actionable 503 instead of a
+        # silent drop. Bounded by shutdown_timeout so the worker thread still
+        # exits. On a graceful RELOAD this is a no-op — the new generation owns
+        # the listener (issue #102); see _drain_accept_window.
+        self._drain_accept_window()
+
+    def _drain_pending_queue(self, runner: asyncio.Runner) -> None:
+        """Serve in-flight queued connections on a FULL shutdown; never reset them.
+
+        Only acts on a *full shutdown* (``_ext_shutdown`` set). On a *graceful
+        reload* (``_drain_event`` set, ``_ext_shutdown`` unset) the shared
+        ``conn_queue`` is still owned by the AcceptDistributor, which keeps
+        enqueuing for the NEW generation — its own ``drain_event`` is only set
+        on full shutdown, not reload. Touching those entries here would steal
+        connections the new generation is meant to serve, so leave them
+        untouched and let this retiring worker simply exit (issue #102).
+
+        Every connection left in the queue was accepted by the distributor
+        *before* drain began (the distributor 503s anything it accepts after),
+        so each holds an in-flight request the client is waiting on. Closing
+        such a socket — even after a 503 — RSTs it because the client's unread
+        request bytes are still in the receive buffer, surfacing as a
+        ``ConnectionResetError`` for an in-flight request (#104). So SERVE each
+        queued connection to completion instead. ``_handle_connection`` already
+        forces ``Connection: close`` while draining, so each finishes one
+        request and closes cleanly. The whole drain-serve loop is bounded by
+        ``shutdown_timeout``; any connection still queued past the deadline gets
+        a bounded 503 so the worker thread can still exit promptly.
+        """
+        if self._conn_queue is None:
+            return
+        if self._ext_shutdown is None or not self._ext_shutdown.is_set():
+            # Graceful reload: leave queued connections for the new generation.
+            return
+        deadline = time.monotonic() + self._config.shutdown_timeout
+        while True:
+            try:
+                conn, addr = self._conn_queue.get_nowait()
+            except queue.Empty:
+                break
+            if time.monotonic() < deadline:
+                # In-flight request accepted pre-drain — serve it to completion.
+                self._handle_connection(conn, cast("tuple[str, int]", addr), runner)
+            else:
+                # Past the bounded window: refuse cleanly so we still exit.
+                self._send_drain_503(conn)
+
+    def _drain_accept_window(self) -> None:
+        """For a bounded window, accept new connections and answer them a 503.
+
+        Only runs once the accept loop is stopping. The window is bounded by
+        ``shutdown_timeout`` so a draining worker still answers late arrivals
+        with an actionable refusal without blocking process exit.
+
+        This window ONLY runs on a *full shutdown* (SIGTERM — ``_ext_shutdown``
+        set), where the server is going away and a brand-new connection should
+        get a bounded clean 503 (issue #101). On a *graceful reload* (SIGHUP —
+        ``_drain_event`` set but ``_ext_shutdown`` NOT set) the new generation
+        owns this listener and serves new connections, so the retiring worker
+        must return early: it must neither steal connections from the new gen
+        nor spin for the full ``shutdown_timeout`` refusing them (issue #102).
+        """
+        if self._sock is None:
+            return
+        if self._ext_shutdown is None or not self._ext_shutdown.is_set():
+            # Graceful reload (or no external shutdown): the new generation
+            # serves new connections — do not accept here, just exit promptly.
+            return
+        # Cap the window at a short grace, not the full shutdown_timeout: an idle
+        # worker must exit promptly so a clean SIGTERM is not artificially delayed
+        # (issue #100). New connections racing in still get a bounded clean 503.
+        deadline = time.monotonic() + min(self._config.shutdown_timeout, _DRAIN_ACCEPT_GRACE_S)
+        while time.monotonic() < deadline:
+            try:
+                # settimeout must be inside the guard: in thread mode the
+                # listener socket is shared, so a concurrent close during full
+                # shutdown makes settimeout itself raise EBADF. Treat any socket
+                # error (closed/torn-down listener) as "stop draining" rather
+                # than letting the worker crash.
+                self._sock.settimeout(_DRAIN_ACCEPT_POLL_S)
+                conn, _addr = self._sock.accept()
+            except TimeoutError:
+                # No new connection this slice. Once this worker is idle there is
+                # nothing left to drain — exit now rather than spin the window.
+                if self.is_idle():
+                    break
+                continue
+            except OSError:
+                break
+            conn.setblocking(True)
+            self._send_drain_503(conn)
+
+    def _send_drain_503(self, conn: socket.socket) -> None:
+        """Write the shared drain 503 to *conn* and close it."""
+        write_drain_503_sync(conn)
+        with contextlib.suppress(OSError):
+            conn.close()
 
     def _should_stop(self) -> bool:
         return self._drain_event.is_set() or bool(
@@ -327,11 +442,25 @@ class SyncWorker:
 
         try:
             while True:
-                if self._ext_shutdown and self._ext_shutdown.is_set():
+                # Stop only BETWEEN requests on a shutting-down worker (#104):
+                # a connection just dequeued for draining has its first request
+                # already in flight and MUST be served — breaking before
+                # request_count > 0 would close the socket with the client's
+                # unread request bytes still buffered, RSTing an in-flight
+                # request. After serving one request we exit; the drain paths
+                # also force ``Connection: close`` so we never loop here again.
+                if request_count > 0 and self._ext_shutdown and self._ext_shutdown.is_set():
                     break
 
                 # First request uses header_timeout; subsequent use keep_alive_timeout
                 timeout = self._config.header_timeout if request_count == 0 else keep_alive_timeout
+                # Drain (issue #100): cap the keep-alive idle wait so an idle
+                # keep-alive client cannot pin this worker for the full
+                # keep_alive_timeout while the supervisor waits on is_idle().
+                # The in-flight request (if any) still completes; we just stop
+                # blocking long for the *next* one on a draining worker.
+                if request_count > 0 and self._drain_event.is_set():
+                    timeout = min(timeout, 0.1)
                 conn.settimeout(timeout)
                 request, body = self._recv_request_fast(conn)
                 if request is None:
@@ -339,6 +468,15 @@ class SyncWorker:
 
                 meta = _classify_request(request)
                 close_after = meta.wants_close
+                # Drain (issue #100): once the supervisor signals drain via
+                # _drain_event, finish this in-flight request but force the
+                # connection closed so the keep-alive loop exits and is_idle()
+                # can return True well before reload_timeout. All response
+                # branches below derive conn_header from close_after, so this
+                # single flag makes health/dictionary/ASGI/fused paths all
+                # emit ``Connection: close`` and break.
+                if self._drain_event.is_set():
+                    close_after = True
                 request_count += 1
                 request_start = monotonic_ns()
                 self._lifecycle.record(
@@ -799,7 +937,10 @@ class SyncWorker:
             try:
                 n = conn.recv_into(mv[total:])
             except OSError:
-                # ConnectionError and TimeoutError are OSError subclasses.
+                # ConnectionError and TimeoutError are both OSError subclasses,
+                # so a single base-class handler covers a dropped/timed-out
+                # client without the parenless multi-type form (PEP 758) that
+                # the src code-quality guard forbids.
                 self._recv_buf_len = 0
                 return (None, b"")
 

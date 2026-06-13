@@ -26,12 +26,14 @@ This keeps Worker as the single source of truth for request handling.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import logging
 import os
 import socket
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from time import monotonic
 from typing import Any
 
 logger = logging.getLogger("pounce.subinterpreter")
@@ -203,7 +205,16 @@ async def _run_worker_with_iic(
 
         try:
             server.close()
-            await server.wait_closed()
+            # Bound the wait so a lingering keep-alive/streaming connection
+            # cannot pin teardown forever; stragglers are aborted below.
+            try:
+                await asyncio.wait_for(
+                    server.wait_closed(), timeout=worker._config.shutdown_timeout
+                )
+            except TimeoutError:
+                server.abort_clients()
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(server.wait_closed(), timeout=2.0)
         except (ValueError, OSError):  # fmt: skip
             pass  # FD already closed
 
@@ -220,7 +231,34 @@ async def _run_worker_with_iic(
         except Exception:
             logger.debug("Worker shutdown hook raised (expected for most apps)")
 
-        executor.shutdown(wait=False)
+        # Fully retire the per-worker executor BEFORE this coroutine (and the
+        # subinterpreter) unwinds (#104). ``interp.close()`` runs once this
+        # ``asyncio.run`` returns; on a free-threaded build, closing an
+        # interpreter that still owns running executor threads can crash the
+        # process (intermittent SIGSEGV during drain). Wait — bounded by
+        # shutdown_timeout — for the pool's threads to exit, cancelling any
+        # queued work, so the interpreter has no live worker threads at close.
+        # ``run_in_executor`` on a dedicated single-thread pool avoids using the
+        # default executor we are tearing down.
+        def _shutdown_sync() -> None:
+            executor.shutdown(wait=True, cancel_futures=True)
+
+        shutdown_helper = ThreadPoolExecutor(max_workers=1)
+        try:
+            await asyncio.wait_for(
+                loop.run_in_executor(shutdown_helper, _shutdown_sync),
+                timeout=worker._config.shutdown_timeout,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Subinterpreter worker %d: executor pool did not drain within "
+                "%.1fs — abandoning wait (a stuck handler may keep threads alive)",
+                worker._worker_id,
+                worker._config.shutdown_timeout,
+            )
+            executor.shutdown(wait=False, cancel_futures=True)
+        finally:
+            shutdown_helper.shutdown(wait=False)
 
 
 async def _iic_bridge(
@@ -228,27 +266,61 @@ async def _iic_bridge(
     ctrl_queue: Any,
     status_queue: Any,
 ) -> None:
-    """Poll the IIC ctrl_queue and translate commands to Worker state changes."""
+    """Poll the IIC ctrl_queue and translate commands to Worker state changes.
+
+    A single bounded poll loop (issue #103). The supervisor queues
+    ``('drain',)`` then ``('shutdown',)`` back-to-back on SIGTERM, so the
+    bridge must keep reading the queue *while* draining — it can never block
+    inside a ``while not worker.is_idle()`` spin or the queued ``shutdown``
+    becomes unreachable and the subinterpreter thread wedges forever.
+
+    Behaviour per tick (every ``poll_interval``):
+
+    - ``CMD_SHUTDOWN``  -> set ``_async_shutdown`` and return immediately.
+    - ``CMD_DRAIN``     -> mark the worker draining and arm a deadline of
+      ``config.shutdown_timeout`` from now; keep polling.
+    - while draining and idle -> emit ``STATUS_IDLE`` once so the supervisor's
+      reload poll can observe it, then keep polling for the explicit shutdown.
+    - while draining and past the deadline -> emit a final ``STATUS_IDLE`` and
+      set ``_async_shutdown`` so the worker proceeds to its finally-block drain
+      rather than spinning forever on a long-lived connection.
+    """
+    poll_interval = 0.05
+    draining = False
+    drain_deadline: float | None = None
+    idle_announced = False
+
     while True:
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(poll_interval)
         msg = _try_get(ctrl_queue)
-        if msg is None:
+        if msg is not None:
+            cmd = msg[0]
+            if cmd == CMD_SHUTDOWN:
+                status_queue.put((STATUS_DRAINING,))
+                worker._async_shutdown.set()
+                return
+            if cmd == CMD_DRAIN and not draining:
+                status_queue.put((STATUS_DRAINING,))
+                worker._draining = True
+                draining = True
+                drain_deadline = monotonic() + worker._config.shutdown_timeout
+
+        if not draining:
             continue
 
-        cmd = msg[0]
-        if cmd == CMD_SHUTDOWN:
-            status_queue.put((STATUS_DRAINING,))
+        # Bound the drain wait: once the deadline elapses, signal shutdown so
+        # the worker's finally block can run even if a connection outlives us.
+        if drain_deadline is not None and monotonic() >= drain_deadline:
+            if not idle_announced:
+                status_queue.put((STATUS_IDLE,))
             worker._async_shutdown.set()
             return
-        elif cmd == CMD_DRAIN:
-            status_queue.put((STATUS_DRAINING,))
-            worker._draining = True
-            # Wait until all connections finish
-            while not worker.is_idle():
-                await asyncio.sleep(0.05)
+
+        # Announce idle exactly once so the supervisor's reload poll unblocks,
+        # but keep running so a queued ('shutdown',) is still observed.
+        if not idle_announced and worker.is_idle():
             status_queue.put((STATUS_IDLE,))
-            # Don't shutdown yet — keep interpreter alive so supervisor
-            # can read the ("idle",) status.  Wait for explicit ("shutdown",).
+            idle_announced = True
 
 
 def _import_app(app_path: str) -> Any:

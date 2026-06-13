@@ -34,6 +34,7 @@ import h11
 
 from pounce._cpu_affinity import maybe_pin_worker
 from pounce._dictionary_endpoint import build_dictionary_response, use_as_dictionary_headers
+from pounce._drain import write_drain_503_async
 from pounce._errors import ParseError
 from pounce._h2_handler import handle_h2_connection
 from pounce._headers import is_websocket_upgrade as _is_websocket_upgrade
@@ -202,15 +203,42 @@ class Worker:
     def start_draining(self) -> None:
         """Mark this worker as draining.
 
-        When draining, the worker will finish existing connections but stop
-        accepting new ones. This is used during graceful reload to ensure
-        zero-downtime rolling restarts.
+        When draining, the worker finishes its existing connections but no
+        longer serves *new* work. Used for both graceful reload (zero-downtime
+        rolling restart) and full shutdown (SIGTERM).
 
+        Setting ``_draining`` makes every brand-new connection that is still
+        accepted take the bounded clean 503 path at the top of
+        ``_handle_connection`` instead of being served. On a FULL shutdown the
+        accept loop is deliberately kept open during the bounded drain window
+        (see ``_serve``) so those new connections get that 503 rather than
+        hanging unanswered in the listen backlog (#104). Waking ``_serve`` via
+        ``_async_shutdown`` begins that window; the actual ``server.close()`` is
+        deferred until the worker is idle or the window elapses.
         """
         self._draining = True
         if self._loop and not self._loop.is_closed() and self._async_shutdown is not None:
-            # Signal the accept loop to stop accepting new connections
+            # Begin the shutdown/drain sequence in the worker's own loop.
             self._loop.call_soon_threadsafe(self._async_shutdown.set)
+
+    async def _await_drain_idle(self, timeout: float) -> None:
+        """Keep accepting (503ing new conns) until idle or *timeout* elapses.
+
+        Runs only on a FULL shutdown while ``_draining`` is set. The asyncio
+        server stays open so in-flight connections finish AND brand-new
+        connections still land on ``_handle_connection`` and receive the bounded
+        clean 503 (#104). Returns as soon as the worker is idle (no active
+        connections) so a worker with nothing in flight exits promptly, or once
+        the bounded window elapses — after which ``_serve`` closes the server
+        and aborts any stragglers.
+        """
+        deadline = monotonic_ns() + int(timeout * 1_000_000_000)
+        while monotonic_ns() < deadline:
+            with self._conn_lock:
+                active = self._active_connections
+            if active == 0:
+                return
+            await asyncio.sleep(0.02)
 
     def is_idle(self) -> bool:
         """Check if worker has finished all connections and is idle.
@@ -319,6 +347,20 @@ class Worker:
                     "Worker %d shutting down (no active connections)", self._worker_id
                 )
 
+            # Bounded drain-accept window (#104): on a FULL shutdown (SIGTERM)
+            # keep the asyncio server ACCEPTING while in-flight connections
+            # finish, so a brand-new connection lands on ``_handle_connection``
+            # and gets the bounded clean 503 at the top of that method instead
+            # of sitting unanswered in the listen backlog (a silent drop / HUNG).
+            # On a GRACEFUL RELOAD the new generation owns the listener, so the
+            # old worker must stop accepting immediately (close below) and merely
+            # finish its existing connections; it must not 503 traffic the new
+            # generation is meant to serve.
+            timeout = self._config.shutdown_timeout
+            full_shutdown = self._ext_shutdown is not None and self._ext_shutdown.is_set()
+            if full_shutdown and self._draining:
+                await self._await_drain_idle(timeout)
+
             # Guard against shared-fd sockets: on macOS all workers share
             # the same socket fd.  When the first worker closes the asyncio
             # server it unregisters the fd from the selector.  The second
@@ -331,7 +373,6 @@ class Worker:
                 # Without a timeout, keep-alive or long-lived connections
                 # (WebSocket, SSE) block wait_closed() indefinitely, preventing
                 # the worker thread from ever exiting.
-                timeout = self._config.shutdown_timeout
                 try:
                     await asyncio.wait_for(server.wait_closed(), timeout=timeout)
                 except TimeoutError:
@@ -489,20 +530,7 @@ class Worker:
         # Existing connections continue processing, but we stop accepting new
         # work to allow the worker to drain cleanly.
         if self._draining:
-            try:
-                writer.write(
-                    b"HTTP/1.1 503 Service Unavailable\r\n"
-                    b"Connection: close\r\n"
-                    b"Content-Length: 23\r\n"
-                    b"Content-Type: text/plain\r\n"
-                    b"\r\n"
-                    b"Server shutting down..."
-                )
-                await writer.drain()
-                writer.close()
-                await writer.wait_closed()
-            except (OSError, ConnectionError):  # fmt: skip
-                pass
+            await write_drain_503_async(writer)
             return
 
         # Connection backpressure — reject when at capacity.
@@ -755,6 +783,14 @@ class Worker:
                 # After processing events, we've handled a request — switch
                 # to keep-alive timeout for the inter-request idle period.
                 awaiting_headers = False
+
+                # Draining (#104): once the worker is draining, do not start a
+                # new keep-alive cycle on this connection. The request we just
+                # served completed normally; closing now lets the worker reach
+                # idle promptly so the bounded drain window can end instead of
+                # being pinned by a client that keeps looping requests.
+                if self._draining:
+                    break
 
                 # Enforce max requests per connection
                 if max_requests > 0 and request_count >= max_requests:

@@ -7,11 +7,14 @@ single shared queue from which all SyncWorkers pull.
 
 """
 
+import contextlib
 import logging
 import queue
 import socket
 import ssl
 import threading
+
+from pounce._drain import write_drain_503_sync
 
 logger = logging.getLogger("pounce.accept_distributor")
 
@@ -37,6 +40,7 @@ class AcceptDistributor:
 
     __slots__ = (
         "_conn_queue",
+        "_drain_event",
         "_ext_shutdown",
         "_logger",
         "_sock",
@@ -49,11 +53,13 @@ class AcceptDistributor:
         conn_queue: queue.Queue[tuple[socket.socket, object]],
         *,
         shutdown_event: threading.Event | None = None,
+        drain_event: threading.Event | None = None,
         ssl_context: ssl.SSLContext | None = None,
     ) -> None:
         self._sock = sock
         self._conn_queue = conn_queue
         self._ext_shutdown = shutdown_event
+        self._drain_event = drain_event
         self._ssl_context = ssl_context
         self._logger = logging.getLogger("pounce.accept_distributor")
 
@@ -82,5 +88,14 @@ class AcceptDistributor:
                 except ssl.SSLError:
                     conn.close()
                     continue
+
+            # Drain (issue #101): once draining, never add a new connection to
+            # the shared queue (it would be orphaned at process exit). Answer
+            # the client with a bounded, actionable 503 and close.
+            if self._drain_event is not None and self._drain_event.is_set():
+                write_drain_503_sync(conn)
+                with contextlib.suppress(OSError):
+                    conn.close()
+                continue
 
             self._conn_queue.put((conn, addr))

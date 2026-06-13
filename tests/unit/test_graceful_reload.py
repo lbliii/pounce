@@ -147,3 +147,135 @@ class TestConfigValidation:
         # Currently no validation, but documenting expected behavior
         config = ServerConfig(reload_timeout=30.0)
         assert config.reload_timeout > 0
+
+
+class TestAsyncPoolRebuildOnReload:
+    """#102: graceful_reload (sync mode) must rebuild the AsyncPool with the
+    reimported app so streaming/WebSocket handoffs run the new code."""
+
+    def _make_sync_supervisor(self, app):
+        """Thread+sync supervisor with two workers sharing one listener."""
+        config = ServerConfig(
+            workers=2,
+            worker_mode="sync",
+            reload_timeout=1.0,
+            shutdown_timeout=1.0,
+            access_log=False,
+        )
+        sup = Supervisor(
+            config,
+            app,
+            app_path="tests.unit.test_graceful_reload:_reload_probe_app",
+            mode="thread",
+        )
+        # Force sync execution even on a GIL build (resolve would pick async).
+        sup._execution_mode = "sync"
+        # Two workers sharing the SAME listener object -> AcceptDistributor path.
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(8)
+        sup._sockets = [listener, listener]
+        return sup, listener
+
+    def test_async_pool_rebuilt_with_reimported_app(self, monkeypatch):
+        """After reload, self._async_pool is a NEW pool bound to the new app."""
+        old_app = _make_marker_app("OLD")
+        new_app = _make_marker_app("NEW")
+
+        sup, listener = self._make_sync_supervisor(old_app)
+        try:
+            sup._setup_sync_infrastructure()
+            original_pool = sup._async_pool
+            assert original_pool is not None
+            assert original_pool._app is old_app
+
+            # Reload reimports the app; force it to return the NEW app.
+            import pounce._importer as importer
+
+            monkeypatch.setattr(importer, "reimport_app", lambda *_a, **_k: new_app)
+
+            # Stub worker spawning so the reload doesn't need real serving threads:
+            # return an already-idle fake worker and a thread that exits at once.
+            monkeypatch.setattr(
+                Supervisor,
+                "_create_worker",
+                lambda self, worker_id, socket_index: _IdleFakeWorker(),
+            )
+
+            sup._graceful_reload_impl()
+
+            # The pool instance must have changed and point at the new app.
+            assert sup._async_pool is not None
+            assert sup._async_pool is not original_pool, "AsyncPool was not rebuilt"
+            assert sup._async_pool._app is new_app, "rebuilt pool runs stale app"
+            # The old pool must have been told to shut down (per-pool event).
+            assert original_pool._pool_shutdown.is_set()
+        finally:
+            sup._shutdown_event.set()
+            if sup._accept_distributor_drain is not None:
+                sup._accept_distributor_drain.set()
+            listener.close()
+
+    def test_distributor_and_queue_preserved_across_reload(self, monkeypatch):
+        """The app-agnostic AcceptDistributor/queue are shared, not orphaned."""
+        sup, listener = self._make_sync_supervisor(_make_marker_app("OLD"))
+        try:
+            sup._setup_sync_infrastructure()
+            queue_before = sup._conn_queue
+            assert queue_before is not None  # shared-socket path built a queue
+
+            import pounce._importer as importer
+
+            monkeypatch.setattr(importer, "reimport_app", lambda *_a, **_k: _make_marker_app("NEW"))
+            monkeypatch.setattr(
+                Supervisor,
+                "_create_worker",
+                lambda self, worker_id, socket_index: _IdleFakeWorker(),
+            )
+            sup._graceful_reload_impl()
+
+            # Queue object is reused (new workers share it, like the old gen).
+            assert sup._conn_queue is queue_before
+        finally:
+            sup._shutdown_event.set()
+            if sup._accept_distributor_drain is not None:
+                sup._accept_distributor_drain.set()
+            listener.close()
+
+
+class _IdleFakeWorker:
+    """A worker stand-in that runs trivially and is always idle."""
+
+    def __init__(self) -> None:
+        self._draining = False
+
+    def run(self) -> None:  # executed in the spawned thread; returns immediately
+        return
+
+    def start_draining(self) -> None:
+        self._draining = True
+
+    def is_idle(self) -> bool:
+        return True
+
+
+def _make_marker_app(marker: str):
+    async def _app(scope, receive, send):  # pragma: no cover - not invoked here
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"x-marker", marker.encode())],
+            }
+        )
+        await send({"type": "http.response.body", "body": marker.encode()})
+
+    _app.__marker__ = marker  # type: ignore[attr-defined]
+    return _app
+
+
+async def _reload_probe_app(scope, receive, send):  # pragma: no cover
+    """Module-level app referenced by app_path in the reload supervisor."""
+    await send({"type": "http.response.start", "status": 200, "headers": []})
+    await send({"type": "http.response.body", "body": b"probe"})

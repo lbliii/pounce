@@ -198,6 +198,7 @@ class Supervisor:
     """
 
     __slots__ = (
+        "_accept_distributor_drain",
         "_accept_distributor_handle",
         "_app",
         "_app_path",
@@ -259,6 +260,7 @@ class Supervisor:
         self._async_pool: AsyncPool | None = None
         self._async_pool_handle: threading.Thread | None = None
         self._accept_distributor_handle: threading.Thread | None = None
+        self._accept_distributor_drain: threading.Event | None = None
         self._conn_queue: queue.Queue[tuple[socket.socket, object]] | None = None
         self._lifecycle_lock = threading.Lock()
         self._reload_in_progress = False
@@ -455,6 +457,8 @@ class Supervisor:
         # Join with timeout (AcceptDistributor, AsyncPool, TCP and H3 workers).
         # ``shutdown_timeout`` is per auxiliary thread and per worker (parallel joins).
         per = self._config.shutdown_timeout
+        if self._accept_distributor_drain is not None:
+            self._accept_distributor_drain.set()
         if self._accept_distributor_handle is not None:
             self._accept_distributor_handle.join(timeout=per)
             self._accept_distributor_handle = None
@@ -572,6 +576,23 @@ class Supervisor:
         old_handles = list(self._handles)
         old_iic_queues = list(self._iic_queues)
         old_generation = self._generation
+
+        # Capture the old AsyncPool so we can retire it AFTER the new generation
+        # is wired up (issue #102). Building the new pool BEFORE draining the
+        # old one avoids a window where streaming/WebSocket handoffs land on a
+        # retiring pool. The AcceptDistributor + shared conn_queue are
+        # app-agnostic (they only accept sockets and enqueue them), so the new
+        # generation keeps sharing them exactly as the old one did — no rebuild,
+        # no accept gap, no orphaned queue.
+        old_async_pool = self._async_pool
+        old_async_pool_handle = self._async_pool_handle
+
+        # Rebuild the AsyncPool bound to the freshly reimported app. SyncWorkers
+        # read self._async_pool at construction, so repoint BEFORE spawning the
+        # new generation; the new workers then hand off streaming/WS to a pool
+        # running the new code (no split-brain).
+        if self._uses_sync_infrastructure():
+            self._async_pool, self._async_pool_handle = self._build_async_pool()
 
         # Increment generation for new workers
         self._generation += 1
@@ -712,6 +733,18 @@ class Supervisor:
             if handle.target.is_alive():
                 self._force_stop(handle, join_per)
 
+        # Retire the OLD AsyncPool now that old workers are done handing off
+        # (issue #102). request_shutdown() uses the per-pool shutdown event,
+        # distinct from the supervisor-wide shutdown event, so the NEW pool
+        # keeps running while the old thread drains its in-flight handoffs and
+        # exits.
+        if old_async_pool is not None and old_async_pool is not self._async_pool:
+            old_async_pool.request_shutdown()
+            if old_async_pool_handle is not None:
+                old_async_pool_handle.join(timeout=join_per)
+                if old_async_pool_handle.is_alive():
+                    logger.warning("Old AsyncPool still alive after reload drain.")
+
         # Replace handles with new generation
         self._handles = new_handles
         self._iic_queues = new_iic_queues
@@ -722,50 +755,87 @@ class Supervisor:
     # Spawning
     # ------------------------------------------------------------------
 
+    def _uses_sync_infrastructure(self) -> bool:
+        """True when AsyncPool/AcceptDistributor apply (thread mode, sync exec)."""
+        return self._mode == "thread" and self._execution_mode == "sync"
+
+    def _build_async_pool(self) -> tuple[AsyncPool | None, threading.Thread | None]:
+        """Build and start a fresh AsyncPool bound to the current ``self._app``.
+
+        Returns the pool and its thread handle without mutating ``self`` so the
+        caller can repoint ``self._async_pool`` and retire the old one in the
+        order it chooses (issue #102).
+        """
+        if not self._uses_sync_infrastructure():
+            return None, None
+        pool = AsyncPool(
+            self._config,
+            self._app,
+            shutdown_event=self._shutdown_event,
+            ssl_context=self._ssl_context,
+            lifecycle_collector=self._lifecycle_collector,
+        )
+        pool.set_lifespan_state(self._lifespan_state)
+        handle = threading.Thread(
+            target=pool.run,
+            name="pounce-async-pool",
+            daemon=True,
+        )
+        handle.start()
+        logger.debug("AsyncPool started for streaming/WebSocket handoffs")
+        return pool, handle
+
+    def _build_accept_distributor(
+        self,
+    ) -> tuple[
+        queue.Queue[tuple[socket.socket, object]] | None,
+        threading.Thread | None,
+        threading.Event | None,
+    ]:
+        """Build and start a fresh AcceptDistributor for shared-socket sync mode.
+
+        Returns ``(conn_queue, handle, drain_event)`` (all ``None`` when a
+        distributor does not apply) without mutating ``self``.
+        """
+        use_accept_distributor = (
+            self._uses_sync_infrastructure()
+            and self._effective_workers > 1
+            and is_shared_socket(self._sockets)
+        )
+        if not use_accept_distributor:
+            return None, None, None
+        shared_queue: queue.Queue[tuple[socket.socket, object]] = queue.Queue()
+        # Per-distributor drain Event (issue #101): set during shutdown so the
+        # distributor stops enqueuing and 503s late arrivals instead of
+        # orphaning them in the shared queue.
+        drain_event = threading.Event()
+        distributor = AcceptDistributor(
+            self._sockets[0],
+            shared_queue,
+            shutdown_event=self._shutdown_event,
+            drain_event=drain_event,
+            ssl_context=self._ssl_context,
+        )
+        handle = threading.Thread(
+            target=distributor.run,
+            name="pounce-accept-distributor",
+            daemon=True,
+        )
+        handle.start()
+        logger.debug(
+            "AcceptDistributor started (shared queue, %d workers)",
+            self._effective_workers,
+        )
+        return shared_queue, handle, drain_event
+
     def _setup_sync_infrastructure(self) -> None:
         """Create AsyncPool and AcceptDistributor for sync worker mode."""
-        use_sync = self._mode == "thread" and self._execution_mode == "sync"
-        use_accept_distributor = (
-            use_sync and self._effective_workers > 1 and is_shared_socket(self._sockets)
-        )
-        if use_sync:
-            self._async_pool = AsyncPool(
-                self._config,
-                self._app,
-                shutdown_event=self._shutdown_event,
-                ssl_context=self._ssl_context,
-                lifecycle_collector=self._lifecycle_collector,
-            )
-            self._async_pool.set_lifespan_state(self._lifespan_state)
-            self._async_pool_handle = threading.Thread(
-                target=self._async_pool.run,
-                name="pounce-async-pool",
-                daemon=True,
-            )
-            self._async_pool_handle.start()
-            logger.debug("AsyncPool started for streaming/WebSocket handoffs")
-
-        if use_accept_distributor:
-            shared_queue: queue.Queue[tuple[socket.socket, object]] = queue.Queue()
-            distributor = AcceptDistributor(
-                self._sockets[0],
-                shared_queue,
-                shutdown_event=self._shutdown_event,
-                ssl_context=self._ssl_context,
-            )
-            self._accept_distributor_handle = threading.Thread(
-                target=distributor.run,
-                name="pounce-accept-distributor",
-                daemon=True,
-            )
-            self._accept_distributor_handle.start()
-            logger.debug(
-                "AcceptDistributor started (shared queue, %d workers)",
-                self._effective_workers,
-            )
-            self._conn_queue = shared_queue
-        else:
-            self._conn_queue = None
+        self._async_pool, self._async_pool_handle = self._build_async_pool()
+        (
+            self._conn_queue,
+            self._accept_distributor_handle,
+            self._accept_distributor_drain,
+        ) = self._build_accept_distributor()
 
     def _create_worker(self, worker_id: int, socket_index: int) -> Worker | SyncWorker:
         """Create a Worker or SyncWorker based on the execution mode."""
@@ -1132,15 +1202,21 @@ class Supervisor:
 
         # ``shutdown_timeout`` is per auxiliary thread and per worker (parallel joins).
         per = self._config.shutdown_timeout
+        # Tell the distributor to stop enqueuing and 503 late arrivals (#101)
+        # so the shared queue cannot accumulate orphaned connections.
+        if self._accept_distributor_drain is not None:
+            self._accept_distributor_drain.set()
         if self._accept_distributor_handle is not None:
             self._accept_distributor_handle.join(timeout=per)
             if self._accept_distributor_handle.is_alive():
                 logger.debug("AcceptDistributor still draining (will exit with process)")
-        if self._async_pool_handle is not None:
-            self._async_pool_handle.join(timeout=per)
-            if self._async_pool_handle.is_alive():
-                logger.debug("AsyncPool still draining (will exit with process)")
 
+        # Join the TCP workers BEFORE retiring the AsyncPool (#104). A draining
+        # sync worker may still be SERVING an in-flight streaming/WebSocket
+        # request it pulled from the accept queue, which it hands off to the
+        # pool. The pool must therefore outlive the workers' drain so that late
+        # handoff is processed instead of arriving after the pool has retired
+        # (which orphaned the connection -> empty response).
         if self._handles:
             _parallel_join_targets([h.target for h in self._handles], per)
         for handle in self._handles:
@@ -1148,6 +1224,16 @@ class Supervisor:
                 self._force_stop(handle, per)
             else:
                 logger.debug("Worker %d stopped cleanly", handle.worker_id)
+
+        # Now that the workers have drained (and enqueued any final handoffs),
+        # retire the AsyncPool: it drains its queue + in-flight tasks, bounded
+        # by shutdown_timeout.
+        if self._async_pool is not None:
+            self._async_pool.request_shutdown()
+        if self._async_pool_handle is not None:
+            self._async_pool_handle.join(timeout=per)
+            if self._async_pool_handle.is_alive():
+                logger.debug("AsyncPool still draining (will exit with process)")
 
         if self._h3_handles:
             _parallel_join_targets([h.target for h in self._h3_handles], per)
