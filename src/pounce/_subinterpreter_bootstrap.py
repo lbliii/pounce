@@ -96,30 +96,42 @@ def bootstrap(
             fileno=sock_fd,
         )
 
-        # --- Create Worker (no shutdown_event — IIC bridge replaces it) ---
-        from pounce.worker import Worker
+        # Own the reconstructed FD for the whole worker lifetime. If anything
+        # below raises BEFORE the worker's normal ``server.close()`` runs
+        # (asyncio.start_server, the ``worker_startup_failure='shutdown'``
+        # startup hook, or asyncio.run itself can raise), the FD would otherwise
+        # leak — abnormal crashes/reloads then accumulate dup'd listener FDs
+        # (issue #106). The finally closes it; ``suppress(OSError)`` covers the
+        # normal drain path, where ``server.close()`` already closed this same
+        # FD (#106).
+        try:
+            # --- Create Worker (no shutdown_event — IIC bridge replaces it) ---
+            from pounce.worker import Worker
 
-        if config.max_connections > 0:
-            base, remainder = divmod(config.max_connections, config.resolve_workers())
-            per_worker_max = base + (1 if worker_id < remainder else 0)
-        else:
-            per_worker_max = 0
+            if config.max_connections > 0:
+                base, remainder = divmod(config.max_connections, config.resolve_workers())
+                per_worker_max = base + (1 if worker_id < remainder else 0)
+            else:
+                per_worker_max = 0
 
-        worker = Worker(
-            config,
-            app,
-            server_sock,
-            worker_id=worker_id,
-            shutdown_event=None,
-            max_connections=per_worker_max,
-        )
+            worker = Worker(
+                config,
+                app,
+                server_sock,
+                worker_id=worker_id,
+                shutdown_event=None,
+                max_connections=per_worker_max,
+            )
 
-        # --- Set lifespan state (IIC-safe keys from main interpreter) ---
-        if lifespan_state:
-            worker.set_lifespan_state(lifespan_state)
+            # --- Set lifespan state (IIC-safe keys from main interpreter) ---
+            if lifespan_state:
+                worker.set_lifespan_state(lifespan_state)
 
-        # --- Run with IIC bridge ---
-        asyncio.run(_run_worker_with_iic(worker, ctrl_queue, status_queue))
+            # --- Run with IIC bridge ---
+            asyncio.run(_run_worker_with_iic(worker, ctrl_queue, status_queue))
+        finally:
+            with contextlib.suppress(OSError):
+                server_sock.close()
 
     except Exception as exc:
         status_queue.put((STATUS_ERROR, str(exc)))
