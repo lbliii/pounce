@@ -20,6 +20,7 @@ import logging
 from typing import Any
 
 from pounce._compression import Compressor, create_compressor, negotiate_encoding
+from pounce._concurrency import race_first_completed
 from pounce._headers import get_header as _get_header_from_tuple
 from pounce._health import build_health_response
 from pounce._priority import PriorityScheduler, parse_priority
@@ -623,14 +624,10 @@ async def handle_h2_websocket_stream(
     data_task = asyncio.create_task(_process_data())
 
     try:
-        _done, pending = await asyncio.wait(
-            {app_task, data_task},
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for task in pending:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        # Race the app against the data-frame reader; the loser is cancelled
+        # and drained inside the helper so nothing leaks. App exceptions are
+        # already swallowed inside _run_app above.
+        await race_first_completed(app_task, data_task)
     except Exception:
         logger.exception(
             "Unhandled error on H2 WebSocket from %s",
