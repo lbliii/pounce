@@ -5,10 +5,12 @@ Tests for graceful worker reload functionality.
 
 import asyncio
 import socket
+import time
 
 import pytest
 
 from pounce.config import ServerConfig
+from pounce.h3_worker import H3Worker
 from pounce.supervisor import Supervisor
 from pounce.worker import Worker
 
@@ -279,3 +281,134 @@ async def _reload_probe_app(scope, receive, send):  # pragma: no cover
     """Module-level app referenced by app_path in the reload supervisor."""
     await send({"type": "http.response.start", "status": 200, "headers": []})
     await send({"type": "http.response.body", "body": b"probe"})
+
+
+class TestH3WorkerRotationOnReload:
+    """#111: graceful_reload must rotate H3 (HTTP/3) workers so the QUIC
+    generation also picks up the reimported app. Without rotation the old H3
+    workers keep serving STALE code (split-brain with the fresh TCP gen).
+
+    The local interpreter is GIL CPython 3.14 and zoomies/QUIC is not exercised
+    here, so these tests stub ``H3Worker.run`` to a thread that simply waits on
+    the per-worker reload event and exits. They prove the SUPERVISOR-side
+    rotation contract: old H3 handles are replaced by a new generation, the old
+    H3 threads stop within ``reload_timeout``, and the new H3Worker holds the
+    reimported app. The under-load H3 request-routing proof is #113 (CI 3.14t).
+    """
+
+    def _make_h3_supervisor(self, app):
+        """Thread-mode supervisor with one TCP + one H3 (UDP) worker."""
+        config = ServerConfig(
+            workers=1,
+            worker_mode="async",
+            reload_timeout=2.0,
+            shutdown_timeout=2.0,
+            access_log=False,
+            ssl_certfile="/tmp/cert.pem",
+            ssl_keyfile="/tmp/key.pem",
+        )
+        sup = Supervisor(
+            config,
+            app,
+            app_path="tests.unit.test_graceful_reload:_reload_probe_app",
+            mode="thread",
+        )
+        sup._effective_workers = 1
+        udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp.bind(("127.0.0.1", 0))
+        sup._udp_sockets = [udp]
+        return sup, udp
+
+    @staticmethod
+    def _stub_h3_run(worker: H3Worker) -> None:
+        """Stand-in for H3Worker.run: wait on the per-worker reload event.
+
+        Proves graceful_reload signals the per-worker event (NOT the shared
+        shutdown event, which would also stop TCP workers). Exits promptly so
+        the supervisor's parallel join completes within reload_timeout.
+        """
+        ev = worker._reload_shutdown
+        if ev is not None:
+            ev.wait(timeout=5.0)
+
+    def test_h3_generation_rotated_to_new_workers(self, monkeypatch):
+        """After reload, _h3_handles are a NEW generation bound to the new app,
+        and no old H3 thread survives past reload_timeout."""
+        old_app = _make_marker_app("OLD")
+        new_app = _make_marker_app("NEW")
+
+        sup, udp = self._make_h3_supervisor(old_app)
+        try:
+            monkeypatch.setattr(H3Worker, "run", self._stub_h3_run, raising=True)
+
+            # Seed the OLD H3 generation (real H3Worker bound to old_app).
+            sup._spawn_h3_worker(0)
+            assert len(sup._h3_handles) == 1
+            old_handle = sup._h3_handles[0]
+            assert old_handle.worker is not None
+            assert old_handle.worker._app is old_app
+            assert old_handle.target.is_alive()
+
+            # Reload reimports the app -> return the NEW app.
+            import pounce._importer as importer
+
+            monkeypatch.setattr(importer, "reimport_app", lambda *_a, **_k: new_app)
+            # Keep the TCP side trivial: idle fake worker, instant-exit thread.
+            monkeypatch.setattr(
+                Supervisor,
+                "_create_worker",
+                lambda self, worker_id, socket_index: _IdleFakeWorker(),
+            )
+
+            sup._graceful_reload_impl()
+
+            # New H3 generation present and DISTINCT from the old one.
+            assert len(sup._h3_handles) == 1
+            new_handle = sup._h3_handles[0]
+            assert new_handle is not old_handle, "H3 generation was not rotated"
+            assert new_handle.worker is not None
+
+            # The new H3 worker holds the REIMPORTED app (no stale code).
+            assert new_handle.worker._app is new_app, "new H3 worker runs stale app"
+
+            # The old H3 worker was signalled via its PER-WORKER reload event
+            # (not the shared shutdown event) and its thread is gone.
+            assert old_handle.reload_shutdown_event is not None
+            assert old_handle.reload_shutdown_event.is_set()
+            assert not sup._shutdown_event.is_set(), (
+                "shared shutdown event must NOT be set during graceful reload "
+                "(would also stop TCP workers)"
+            )
+            deadline = time.monotonic() + sup._config.reload_timeout
+            while old_handle.target.is_alive() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert not old_handle.target.is_alive(), (
+                "old H3 worker thread survived past reload_timeout"
+            )
+        finally:
+            # Release any new-gen H3 threads still waiting on their event.
+            for h in sup._h3_handles:
+                if h.reload_shutdown_event is not None:
+                    h.reload_shutdown_event.set()
+            sup._shutdown_event.set()
+            udp.close()
+
+    def test_reload_without_udp_sockets_is_h3_noop(self, monkeypatch):
+        """When no UDP sockets are configured, reload leaves _h3_handles empty
+        and does not attempt any H3 rotation."""
+        sup, udp = self._make_h3_supervisor(_make_marker_app("OLD"))
+        try:
+            sup._udp_sockets = []  # no HTTP/3 listeners
+            import pounce._importer as importer
+
+            monkeypatch.setattr(importer, "reimport_app", lambda *_a, **_k: _make_marker_app("NEW"))
+            monkeypatch.setattr(
+                Supervisor,
+                "_create_worker",
+                lambda self, worker_id, socket_index: _IdleFakeWorker(),
+            )
+            sup._graceful_reload_impl()
+            assert sup._h3_handles == []
+        finally:
+            sup._shutdown_event.set()
+            udp.close()

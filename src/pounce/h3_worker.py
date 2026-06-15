@@ -36,6 +36,12 @@ class H3Worker:
         shutdown_event: Optional external threading.Event for shutdown.
         ssl_certfile: Path to TLS certificate (required for QUIC).
         ssl_keyfile: Path to TLS private key (required for QUIC).
+        reload_shutdown_event: Optional per-worker threading.Event that stops
+            *this* worker without affecting siblings.  Used by
+            ``graceful_reload`` to rotate a single H3 generation while the
+            supervisor-wide ``shutdown_event`` keeps the rest of the server
+            running.  When set, ``_serve`` exits exactly as it does for the
+            shared event (drain in-flight streams, then close the transport).
 
     """
 
@@ -47,6 +53,7 @@ class H3Worker:
         "_lifespan_state",
         "_logger",
         "_loop",
+        "_reload_shutdown",
         "_sock",
         "_worker_id",
     )
@@ -59,6 +66,7 @@ class H3Worker:
         *,
         worker_id: int = 0,
         shutdown_event: threading.Event | None = None,
+        reload_shutdown_event: threading.Event | None = None,
         ssl_certfile: str,
         ssl_keyfile: str,
     ) -> None:
@@ -67,6 +75,7 @@ class H3Worker:
         self._sock = sock
         self._worker_id = worker_id
         self._ext_shutdown = shutdown_event
+        self._reload_shutdown = reload_shutdown_event
         self._lifespan_state: dict[str, Any] = {}
         self._async_shutdown: asyncio.Event | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -98,7 +107,7 @@ class H3Worker:
         self._async_shutdown = asyncio.Event()
 
         bridge_task: asyncio.Task[None] | None = None
-        if self._ext_shutdown is not None:
+        if self._ext_shutdown is not None or self._reload_shutdown is not None:
             bridge_task = asyncio.create_task(
                 self._bridge_shutdown(self._ext_shutdown),
             )
@@ -172,9 +181,20 @@ class H3Worker:
             transport.close()
             self._logger.info("H3 worker %d stopped", self._worker_id)
 
-    async def _bridge_shutdown(self, ext_event: threading.Event) -> None:
-        """Poll external shutdown event and set async shutdown."""
-        while not ext_event.is_set():
+    async def _bridge_shutdown(self, ext_event: threading.Event | None) -> None:
+        """Poll the shared and per-worker shutdown events; set async shutdown.
+
+        Either the supervisor-wide ``ext_event`` (global shutdown / restart) or
+        the per-worker ``_reload_shutdown`` (single-generation graceful reload)
+        ends the QUIC loop.  Polling both keeps global shutdown working while
+        letting ``graceful_reload`` retire one H3 generation in isolation.
+        """
+        reload_event = self._reload_shutdown
+        while True:
+            if ext_event is not None and ext_event.is_set():
+                break
+            if reload_event is not None and reload_event.is_set():
+                break
             await asyncio.sleep(0.25)
         if self._async_shutdown is not None and self._loop is not None:
             self._loop.call_soon(self._async_shutdown.set)

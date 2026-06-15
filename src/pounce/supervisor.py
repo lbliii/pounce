@@ -177,15 +177,22 @@ class _WorkerHandle:
 class _H3WorkerHandle:
     """Metadata about a running H3 worker (UDP/QUIC)."""
 
-    __slots__ = ("target", "worker_id")
+    __slots__ = ("reload_shutdown_event", "target", "worker", "worker_id")
 
     def __init__(
         self,
         worker_id: int,
         target: threading.Thread | multiprocessing.Process,
+        worker: H3Worker | None = None,
+        reload_shutdown_event: threading.Event | None = None,
     ) -> None:
         self.worker_id = worker_id
         self.target = target
+        # Worker instance + per-worker shutdown event let graceful_reload retire
+        # a single H3 generation without touching the supervisor-wide event
+        # (None in process mode, where threads/events are not shared).
+        self.worker = worker
+        self.reload_shutdown_event = reload_shutdown_event
 
 
 class Supervisor:
@@ -761,6 +768,55 @@ class Supervisor:
         self._handles = new_handles
         self._iic_queues = new_iic_queues
 
+        # Rotate H3 (HTTP/3) workers so the QUIC generation also picks up the
+        # reimported app (issue #111). Without this, the old H3 workers keep
+        # serving STALE code after a graceful_reload — split-brain between the
+        # fresh TCP generation and a stale HTTP/3 generation. We retire the old
+        # H3 generation via each worker's per-worker reload event (NOT the
+        # shared shutdown event, which would also stop the TCP workers), then
+        # respawn one H3 worker per UDP socket bound to ``self._app``.
+        #
+        # This is BRIEF-DOWNTIME for HTTP/3, not zero-downtime: H3 workers own
+        # a single pre-bound UDP socket each, so there is no second generation
+        # to hand the datagram endpoint off to. In-flight streams are drained
+        # within ``shutdown_timeout`` (reusing #112's drain_connections wired
+        # into H3Worker._serve) before the transport closes, so existing
+        # requests finish; the window before the new generation binds is short.
+        if self._udp_sockets and self._mode == "thread":
+            old_h3_handles = list(self._h3_handles)
+
+            # Signal each old H3 worker to stop *itself* (drains in-flight
+            # streams within shutdown_timeout, then closes its transport).
+            for h3_handle in old_h3_handles:
+                if h3_handle.reload_shutdown_event is not None:
+                    h3_handle.reload_shutdown_event.set()
+                elif h3_handle.worker is not None:
+                    # Defensive: a handle without a per-worker event would fall
+                    # back to the shared event — avoid that (split-brain). Only
+                    # signal the worker directly when no shared event is wired.
+                    h3_handle.worker.shutdown()
+
+            # Spawn the new H3 generation bound to the reimported app. Clear the
+            # list first so _spawn_h3_worker appends a clean generation rather
+            # than overwriting old handles we still need to join.
+            self._h3_handles = []
+            for i in range(self._effective_workers):
+                if i < len(self._udp_sockets):
+                    self._spawn_h3_worker(i)
+
+            # Join the old H3 generation (parallel, shutdown_timeout per worker).
+            if old_h3_handles:
+                _parallel_join_targets([h.target for h in old_h3_handles], join_per)
+            for h3_handle in old_h3_handles:
+                if h3_handle.target.is_alive():
+                    logger.warning(
+                        "Old H3 worker %d thread still alive after %.1fs reload drain "
+                        "— OS threads cannot be killed; stale H3 work may run until "
+                        "process exit",
+                        h3_handle.worker_id,
+                        join_per,
+                    )
+
         dispatch(RELOAD_COMPLETE, workers=len(new_handles), generation=self._generation)
 
     # ------------------------------------------------------------------
@@ -1066,12 +1122,17 @@ class Supervisor:
         if self._config.ssl_certfile is None or self._config.ssl_keyfile is None:
             return
 
+        # Per-worker reload event lets graceful_reload retire *this* H3
+        # generation in isolation; the worker still honours the shared
+        # ``_shutdown_event`` for global shutdown/restart.
+        reload_shutdown_event = threading.Event()
         worker = H3Worker(
             self._config,
             self._app,
             self._udp_sockets[worker_id],
             worker_id=worker_id,
             shutdown_event=self._shutdown_event,
+            reload_shutdown_event=reload_shutdown_event,
             ssl_certfile=self._config.ssl_certfile,
             ssl_keyfile=self._config.ssl_keyfile,
         )
@@ -1084,7 +1145,12 @@ class Supervisor:
         )
         target.start()
 
-        handle = _H3WorkerHandle(worker_id=worker_id, target=target)
+        handle = _H3WorkerHandle(
+            worker_id=worker_id,
+            target=target,
+            worker=worker,
+            reload_shutdown_event=reload_shutdown_event,
+        )
         if worker_id < len(self._h3_handles):
             self._h3_handles[worker_id] = handle
         else:
