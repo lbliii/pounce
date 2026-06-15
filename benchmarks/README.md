@@ -156,7 +156,7 @@ against committed baselines on a free-threaded build.
 
 ## Profiles
 
-Beyond steady-state throughput, two profiles capture flagship behavior as
+Beyond steady-state throughput, three profiles capture flagship behavior as
 artifact-schema JSON:
 
 ```bash
@@ -169,16 +169,23 @@ python benchmarks/streaming_profile.py --streams 100 --duration 15 \
 # SAME Supervisor machinery and emit one variance group per mode.
 python benchmarks/worker_modes.py --requests 2000 --concurrency 20 --workers 4 \
     --artifact-output benchmarks/artifacts/<date>/worker-modes.json
+
+# Reload/drain under load: drive keep-alive /fast + in-flight /slow + /stream
+# through the real CLI, fire SIGHUP then SIGTERM, and record in-flight
+# completion, the 503/disconnect rate, drain duration, and orphan-worker
+# absence (one variance group per worker mode).
+python benchmarks/drain_profile.py --worker-mode async --workers 2 \
+    --artifact-output benchmarks/artifacts/<date>/drain.json
 ```
 
-Both emit `artifact-schema.json`-compatible JSON, so their output feeds the
-regression gate above (each worker mode is recorded as a distinct `server`).
-
-> **Deferred:** the reload/drain-under-load profile (drive load through the CLI,
-> send SIGHUP/SIGTERM, record active-request completion and 503/disconnect rate)
-> lands with the reload/drain lifecycle work in #83, which is still in progress
-> and unstable on free-threaded builds. Until then,
-> `tests/integration/test_signal_lifecycle.py` covers clean exit/recovery.
+All three emit `artifact-schema.json`-compatible JSON, so their output feeds the
+regression gate above (each worker mode is recorded as a distinct `server`). The
+drain profile's per-sample `drain` block records the four drain-contract
+metrics; `clean_drain` is true only when every in-flight request completed, no
+new connection was silently dropped, the process exited within the timeout, and
+no worker was orphaned. The cross-worker-mode drain artifact (async / sync /
+subinterpreter / process) is generated on the free-threaded 3.14t CI lane — the
+sync execution path only activates in thread mode there.
 
 ## Pytest Benchmarks
 

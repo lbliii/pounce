@@ -441,12 +441,12 @@ def main() -> None:
         save_artifact(artifact, Path(args.artifact_output))
 
 
-# NOTE(#141): The reload/drain-under-load profile (drive steady load through
-# the real CLI, send SIGHUP/SIGTERM, record active-request completion, 503/
-# disconnect rate, and orphan-worker absence as an artifact) is intentionally
-# deferred. It lands with the reload/drain lifecycle work in #83, which is
-# still in progress and unstable on free-threaded builds. Until then, see
-# tests/integration/test_signal_lifecycle.py for clean exit/recovery coverage.
+# NOTE(#141): The reload/drain-under-load profile now lives in its own module,
+# benchmarks/drain_profile.py. It drives steady mixed load through the real CLI,
+# fires SIGHUP/SIGTERM, and records in-flight completion, the 503/disconnect
+# rate, drain duration, and orphan-worker absence as an artifact-schema JSON.
+# The cross-worker-mode drain artifact is generated on the free-threaded 3.14t
+# CI lane (the sync execution path only activates in thread mode there).
 
 
 if __name__ == "__main__":
