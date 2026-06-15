@@ -19,19 +19,22 @@ import contextlib
 import logging
 from typing import Any
 
-from pounce._compression import Compressor, create_compressor, negotiate_encoding
 from pounce._concurrency import race_first_completed
 from pounce._headers import get_header as _get_header_from_tuple
 from pounce._health import build_health_response
 from pounce._priority import PriorityScheduler, parse_priority
 from pounce._request_id import extract_or_generate
+from pounce._request_pipeline import (
+    is_trusted_peer,
+    log_request,
+    negotiate_compressor,
+)
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
 from pounce.asgi.bridge import SendState, _sanitize_headers
 from pounce.asgi.h2_bridge import build_h2_scope, create_h2_receive, create_h2_send
 from pounce.asgi.ws_bridge import build_ws_scope
 from pounce.config import ServerConfig
-from pounce.logging import access_log
 from pounce.protocols._base import (
     RequestReceived,
     WebSocketDataReceived,
@@ -162,11 +165,9 @@ async def handle_h2_connection(
         scope = build_h2_scope(request, config, client, server, state=lifespan_state)
 
         # Generate or extract request ID for tracing
-        is_trusted_peer = bool(
-            config.trusted_hosts
-            and (config.trusted_hosts_wildcard or client[0] in config.trusted_hosts)
+        request_id = extract_or_generate(
+            request.headers, trusted=is_trusted_peer(config, client[0])
         )
-        request_id = extract_or_generate(request.headers, trusted=is_trusted_peer)
         scope.setdefault("extensions", {})["request_id"] = request_id
 
         # RFC 9218: register stream priority from Priority header (u=N, i)
@@ -193,13 +194,11 @@ async def handle_h2_connection(
             timing = ServerTiming()
             timing.add("parse", elapsed_ms(request_start))
 
-        compressor: Compressor | None = None
-        if config.compression:
-            accept_encoding = _get_header_from_tuple(request.headers, b"accept-encoding")
-            if accept_encoding:
-                encoding = negotiate_encoding(accept_encoding)
-                if encoding:
-                    compressor = create_compressor(encoding)
+        compressor, _dictionary = negotiate_compressor(
+            config,
+            request.headers,
+            request_target=request.target.decode("ascii", errors="replace"),
+        )
 
         receive = create_h2_receive(body_queue)
         app_start = monotonic_ns()
@@ -257,23 +256,18 @@ async def handle_h2_connection(
         with contextlib.suppress(ConnectionError, OSError):
             await writer.drain()
 
-        if config.access_log:
-            duration = elapsed_ms(request_start)
-            target = request.target.decode("ascii", errors="replace")
-            method = request.method.decode("ascii", errors="replace")
-            log_filter = config.access_log_filter
-            if log_filter is None or log_filter(method, target, send_state.status):
-                access_log(
-                    method,
-                    target,
-                    send_state.status,
-                    send_state.bytes_sent,
-                    duration,
-                    client_str,
-                    http_version="2",
-                    request_id=request_id,
-                    worker_id=worker_id,
-                )
+        log_request(
+            config,
+            request.method.decode("ascii", errors="replace"),
+            request.target.decode("ascii", errors="replace"),
+            send_state.status,
+            send_state.bytes_sent,
+            elapsed_ms(request_start),
+            client_str,
+            http_version="2",
+            request_id=request_id,
+            worker_id=worker_id,
+        )
 
     try:
         while not h2_conn.is_closed:

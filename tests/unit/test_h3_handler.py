@@ -1228,3 +1228,166 @@ class TestZeroRttPolicyWiring:
     def test_config_enabled_has_policy(self) -> None:
         config = _make_config(http3_zero_rtt_enabled=True)
         assert config.http3_zero_rtt_enabled is True
+
+
+# ---------------------------------------------------------------------------
+# Issue #160 — shared request-pipeline prelude (compressor + access-log filter)
+# ---------------------------------------------------------------------------
+
+try:
+    from pounce._compression import _HAS_ZSTD
+except ImportError:  # pragma: no cover - zstd is optional
+    _HAS_ZSTD = False
+
+
+def _make_compression_dictionary(match: str = "/api/*") -> Any:
+    """Train a small zstd dictionary for dcz negotiation tests."""
+    import json
+    from compression import zstd
+
+    from pounce._compression import CompressionDictionary
+
+    samples = [
+        json.dumps({"id": i, "name": f"item_{i}", "status": "active"}).encode() for i in range(200)
+    ]
+    trained = zstd.train_dict(samples, dict_size=8192)
+    return CompressionDictionary(trained.dict_content, match)
+
+
+class TestRequestPipelinePrelude:
+    """Issue #160 — H3 prelude is delegated to _request_pipeline helpers."""
+
+    @pytest.mark.skipif(not _HAS_ZSTD, reason="zstd not available")
+    def test_prepare_stream_negotiates_dcz_with_available_dictionary(self) -> None:
+        """Available-Dictionary + zstd negotiates a dcz compressor on H3 (#160).
+
+        Compression is negotiated from the (proxy-adjusted) ``scope['headers']``,
+        restoring the already-advertised RFC 9842 dictionary path on HTTP/3.
+        """
+        from zoomies.core import QuicConfiguration
+
+        from pounce._h3_handler import _create_zoomies_datagram_protocol
+
+        cd = _make_compression_dictionary(match="/api/*")
+        config = _make_config(
+            compression=True,
+            compression_min_size=0,
+            compression_dictionaries=(cd,),
+        )
+        quic_config = QuicConfiguration(certificate=b"cert", private_key=b"key")
+        cls = _create_zoomies_datagram_protocol(
+            _dummy_app, config, logging.getLogger("test"), _SERVER, quic_config
+        )
+        protocol = cls()
+        transport = MagicMock(spec=asyncio.DatagramTransport)
+        protocol.connection_made(transport)
+
+        scope: dict[str, Any] = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/items",
+            "client": _ADDR_A,
+            "headers": [
+                (b"accept-encoding", b"zstd, gzip"),
+                (b"available-dictionary", cd.sf_hash.encode()),
+            ],
+        }
+        _, _, _, compressor = protocol._prepare_stream(scope)
+        assert compressor is not None
+        assert compressor.encoding == "dcz"
+
+    async def test_log_access_filter_suppresses_entry(self, monkeypatch: Any) -> None:
+        """access_log_filter returning False suppresses the H3 access log (#160).
+
+        The H3 handler now logs via the shared ``log_request`` helper, so the
+        filter contract is exercised by patching the pipeline's ``access_log``.
+        """
+        import pounce._request_pipeline as pipeline
+
+        calls: list[tuple[str, str, int]] = []
+        monkeypatch.setattr(
+            pipeline,
+            "access_log",
+            lambda method, target, status, *a, **k: calls.append((method, target, status)),
+        )
+
+        from zoomies.core import QuicConfiguration
+
+        from pounce._h3_handler import _create_zoomies_datagram_protocol
+
+        config = _make_config(
+            access_log=True,
+            access_log_filter=lambda method, path, status: path != "/healthz",
+        )
+        quic_config = QuicConfiguration(certificate=b"cert", private_key=b"key")
+        cls = _create_zoomies_datagram_protocol(
+            _echo_app, config, logging.getLogger("test"), _SERVER, quic_config
+        )
+        protocol = cls()
+        transport = MagicMock(spec=asyncio.DatagramTransport)
+        protocol.connection_made(transport)
+
+        conn = _make_connection(addr=_ADDR_A)
+        conn.h3 = _FakeH3Connection()
+        scope: dict[str, Any] = {
+            "type": "http",
+            "http_version": "3",
+            "method": "GET",
+            "path": "/healthz",
+            "scheme": "https",
+            "client": _ADDR_A,
+            "server": _SERVER,
+            "headers": [],
+        }
+        body_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        body_queue.put_nowait({"type": "http.request", "body": b"", "more_body": False})
+
+        await protocol._run_stream(conn, 0, scope, body_queue, _ADDR_A)
+
+        assert calls == [], "filtered request must not reach access_log"
+
+    async def test_log_access_emits_for_unfiltered_path(self, monkeypatch: Any) -> None:
+        """A path that passes the filter is forwarded to access_log (#160)."""
+        import pounce._request_pipeline as pipeline
+
+        calls: list[tuple[str, str, int]] = []
+        monkeypatch.setattr(
+            pipeline,
+            "access_log",
+            lambda method, target, status, *a, **k: calls.append((method, target, status)),
+        )
+
+        from zoomies.core import QuicConfiguration
+
+        from pounce._h3_handler import _create_zoomies_datagram_protocol
+
+        config = _make_config(
+            access_log=True,
+            access_log_filter=lambda method, path, status: path != "/healthz",
+        )
+        quic_config = QuicConfiguration(certificate=b"cert", private_key=b"key")
+        cls = _create_zoomies_datagram_protocol(
+            _echo_app, config, logging.getLogger("test"), _SERVER, quic_config
+        )
+        protocol = cls()
+        transport = MagicMock(spec=asyncio.DatagramTransport)
+        protocol.connection_made(transport)
+
+        conn = _make_connection(addr=_ADDR_A)
+        conn.h3 = _FakeH3Connection()
+        scope: dict[str, Any] = {
+            "type": "http",
+            "http_version": "3",
+            "method": "GET",
+            "path": "/api/data",
+            "scheme": "https",
+            "client": _ADDR_A,
+            "server": _SERVER,
+            "headers": [],
+        }
+        body_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        body_queue.put_nowait({"type": "http.request", "body": b"", "more_body": False})
+
+        await protocol._run_stream(conn, 0, scope, body_queue, _ADDR_A)
+
+        assert calls == [("GET", "/api/data", 200)]
