@@ -68,7 +68,7 @@ async def _sse_app(scope: Scope, receive: Receive, send: Send) -> None:
             )
             tick += 1
             await asyncio.sleep(0.05)
-    except asyncio.CancelledError, ConnectionError, OSError:
+    except (asyncio.CancelledError, ConnectionError, OSError):  # fmt: skip
         pass
 
     await send(
@@ -133,7 +133,7 @@ async def _hold_sse_connection(
 
         writer.close()
         await writer.wait_closed()
-    except ConnectionError, OSError:
+    except (ConnectionError, OSError):  # fmt: skip
         pass
     return event_count
 

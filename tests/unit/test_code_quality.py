@@ -9,11 +9,10 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_DIR = _REPO_ROOT / "src"
 EXAMPLES_DIR = _REPO_ROOT / "examples"
+BENCHMARKS_DIR = _REPO_ROOT / "benchmarks"
 
-# Directories scanned for the banned parenless multi-except form. ``benchmarks``
-# is intentionally omitted here (owned by a separate workstream); add it once its
-# known violations are cleaned up.
-_SCAN_DIRS = (SRC_DIR, EXAMPLES_DIR)
+# Directories scanned for the banned parenless multi-except form.
+_SCAN_DIRS = (SRC_DIR, EXAMPLES_DIR, BENCHMARKS_DIR)
 
 
 class TestExceptionSyntax:

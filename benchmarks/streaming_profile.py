@@ -87,7 +87,7 @@ async def _hold_stream(
 
     try:
         reader, writer = await asyncio.open_connection(addr[0], addr[1])
-    except ConnectionError, OSError:
+    except (ConnectionError, OSError):  # fmt: skip
         return {"events": 0, "ttfb_ms": 0.0, "inter_event_ms": 0.0, "connected": 0}
 
     try:
@@ -111,7 +111,7 @@ async def _hold_stream(
                     inter_event_ms.append((now - last_event_at) * 1000)
                 last_event_at = now
                 events += chunk_events
-    except ConnectionError, OSError:
+    except (ConnectionError, OSError):  # fmt: skip
         pass
     finally:
         writer.close()

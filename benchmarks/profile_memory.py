@@ -108,7 +108,7 @@ async def _fire_requests(
                 await reader.read(4096)
                 writer.close()
                 await writer.wait_closed()
-            except ConnectionError, OSError:
+            except (ConnectionError, OSError):  # fmt: skip
                 pass
 
     tasks = [asyncio.create_task(_one()) for _ in range(count)]
