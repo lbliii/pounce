@@ -57,13 +57,13 @@
       "proof": [
         "tests/integration/test_h3_integration.py",
         "tests/integration/test_http3.py",
+        "tests/unit/test_graceful_reload.py",
         "tests/unit/test_h3_bridge.py",
         "tests/unit/test_h3_handler.py",
         "tests/unit/test_h3_worker.py",
         "tests/unit/test_optional_protocol_diagnostics.py"
       ],
       "gaps": [
-        "reload and drain parity proof",
         "benchmark artifact"
       ]
     },
