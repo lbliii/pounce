@@ -13,10 +13,10 @@ Connection flow:
 """
 
 import asyncio
-import contextlib
 import logging
 from typing import Any
 
+from pounce._concurrency import race_first_completed
 from pounce._headers import get_header as _get_header_from_tuple
 from pounce._timing import elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
@@ -221,15 +221,10 @@ async def handle_websocket(
     reader_task = asyncio.create_task(_read_frames())
 
     try:
-        # Wait for either the app or the reader to finish
-        _done, pending = await asyncio.wait(
-            {app_task, reader_task},
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for task in pending:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        # Race the app against the frame reader; the loser is cancelled and
+        # drained inside the helper so nothing leaks. App exceptions are
+        # already swallowed inside _run_app above.
+        await race_first_completed(app_task, reader_task)
     except Exception:
         logger.exception("Unhandled error on WebSocket from %s", client_str)
 

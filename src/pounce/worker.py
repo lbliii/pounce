@@ -32,6 +32,7 @@ from typing import Any, cast
 
 import h11
 
+from pounce._concurrency import cancel_and_drain, wait_first_completed
 from pounce._cpu_affinity import maybe_pin_worker
 from pounce._dictionary_endpoint import build_dictionary_response, use_as_dictionary_headers
 from pounce._drain import write_drain_503_async
@@ -1272,10 +1273,11 @@ class Worker:
         monitor_task = asyncio.create_task(self._monitor_disconnect(reader, disconnect))
 
         try:
-            done, pending = await asyncio.wait(
-                {app_task, monitor_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
+            # Race the app against the disconnect monitor. The loser is *not*
+            # auto-cancelled here: if the client drops after the full response
+            # was already flushed, the app must be allowed to finish its
+            # post-response work, so the caller owns which task gets drained.
+            done, pending = await wait_first_completed(app_task, monitor_task)
 
             # If the monitor won (client disconnected), emit event
             if monitor_task in done and app_task not in done:
@@ -1295,10 +1297,7 @@ class Worker:
                             send_state.status = 500
                     return
 
-            for task in pending:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+            await cancel_and_drain(pending)
 
             # Propagate app exceptions for status tracking
             if app_task in done:
@@ -1416,10 +1415,11 @@ class Worker:
         reader_task = asyncio.create_task(_read_body())
 
         try:
-            done, pending = await asyncio.wait(
-                {app_task, reader_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
+            # Race the app against the body reader. The loser is *not*
+            # auto-cancelled here: when the reader wins, the ASGI app must be
+            # allowed to finish generating its response, so the caller owns
+            # which task gets drained.
+            done, pending = await wait_first_completed(app_task, reader_task)
 
             if reader_task in done and app_task not in done:
                 # The request body is complete; let the ASGI app finish
@@ -1430,12 +1430,9 @@ class Worker:
                     if send_state.status == 0:
                         send_state.status = 500
             else:
-                for task in pending:
-                    task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await task
-
-                # Propagate any exception from the app task
+                # The app won (or both finished): drain any remaining reader
+                # task and propagate the app exception for status tracking.
+                await cancel_and_drain(pending)
                 if app_task in done:
                     try:
                         app_task.result()
