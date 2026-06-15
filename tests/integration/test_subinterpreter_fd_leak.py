@@ -173,8 +173,7 @@ class TestSubinterpreterFDLeak:
             # A leak would grow ~1 FD per cycle. Allow a small slack for
             # transient sockets/queues but well under the per-cycle leak.
             assert after <= baseline + 2, (
-                f"FD leak across {cycles} abnormal respawns: "
-                f"baseline={baseline}, after={after}"
+                f"FD leak across {cycles} abnormal respawns: baseline={baseline}, after={after}"
             )
         finally:
             supervisor.shutdown()
@@ -213,9 +212,7 @@ class TestSubinterpreterFDLeak:
                 hold = socket.create_connection(("127.0.0.1", port), timeout=5)
                 hold.sendall(f"GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n".encode())
                 try:
-                    reload_thread = threading.Thread(
-                        target=supervisor.graceful_reload, daemon=True
-                    )
+                    reload_thread = threading.Thread(target=supervisor.graceful_reload, daemon=True)
                     reload_thread.start()
                     reload_thread.join(timeout=20.0)
                     assert not reload_thread.is_alive(), "reload did not complete"
@@ -232,8 +229,7 @@ class TestSubinterpreterFDLeak:
             after = _open_fd_count()
 
             assert after <= baseline + 2, (
-                f"FD leak across {cycles} force-stopped reloads: "
-                f"baseline={baseline}, after={after}"
+                f"FD leak across {cycles} force-stopped reloads: baseline={baseline}, after={after}"
             )
         finally:
             supervisor.shutdown()
