@@ -412,3 +412,102 @@ class TestH3WorkerRotationOnReload:
         finally:
             sup._shutdown_event.set()
             udp.close()
+
+
+class TestH3DrainOnShutdown:
+    """#113: ``_drain`` (the SIGTERM-style graceful-shutdown path) must signal
+    AND join the H3 (HTTP/3) workers, just like the TCP generation.
+
+    These lock the supervisor-side drain contract that #112 wired up: on
+    ``_drain`` the shared ``_shutdown_event`` is set (H3 workers bridge on it),
+    every ``_h3_handles`` thread is joined with ``shutdown_timeout`` per worker,
+    and no H3 thread is left orphaned past that bounded window. The local
+    interpreter is GIL CPython 3.14 with no live QUIC runtime, so ``H3Worker.run``
+    is stubbed to a thread that waits on the SHARED shutdown event and exits;
+    the under-load drain-of-in-flight-streams proof is the CI 3.14t integration
+    test in tests/integration/test_h3_integration.py.
+    """
+
+    def _make_h3_supervisor(self, app):
+        """Thread-mode supervisor with one TCP + one H3 (UDP) worker."""
+        config = ServerConfig(
+            workers=1,
+            worker_mode="async",
+            reload_timeout=2.0,
+            shutdown_timeout=2.0,
+            access_log=False,
+            ssl_certfile="/tmp/cert.pem",
+            ssl_keyfile="/tmp/key.pem",
+        )
+        sup = Supervisor(
+            config,
+            app,
+            app_path="tests.unit.test_graceful_reload:_reload_probe_app",
+            mode="thread",
+        )
+        sup._effective_workers = 1
+        udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp.bind(("127.0.0.1", 0))
+        sup._udp_sockets = [udp]
+        return sup, udp
+
+    @staticmethod
+    def _stub_h3_run_shared(worker: H3Worker) -> None:
+        """Stand-in for H3Worker.run: wait on the SHARED shutdown event, then
+        spend a short, deterministic interval "draining" before exiting.
+
+        Two contracts are proven at once. The thread exits only AFTER the shared
+        ``_shutdown_event`` is set, so the post-_drain ``is_alive()`` assertion
+        fails unless ``_drain`` SIGNALLED it (H3 workers bridge on the shared
+        event for global shutdown — not just the per-worker reload event). The
+        post-signal drain interval means the thread is still running when
+        ``_drain`` returns *unless* ``_drain`` JOINED it; so dropping the H3 join
+        also trips the assertion. The interval stays well under shutdown_timeout
+        so a correct, joining ``_drain`` still completes within budget.
+        """
+        ev = worker._ext_shutdown
+        if ev is not None:
+            ev.wait(timeout=5.0)
+        # Simulate bounded in-flight-stream drain work after the stop signal.
+        time.sleep(0.3)
+
+    def test_drain_signals_and_joins_h3_workers(self, monkeypatch):
+        """_drain sets the shared shutdown event, the H3 thread observes it and
+        exits, and the handle is joined within shutdown_timeout (no orphan)."""
+        sup, udp = self._make_h3_supervisor(_make_marker_app("APP"))
+        try:
+            monkeypatch.setattr(H3Worker, "run", self._stub_h3_run_shared, raising=True)
+
+            sup._spawn_h3_worker(0)
+            assert len(sup._h3_handles) == 1
+            handle = sup._h3_handles[0]
+            assert handle.target.is_alive()
+            assert not sup._shutdown_event.is_set()
+
+            t0 = time.monotonic()
+            sup._drain()
+            elapsed = time.monotonic() - t0
+
+            # _drain must set the shared shutdown event (H3 bridge polls it).
+            assert sup._shutdown_event.is_set()
+            # The H3 worker thread observed the signal and exited — joined, not
+            # orphaned, within the bounded shutdown_timeout window.
+            assert not handle.target.is_alive(), "H3 worker thread was not joined/drained by _drain"
+            # Bounded: _drain joins H3 handles with shutdown_timeout per worker.
+            assert elapsed < sup._config.shutdown_timeout + 1.0
+        finally:
+            sup._shutdown_event.set()
+            udp.close()
+
+    def test_drain_with_no_h3_handles_is_noop(self, monkeypatch):
+        """_drain over an empty H3 generation does not error and leaves the
+        (empty) handle list untouched."""
+        sup, udp = self._make_h3_supervisor(_make_marker_app("APP"))
+        try:
+            assert sup._h3_handles == []
+            sup._drain()
+            assert sup._h3_handles == []
+            assert sup._shutdown_event.is_set()
+        finally:
+            sup._shutdown_event.set()
+            udp.close()
