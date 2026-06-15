@@ -20,6 +20,7 @@ import concurrent.futures
 import contextlib
 import logging
 import multiprocessing
+import os
 import queue
 import signal
 import socket
@@ -144,6 +145,7 @@ class _WorkerHandle:
         "last_exception",
         "restart_count",
         "restarts",
+        "sock_fd",
         "started_at",
         "target",
         "worker",
@@ -166,6 +168,10 @@ class _WorkerHandle:
         self.generation = generation  # Used for rolling restart
         self.last_exception: BaseException | None = None
         self._exc_holder: list[BaseException | None] | None = None
+        # Dup'd listener FD owned by a subinterpreter worker (None otherwise).
+        # The parent records it so it can reclaim the FD if the subinterpreter
+        # stops abnormally without its own clean self-close (issue #106).
+        self.sock_fd: int | None = None
 
 
 class _H3WorkerHandle:
@@ -732,6 +738,12 @@ class Supervisor:
         for handle in old_handles:
             if handle.target.is_alive():
                 self._force_stop(handle, join_per)
+                # A subinterpreter worker that did not drain in time is a daemon
+                # thread the parent cannot kill; its bootstrap finally-block has
+                # not closed the dup'd listener FD. Reclaim it so repeated
+                # reloads of a non-draining old generation cannot leak FDs
+                # (issue #106). The new generation already dup'd its own FDs.
+                self._reclaim_subinterpreter_fd(handle)
 
         # Retire the OLD AsyncPool now that old workers are done handing off
         # (issue #102). request_shutdown() uses the per-pool shutdown event,
@@ -948,7 +960,6 @@ class Supervisor:
         and the socket as a dup'd file descriptor — all IIC-safe types.
         """
         import concurrent.interpreters as ci
-        import os
 
         if not self._app_path:
             raise SupervisorError(
@@ -1038,6 +1049,9 @@ class Supervisor:
 
         # No direct worker ref — drain control goes through IIC
         handle = _WorkerHandle(worker_id, target, None, generation=self._generation)
+        # Record the dup'd listener FD so the parent can reclaim it if this
+        # worker stops abnormally without a clean self-close (issue #106).
+        handle.sock_fd = sock_fd
         if worker_id < len(self._handles):
             self._handles[worker_id] = handle
         else:
@@ -1095,6 +1109,12 @@ class Supervisor:
             if worker_id >= len(self._handles):
                 return
             handle = self._handles[worker_id]
+            # The crashed worker may have died before its bootstrap finally-block
+            # closed the dup'd listener FD. Reclaim it now, before _spawn_worker
+            # dups a fresh FD, so repeated crash/respawn cycles cannot leak FDs
+            # (issue #106). Done under the lifecycle lock the spawn path also
+            # holds, so the close cannot race a concurrent re-spawn.
+            self._reclaim_subinterpreter_fd(handle)
         now = time.monotonic()
 
         # Prune old restarts outside the window
@@ -1249,6 +1269,29 @@ class Supervisor:
                 logger.debug("H3 worker %d stopped cleanly", handle.worker_id)
 
         dispatch(SUPERVISOR_ALL_STOPPED)
+
+    def _reclaim_subinterpreter_fd(self, handle: _WorkerHandle) -> None:
+        """Close a subinterpreter worker's dup'd listener FD, if still recorded.
+
+        Subinterpreter workers run as daemon threads the parent cannot force
+        kill (see :meth:`_force_stop`). When such a worker stops abnormally —
+        a crash/respawn, or a force-stop of an old generation that never drained
+        — its bootstrap finally-block may not have closed the dup'd listener FD.
+        Each abnormal cycle would then leak one FD until the process exhausts
+        its descriptor budget (issue #106). The parent recorded the FD on
+        :attr:`_WorkerHandle.sock_fd`, so it can reclaim it here.
+
+        ``contextlib.suppress(OSError)`` covers the race where the worker's own
+        clean self-close already closed this FD. The recorded value is cleared
+        afterwards so a later cycle cannot double-close an FD the OS may have
+        reassigned to an unrelated open file.
+        """
+        fd = handle.sock_fd
+        if fd is None:
+            return
+        handle.sock_fd = None
+        with contextlib.suppress(OSError):
+            os.close(fd)
 
     def _force_stop(self, handle: _WorkerHandle, join_timeout: float) -> None:
         """Force-terminate a worker that did not drain in time.
