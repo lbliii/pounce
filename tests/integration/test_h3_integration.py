@@ -24,6 +24,7 @@ import pytest
 from pounce.config import ServerConfig
 from pounce.h3_worker import H3Worker
 from pounce.protocols.h3 import is_h3_available
+from pounce.supervisor import Supervisor
 
 pytestmark = pytest.mark.skipif(
     not is_h3_available(),
@@ -472,6 +473,357 @@ class TestH3WorkerRealHandshake:
             ext_shutdown.set()
             thread.join(timeout=5.0)
             assert not thread.is_alive()
+
+
+# ---------------------------------------------------------------------------
+# Issue #113 — H3 reload/drain deploy contract (orphan-thread proof)
+# ---------------------------------------------------------------------------
+
+
+def _count_h3_worker_threads() -> int:
+    """Number of live threads named ``pounce-h3-worker-*`` (any generation)."""
+    return sum(
+        1 for t in threading.enumerate() if t.is_alive() and t.name.startswith("pounce-h3-worker-")
+    )
+
+
+def _list_h3_worker_threads() -> list[str]:
+    return [t.name for t in threading.enumerate() if t.name.startswith("pounce-h3-worker-")]
+
+
+def _wait_h3_threads_settle(expected: int, *, timeout: float) -> int:
+    """Poll until the live ``pounce-h3-worker-*`` thread count drops to
+    ``expected`` (or ``timeout`` elapses). Returns the final count.
+
+    OS threads cannot be force-killed, so ``_drain`` / ``_graceful_reload_impl``
+    bound their joins by ``shutdown_timeout`` and may return a beat before a
+    worker's own in-loop drain finishes closing its transport. The deploy
+    contract is that the thread dies within the bounded window — not the instant
+    the supervisor call returns — so we poll across that window.
+    """
+    deadline = time.monotonic() + timeout
+    count = _count_h3_worker_threads()
+    while count != expected and time.monotonic() < deadline:
+        time.sleep(0.05)
+        count = _count_h3_worker_threads()
+    return count
+
+
+def _real_handshake_and_inflight_request(
+    server_addr: tuple[str, int],
+    *,
+    stream_id: int = 0,
+    path: bytes = b"/slow",
+    timeout: float = 3.0,
+) -> tuple[Any, Any, socket.socket]:
+    """Complete a real QUIC handshake against a live H3Worker over real UDP and
+    fire one GET that the (slow) app holds in-flight.
+
+    Returns (client QuicConnection, client H3Connection, client UDP socket) so
+    the caller keeps the request in-flight. Raises AssertionError if the
+    handshake does not complete within ``timeout``.
+    """
+    from zoomies.core import QuicConfiguration, QuicConnection
+    from zoomies.events import HandshakeComplete
+    from zoomies.h3 import H3Connection
+
+    client = QuicConnection(
+        QuicConfiguration(is_client=True, verify_mode=False, server_name="localhost"),
+    )
+    client.connect()
+    now = time.monotonic()
+    client_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    client_sock.settimeout(2.0)
+
+    # Send Initial.
+    for dg in client.send_datagrams(now=now):
+        client_sock.sendto(dg, server_addr)
+
+    # Read server response packets and feed them back (mirrors the proven
+    # TestH3WorkerRealHandshake loop). TLS 1.3 needs only a couple of rounds.
+    done = False
+    for _ in range(20):
+        try:
+            data, _addr = client_sock.recvfrom(65535)
+        except TimeoutError:
+            break
+        events = client.datagram_received(data, server_addr, now=time.monotonic())
+        for dg in client.send_datagrams(now=time.monotonic()):
+            client_sock.sendto(dg, server_addr)
+        if any(isinstance(e, HandshakeComplete) for e in events):
+            done = True
+            break
+
+    if not done:
+        client_sock.close()
+        raise AssertionError("QUIC handshake did not complete within timeout")
+
+    # Fire one GET on a client-initiated bidi stream; the slow app keeps it
+    # in-flight (no end-of-response) so it is a genuine in-flight request.
+    h3 = H3Connection(sender=client)
+    h3.send_headers(
+        stream_id,
+        [
+            (b":method", b"GET"),
+            (b":scheme", b"https"),
+            (b":authority", b"localhost"),
+            (b":path", path),
+        ],
+        end_stream=True,
+    )
+    for dg in client.send_datagrams(now=time.monotonic()):
+        client_sock.sendto(dg, server_addr)
+    return client, h3, client_sock
+
+
+class TestH3ReloadDrainDeployContract:
+    """#113: lock the H3 (HTTP/3) reload/drain deploy contract under real load.
+
+    Establish a couple of CONCURRENT in-flight H3 requests against live H3
+    workers, then exercise both deploy signals through the Supervisor:
+
+    * SIGTERM-style ``Supervisor._drain`` (graceful shutdown), and
+    * SIGHUP-style ``Supervisor._graceful_reload_impl`` (rolling reload that
+      rotates the H3 generation onto the reimported app, #111).
+
+    After each, assert that NO ``pounce-h3-worker-*`` thread is orphaned past the
+    bounded ``shutdown_timeout`` window — the contract #112's ``drain_connections``
+    and #111's rotation must uphold.
+
+    In-flight request disposition: the H3 worker drains in-flight stream tasks
+    for up to ``shutdown_timeout`` (#112). Requests whose ASGI app completes
+    within that window finish normally; any still running at the deadline are
+    abruptly cancelled and the QUIC connection is closed (``CONNECTION_CLOSE``).
+    The slow app here blocks past the deadline on purpose to exercise the
+    abort-straggler path, so those in-flight requests are closed, not completed.
+
+    Gating: a live zoomies/QUIC runtime is required (``is_h3_available()`` skip);
+    the thread-orphan assertion is only meaningful on free-threaded 3.14t in CI,
+    where the worker threads truly run concurrently. The module still imports and
+    the handshake scaffolding runs anywhere zoomies is installed.
+    """
+
+    def _make_h3_supervisor(self, app: Any, tmp_path: Any) -> tuple[Any, list[socket.socket]]:
+        """Real thread-mode Supervisor with one live H3 worker on real UDP.
+
+        ``worker_mode='async'`` avoids the sync AsyncPool path so ``_drain`` /
+        ``_graceful_reload_impl`` operate purely on the H3 generation plus a
+        trivial (stubbed) TCP worker.
+        """
+        cert_pem, key_pem = _generate_test_certs()
+        cert_file = tmp_path / "cert.pem"
+        key_file = tmp_path / "key.pem"
+        cert_file.write_bytes(cert_pem)
+        key_file.write_bytes(key_pem)
+
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=0,
+            workers=1,
+            worker_mode="async",
+            reload_timeout=2.0,
+            shutdown_timeout=2.0,
+            access_log=False,
+            http3_idle_timeout=5.0,
+            ssl_certfile=str(cert_file),
+            ssl_keyfile=str(key_file),
+        )
+        sup = Supervisor(
+            config,
+            app,
+            app_path="tests.integration.test_h3_integration:_reload_marker_app",
+            mode="thread",
+        )
+        sup._effective_workers = 1
+        udp = _make_udp_socket()
+        sup._udp_sockets = [udp]
+        return sup, [udp]
+
+    def test_drain_leaves_no_orphan_h3_threads_under_load(
+        self, tls_certs: tuple[bytes, bytes], tmp_path: Any
+    ) -> None:
+        """Concurrent in-flight H3 requests + SIGTERM _drain => no orphan
+        pounce-h3-worker-* threads after the bounded shutdown window."""
+
+        async def slow_app(scope: Any, receive: Any, send: Any) -> None:
+            if scope.get("type") != "http":
+                return
+            # Stay in-flight past shutdown_timeout WITHOUT blocking the worker
+            # event loop (await, not a blocking wait) so concurrent requests
+            # and other connections keep being served. This never completes
+            # within shutdown_timeout, forcing the abort-straggler path.
+            await asyncio.sleep(30.0)
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"late"})
+
+        # Wait for a clean baseline (a previous test's worker may still be
+        # tearing down — threads can't be force-killed, only joined).
+        baseline = _wait_h3_threads_settle(0, timeout=5.0)
+        sup, udps = self._make_h3_supervisor(slow_app, tmp_path)
+        clients: list[tuple[Any, socket.socket]] = []
+        try:
+            sup._spawn_h3_worker(0)
+            server_addr = udps[0].getsockname()
+            _wait_for_udp_ready(server_addr)
+            assert _count_h3_worker_threads() == baseline + 1
+
+            # Establish a couple of concurrent in-flight requests (distinct
+            # client connections, each on its own client-initiated bidi stream).
+            for _ in range(2):
+                client, _h3, csock = _real_handshake_and_inflight_request(server_addr, stream_id=0)
+                clients.append((client, csock))
+
+            time.sleep(0.3)  # let requests land in-flight
+
+            # SIGTERM-style graceful shutdown. Bounded by shutdown_timeout; the
+            # slow app never releases, so stragglers are aborted at the deadline.
+            t0 = time.monotonic()
+            # Provide a trivial TCP side so _drain's TCP/AsyncPool joins are no-ops.
+            sup._handles = []
+            sup._drain()
+            elapsed = time.monotonic() - t0
+
+            assert sup._shutdown_event.is_set()
+            # In-flight disposition: the slow app never finishes within
+            # shutdown_timeout, so its 2 in-flight streams are abruptly
+            # cancelled (the worker logs "stream(s) still running ... cancelling")
+            # and the QUIC connections are CONNECTION_CLOSE'd — they do NOT
+            # complete. The contract: NO orphaned pounce-h3-worker-* thread
+            # survives past the bounded shutdown window (threads can't be
+            # force-killed, so _drain may return a beat before the worker's own
+            # in-loop drain closes its transport — poll across the window).
+            settled = _wait_h3_threads_settle(baseline, timeout=sup._config.shutdown_timeout + 2.0)
+            assert settled == baseline, (
+                f"orphaned H3 threads after _drain: {_list_h3_worker_threads()}"
+            )
+            # Bounded: drain's H3 join is shutdown_timeout per worker.
+            assert elapsed < sup._config.shutdown_timeout + 3.0
+        finally:
+            sup._shutdown_event.set()
+            for h in sup._h3_handles:
+                if h.reload_shutdown_event is not None:
+                    h.reload_shutdown_event.set()
+            for _client, csock in clients:
+                csock.close()
+            for u in udps:
+                u.close()
+
+    def test_graceful_reload_rotates_h3_generation_no_orphans(
+        self, tls_certs: tuple[bytes, bytes], tmp_path: Any
+    ) -> None:
+        """Concurrent in-flight H3 requests + SIGHUP _graceful_reload_impl =>
+        the H3 generation is rotated onto the reimported app and no old
+        pounce-h3-worker-* thread is orphaned past reload's bounded window."""
+
+        async def slow_app(scope: Any, receive: Any, send: Any) -> None:
+            if scope.get("type") != "http":
+                return
+            # Stay in-flight past shutdown_timeout WITHOUT blocking the worker
+            # event loop (await, not a blocking wait) so concurrent requests
+            # and other connections keep being served. This never completes
+            # within shutdown_timeout, forcing the abort-straggler path.
+            await asyncio.sleep(30.0)
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"late"})
+
+        # Wait for a clean baseline (a previous test's worker may still be
+        # tearing down — threads can't be force-killed, only joined).
+        baseline = _wait_h3_threads_settle(0, timeout=5.0)
+        sup, udps = self._make_h3_supervisor(slow_app, tmp_path)
+        clients: list[tuple[Any, socket.socket]] = []
+        old_handle = None
+        try:
+            sup._spawn_h3_worker(0)
+            server_addr = udps[0].getsockname()
+            _wait_for_udp_ready(server_addr)
+            old_handle = sup._h3_handles[0]
+            assert _count_h3_worker_threads() == baseline + 1
+
+            for _ in range(2):
+                client, _h3, csock = _real_handshake_and_inflight_request(server_addr, stream_id=0)
+                clients.append((client, csock))
+
+            time.sleep(0.3)
+
+            # Keep the TCP side trivial: idle fake worker, instant-exit thread,
+            # so the reload exercises only the H3 rotation path.
+            from unittest.mock import patch
+
+            import pounce._importer as importer
+
+            with (
+                patch.object(importer, "reimport_app", lambda *_a, **_k: slow_app),
+                patch.object(
+                    Supervisor,
+                    "_create_worker",
+                    lambda self, worker_id, socket_index: _IdleReloadWorker(),
+                ),
+            ):
+                t0 = time.monotonic()
+                sup._graceful_reload_impl()
+                elapsed = time.monotonic() - t0
+
+            # New H3 generation present and rotated (distinct handle).
+            assert len(sup._h3_handles) == 1
+            new_handle = sup._h3_handles[0]
+            assert new_handle is not old_handle, "H3 generation was not rotated"
+            # The shared shutdown event must NOT be set (TCP gen untouched).
+            assert not sup._shutdown_event.is_set()
+            # In-flight disposition: the old generation's 2 in-flight streams are
+            # drained for up to shutdown_timeout; the slow app never finishes, so
+            # they are abruptly cancelled and the old QUIC connections closed —
+            # they do NOT complete. The OLD H3 worker thread must die within the
+            # bounded reload window (retired via its per-worker reload event +
+            # joined), leaving exactly ONE live H3 worker: the new generation.
+            settled = _wait_h3_threads_settle(
+                baseline + 1, timeout=sup._config.shutdown_timeout + 2.0
+            )
+            assert settled == baseline + 1, (
+                f"orphaned/extra H3 threads after reload: {_list_h3_worker_threads()}"
+            )
+            assert not old_handle.target.is_alive(), "old H3 worker thread orphaned"
+            assert new_handle.target.is_alive(), "new H3 generation not running"
+            assert elapsed < sup._config.reload_timeout + 3.0
+        finally:
+            sup._shutdown_event.set()
+            for h in sup._h3_handles:
+                if h.reload_shutdown_event is not None:
+                    h.reload_shutdown_event.set()
+            if old_handle is not None and old_handle.reload_shutdown_event is not None:
+                old_handle.reload_shutdown_event.set()
+            for _client, csock in clients:
+                csock.close()
+            for u in udps:
+                u.close()
+            # Drain the new generation so no threads leak past the test.
+            sup._drain()
+
+
+class _IdleReloadWorker:
+    """Trivial TCP worker stand-in for reload (always idle, instant exit)."""
+
+    def __init__(self) -> None:
+        self._draining = False
+
+    def run(self) -> None:
+        return
+
+    def start_draining(self) -> None:
+        self._draining = True
+
+    def is_idle(self) -> bool:
+        return True
+
+    def set_lifespan_state(self, state: Any) -> None:
+        return
+
+
+async def _reload_marker_app(scope: Any, receive: Any, send: Any) -> None:  # pragma: no cover
+    """Module-level app referenced by app_path in the reload supervisor."""
+    if scope.get("type") != "http":
+        return
+    await send({"type": "http.response.start", "status": 200, "headers": []})
+    await send({"type": "http.response.body", "body": b"reloaded"})
 
 
 # ---------------------------------------------------------------------------
