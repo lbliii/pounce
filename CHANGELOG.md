@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+<!-- towncrier release notes start -->
+
+## [0.8.1] — 2026-06-15
+
+### Added
+
+- Added the reload/drain-under-load benchmark profile (`benchmarks/drain_profile.py`): it drives steady keep-alive `/fast` + in-flight `/slow` + `/stream` load through the real `pounce serve` CLI, fires SIGHUP then SIGTERM, and emits an artifact-schema JSON whose per-sample `drain` block records in-flight completion, the 503/disconnect rate, drain duration, and orphan-worker absence, so reload/drain health feeds the regression gate alongside the streaming and worker-mode profiles. ([#141](https://github.com/lbliii/pounce/issues/141))
+
+### Changed
+
+- Benchmark hygiene: rewrote the banned PEP 758 parenless multi-`except` form (`except A, B:`) in `benchmarks/` into the portable parenthesized tuple `except (A, B):  # fmt: skip`, and added `benchmarks/` to the code-quality scan so the guard now covers it. No runtime behavior change. ([#155](https://github.com/lbliii/pounce/issues/155))
+- Consolidated the H2/H3 per-request prelude (trusted-peer detection, content-encoding negotiation, and access-log filtering) onto the shared `_request_pipeline` helpers, which also restores the already-advertised RFC 9842 dictionary-compressed zstd (`dcz`) negotiation on HTTP/2 and HTTP/3. No user-visible behavior change. ([#160](https://github.com/lbliii/pounce/issues/160))
+- Routed the sync worker's SyncApp and ASGI response paths through the shared `negotiate_compressor_from_meta` entry point and a local `_finalize_response_headers` helper, removing the duplicated content-encoding/content-length rewrite blocks. No user-visible behavior change. ([#162](https://github.com/lbliii/pounce/issues/162))
+- Extracted the duplicated `FIRST_COMPLETED` race-and-drain logic shared by the disconnect monitor, body reader, and the HTTP/2 and HTTP/1.1 WebSocket bridges into a single `pounce._concurrency` helper that always cancels and awaits the losing task so no task is leaked; behavior is unchanged. ([#163](https://github.com/lbliii/pounce/issues/163))
+
+### Fixed
+
+- Subinterpreter workers no longer leak the dup'd listener file descriptor when they stop abnormally: the bootstrap now closes the reconstructed socket in a `finally` block (covering a startup-hook/`asyncio.start_server`/`asyncio.run` failure before the normal `server.close()`), and the supervisor records each worker's dup'd FD and reclaims it on crash-respawn and after force-stopping a non-draining old generation during graceful reload, so repeated crashes/reloads no longer exhaust the FD budget. ([#106](https://github.com/lbliii/pounce/issues/106))
+- `graceful_reload` now rotates HTTP/3 (QUIC) workers alongside TCP workers so the H3 generation also picks up the reimported app — fixing a split-brain where old H3 workers kept serving stale code; each old H3 worker is retired via a per-worker reload event (not the shared shutdown event) and its in-flight streams drain within `shutdown_timeout` before its UDP transport closes, so HTTP/3 reload is brief-downtime rather than zero-downtime. ([#111](https://github.com/lbliii/pounce/issues/111))
+- HTTP/3 graceful shutdown now drains in-flight stream tasks within `shutdown_timeout` instead of hard-cancelling them: existing requests finish (only stragglers past the deadline are aborted), new connections/streams are refused while draining, and `CONNECTION_CLOSE` is sent after the bounded wait — mirroring the TCP worker's stop-new / bounded-wait / abort-stragglers sequence. ([#112](https://github.com/lbliii/pounce/issues/112))
+- Packaged a `chirp` install extra (`pip install bengal-pounce[chirp]`) and added `bengal-chirp>=0.7.1` to the dev dependency-group so the chirp example/compat tests now actually run in CI instead of being skipped. ([#150](https://github.com/lbliii/pounce/issues/150))
+
+
 ## [0.8.0] — 2026-06-12
 
 > **Notable behavior changes (please review before upgrading).** No public API
