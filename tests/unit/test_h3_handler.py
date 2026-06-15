@@ -952,7 +952,7 @@ class TestGracefulShutdown:
         protocol.close_all_connections()  # Should not raise
 
     def test_close_all_cancels_stream_tasks(self) -> None:
-        """close_all_connections() cancels active stream tasks."""
+        """close_all_connections() (hard path) cancels active stream tasks."""
         protocol, _ = _build_protocol()
 
         conn = _make_connection(cids=(b"\x01",), addr=_ADDR_A)
@@ -976,6 +976,130 @@ class TestGracefulShutdown:
 
         protocol.close_all_connections()  # Should not raise
         assert len(protocol._connections) == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 3.1b — Graceful Drain Tests (#112)
+# ---------------------------------------------------------------------------
+
+
+class TestDrainConnections:
+    """Tests for drain_connections() bounded graceful shutdown (#112)."""
+
+    async def test_drain_lets_under_budget_task_complete(self) -> None:
+        """An in-flight stream task that finishes UNDER budget is NOT cancelled."""
+        protocol, _ = _build_protocol()
+        conn = _make_connection(cids=(b"\x01",), addr=_ADDR_A)
+        protocol._connections[_ADDR_A] = conn
+        protocol._cid_to_conn[b"\x01"] = conn
+
+        completed = asyncio.Event()
+
+        async def _quick() -> None:
+            # Finishes well within the drain budget.
+            await asyncio.sleep(0.01)
+            completed.set()
+            # Mirror real streams: remove self from the connection on exit.
+            conn.stream_tasks.pop(0, None)
+
+        task = asyncio.create_task(_quick())
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        conn.stream_tasks[0] = (task, queue)
+
+        await protocol.drain_connections(timeout=5.0)
+
+        assert completed.is_set()
+        assert not task.cancelled()
+        assert task.done()
+        # CONNECTION_CLOSE still sent after the drain completes.
+        assert conn.quic.close_called
+        assert len(protocol._connections) == 0
+        assert len(protocol._cid_to_conn) == 0
+
+    async def test_drain_cancels_over_budget_straggler(self) -> None:
+        """Only OVER-budget stream tasks are cancelled at the deadline."""
+        protocol, _ = _build_protocol()
+        conn = _make_connection(cids=(b"\x01",), addr=_ADDR_A)
+        protocol._connections[_ADDR_A] = conn
+        protocol._cid_to_conn[b"\x01"] = conn
+
+        async def _slow() -> None:
+            await asyncio.sleep(3600)
+
+        task = asyncio.create_task(_slow())
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        conn.stream_tasks[0] = (task, queue)
+
+        await protocol.drain_connections(timeout=0.05)
+
+        assert task.cancelled()
+        # CONNECTION_CLOSE sent after aborting the straggler.
+        assert conn.quic.close_called
+        assert len(protocol._connections) == 0
+
+    async def test_drain_mixed_under_and_over_budget(self) -> None:
+        """Under-budget task completes; over-budget task on same conn cancelled."""
+        protocol, _ = _build_protocol()
+        conn = _make_connection(cids=(b"\x01",), addr=_ADDR_A)
+        protocol._connections[_ADDR_A] = conn
+
+        finished = asyncio.Event()
+
+        async def _quick() -> None:
+            await asyncio.sleep(0.01)
+            finished.set()
+            conn.stream_tasks.pop(0, None)
+
+        async def _slow() -> None:
+            await asyncio.sleep(3600)
+
+        quick_task = asyncio.create_task(_quick())
+        slow_task = asyncio.create_task(_slow())
+        q0: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        q1: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        conn.stream_tasks[0] = (quick_task, q0)
+        conn.stream_tasks[1] = (slow_task, q1)
+
+        await protocol.drain_connections(timeout=0.2)
+
+        assert finished.is_set()
+        assert not quick_task.cancelled()
+        assert quick_task.done()
+        assert slow_task.cancelled()
+        assert conn.quic.close_called
+
+    async def test_drain_sets_draining_flag(self) -> None:
+        """drain_connections() sets the draining flag immediately."""
+        protocol, _ = _build_protocol()
+        assert protocol._draining is False
+        await protocol.drain_connections(timeout=0.0)
+        assert protocol._draining is True
+
+    async def test_drain_with_no_connections(self) -> None:
+        """drain_connections() with no connections does not raise."""
+        protocol, _ = _build_protocol()
+        await protocol.drain_connections(timeout=1.0)
+        assert len(protocol._connections) == 0
+
+    def test_draining_refuses_new_connection(self) -> None:
+        """While draining, a packet from an unknown peer is dropped (no new conn)."""
+        protocol, _ = _build_protocol()
+        protocol._draining = True
+        protocol.datagram_received(b"\x00" * 20, _ADDR_A)
+        assert len(protocol._connections) == 0
+
+    def test_draining_refuses_new_stream_with_503(self) -> None:
+        """While draining, a NEW request stream gets a 503 and no task is spawned."""
+        protocol, _ = _build_protocol()
+        conn = _make_connection(cids=(b"\x01",), addr=_ADDR_A)
+        protocol._connections[_ADDR_A] = conn
+        protocol._draining = True
+
+        event = _h3_headers_event(stream_id=0)
+        protocol._handle_headers(conn, event, _ADDR_A)
+
+        assert 0 not in conn.stream_tasks
+        assert any((b":status", b"503") in hdrs for _, hdrs in conn.h3.sent_headers)
 
 
 # ---------------------------------------------------------------------------

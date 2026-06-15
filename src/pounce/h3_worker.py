@@ -159,10 +159,16 @@ class H3Worker:
         finally:
             if bridge_task is not None:
                 bridge_task.cancel()
-            # Gracefully close all QUIC connections before closing transport
-            _close = getattr(_protocol, "close_all_connections", None)
-            if _close is not None:
-                _close()
+            # Gracefully drain in-flight stream tasks within shutdown_timeout
+            # before closing the transport (#112).  Falls back to the legacy
+            # hard close if the protocol predates drain support.
+            _drain = getattr(_protocol, "drain_connections", None)
+            if _drain is not None:
+                await _drain(self._config.shutdown_timeout)
+            else:
+                _close = getattr(_protocol, "close_all_connections", None)
+                if _close is not None:
+                    _close()
             transport.close()
             self._logger.info("H3 worker %d stopped", self._worker_id)
 
