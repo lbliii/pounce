@@ -143,3 +143,83 @@ class TestNegotiateCompressorDictionary:
         assert compressor is not None
         assert compressor.encoding == "zstd"
         assert dictionary is None
+
+
+class TestNegotiateCompressorFromMeta:
+    """The meta-keyed entry point used by the sync worker must mirror
+    :func:`negotiate_compressor` exactly, but without re-scanning headers."""
+
+    def test_compression_disabled(self):
+        from pounce._request_pipeline import negotiate_compressor_from_meta
+
+        config = ServerConfig(compression=False)
+        compressor, dictionary = negotiate_compressor_from_meta(config, b"gzip", None)
+        assert compressor is None
+        assert dictionary is None
+
+    def test_no_accept_encoding(self):
+        from pounce._request_pipeline import negotiate_compressor_from_meta
+
+        config = ServerConfig(compression=True)
+        compressor, dictionary = negotiate_compressor_from_meta(config, None, None)
+        assert compressor is None
+        assert dictionary is None
+
+    def test_gzip(self):
+        from pounce._request_pipeline import negotiate_compressor_from_meta
+
+        config = ServerConfig(compression=True)
+        compressor, dictionary = negotiate_compressor_from_meta(config, b"gzip", None)
+        assert compressor is not None
+        assert compressor.encoding == "gzip"
+        assert dictionary is None
+
+    def test_identity_only_no_compressor(self):
+        from pounce._request_pipeline import negotiate_compressor_from_meta
+
+        config = ServerConfig(compression=True)
+        compressor, dictionary = negotiate_compressor_from_meta(config, b"identity", None)
+        assert compressor is None
+        assert dictionary is None
+
+    @pytest.mark.skipif(not _HAS_ZSTD, reason="zstd not available")
+    def test_matching_dictionary_dcz(self):
+        from pounce._request_pipeline import negotiate_compressor_from_meta
+
+        cd = _make_dict(match="/api/*")
+        config = ServerConfig(compression_dictionaries=(cd,))
+        compressor, dictionary = negotiate_compressor_from_meta(
+            config,
+            b"zstd, gzip",
+            cd.sf_hash.encode(),
+            request_target="/api/v1/items",
+        )
+        assert compressor is not None
+        assert compressor.encoding == "dcz"
+        assert dictionary is cd
+
+    @pytest.mark.skipif(not _HAS_ZSTD, reason="zstd not available")
+    def test_parity_with_header_scanning_entry_point(self):
+        """from_meta must produce the same encoding as the header-scanning form."""
+        from pounce._request_pipeline import (
+            negotiate_compressor,
+            negotiate_compressor_from_meta,
+        )
+
+        cd = _make_dict(match="/api/*")
+        config = ServerConfig(compression_dictionaries=(cd,))
+        headers = [
+            (b"accept-encoding", b"zstd, gzip"),
+            (b"available-dictionary", cd.sf_hash.encode()),
+        ]
+        scanned_c, scanned_d = negotiate_compressor(config, headers, request_target="/api/v1/items")
+        meta_c, meta_d = negotiate_compressor_from_meta(
+            config,
+            b"zstd, gzip",
+            cd.sf_hash.encode(),
+            request_target="/api/v1/items",
+        )
+        assert scanned_c is not None
+        assert meta_c is not None
+        assert scanned_c.encoding == meta_c.encoding
+        assert scanned_d is meta_d is cd

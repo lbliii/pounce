@@ -66,21 +66,50 @@ def negotiate_compressor(
     accept_enc = get_header(headers, b"accept-encoding")
     if not accept_enc:
         return None, None
+    # ``available-dictionary`` is only consulted when a dcz negotiation is
+    # possible; the shared core re-checks the guards, so eager extraction here
+    # is harmless and keeps a single negotiation implementation.
+    avail_dict = get_header(headers, b"available-dictionary")
+    return negotiate_compressor_from_meta(
+        config,
+        accept_enc,
+        avail_dict,
+        request_target=request_target,
+    )
+
+
+def negotiate_compressor_from_meta(
+    config: ServerConfig,
+    accept_encoding: bytes | None,
+    available_dictionary: bytes | None,
+    *,
+    request_target: str = "",
+) -> tuple[Compressor | None, CompressionDictionary | None]:
+    """Negotiate compression from already-extracted header values.
+
+    Meta-keyed entry point for the sync-worker hot path: the caller passes the
+    ``accept-encoding`` and ``available-dictionary`` values already pulled out
+    of ``_RequestMeta`` (no redundant header scan) plus the decoded request
+    target. Behaviour is identical to :func:`negotiate_compressor`.
+
+    Returns (compressor, dictionary) — dictionary is non-None only when
+    ``dcz`` (dictionary-compressed zstd) encoding is selected.
+    """
+    if not config.compression or not accept_encoding:
+        return None, None
 
     # Check for dictionary compression (RFC 9842)
-    if config.compression_dictionaries and b"zstd" in accept_enc:
-        avail_dict = get_header(headers, b"available-dictionary")
-        if avail_dict:
-            dictionary = negotiate_dictionary(
-                avail_dict,
-                config.compression_dictionaries,
-                request_target,
-            )
-            if dictionary is not None:
-                return create_compressor("dcz", dictionary=dictionary), dictionary
+    if config.compression_dictionaries and available_dictionary and b"zstd" in accept_encoding:
+        dictionary = negotiate_dictionary(
+            available_dictionary,
+            config.compression_dictionaries,
+            request_target,
+        )
+        if dictionary is not None:
+            return create_compressor("dcz", dictionary=dictionary), dictionary
 
     # Standard encoding negotiation
-    enc = negotiate_encoding(accept_enc)
+    enc = negotiate_encoding(accept_encoding)
     if not enc:
         return None, None
     return create_compressor(enc), None

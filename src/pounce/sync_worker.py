@@ -18,13 +18,12 @@ import socket
 import ssl
 import threading
 import time
+from collections.abc import Sequence
 from typing import Any, cast
 
 from pounce._compression import (
+    CompressionDictionary,
     Compressor,
-    create_compressor,
-    negotiate_dictionary,
-    negotiate_encoding,
 )
 from pounce._cpu_affinity import maybe_pin_worker
 from pounce._dictionary_endpoint import build_dictionary_response, use_as_dictionary_headers
@@ -32,7 +31,11 @@ from pounce._drain import write_drain_503_sync
 from pounce._fast_h1 import ParseError
 from pounce._fast_h1 import parse_request as _fast_parse
 from pounce._health import build_health_response
-from pounce._request_pipeline import log_request, prepare_request
+from pounce._request_pipeline import (
+    log_request,
+    negotiate_compressor_from_meta,
+    prepare_request,
+)
 from pounce._response_frame import (
     _STATUS_REASONS,
     get_date_header_bytes,
@@ -138,6 +141,71 @@ def _classify_request(request: RequestReceived) -> _RequestMeta:
         meta.wants_close = True
 
     return meta
+
+
+def _finalize_response_headers(
+    response_headers: Sequence[tuple[bytes, bytes]],
+    body: bytes,
+    compressor: Compressor | None,
+    dictionary: CompressionDictionary | None,
+    config: ServerConfig,
+    *,
+    apply_min_size: bool,
+) -> tuple[list[tuple[bytes, bytes]], bytes]:
+    """Rewrite response headers and body for the sync-worker response paths.
+
+    Local helper shared by the SyncApp fast path and the inline ASGI path.
+    Performs the single-pass content-encoding / content-length rewrite,
+    applies the negotiated ``compressor`` (suppressed when the app pre-set a
+    ``content-encoding`` header), re-appends ``content-length``, and — when
+    ``dcz`` was negotiated — emits ``used-dictionary``.
+
+    ``apply_min_size`` gates compression on ``config.compression_min_size``
+    (the SyncApp fast path); the inline ASGI path passes ``False`` because the
+    bridge already governs sub-threshold bodies, so the historical sync-ASGI
+    behaviour compresses regardless of body size.
+
+    Returns (headers_list, body_out). To preserve byte-for-byte header order,
+    callers append request-scoped headers (``x-request-id``), the
+    dictionary-advertisement headers (RFC 9842), and the connection header
+    after this returns.
+    """
+    should_compress = compressor is not None
+    if should_compress and apply_min_size and len(body) < config.compression_min_size:
+        should_compress = False
+
+    # Single pass: strip CL only when compressing, track presence
+    has_cl = False
+    content_length_header: tuple[bytes, bytes] | None = None
+    headers_list: list[tuple[bytes, bytes]] = []
+    for n, v in response_headers:
+        nl = n.lower()
+        if nl == b"content-encoding":
+            # App pre-set an encoding — never double-compress.
+            should_compress = False
+            headers_list.append((n, v))
+        elif nl == b"content-length":
+            has_cl = True
+            content_length_header = (n, v)
+            if not should_compress:
+                headers_list.append((n, v))
+        else:
+            headers_list.append((n, v))
+
+    if compressor is not None and should_compress:
+        body_out = compressor.compress(body) + compressor.flush()
+        headers_list.append((b"content-encoding", compressor.encoding.encode("ascii")))
+        headers_list.append((b"content-length", str(len(body_out)).encode("ascii")))
+        if dictionary is not None:
+            headers_list.append((b"used-dictionary", dictionary.sf_hash.encode("ascii")))
+    else:
+        body_out = body
+        if not has_cl:
+            headers_list.append((b"content-length", str(len(body_out)).encode("ascii")))
+        elif content_length_header is not None and content_length_header not in headers_list:
+            headers_list.append(content_length_header)
+
+    return headers_list, body_out
 
 
 class SyncWorker:
@@ -401,38 +469,7 @@ class SyncWorker:
         """Inner connection handling. Returns True if handed off to async pool."""
         self._recv_buf_len = 0  # Reset buffer state for new connection
         conn.settimeout(self._config.header_timeout)
-        try:
-            peername = conn.getpeername()
-            client = (str(peername[0]), int(peername[1])) if len(peername) >= 2 else ("unix", 0)
-        except OSError:
-            client = ("unknown", 0)
-        client_str = f"{client[0]}:{client[1]}"
-        try:
-            sockname = conn.getsockname()
-            server = (
-                (str(sockname[0]), int(sockname[1]))
-                if len(sockname) >= 2
-                else (self._config.host, self._config.port)
-            )
-        except OSError:
-            server = (self._config.host, self._config.port)
-        if self._config.uds:
-            server = (self._config.uds, 0)
-        conn_id = next_connection_id()
-        conn_start = lifecycle_ns()
-
-        self._lifecycle.record(
-            ConnectionOpened(
-                connection_id=conn_id,
-                worker_id=self._worker_id,
-                client_addr=client[0],
-                client_port=client[1],
-                server_addr=server[0],
-                server_port=server[1],
-                protocol="h1",
-                timestamp_ns=conn_start,
-            )
-        )
+        client, server, client_str, conn_id, conn_start = self._open_connection(conn)
 
         request_count = 0
         max_requests = self._config.max_requests_per_connection
@@ -535,76 +572,24 @@ class SyncWorker:
                     )
                     raw_resp = self._sync_app.handle_sync(raw_req)
                     if raw_resp is not None:
-                        # Fast path: direct response, no asyncio, bypass h11
-                        compressor: Compressor | None = None
-                        dictionary = None
-                        if self._config.compression and meta.accept_encoding:
-                            # Try dictionary compression first (RFC 9842)
-                            if (
-                                self._config.compression_dictionaries
-                                and meta.available_dictionary
-                                and b"zstd" in meta.accept_encoding
-                            ):
-                                target_str = request.target.decode("ascii", errors="replace")
-                                dictionary = negotiate_dictionary(
-                                    meta.available_dictionary,
-                                    self._config.compression_dictionaries,
-                                    target_str,
-                                )
-                                if dictionary is not None:
-                                    compressor = create_compressor("dcz", dictionary=dictionary)
-                            if compressor is None:
-                                enc = negotiate_encoding(meta.accept_encoding)
-                                if enc:
-                                    compressor = create_compressor(enc)
-
-                        should_compress = (
-                            compressor is not None
-                            and len(raw_resp.body) >= self._config.compression_min_size
+                        # Fast path: direct response, no asyncio, bypass h11.
+                        target_str = request.target.decode("ascii", errors="replace")
+                        compressor, dictionary = negotiate_compressor_from_meta(
+                            self._config,
+                            meta.accept_encoding,
+                            meta.available_dictionary,
+                            request_target=target_str,
                         )
-                        # Single pass: strip CL only when compressing, track presence
-                        has_cl = False
-                        content_length_header: tuple[bytes, bytes] | None = None
-                        headers_list: list[tuple[bytes, bytes]] = []
-                        for n, v in raw_resp.headers:
-                            nl = n.lower()
-                            if nl == b"content-encoding":
-                                should_compress = False
-                                headers_list.append((n, v))
-                            elif nl == b"content-length":
-                                has_cl = True
-                                content_length_header = (n, v)
-                                if not should_compress:
-                                    headers_list.append((n, v))
-                            else:
-                                headers_list.append((n, v))
-
-                        if compressor is not None and should_compress:
-                            body_out = compressor.compress(raw_resp.body) + compressor.flush()
-                            headers_list.append(
-                                (b"content-encoding", compressor.encoding.encode("ascii"))
-                            )
-                            headers_list.append(
-                                (b"content-length", str(len(body_out)).encode("ascii"))
-                            )
-                            if dictionary is not None:
-                                headers_list.append(
-                                    (b"used-dictionary", dictionary.sf_hash.encode("ascii"))
-                                )
-                        else:
-                            body_out = raw_resp.body
-                            if not has_cl:
-                                headers_list.append(
-                                    (b"content-length", str(len(body_out)).encode("ascii"))
-                                )
-                            elif (
-                                content_length_header is not None
-                                and content_length_header not in headers_list
-                            ):
-                                headers_list.append(content_length_header)
+                        headers_list, body_out = _finalize_response_headers(
+                            raw_resp.headers,
+                            raw_resp.body,
+                            compressor,
+                            dictionary,
+                            self._config,
+                            apply_min_size=True,
+                        )
                         # Advertise dictionaries for matching paths (RFC 9842)
                         if self._config.compression_dictionaries:
-                            target_str = request.target.decode("ascii", errors="replace")
                             headers_list.extend(
                                 use_as_dictionary_headers(
                                     self._config.compression_dictionaries,
@@ -612,43 +597,18 @@ class SyncWorker:
                                 )
                             )
                         headers_list.append((b"connection", b"close"))
-                        date_hdr = self._cached_date_header()
-                        head, body_bytes = serialize_raw_response_parts(
+                        self._serialize_send_and_log(
+                            conn,
                             raw_resp.status,
-                            tuple(headers_list),
+                            headers_list,
                             body_out,
-                            server_header=self._config.server_header,
-                            date_header=date_hdr,
-                        )
-                        try:
-                            if hasattr(conn, "sendmsg"):
-                                conn.sendmsg([head, body_bytes])
-                            else:
-                                conn.sendall(head + body_bytes)
-                        except OSError:
-                            conn.sendall(head + body_bytes)
-                        duration = elapsed_ms(request_start)
-                        self._lifecycle.record(
-                            ResponseCompleted(
-                                connection_id=conn_id,
-                                worker_id=self._worker_id,
-                                status=raw_resp.status,
-                                bytes_sent=len(body_out),
-                                duration_ms=duration,
-                                timestamp_ns=lifecycle_ns(),
-                                method=request.method.decode("ascii", errors="replace"),
-                            )
-                        )
-                        log_request(
-                            self._config,
-                            request.method.decode("ascii", errors="replace"),
-                            path_bytes.decode("ascii", errors="replace"),
-                            raw_resp.status,
-                            len(body_out),
-                            duration,
-                            client_str,
+                            conn_id=conn_id,
+                            request_start=request_start,
                             http_version=request.http_version,
-                            worker_id=self._worker_id,
+                            record_method=request.method.decode("ascii", errors="replace"),
+                            log_method=request.method.decode("ascii", errors="replace"),
+                            log_path=path_bytes.decode("ascii", errors="replace"),
+                            client_str=client_str,
                         )
                         break
 
@@ -662,69 +622,29 @@ class SyncWorker:
                     and scope["path"] == self._config.health_check_path
                     and request.method == b"GET"
                 ):
-                    status, health_headers, body_bytes = build_health_response(
-                        worker_id=self._worker_id,
-                        active_connections=1,
-                    )
-                    health_headers = [*health_headers, (b"connection", conn_header)]
-                    date_hdr = self._cached_date_header()
-                    head, body_out_bytes = serialize_raw_response_parts(
-                        status,
-                        tuple(health_headers),
-                        body_bytes,
-                        server_header=self._config.server_header,
-                        date_header=date_hdr,
-                    )
-                    conn.sendall(head + body_out_bytes)
-                    health_duration = elapsed_ms(request_start)
-                    self._lifecycle.record(
-                        ResponseCompleted(
-                            connection_id=conn_id,
-                            worker_id=self._worker_id,
-                            status=status,
-                            bytes_sent=len(body_bytes),
-                            duration_ms=health_duration,
-                            timestamp_ns=lifecycle_ns(),
-                            method="GET",
-                        )
-                    )
-                    log_request(
-                        self._config,
-                        "GET",
+                    self._serve_health(
+                        conn,
                         scope["path"],
-                        status,
-                        len(body_bytes),
-                        health_duration,
-                        client_str,
+                        conn_header,
+                        conn_id=conn_id,
+                        request_start=request_start,
                         http_version=request.http_version,
+                        client_str=client_str,
                         request_id=request_id,
-                        worker_id=self._worker_id,
                     )
                     if close_after or at_limit:
                         break
                     continue
 
                 # Built-in dictionary serving (RFC 9842)
-                if self._config.compression_dictionaries and request.method == b"GET":
-                    dict_resp = build_dictionary_response(
-                        self._config.compression_dictionaries,
-                        scope["path"],
-                    )
-                    if dict_resp is not None:
-                        d_status, d_headers, d_body = dict_resp
-                        d_headers = [*d_headers, (b"connection", conn_header)]
-                        date_hdr = self._cached_date_header()
-                        head, body_out_bytes = serialize_raw_response_parts(
-                            d_status,
-                            tuple(d_headers),
-                            d_body,
-                            server_header=self._config.server_header,
-                            date_header=date_hdr,
-                        )
-                        conn.sendall(head + body_out_bytes)
-                        if close_after or at_limit:
-                            break
-                        continue
+                if (
+                    self._config.compression_dictionaries
+                    and request.method == b"GET"
+                    and (self._serve_dictionary(conn, scope["path"], conn_header))
+                ):
+                    if close_after or at_limit:
+                        break
+                    continue
 
                 try:
                     response = call_asgi_sync(
@@ -734,23 +654,8 @@ class SyncWorker:
                         runner=runner,
                     )
                 except NeedsAsyncError:
-                    if self._async_pool:
-                        self._async_pool.accept_handoff(
-                            StreamingHandoff(
-                                conn=conn,
-                                scope=scope,
-                                body=body,
-                                request_id=request_id,
-                            )
-                        )
+                    if self._streaming_handoff(conn, scope, body, request_id):
                         return True
-                    self._send_error(
-                        conn,
-                        501,
-                        "Streaming responses require worker_mode=async or handoff",
-                        code="POUNCE_WORKER_STREAMING_NEEDS_ASYNC",
-                        hint="Set worker_mode='async' or enable the async handoff pool.",
-                    )
                     break
                 except Exception:
                     self._logger.exception("ASGI app error")
@@ -763,87 +668,33 @@ class SyncWorker:
                     )
                     break
                 if response.needs_async:
-                    if self._async_pool:
-                        self._async_pool.accept_handoff(
-                            StreamingHandoff(
-                                conn=conn,
-                                scope=scope,
-                                body=body,
-                                request_id=request_id,
-                            )
-                        )
+                    if self._streaming_handoff(conn, scope, body, request_id):
                         return True
-                    self._send_error(
-                        conn,
-                        501,
-                        "Streaming responses require worker_mode=async or handoff",
-                        code="POUNCE_WORKER_STREAMING_NEEDS_ASYNC",
-                        hint="Set worker_mode='async' or enable the async handoff pool.",
-                    )
                     break
 
-                # Negotiate compression using pre-extracted accept-encoding
-                asgi_compressor: Compressor | None = None
-                asgi_dictionary = None
-                if self._config.compression and meta.accept_encoding:
-                    # Try dictionary compression first (RFC 9842)
-                    if (
-                        self._config.compression_dictionaries
-                        and meta.available_dictionary
-                        and b"zstd" in meta.accept_encoding
-                    ):
-                        target_str = request.target.decode("ascii", errors="replace")
-                        asgi_dictionary = negotiate_dictionary(
-                            meta.available_dictionary,
-                            self._config.compression_dictionaries,
-                            target_str,
-                        )
-                        if asgi_dictionary is not None:
-                            asgi_compressor = create_compressor(
-                                "dcz",
-                                dictionary=asgi_dictionary,
-                            )
-                    if asgi_compressor is None:
-                        enc = negotiate_encoding(meta.accept_encoding)
-                        if enc:
-                            asgi_compressor = create_compressor(enc)
-
-                # Single pass: strip CL only when compressing, track presence
-                has_cl = False
-                content_length_header: tuple[bytes, bytes] | None = None
-                headers: list[tuple[bytes, bytes]] = []
-                for n, v in response.headers:
-                    nl = n.lower()
-                    if nl == b"content-encoding":
-                        asgi_compressor = None
-                        headers.append((n, v))
-                    elif nl == b"content-length":
-                        has_cl = True
-                        content_length_header = (n, v)
-                        if not asgi_compressor:
-                            headers.append((n, v))
-                    else:
-                        headers.append((n, v))
-
-                if asgi_compressor:
-                    body_out = asgi_compressor.compress(response.body) + asgi_compressor.flush()
-                    headers.append((b"content-encoding", asgi_compressor.encoding.encode("ascii")))
-                    headers.append((b"content-length", str(len(body_out)).encode("ascii")))
-                    if asgi_dictionary is not None:
-                        headers.append(
-                            (b"used-dictionary", asgi_dictionary.sf_hash.encode("ascii"))
-                        )
-                else:
-                    body_out = response.body
-                    if not has_cl:
-                        headers.append((b"content-length", str(len(body_out)).encode("ascii")))
-                    elif content_length_header is not None and content_length_header not in headers:
-                        headers.append(content_length_header)
+                # Negotiate compression using pre-extracted accept-encoding.
+                # apply_min_size=False: the sync-ASGI bridge already governs
+                # sub-threshold bodies, so this path historically compresses
+                # regardless of compression_min_size (parity preserved).
+                target_str = request.target.decode("ascii", errors="replace")
+                asgi_compressor, asgi_dictionary = negotiate_compressor_from_meta(
+                    self._config,
+                    meta.accept_encoding,
+                    meta.available_dictionary,
+                    request_target=target_str,
+                )
+                headers, body_out = _finalize_response_headers(
+                    response.headers,
+                    response.body,
+                    asgi_compressor,
+                    asgi_dictionary,
+                    self._config,
+                    apply_min_size=False,
+                )
                 if request_id:
                     headers.append((b"x-request-id", request_id.encode("latin-1")))
                 # Advertise dictionaries for matching paths (RFC 9842)
                 if self._config.compression_dictionaries:
-                    target_str = request.target.decode("ascii", errors="replace")
                     headers.extend(
                         use_as_dictionary_headers(
                             self._config.compression_dictionaries,
@@ -852,47 +703,20 @@ class SyncWorker:
                     )
                 headers.append((b"connection", conn_header))
 
-                date_hdr = self._cached_date_header()
-
                 # Bypass h11 for response serialization — raw bytes are faster
-                head, body_bytes_out = serialize_raw_response_parts(
+                self._serialize_send_and_log(
+                    conn,
                     response.status,
-                    tuple(headers),
+                    headers,
                     body_out,
-                    server_header=self._config.server_header,
-                    date_header=date_hdr,
-                )
-                try:
-                    if hasattr(conn, "sendmsg"):
-                        conn.sendmsg([head, body_bytes_out])
-                    else:
-                        conn.sendall(head + body_bytes_out)
-                except OSError:
-                    conn.sendall(head + body_bytes_out)
-
-                asgi_duration = elapsed_ms(request_start)
-                self._lifecycle.record(
-                    ResponseCompleted(
-                        connection_id=conn_id,
-                        worker_id=self._worker_id,
-                        status=response.status,
-                        bytes_sent=len(body_out),
-                        duration_ms=asgi_duration,
-                        timestamp_ns=lifecycle_ns(),
-                        method=scope.get("method", "unknown"),
-                    )
-                )
-                log_request(
-                    self._config,
-                    scope["method"],
-                    scope["path"],
-                    response.status,
-                    len(body_out),
-                    asgi_duration,
-                    client_str,
+                    conn_id=conn_id,
+                    request_start=request_start,
                     http_version=request.http_version,
+                    record_method=scope.get("method", "unknown"),
+                    log_method=scope["method"],
+                    log_path=scope["path"],
+                    client_str=client_str,
                     request_id=request_id,
-                    worker_id=self._worker_id,
                 )
 
                 if close_after or at_limit:
@@ -920,6 +744,215 @@ class SyncWorker:
                 )
             )
         return False
+
+    def _streaming_handoff(
+        self,
+        conn: socket.socket,
+        scope: dict[str, Any],
+        body: bytes,
+        request_id: str | None,
+    ) -> bool:
+        """Hand a streaming response off to the async pool, or send 501.
+
+        Returns True when the connection was handed off (caller should return
+        True), False when no pool is configured and a 501 was sent (caller
+        should break the keep-alive loop).
+        """
+        if self._async_pool:
+            self._async_pool.accept_handoff(
+                StreamingHandoff(
+                    conn=conn,
+                    scope=scope,
+                    body=body,
+                    request_id=request_id,
+                )
+            )
+            return True
+        self._send_error(
+            conn,
+            501,
+            "Streaming responses require worker_mode=async or handoff",
+            code="POUNCE_WORKER_STREAMING_NEEDS_ASYNC",
+            hint="Set worker_mode='async' or enable the async handoff pool.",
+        )
+        return False
+
+    def _open_connection(
+        self, conn: socket.socket
+    ) -> tuple[tuple[str, int], tuple[str, int], str, int, int]:
+        """Resolve peer/local addresses and record ConnectionOpened.
+
+        Returns (client, server, client_str, conn_id, conn_start).
+        """
+        try:
+            peername = conn.getpeername()
+            client = (str(peername[0]), int(peername[1])) if len(peername) >= 2 else ("unix", 0)
+        except OSError:
+            client = ("unknown", 0)
+        client_str = f"{client[0]}:{client[1]}"
+        try:
+            sockname = conn.getsockname()
+            server = (
+                (str(sockname[0]), int(sockname[1]))
+                if len(sockname) >= 2
+                else (self._config.host, self._config.port)
+            )
+        except OSError:
+            server = (self._config.host, self._config.port)
+        if self._config.uds:
+            server = (self._config.uds, 0)
+        conn_id = next_connection_id()
+        conn_start = lifecycle_ns()
+        self._lifecycle.record(
+            ConnectionOpened(
+                connection_id=conn_id,
+                worker_id=self._worker_id,
+                client_addr=client[0],
+                client_port=client[1],
+                server_addr=server[0],
+                server_port=server[1],
+                protocol="h1",
+                timestamp_ns=conn_start,
+            )
+        )
+        return client, server, client_str, conn_id, conn_start
+
+    def _serve_health(
+        self,
+        conn: socket.socket,
+        path: str,
+        conn_header: bytes,
+        *,
+        conn_id: int,
+        request_start: int,
+        http_version: str,
+        client_str: str,
+        request_id: str | None,
+    ) -> None:
+        """Serialize and send the built-in health-check response (plain sendall)."""
+        status, health_headers, body_bytes = build_health_response(
+            worker_id=self._worker_id,
+            active_connections=1,
+        )
+        health_headers = [*health_headers, (b"connection", conn_header)]
+        date_hdr = self._cached_date_header()
+        head, body_out_bytes = serialize_raw_response_parts(
+            status,
+            tuple(health_headers),
+            body_bytes,
+            server_header=self._config.server_header,
+            date_header=date_hdr,
+        )
+        conn.sendall(head + body_out_bytes)
+        health_duration = elapsed_ms(request_start)
+        self._lifecycle.record(
+            ResponseCompleted(
+                connection_id=conn_id,
+                worker_id=self._worker_id,
+                status=status,
+                bytes_sent=len(body_bytes),
+                duration_ms=health_duration,
+                timestamp_ns=lifecycle_ns(),
+                method="GET",
+            )
+        )
+        log_request(
+            self._config,
+            "GET",
+            path,
+            status,
+            len(body_bytes),
+            health_duration,
+            client_str,
+            http_version=http_version,
+            request_id=request_id,
+            worker_id=self._worker_id,
+        )
+
+    def _serve_dictionary(self, conn: socket.socket, path: str, conn_header: bytes) -> bool:
+        """Serve a built-in compression dictionary (RFC 9842) if ``path`` matches.
+
+        Returns True when a dictionary response was sent (plain sendall),
+        False when no dictionary matched and the caller should fall through.
+        """
+        dict_resp = build_dictionary_response(self._config.compression_dictionaries, path)
+        if dict_resp is None:
+            return False
+        d_status, d_headers, d_body = dict_resp
+        d_headers = [*d_headers, (b"connection", conn_header)]
+        date_hdr = self._cached_date_header()
+        head, body_out_bytes = serialize_raw_response_parts(
+            d_status,
+            tuple(d_headers),
+            d_body,
+            server_header=self._config.server_header,
+            date_header=date_hdr,
+        )
+        conn.sendall(head + body_out_bytes)
+        return True
+
+    def _serialize_send_and_log(
+        self,
+        conn: socket.socket,
+        status: int,
+        headers: list[tuple[bytes, bytes]],
+        body_out: bytes,
+        *,
+        conn_id: int,
+        request_start: int,
+        http_version: str,
+        record_method: str,
+        log_method: str,
+        log_path: str,
+        client_str: str,
+        request_id: str | None = None,
+    ) -> None:
+        """Serialize, send, and record/log a single buffered response.
+
+        Local helper for the SyncApp fast path and the inline ASGI path — both
+        bypass h11 and share the identical serialize -> sendmsg(/sendall
+        fallback) -> ResponseCompleted -> access-log sequence. Health and
+        dictionary responses keep their own plain ``sendall`` path.
+        """
+        date_hdr = self._cached_date_header()
+        head, body_bytes = serialize_raw_response_parts(
+            status,
+            tuple(headers),
+            body_out,
+            server_header=self._config.server_header,
+            date_header=date_hdr,
+        )
+        try:
+            if hasattr(conn, "sendmsg"):
+                conn.sendmsg([head, body_bytes])
+            else:
+                conn.sendall(head + body_bytes)
+        except OSError:
+            conn.sendall(head + body_bytes)
+        duration = elapsed_ms(request_start)
+        self._lifecycle.record(
+            ResponseCompleted(
+                connection_id=conn_id,
+                worker_id=self._worker_id,
+                status=status,
+                bytes_sent=len(body_out),
+                duration_ms=duration,
+                timestamp_ns=lifecycle_ns(),
+                method=record_method,
+            )
+        )
+        log_request(
+            self._config,
+            log_method,
+            log_path,
+            status,
+            len(body_out),
+            duration,
+            client_str,
+            http_version=http_version,
+            request_id=request_id,
+            worker_id=self._worker_id,
+        )
 
     def _recv_request_fast(self, conn: socket.socket) -> tuple[RequestReceived | None, bytes]:
         """Read a complete HTTP request using the fast parser.

@@ -1169,3 +1169,163 @@ class TestQueueBasedWorker:
 
         response = bytes(mock_sock.sent_data)
         assert b"HTTP/1.1 200" in response
+
+
+# ---------------------------------------------------------------------------
+# Issue #162: shared compression negotiation + _finalize_response_headers
+# ---------------------------------------------------------------------------
+
+
+class TestFinalizeResponseHeaders:
+    """Unit tests for the local _finalize_response_headers helper.
+
+    Behaviour must mirror the previously-inline SyncApp / ASGI rewrite blocks.
+    """
+
+    def _config(self, **overrides: Any) -> ServerConfig:
+        return _make_config(**overrides)
+
+    def test_no_compressor_appends_content_length(self) -> None:
+        from pounce.sync_worker import _finalize_response_headers
+
+        headers, body = _finalize_response_headers(
+            [(b"content-type", b"text/plain")],
+            b"hello",
+            None,
+            None,
+            self._config(),
+            apply_min_size=True,
+        )
+        assert body == b"hello"
+        assert (b"content-length", b"5") in headers
+        assert not any(n.lower() == b"content-encoding" for n, _ in headers)
+
+    def test_existing_content_length_reappended_uncompressed(self) -> None:
+        from pounce.sync_worker import _finalize_response_headers
+
+        headers, body = _finalize_response_headers(
+            [(b"content-type", b"text/plain"), (b"content-length", b"5")],
+            b"hello",
+            None,
+            None,
+            self._config(),
+            apply_min_size=True,
+        )
+        assert body == b"hello"
+        # The pre-set content-length is preserved exactly once.
+        cls = [v for n, v in headers if n.lower() == b"content-length"]
+        assert cls == [b"5"]
+
+    def test_compression_applied_above_threshold(self) -> None:
+        from pounce._compression import create_compressor
+        from pounce.sync_worker import _finalize_response_headers
+
+        body_in = b"A" * 200
+        compressor = create_compressor("gzip")
+        assert compressor is not None
+        headers, body = _finalize_response_headers(
+            [(b"content-type", b"text/plain")],
+            body_in,
+            compressor,
+            None,
+            self._config(compression=True, compression_min_size=10),
+            apply_min_size=True,
+        )
+        assert body != body_in  # compressed
+        assert (b"content-encoding", b"gzip") in headers
+        assert (b"content-length", str(len(body)).encode()) in headers
+
+    def test_sub_threshold_not_compressed_when_min_size_applies(self) -> None:
+        from pounce._compression import create_compressor
+        from pounce.sync_worker import _finalize_response_headers
+
+        body_in = b"tiny"
+        compressor = create_compressor("gzip")
+        assert compressor is not None
+        headers, body = _finalize_response_headers(
+            [(b"content-type", b"text/plain")],
+            body_in,
+            compressor,
+            None,
+            self._config(compression=True, compression_min_size=500),
+            apply_min_size=True,
+        )
+        # Below compression_min_size: SyncApp-style path leaves it uncompressed.
+        assert body == body_in
+        assert not any(n.lower() == b"content-encoding" for n, _ in headers)
+        assert (b"content-length", b"4") in headers
+
+    def test_sub_threshold_compressed_when_min_size_not_applied(self) -> None:
+        from pounce._compression import create_compressor
+        from pounce.sync_worker import _finalize_response_headers
+
+        body_in = b"tiny"
+        compressor = create_compressor("gzip")
+        assert compressor is not None
+        headers, body = _finalize_response_headers(
+            [(b"content-type", b"text/plain")],
+            body_in,
+            compressor,
+            None,
+            self._config(compression=True, compression_min_size=500),
+            apply_min_size=False,
+        )
+        # ASGI-style path ignores min_size (bridge already governed it).
+        assert body != body_in
+        assert (b"content-encoding", b"gzip") in headers
+
+    def test_preset_content_encoding_suppresses_compression(self) -> None:
+        from pounce._compression import create_compressor
+        from pounce.sync_worker import _finalize_response_headers
+
+        body_in = b"A" * 200
+        compressor = create_compressor("gzip")
+        assert compressor is not None
+        headers, body = _finalize_response_headers(
+            [(b"content-encoding", b"br"), (b"content-length", b"200")],
+            body_in,
+            compressor,
+            None,
+            self._config(compression=True, compression_min_size=10),
+            apply_min_size=True,
+        )
+        assert body == body_in  # not re-compressed
+        encodings = [v for n, v in headers if n.lower() == b"content-encoding"]
+        assert encodings == [b"br"]
+        cls = [v for n, v in headers if n.lower() == b"content-length"]
+        assert cls == [b"200"]
+
+
+class TestFinalizeResponseHeadersDictionary:
+    """DCZ used-dictionary emission via _finalize_response_headers."""
+
+    def test_used_dictionary_header_emitted_on_dcz(self) -> None:
+        import json
+
+        from pounce._compression import _HAS_ZSTD, CompressionDictionary, create_compressor
+
+        if not _HAS_ZSTD:
+            import pytest
+
+            pytest.skip("zstd not available")
+
+        from compression import zstd
+
+        from pounce.sync_worker import _finalize_response_headers
+
+        samples = [json.dumps({"id": i, "name": f"item_{i}"}).encode() for i in range(200)]
+        trained = zstd.train_dict(samples, dict_size=8192)
+        cd = CompressionDictionary(trained.dict_content, "/api/*")
+        compressor = create_compressor("dcz", dictionary=cd)
+        assert compressor is not None
+
+        headers, _body = _finalize_response_headers(
+            [(b"content-type", b"application/json")],
+            b"B" * 200,
+            compressor,
+            cd,
+            _make_config(compression=True, compression_min_size=10),
+            apply_min_size=True,
+        )
+        assert (b"content-encoding", b"dcz") in headers
+        assert (b"used-dictionary", cd.sf_hash.encode("ascii")) in headers
