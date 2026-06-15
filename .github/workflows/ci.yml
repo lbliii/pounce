@@ -152,10 +152,19 @@ jobs:
         run: uv sync --group dev --extra h2 --extra h3 --extra ws --extra tls
 
       - name: Run tests with coverage
-        # ADVISORY until coverage reaches the pyproject [tool.coverage.report]
-        # fail_under=80 floor (measured ~68% at the time this lane was added).
-        # Flip continue-on-error to false once the suite clears 80% so a PR that
-        # drops a hot-path module below the floor fails CI (issue #165).
+        # ADVISORY (continue-on-error) until CI TOTAL reaches the pyproject
+        # [tool.coverage.report] fail_under=80 floor. Readiness gate (issue #165):
+        # flip continue-on-error to false ONLY once the 3.14t lane reports
+        # TOTAL >= 80%, so a PR that drops a hot-path module below the floor
+        # fails CI. Do NOT flip it before then or this lane reds the board.
+        #
+        # Progress: ~68% when this lane was added -> ~71% after the #165
+        # groundwork (async_pool, net/listener, config unit tests). The
+        # remaining gap is concentrated in modules whose uncovered branches need
+        # live-socket / free-threaded / multi-worker / H2 / H3 runtime that pure
+        # unit tests cannot reach (server, worker, supervisor, sync_worker,
+        # h3_worker, _h2_handler). Those close as the 0.8.1/0.8.2 test additions
+        # (runtime/integration coverage) merge; re-measure here, then flip.
         continue-on-error: true
         run: >-
           uv run pytest tests/
