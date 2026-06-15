@@ -20,9 +20,17 @@ from pounce.config import ServerConfig
 pytestmark = pytest.mark.skipif(not _HAS_H2, reason="h2 not installed")
 
 
+class _FakeTransport:
+    """Minimal transport stub so the H2 send path can probe the write buffer."""
+
+    def get_write_buffer_size(self) -> int:
+        return 0
+
+
 class _FakeWriter:
     def __init__(self) -> None:
         self.data = bytearray()
+        self.transport = _FakeTransport()
 
     def write(self, data: bytes) -> None:
         self.data.extend(data)
@@ -243,3 +251,159 @@ async def test_h2_post_413_data_not_flow_control_acked() -> None:
     events = server.receive_data(frame.serialize())
     body_events = [e for e in events if getattr(e, "stream_id", None) == 1 and hasattr(e, "body")]
     assert not body_events, "DATA on a reset stream must not surface as body"
+
+
+# ---------------------------------------------------------------------------
+# Issue #160 — shared request-pipeline prelude (compressor + access-log filter)
+# ---------------------------------------------------------------------------
+
+try:
+    from pounce._compression import _HAS_ZSTD
+except ImportError:  # pragma: no cover - zstd is optional
+    _HAS_ZSTD = False
+
+
+def _make_compression_dictionary(match: str = "/api/*") -> Any:
+    """Train a small zstd dictionary for dcz negotiation tests."""
+    import json
+    from compression import zstd
+
+    from pounce._compression import CompressionDictionary
+
+    samples = [
+        json.dumps({"id": i, "name": f"item_{i}", "status": "active"}).encode() for i in range(200)
+    ]
+    trained = zstd.train_dict(samples, dict_size=8192)
+    return CompressionDictionary(trained.dict_content, match)
+
+
+def _response_content_encoding(client: Any, data: bytes) -> str | None:
+    """Return the content-encoding header value from the H2 response, if any.
+
+    The test client decodes headers as ``str`` (``header_encoding="utf-8"``).
+    """
+    for event in client.receive_data(data):
+        if isinstance(event, h2.events.ResponseReceived):
+            for name, value in event.headers:
+                key = name.decode() if isinstance(name, bytes) else name
+                if key == "content-encoding":
+                    return value.decode() if isinstance(value, bytes) else value
+    return None
+
+
+async def _run_h2_request(app: Any, config: ServerConfig, request_bytes: bytes) -> bytes:
+    """Drive a single H2 request to completion through ``handle_h2_connection``.
+
+    Unlike ``_run_h2_bytes`` (which feeds EOF immediately and is suited to the
+    synchronous pre-dispatch rejection paths), this runs the handler as a task,
+    feeds the request, and waits for the per-stream ASGI task to flush a full
+    response before tearing the connection down — so success-path responses are
+    observed deterministically.
+    """
+    from pounce._h2_handler import handle_h2_connection
+
+    reader = asyncio.StreamReader()
+    reader.feed_data(request_bytes)
+    writer = _FakeWriter()
+
+    task = asyncio.create_task(
+        handle_h2_connection(
+            app,
+            config,
+            logging.getLogger("test.h2"),
+            reader,
+            writer,
+            ("127.0.0.1", 50000),
+            ("127.0.0.1", 8443),
+            "127.0.0.1:50000",
+        )
+    )
+    # Let the per-stream ASGI task run to completion.  Each ASGI ``send`` awaits
+    # ``writer.drain()`` (which yields), so a bounded run of event-loop turns is
+    # enough for the no-I/O test app to flush its full response before we close
+    # the inbound half and let the handler return.
+    for _ in range(500):
+        await asyncio.sleep(0)
+    # Close the inbound half so the read loop exits and the handler returns.
+    reader.feed_eof()
+    await asyncio.wait_for(task, timeout=2.0)
+    return bytes(writer.data)
+
+
+@pytest.mark.skipif(not _HAS_ZSTD, reason="zstd not available")
+async def test_h2_negotiates_dcz_with_available_dictionary() -> None:
+    """Available-Dictionary + zstd negotiates a dcz compressor on H2 (#160).
+
+    This exercises the shared ``negotiate_compressor`` prelude, which restores
+    the already-advertised RFC 9842 dictionary path on HTTP/2.
+    """
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"x" * 1024, "more_body": False})
+
+    cd = _make_compression_dictionary(match="/api/*")
+    client = _make_client()
+    client.send_headers(
+        1,
+        [
+            (":method", "GET"),
+            (":path", "/api/v1/items"),
+            (":authority", "example.test"),
+            (":scheme", "https"),
+            ("accept-encoding", "zstd, gzip"),
+            ("available-dictionary", cd.sf_hash),
+        ],
+        end_stream=True,
+    )
+
+    config = ServerConfig(
+        compression=True,
+        compression_min_size=0,
+        compression_dictionaries=(cd,),
+        access_log=False,
+    )
+    output = await _run_h2_request(app, config, client.data_to_send())
+
+    assert _response_content_encoding(client, output) == "dcz"
+
+
+async def test_h2_access_log_filter_suppresses_entry(monkeypatch: Any) -> None:
+    """access_log_filter returning False suppresses the H2 access log (#160).
+
+    The H2 handler now logs via the shared ``log_request`` helper, so the
+    filter contract is exercised by patching the pipeline's ``access_log``.
+    """
+    import pounce._request_pipeline as pipeline
+
+    calls: list[tuple[str, str, int]] = []
+    monkeypatch.setattr(
+        pipeline,
+        "access_log",
+        lambda method, target, status, *a, **k: calls.append((method, target, status)),
+    )
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok", "more_body": False})
+
+    client = _make_client()
+    client.send_headers(
+        1,
+        [
+            (":method", "GET"),
+            (":path", "/healthz"),
+            (":authority", "example.test"),
+            (":scheme", "https"),
+        ],
+        end_stream=True,
+    )
+
+    config = ServerConfig(
+        access_log=True,
+        access_log_filter=lambda method, path, status: path != "/healthz",
+    )
+    output = await _run_h2_request(app, config, client.data_to_send())
+
+    assert 200 in _response_statuses(client, output)
+    assert calls == [], "filtered request must not reach access_log"

@@ -16,10 +16,15 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from pounce._compression import Compressor, create_compressor, negotiate_encoding
+from pounce._compression import Compressor
 from pounce._headers import get_header as _get_header_from_list
 from pounce._health import build_health_response
 from pounce._request_id import extract_or_generate
+from pounce._request_pipeline import (
+    is_trusted_peer,
+    log_request,
+    negotiate_compressor,
+)
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
 from pounce.asgi.bridge import SendState
@@ -30,7 +35,6 @@ from pounce.asgi.h3_bridge import (
     create_h3_send,
 )
 from pounce.config import ServerConfig
-from pounce.logging import access_log
 from pounce.protocols.h3 import is_h3_available
 
 
@@ -380,27 +384,23 @@ def _create_zoomies_datagram_protocol(
         ) -> tuple[str, tuple[tuple[bytes, bytes], ...], ServerTiming | None, Compressor | None]:
             """Extract request ID, negotiate timing/compression for a stream."""
             headers_tuples = tuple((n, v) for n, v in scope["headers"])
-            is_trusted = bool(
-                self._config.trusted_hosts
-                and (
-                    self._config.trusted_hosts_wildcard
-                    or scope["client"][0] in self._config.trusted_hosts
-                )
+            request_id = extract_or_generate(
+                headers_tuples,
+                trusted=is_trusted_peer(self._config, scope["client"][0]),
             )
-            request_id = extract_or_generate(headers_tuples, trusted=is_trusted)
             scope.setdefault("extensions", {})["request_id"] = request_id
 
             timing: ServerTiming | None = None
             if self._config.server_timing:
                 timing = ServerTiming()
 
-            compressor: Compressor | None = None
-            if self._config.compression:
-                accept = _get_header_from_list(headers_tuples, b"accept-encoding")
-                if accept:
-                    enc = negotiate_encoding(accept)
-                    if enc:
-                        compressor = create_compressor(enc)
+            # Compression is negotiated from the (proxy-adjusted) scope headers
+            # so dictionary ``match`` patterns see the resolved request path.
+            compressor, _dictionary = negotiate_compressor(
+                self._config,
+                headers_tuples,
+                request_target=scope.get("path", ""),
+            )
 
             return request_id, headers_tuples, timing, compressor
 
@@ -439,22 +439,14 @@ def _create_zoomies_datagram_protocol(
             request_id: str,
         ) -> None:
             """Log an access log entry for the completed stream."""
-            if not self._config.access_log:
-                return
-            duration = elapsed_ms(request_start)
-            target = scope.get("path", "/")
-            log_filter = self._config.access_log_filter
-            if log_filter is not None and not log_filter(
-                scope["method"], target, send_state.status
-            ):
-                return
             client_str = f"{scope['client'][0]}:{scope['client'][1]}"
-            access_log(
+            log_request(
+                self._config,
                 scope["method"],
-                target,
+                scope.get("path", "/"),
                 send_state.status,
                 send_state.bytes_sent,
-                duration,
+                elapsed_ms(request_start),
                 client_str,
                 http_version="3",
                 request_id=request_id,
