@@ -102,6 +102,10 @@ def _create_zoomies_datagram_protocol(
             self._connections: dict[tuple[str, int], _ZoomiesConnection] = {}
             self._cid_to_conn: dict[bytes, _ZoomiesConnection] = {}
             self._transport: asyncio.DatagramTransport | None = None
+            # Drain flag (#112): once draining we stop creating NEW connections
+            # and NEW streams so in-flight stream tasks can finish within the
+            # bounded shutdown window before CONNECTION_CLOSE is sent.
+            self._draining = False
 
         def connection_made(self, transport: asyncio.BaseTransport) -> None:
             assert isinstance(transport, asyncio.DatagramTransport)
@@ -152,6 +156,10 @@ def _create_zoomies_datagram_protocol(
 
             conn = self._route_connection(data, addr)
             if conn is None:
+                # While draining (#112) refuse brand-new connections so the
+                # shutdown window only has to wait on existing stream tasks.
+                if self._draining:
+                    return
                 # Enforce connection limit — silently drop to avoid amplification
                 if len(self._connections) >= self._config.http3_max_connections:
                     self._logger.warning(
@@ -224,6 +232,14 @@ def _create_zoomies_datagram_protocol(
         ) -> None:
             stream_id = event.stream_id
             if stream_id in conn.stream_tasks:
+                return
+
+            # While draining (#112) refuse NEW request streams.  Existing
+            # stream tasks keep running until the bounded drain deadline; a
+            # peer opening a fresh stream during shutdown gets a 503 rather
+            # than an orphaned/half-open stream.
+            if self._draining:
+                self._send_service_unavailable(conn, stream_id, addr)
                 return
 
             client = addr
@@ -346,21 +362,73 @@ def _create_zoomies_datagram_protocol(
             for stream_id in list(conn.stream_tasks):
                 self._cancel_stream(conn, stream_id)
 
-        def close_all_connections(self) -> None:
-            """Gracefully close all active QUIC connections.
+        def _close_connection_quic(self, conn: _ZoomiesConnection) -> None:
+            """Send CONNECTION_CLOSE for one connection and flush datagrams."""
+            try:
+                conn.quic.close(error_code=0, reason="Server shutting down")
+                if self._transport is not None:
+                    for dg in conn.quic.send_datagrams():
+                        self._transport.sendto(dg, conn.last_addr)
+            except (OSError, ConnectionError):  # fmt: skip
+                pass
 
-            Sends CONNECTION_CLOSE to each peer before the transport shuts down.
-            Called by H3Worker during server shutdown.
+        def close_all_connections(self) -> None:
+            """Hard-close all active QUIC connections (no drain).
+
+            Cancels every in-flight stream task, sends CONNECTION_CLOSE to each
+            peer, then clears the connection maps.  ``drain_connections`` is the
+            graceful path used during server shutdown (#112); this remains for
+            callers that need an immediate teardown.
             """
             for conn in list(self._connections.values()):
                 self._cancel_all_streams(conn)
-                try:
-                    conn.quic.close(error_code=0, reason="Server shutting down")
-                    if self._transport is not None:
-                        for dg in conn.quic.send_datagrams():
-                            self._transport.sendto(dg, conn.last_addr)
-                except (OSError, ConnectionError):  # fmt: skip
-                    pass
+                self._close_connection_quic(conn)
+            self._connections.clear()
+            self._cid_to_conn.clear()
+
+        async def drain_connections(self, timeout: float) -> None:
+            """Gracefully drain in-flight HTTP/3 stream tasks, then close.
+
+            Mirrors the TCP worker's stop-new / bounded-wait / abort-stragglers
+            sequence (worker.py).  Called by H3Worker during shutdown so that
+            requests already running on the app finish (up to ``timeout``)
+            instead of being hard-cancelled.
+
+            Sequence (#112):
+              1. Set the draining flag so ``datagram_received`` /
+                 ``_handle_headers`` stop creating NEW connections / streams.
+              2. ``asyncio.wait`` on every in-flight ``stream_tasks`` task with
+                 ``timeout`` so under-budget requests complete on their own.
+              3. Cancel ONLY the stragglers still running past the deadline.
+              4. Send CONNECTION_CLOSE via ``quic.close()`` and flush datagrams.
+
+            Args:
+                timeout: Bounded drain window in seconds (``shutdown_timeout``).
+            """
+            self._draining = True
+
+            tasks = [
+                task
+                for conn in list(self._connections.values())
+                for task, _queue in conn.stream_tasks.values()
+            ]
+            if tasks:
+                self._logger.info("H3 draining %d in-flight stream(s)...", len(tasks))
+                _done, pending = await asyncio.wait(tasks, timeout=max(timeout, 0.0))
+                if pending:
+                    self._logger.warning(
+                        "H3 drain: %d stream(s) still running after %.1fs — cancelling",
+                        len(pending),
+                        timeout,
+                    )
+                    for task in pending:
+                        task.cancel()
+                    # Let cancellation propagate so each task's ``finally`` runs
+                    # and removes itself from ``stream_tasks`` before teardown.
+                    await asyncio.gather(*pending, return_exceptions=True)
+
+            for conn in list(self._connections.values()):
+                self._close_connection_quic(conn)
             self._connections.clear()
             self._cid_to_conn.clear()
 
@@ -574,6 +642,35 @@ def _create_zoomies_datagram_protocol(
                 end_stream=True,
             )
             self._flush(conn, addr)
+
+        def _send_service_unavailable(
+            self,
+            conn: _ZoomiesConnection,
+            stream_id: int,
+            addr: tuple[str, int],
+        ) -> None:
+            """Send a 503 for a NEW stream opened while the worker is draining.
+
+            Mirrors the TCP worker's clean 503 for connections that arrive
+            during the bounded shutdown window (#112).
+            """
+            try:
+                conn.h3.send_headers(
+                    stream_id=stream_id,
+                    headers=[
+                        (b":status", b"503"),
+                        (b"content-type", b"text/plain"),
+                        (b"connection", b"close"),
+                    ],
+                )
+                conn.h3.send_data(
+                    stream_id=stream_id,
+                    data=b"Service Unavailable",
+                    end_stream=True,
+                )
+                self._flush(conn, addr)
+            except (OSError, ConnectionError):  # fmt: skip
+                pass
 
         async def _run_stream(
             self,
