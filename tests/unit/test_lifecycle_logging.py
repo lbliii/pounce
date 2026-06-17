@@ -5,6 +5,7 @@ Tests for structured lifecycle event logging.
 
 import json
 import logging
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -163,6 +164,39 @@ class TestLoggingCollector:
 
             assert log_data["slow"] is True
             assert log_data["duration_ms"] == 3500.0
+
+    def test_streaming_response_not_marked_slow(self):
+        """Long-lived SSE/chunked streams must not trigger slow:true."""
+        collector = LoggingCollector(
+            slow_request_threshold_ms=5000,
+            log_format="json",
+        )
+
+        event = ResponseCompleted(
+            connection_id=1,
+            worker_id=1,
+            status=200,
+            bytes_sent=6_504_291,
+            duration_ms=899_981.2,
+            timestamp_ns=monotonic_ns(),
+            method="GET",
+            streaming=True,
+        )
+
+        with patch.object(collector._logger, "log") as mock_log:
+            collector.record(event)
+
+            assert mock_log.called
+            assert mock_log.call_args[0][0] == logging.DEBUG
+
+            log_message = mock_log.call_args[0][1]
+            if "%s" in log_message:
+                log_data = json.loads(mock_log.call_args[0][2])
+            else:
+                log_data = json.loads(log_message)
+
+            assert log_data.get("streaming") is True
+            assert "slow" not in log_data or not log_data.get("slow")
 
     def test_client_disconnected_logged_at_warning(self):
         """Test that ClientDisconnected is logged at WARNING level."""
@@ -410,3 +444,31 @@ class TestTimestampConversion:
             assert "timestamp" in log_data
             assert "T" in log_data["timestamp"]  # ISO format
             assert "timestamp_ns" not in log_data  # Original removed
+
+    def test_timestamp_is_wall_clock(self):
+        """Freshly recorded events must use wall-clock time, not monotonic epoch."""
+        collector = LoggingCollector(log_format="json")
+        before = datetime.now(UTC)
+
+        event = ResponseCompleted(
+            connection_id=1,
+            worker_id=1,
+            status=200,
+            bytes_sent=100,
+            duration_ms=1.0,
+            timestamp_ns=monotonic_ns(),
+        )
+
+        with patch.object(collector._logger, "log") as mock_log:
+            collector.record(event)
+
+            log_message = mock_log.call_args[0][1]
+            if "%s" in log_message:
+                log_data = json.loads(mock_log.call_args[0][2])
+            else:
+                log_data = json.loads(log_message)
+
+        after = datetime.now(UTC) + timedelta(seconds=2)
+        recorded = datetime.fromisoformat(log_data["timestamp"])
+        assert before - timedelta(seconds=1) <= recorded <= after
+        assert recorded.year >= 2020

@@ -43,6 +43,7 @@ from pounce._response_frame import (
 )
 from pounce._timing import elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
+from pounce.asgi.bridge import is_streaming_response
 from pounce.asgi.sync_bridge import NeedsAsyncError, call_asgi_sync
 from pounce.async_pool import AsyncPool, StreamingHandoff, WebSocketHandoff
 from pounce.config import ServerConfig
@@ -939,6 +940,7 @@ class SyncWorker:
                 duration_ms=duration,
                 timestamp_ns=lifecycle_ns(),
                 method=record_method,
+                streaming=is_streaming_response(headers),
             )
         )
         log_request(

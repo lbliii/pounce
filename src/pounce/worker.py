@@ -1172,6 +1172,7 @@ class Worker:
                 duration_ms=elapsed_ms(request_start),
                 timestamp_ns=lifecycle_ns(),
                 method=scope.get("method", "unknown"),
+                streaming=send_state.streaming,
             )
         )
 

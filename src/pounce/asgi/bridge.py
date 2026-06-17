@@ -44,6 +44,23 @@ class SendState:
     bytes_sent: int = 0
     response_started: bool = False  # True when http.response.start was sent
     response_complete: bool = False  # True after final http.response.body
+    streaming: bool = False  # True for SSE or chunked (no Content-Length)
+
+
+def is_streaming_response(headers: list[tuple[bytes, bytes]]) -> bool:
+    """Return True when a response is long-lived streaming (SSE or chunked).
+
+    SSE (``text/event-stream``) and responses without ``Content-Length`` are
+    expected to be long-lived; exclude them from duration-only slow heuristics.
+    """
+    has_content_length = False
+    for name, value in headers:
+        nl = name.lower()
+        if nl == b"content-length":
+            has_content_length = True
+        elif nl == b"content-type" and b"text/event-stream" in value.lower():
+            return True
+    return not has_content_length
 
 
 # ---------------------------------------------------------------------------
@@ -445,6 +462,7 @@ def create_send(
             # header injection attacks from ASGI apps.  h11 also validates,
             # but we guard at the bridge level to catch it before serialization.
             headers = _sanitize_headers(headers)
+            state.streaming = is_streaming_response(headers)
 
             # Alt-Svc for HTTP/3 upgrade (RFC 7838)
             # Use actual bound port from server tuple; config.port may be 0 (ephemeral)
@@ -526,6 +544,11 @@ def create_send(
 
             body: bytes = message.get("body", b"")
             more_body: bool = message.get("more_body", False)
+
+            # RFC 9110: HEAD responses carry GET headers (incl. Content-Length)
+            # but zero body octets on the wire — drop app body bytes.
+            if request_method == b"HEAD":
+                body = b""
 
             original_len = len(body)
 

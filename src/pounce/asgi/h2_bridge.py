@@ -22,7 +22,7 @@ from pounce._priority import PriorityScheduler
 from pounce._timing import ServerTiming
 from pounce._types import Receive, Send
 from pounce.asgi._scope import build_base_scope
-from pounce.asgi.bridge import SendState, _sanitize_headers
+from pounce.asgi.bridge import SendState, _sanitize_headers, is_streaming_response
 from pounce.config import ServerConfig
 from pounce.protocols._base import RequestReceived
 
@@ -200,6 +200,7 @@ def create_h2_send(
 
             # Defense-in-depth: strip CR/LF from header values
             headers = _sanitize_headers(headers)
+            state.streaming = is_streaming_response(headers)
 
             # Bodyless responses (1xx, 204, 304) — disable compression
             if compressor is not None and (100 <= status <= 199 or status in {204, 304}):
@@ -236,6 +237,9 @@ def create_h2_send(
 
             body: bytes = message.get("body", b"")
             more_body: bool = message.get("more_body", False)
+
+            if request_method == b"HEAD":
+                body = b""
 
             original_len = len(body)
 
