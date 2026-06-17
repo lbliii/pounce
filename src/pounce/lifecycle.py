@@ -262,7 +262,13 @@ class LoggingCollector:
 
     """
 
-    __slots__ = ("_health_check_path", "_json_format", "_logger", "_slow_threshold_ms", "_wall_offset_ns")
+    __slots__ = (
+        "_health_check_path",
+        "_json_format",
+        "_logger",
+        "_slow_threshold_ms",
+        "_wall_offset_ns",
+    )
 
     def __init__(
         self,

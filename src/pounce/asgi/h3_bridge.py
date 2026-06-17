@@ -13,7 +13,7 @@ from pounce._compression import Compressor, should_compress_body
 from pounce._headers import get_header
 from pounce._timing import ServerTiming
 from pounce._types import Receive, Send
-from pounce.asgi.bridge import SendState, is_streaming_response, _sanitize_headers
+from pounce.asgi.bridge import SendState, _sanitize_headers, is_streaming_response
 from pounce.config import ServerConfig
 
 if TYPE_CHECKING:
