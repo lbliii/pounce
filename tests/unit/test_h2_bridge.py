@@ -407,6 +407,35 @@ class TestCreateH2Send:
 
         compressor.compress.assert_not_called()
 
+    async def test_head_drops_app_body(self) -> None:
+        """HEAD must not send app body bytes even when Content-Length is set."""
+        h2 = _MockH2Connection()
+        writer = _MockWriter()
+        state = SendState()
+
+        send = create_h2_send(
+            h2,
+            stream_id=1,
+            writer=writer,
+            state=state,
+            request_method=b"HEAD",
+        )
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", b"100")],
+            }
+        )
+        await send({"type": "http.response.body", "body": b"x" * 100, "more_body": False})
+
+        assert len(h2.sent_data) == 1
+        _, data, end_stream = h2.sent_data[0]
+        assert data == b""
+        assert end_stream is True
+        assert state.bytes_sent == 0
+
     async def test_below_threshold_single_shot_not_compressed(self) -> None:
         """Sub-threshold single-shot body is sent uncompressed (issue #123)."""
         h2 = _MockH2Connection()

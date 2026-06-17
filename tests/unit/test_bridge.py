@@ -1420,6 +1420,49 @@ class TestHeadCompressionGuard:
         assert b"content-length: 1000" in output.lower()
 
 
+class TestHeadBodyDrop:
+    """HEAD responses must drop app body bytes while preserving Content-Length."""
+
+    @pytest.mark.asyncio
+    async def test_head_drops_app_body_on_wire(self):
+        """App may emit GET-sized body for Content-Length; bridge must not send it."""
+        proto = H1Protocol()
+        proto.receive_data(b"HEAD / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+
+        transport = _FakeTransport()
+        send = create_send(
+            proto,
+            transport,
+            SendState(),
+            request_method=b"HEAD",
+        )
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"text/html"),
+                    (b"content-length", b"1000"),
+                ],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"x" * 1000,
+            }
+        )
+
+        output = bytes(transport.data)
+        assert b"200" in output
+        assert b"content-length: 1000" in output.lower()
+        # Body bytes must not appear after the header block.
+        header_end = output.find(b"\r\n\r\n")
+        assert header_end != -1
+        assert output[header_end + 4 :] == b""
+
+
 class TestEarlyHintsH1:
     """103 Early Hints over HTTP/1.1 (#124).
 

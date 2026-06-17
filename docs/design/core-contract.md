@@ -127,8 +127,8 @@ plus the injected `event` and `timestamp` fields; `ResponseCompleted` adds
 | `connection_id`, `worker_id` | all events |
 | `client_addr`, `client_port`, `server_addr`, `server_port`, `protocol` | `ConnectionOpened` |
 | `method`, `path`, `http_version` | `RequestStarted` |
-| `status`, `bytes_sent`, `duration_ms`, `method` | `ResponseCompleted` |
-| `slow` | `ResponseCompleted` (only when over the slow-request threshold) |
+| `status`, `bytes_sent`, `duration_ms`, `method`, `streaming` | `ResponseCompleted` |
+| `slow` | `ResponseCompleted` (only when over the slow-request threshold and not streaming) |
 | `during_streaming` | `ClientDisconnected` |
 | `requests_served`, `total_bytes_sent`, `duration_ms`, `reason` | `ConnectionCompleted` |
 

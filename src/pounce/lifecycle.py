@@ -19,6 +19,7 @@ monotonic ordering that is not affected by system clock adjustments.
 import json
 import logging
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -76,6 +77,7 @@ class ResponseCompleted:
     duration_ms: float
     timestamp_ns: int
     method: str = "unknown"
+    streaming: bool = False
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -260,7 +262,13 @@ class LoggingCollector:
 
     """
 
-    __slots__ = ("_health_check_path", "_json_format", "_logger", "_slow_threshold_ms")
+    __slots__ = (
+        "_health_check_path",
+        "_json_format",
+        "_logger",
+        "_slow_threshold_ms",
+        "_wall_offset_ns",
+    )
 
     def __init__(
         self,
@@ -273,6 +281,9 @@ class LoggingCollector:
         self._slow_threshold_ms = slow_request_threshold_ms
         self._json_format = log_format.lower() == "json"
         self._health_check_path = health_check_path
+        # Monotonic timestamps in events are for ordering; convert to wall-clock
+        # at format time using a fixed offset captured once at init.
+        self._wall_offset_ns = time.time_ns() - time.monotonic_ns()
 
     def record(self, event: LifecycleEvent) -> None:
         """Log a lifecycle event as structured output.
@@ -292,7 +303,7 @@ class LoggingCollector:
         # Add metadata
         event_dict["event"] = event_type
         event_dict["timestamp"] = datetime.fromtimestamp(
-            event_dict.pop("timestamp_ns") / 1_000_000_000,
+            (event_dict.pop("timestamp_ns") + self._wall_offset_ns) / 1_000_000_000,
             tz=UTC,
         ).isoformat()
 
@@ -313,8 +324,10 @@ class LoggingCollector:
                 level = logging.DEBUG
                 msg = "Request started"
             case ResponseCompleted():
-                # Log slow requests at INFO, fast requests at DEBUG
-                if event.duration_ms >= self._slow_threshold_ms:
+                # Log slow requests at INFO, fast requests at DEBUG.
+                # Long-lived SSE/chunked streams are excluded — duration alone
+                # is not a useful slow signal for intentional streaming.
+                if not event.streaming and event.duration_ms >= self._slow_threshold_ms:
                     level = logging.INFO
                     msg = "Slow request completed"
                     event_dict["slow"] = True

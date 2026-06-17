@@ -13,7 +13,7 @@ from pounce._compression import Compressor, should_compress_body
 from pounce._headers import get_header
 from pounce._timing import ServerTiming
 from pounce._types import Receive, Send
-from pounce.asgi.bridge import SendState, _sanitize_headers
+from pounce.asgi.bridge import SendState, _sanitize_headers, is_streaming_response
 from pounce.config import ServerConfig
 
 if TYPE_CHECKING:
@@ -237,6 +237,7 @@ def create_h3_send(
                 headers.append((b"x-request-id", request_id.encode("latin-1")))
 
             headers = _sanitize_headers(headers)
+            state.streaming = is_streaming_response(headers)
 
             if compressor is not None and (100 <= status <= 199 or status in {204, 304}):
                 compressor = None
@@ -270,6 +271,9 @@ def create_h3_send(
 
             body: bytes = message.get("body", b"")
             more_body: bool = message.get("more_body", False)
+
+            if request_method == "HEAD":
+                body = b""
 
             original_len = len(body)
 

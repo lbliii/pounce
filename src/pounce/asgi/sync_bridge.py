@@ -122,7 +122,9 @@ def call_asgi_sync(
                 ]
             )
         elif msg_type == "http.response.body":
-            body_parts.append(message.get("body", b""))
+            # RFC 9110: HEAD must not carry a message body on the wire.
+            if scope.get("method") != "HEAD":
+                body_parts.append(message.get("body", b""))
             if message.get("more_body", False):
                 needs_async = True
                 raise NeedsAsyncError()

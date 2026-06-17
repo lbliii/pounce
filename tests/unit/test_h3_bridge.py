@@ -590,6 +590,41 @@ class TestCreateH3Send:
 
         compressor.compress.assert_not_called()
 
+    async def test_head_drops_app_body(self) -> None:
+        """HEAD must not send app body bytes even when Content-Length is set."""
+        h3 = _MockH3Connection()
+        transmit = MagicMock()
+        state = SendState()
+
+        send = create_h3_send(
+            h3,
+            stream_id=0,
+            transmit=transmit,
+            state=state,
+            request_method="HEAD",
+        )
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", b"100")],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"x" * 100,
+                "more_body": False,
+            }
+        )
+
+        assert len(h3.sent_data) == 1
+        _, data, end_stream = h3.sent_data[0]
+        assert data == b""
+        assert end_stream is True
+        assert state.bytes_sent == 0
+
     async def test_compression_disabled_for_sse(self) -> None:
         """Compressor disabled for text/event-stream (SSE)."""
         h3 = _MockH3Connection()
