@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pytest
 
+from pounce._runtime import WorkerMode
 from pounce._types import ASGIApp, Receive, Scope, Send
 from pounce.config import ServerConfig
 from pounce.net.listener import create_listeners
@@ -136,7 +137,7 @@ def _start_supervisor(
         workers=worker_count,
         access_log=False,
     )
-    sockets = create_listeners(config, worker_count)
+    sockets = create_listeners(config, worker_count, shared=True)
     addr = sockets[0].getsockname()
 
     sup = Supervisor(config, app, mode="thread")
@@ -344,11 +345,15 @@ class TestMultiWorkerServerShutdown:
     Exercises the coordinated shutdown path: Server signals the
     supervisor, supervisor drains workers, lifespan shutdown runs,
     asyncio.run() completes normally — no orphaned executor threads.
+
+    Thread workers are forced via monkeypatch because GIL builds
+    auto-select process workers, which this module does not target.
     """
 
-    def test_server_shutdown_fires_lifespan_events(self):
+    def test_server_shutdown_fires_lifespan_events(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """server.shutdown() triggers coordinated multi-worker shutdown
         with lifespan startup and shutdown events in order."""
+        monkeypatch.setattr("pounce.server.detect_worker_mode", lambda: WorkerMode.THREAD)
         events: list[str] = []
         app = _make_lifespan_tracking_app(events)
         config = ServerConfig(
@@ -362,22 +367,21 @@ class TestMultiWorkerServerShutdown:
         thread = threading.Thread(target=server.run, daemon=True)
         thread.start()
 
-        # Wait for lifespan startup
         deadline = time.monotonic() + 5.0
         while "startup" not in events:
             if time.monotonic() > deadline:
                 raise AssertionError("Multi-worker server did not start within 5s")
             time.sleep(0.05)
 
-        # Trigger graceful shutdown
         server.shutdown()
         thread.join(timeout=10.0)
 
         assert not thread.is_alive(), "Server did not stop after shutdown()"
         assert events == ["startup", "shutdown"]
 
-    def test_server_shutdown_no_orphaned_threads(self):
+    def test_server_shutdown_no_orphaned_threads(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """After shutdown, no pounce worker threads remain alive."""
+        monkeypatch.setattr("pounce.server.detect_worker_mode", lambda: WorkerMode.THREAD)
         events: list[str] = []
         app = _make_lifespan_tracking_app(events)
         config = ServerConfig(
@@ -391,7 +395,6 @@ class TestMultiWorkerServerShutdown:
         thread = threading.Thread(target=server.run, daemon=True)
         thread.start()
 
-        # Wait for lifespan startup
         deadline = time.monotonic() + 5.0
         while "startup" not in events:
             if time.monotonic() > deadline:
@@ -401,14 +404,14 @@ class TestMultiWorkerServerShutdown:
         server.shutdown()
         thread.join(timeout=10.0)
 
-        # No pounce worker threads should remain
         pounce_threads = [
             t for t in threading.enumerate() if t.name.startswith("pounce-worker-") and t.is_alive()
         ]
         assert pounce_threads == [], f"Orphaned worker threads: {[t.name for t in pounce_threads]}"
 
-    def test_server_shutdown_is_idempotent(self):
+    def test_server_shutdown_is_idempotent(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Calling shutdown() multiple times does not raise."""
+        monkeypatch.setattr("pounce.server.detect_worker_mode", lambda: WorkerMode.THREAD)
         events: list[str] = []
         app = _make_lifespan_tracking_app(events)
         config = ServerConfig(
@@ -428,7 +431,6 @@ class TestMultiWorkerServerShutdown:
                 raise AssertionError("Multi-worker server did not start within 5s")
             time.sleep(0.05)
 
-        # Call shutdown multiple times — should not raise
         server.shutdown()
         server.shutdown()
         server.shutdown()
