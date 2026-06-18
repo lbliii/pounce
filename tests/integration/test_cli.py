@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from pounce._cli import cli, main, parse_dirs, parse_extensions
+from pounce._cli import cli, main, parse_dirs, parse_extensions, parse_hosts
+from pounce.config import ServerConfig
 
 
 class TestCLIServeCommand:
@@ -215,6 +216,48 @@ class TestParseDirs:
 
     def test_whitespace_only_filtered(self):
         assert parse_dirs(["./templates", "   ", "./static"]) == ("./templates", "./static")
+
+
+class TestParseHosts:
+    """parse_hosts() normalizes comma-separated host strings."""
+
+    def test_none_returns_empty(self):
+        assert parse_hosts(None) == ()
+
+    def test_empty_string_returns_empty(self):
+        assert parse_hosts("") == ()
+
+    def test_multiple_hosts(self):
+        assert parse_hosts("localhost,127.0.0.1,example.com") == (
+            "localhost",
+            "127.0.0.1",
+            "example.com",
+        )
+
+    def test_whitespace_stripped(self):
+        assert parse_hosts(" localhost , 127.0.0.1 ") == ("localhost", "127.0.0.1")
+
+    def test_empty_entries_filtered(self):
+        assert parse_hosts("localhost,,127.0.0.1") == ("localhost", "127.0.0.1")
+
+
+class TestServeCliOverrides:
+    """High-value serve flags merge into ServerConfig."""
+
+    def test_debug_trusted_hosts_and_metrics(self):
+        from pounce._config_file import load_config_with_overrides
+
+        merged = load_config_with_overrides(
+            {
+                "debug": True,
+                "trusted_hosts": ["localhost", "127.0.0.1"],
+                "metrics_enabled": True,
+            }
+        )
+        cfg = ServerConfig.from_mapping(merged)
+        assert cfg.debug is True
+        assert cfg.trusted_hosts == frozenset({"localhost", "127.0.0.1"})
+        assert cfg.metrics_enabled is True
 
 
 class TestPublicAPI:

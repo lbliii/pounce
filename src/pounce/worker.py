@@ -616,6 +616,7 @@ class Worker:
                         client_str,
                         worker_id=self._worker_id,
                         lifespan_state=self._lifespan_state,
+                        is_draining=lambda: self._draining,
                     )
                 except Exception:
                     self._logger.exception(
@@ -917,6 +918,7 @@ class Worker:
             status, resp_headers, body = build_health_response(
                 worker_id=self._worker_id,
                 active_connections=active,
+                draining=self._draining,
             )
             send_state = SendState()
             send_state.status = status

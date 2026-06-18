@@ -17,6 +17,7 @@ Connection flow:
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from pounce._concurrency import race_first_completed
@@ -59,6 +60,7 @@ async def handle_h2_connection(
     *,
     worker_id: int | None = None,
     lifespan_state: dict[str, Any] | None = None,
+    is_draining: Callable[[], bool] | None = None,
 ) -> None:
     """Handle a full HTTP/2 connection with multiplexed streams.
 
@@ -178,9 +180,11 @@ async def handle_h2_connection(
         # Built-in health check — respond before ASGI dispatch
         health_path = config.health_check_path
         if health_path is not None and scope["path"] == health_path and request.method == b"GET":
+            draining = is_draining() if is_draining is not None else False
             h_status, h_headers, h_body = build_health_response(
-                worker_id=0,  # H2 handler doesn't track worker_id
+                worker_id=worker_id or 0,
                 active_connections=0,
+                draining=draining,
             )
             h2_conn.send_response_headers(stream_id, h_status, h_headers)
             h2_conn.send_data(stream_id, h_body, end_stream=True)

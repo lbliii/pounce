@@ -78,8 +78,23 @@ def _render_branded_help(parser: argparse.ArgumentParser) -> str:
         prog=parser.prog,
         description=parser.description or "",
         groups=tuple(groups),
+        epilog=_config_epilog_for(parser.prog),
     )
     return template.render(state=state)
+
+
+_CONFIG_EPILOG = (
+    "Any ServerConfig field can also be set in pounce.toml or pyproject.toml "
+    "under [tool.pounce]. Run 'pounce config schema --output-format toml-template' "
+    "for the full list."
+)
+
+
+def _config_epilog_for(prog: str) -> str:
+    """Return the TOML escape-hatch footer for serve/check help."""
+    if prog.endswith((" serve", " check")):
+        return _CONFIG_EPILOG
+    return ""
 
 
 def _install_branded_help(parser: argparse.ArgumentParser) -> None:
@@ -132,6 +147,9 @@ _SERVE_HELP = {
     "shutdown_timeout": "Max seconds per worker during shutdown",
     "uds": "Unix domain socket path",
     "health_check_path": "Built-in health check endpoint path",
+    "debug": "Enable rich error pages (never use in production!)",
+    "trusted_hosts": "Comma-separated trusted hostnames for X-Forwarded-* headers",
+    "metrics": "Enable Prometheus /metrics endpoint (config: metrics_enabled)",
     "app_name": "Application name shown in the startup banner",
     "app_tagline": "Short description shown under the application name",
     "app_version": "Application version string for the startup banner",
@@ -213,6 +231,9 @@ def serve(
     shutdown_timeout: float | None = None,
     uds: str | None = None,
     health_check_path: str | None = None,
+    debug: bool = False,
+    trusted_hosts: str | None = None,
+    metrics: bool = False,
     app_name: str | None = None,
     app_tagline: str | None = None,
     app_version: str | None = None,
@@ -255,6 +276,9 @@ def serve(
             shutdown_timeout=shutdown_timeout,
             uds=uds,
             health_check_path=health_check_path,
+            debug=debug,
+            trusted_hosts=trusted_hosts,
+            metrics=metrics,
             worker_mode=worker_mode,
             cpu_affinity=cpu_affinity,
             app_name=app_name,
@@ -322,6 +346,9 @@ def _serve_impl(
     shutdown_timeout: float | None,
     uds: str | None,
     health_check_path: str | None,
+    debug: bool,
+    trusted_hosts: str | None,
+    metrics: bool,
     worker_mode: str | None,
     cpu_affinity: bool,
     app_name: str | None,
@@ -387,6 +414,13 @@ def _serve_impl(
         cli_overrides["uds"] = uds
     if health_check_path is not None:
         cli_overrides["health_check_path"] = health_check_path
+    if debug:
+        cli_overrides["debug"] = True
+    parsed_trusted_hosts = parse_hosts(trusted_hosts)
+    if parsed_trusted_hosts:
+        cli_overrides["trusted_hosts"] = list(parsed_trusted_hosts)
+    if metrics:
+        cli_overrides["metrics_enabled"] = True
     if worker_mode is not None:
         cli_overrides["worker_mode"] = worker_mode
     if cpu_affinity:
@@ -592,6 +626,21 @@ def parse_dirs(raw: list[str] | None) -> tuple[str, ...]:
     return tuple(d.strip() for d in raw if d.strip())
 
 
+def parse_hosts(raw: str | None) -> tuple[str, ...]:
+    """Parse a comma-separated host list into a normalized tuple.
+
+    Args:
+        raw: Comma-separated hostnames (e.g. ``"localhost,127.0.0.1"``), or None.
+
+    Returns:
+        Tuple of trimmed host strings.
+
+    """
+    if not raw:
+        return ()
+    return tuple(h.strip() for h in raw.split(",") if h.strip())
+
+
 @cli.command(
     "info",
     description="Show system diagnostics and dependency status",
@@ -669,6 +718,9 @@ def check(
     shutdown_timeout: float | None = None,
     uds: str | None = None,
     health_check_path: str | None = None,
+    debug: bool = False,
+    trusted_hosts: str | None = None,
+    metrics: bool = False,
     app_name: str | None = None,
     app_tagline: str | None = None,
     app_version: str | None = None,
@@ -740,6 +792,13 @@ def check(
         cli_overrides["uds"] = uds
     if health_check_path is not None:
         cli_overrides["health_check_path"] = health_check_path
+    if debug:
+        cli_overrides["debug"] = True
+    parsed_trusted_hosts = parse_hosts(trusted_hosts)
+    if parsed_trusted_hosts:
+        cli_overrides["trusted_hosts"] = list(parsed_trusted_hosts)
+    if metrics:
+        cli_overrides["metrics_enabled"] = True
 
     config_path = Path(config) if config else None
     try:

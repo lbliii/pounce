@@ -178,7 +178,9 @@ class TestStreamingHandoff:
             pool = AsyncPool(ServerConfig(compression=False), _echo_app)
             s, c = socket.socketpair()
             s.setblocking(False)
-            await pool._handle_streaming_handoff(_streaming_handoff(s, method="POST", body=b"world"))
+            await pool._handle_streaming_handoff(
+                _streaming_handoff(s, method="POST", body=b"world")
+            )
             return _drain_socket(c)
 
         out = asyncio.run(run())

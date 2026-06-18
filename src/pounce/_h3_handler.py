@@ -534,6 +534,7 @@ def _create_zoomies_datagram_protocol(
             h_status, h_headers, h_body = build_health_response(
                 worker_id=0,
                 active_connections=0,
+                draining=self._draining,
             )
             conn.h3.send_headers(
                 stream_id=stream_id,
