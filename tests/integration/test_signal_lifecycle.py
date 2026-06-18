@@ -132,7 +132,9 @@ def _wait_for_hello(port: int, *, timeout: float = 5.0) -> bytes:
     raise RuntimeError(msg)
 
 
-def _start_cli_server(*, workers: int, worker_mode: str = "async") -> tuple[subprocess.Popen[bytes], int]:
+def _start_cli_server(
+    *, workers: int, worker_mode: str = "async"
+) -> tuple[subprocess.Popen[bytes], int]:
     port = _free_port()
     proc = subprocess.Popen(
         [
