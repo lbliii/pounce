@@ -92,7 +92,7 @@ _CONFIG_EPILOG = (
 
 def _config_epilog_for(prog: str) -> str:
     """Return the TOML escape-hatch footer for serve/check help."""
-    if prog.endswith(" serve") or prog.endswith(" check"):
+    if prog.endswith((" serve", " check")):
         return _CONFIG_EPILOG
     return ""
 

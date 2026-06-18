@@ -73,8 +73,6 @@ class TestServeCheckHelp:
 
     @staticmethod
     def _subparser(name: str) -> argparse.ArgumentParser:
-        import argparse
-
         from pounce._cli import cli
 
         parser = cli.build_parser()

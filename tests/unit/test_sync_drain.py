@@ -130,8 +130,12 @@ def test_health_check_returns_503_when_draining() -> None:
     worker = _make_worker(config=config)
     holder.append(worker)
 
-    first = _build_http_request(path="/healthz", headers={"Host": "localhost", "Connection": "keep-alive"})
-    second = _build_http_request(path="/healthz", headers={"Host": "localhost", "Connection": "keep-alive"})
+    first = _build_http_request(
+        path="/healthz", headers={"Host": "localhost", "Connection": "keep-alive"}
+    )
+    second = _build_http_request(
+        path="/healthz", headers={"Host": "localhost", "Connection": "keep-alive"}
+    )
     sock = _DrainAfterFirstResponse(first, second, worker_holder=holder)
 
     import asyncio
