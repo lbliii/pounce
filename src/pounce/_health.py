@@ -19,17 +19,23 @@ def build_health_response(
     *,
     worker_id: int,
     active_connections: int,
+    draining: bool = False,
 ) -> tuple[int, list[tuple[bytes, bytes]], bytes]:
     """Build a health check response.
+
+    When *draining* is True the response uses HTTP 503 with
+    ``{"status": "draining", ...}`` so load balancers stop routing
+    new traffic while the worker finishes in-flight work.
 
     Returns:
         Tuple of (status_code, headers, body).
 
     """
     uptime_s = (time.monotonic_ns() - _SERVER_START_NS) / 1_000_000_000
+    status_code = 503 if draining else 200
     payload = json.dumps(
         {
-            "status": "ok",
+            "status": "draining" if draining else "ok",
             "uptime_seconds": round(uptime_s, 1),
             "worker_id": worker_id,
             "active_connections": active_connections,
@@ -42,4 +48,4 @@ def build_health_response(
         (b"cache-control", b"no-cache, no-store"),
     ]
 
-    return 200, headers, payload
+    return status_code, headers, payload

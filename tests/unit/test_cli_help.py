@@ -12,6 +12,7 @@ convention is rendered with its subcommands listed, not as a positional.
 
 from __future__ import annotations
 
+import argparse
 import subprocess
 import sys
 
@@ -65,3 +66,43 @@ class TestTopLevelHelpRegression:
         assert "_command" not in out, (
             "top-level pounce --help leaked the internal dest; got:\n" + out
         )
+
+
+class TestServeCheckHelp:
+    """serve/check help surfaces the TOML configuration escape hatch."""
+
+    @staticmethod
+    def _subparser(name: str) -> argparse.ArgumentParser:
+        import argparse
+
+        from pounce._cli import cli
+
+        parser = cli.build_parser()
+        for action_group in parser._action_groups:
+            for action in action_group._group_actions:
+                choices = getattr(action, "choices", None)
+                if isinstance(choices, dict) and name in choices:
+                    return choices[name]
+        msg = f"subparser {name!r} not found"
+        raise AssertionError(msg)
+
+    def test_serve_help_mentions_toml_template(self) -> None:
+        from pounce._cli import _render_branded_help
+
+        out = _render_branded_help(self._subparser("serve"))
+        assert "pounce config schema --output-format toml-template" in out
+        assert "[tool.pounce]" in out
+
+    def test_check_help_mentions_toml_template(self) -> None:
+        from pounce._cli import _render_branded_help
+
+        out = _render_branded_help(self._subparser("check"))
+        assert "pounce config schema --output-format toml-template" in out
+
+    def test_serve_help_lists_new_flags(self) -> None:
+        from pounce._cli import _render_branded_help
+
+        out = _render_branded_help(self._subparser("serve"))
+        assert "--debug" in out
+        assert "--trusted-hosts" in out
+        assert "--metrics" in out

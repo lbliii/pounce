@@ -57,3 +57,24 @@ class TestBuildHealthResponse:
         )
         payload = json.loads(body)
         assert payload["uptime_seconds"] >= 0
+
+    def test_draining_returns_503(self):
+        status, _headers, body = build_health_response(
+            worker_id=1,
+            active_connections=3,
+            draining=True,
+        )
+        assert status == 503
+        payload = json.loads(body)
+        assert payload["status"] == "draining"
+        assert payload["worker_id"] == 1
+        assert payload["active_connections"] == 3
+
+    def test_not_draining_returns_200(self):
+        status, _, body = build_health_response(
+            worker_id=0,
+            active_connections=0,
+            draining=False,
+        )
+        assert status == 200
+        assert json.loads(body)["status"] == "ok"

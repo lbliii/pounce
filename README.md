@@ -127,6 +127,9 @@ pip install bengal-pounce[full]   # All protocol extras
 | **App factory** | `pounce serve --app myapp:create_app()` |
 | **Testing** | `with TestServer(app) as server: ...` |
 
+Most settings also live in `pounce.toml` or `pyproject.toml` under `[tool.pounce]`.
+Run `pounce config schema --output-format toml-template` for every available field.
+
 ---
 
 ## Features

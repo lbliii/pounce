@@ -60,6 +60,41 @@ class _DrainAfterFirstSocket(MockSocket):
         return n
 
 
+class _DrainAfterFirstResponse(MockSocket):
+    """Mock socket that starts draining after the first response is sent."""
+
+    def __init__(
+        self,
+        first_request: bytes,
+        second_request: bytes,
+        *,
+        worker_holder: list[SyncWorker],
+    ) -> None:
+        super().__init__(recv_data=first_request)
+        self._pending_second = second_request
+        self._worker_holder = worker_holder
+        self._responses_sent = 0
+
+    def sendall(self, data: bytes | bytearray) -> None:
+        super().sendall(data)
+        self._responses_sent += 1
+        if self._responses_sent == 1:
+            if self._worker_holder:
+                self._worker_holder[0].start_draining()
+            self._recv_data = self._pending_second
+            self._recv_offset = 0
+
+    def sendmsg(self, buffers: list[bytes | bytearray]) -> int:
+        result = super().sendmsg(buffers)
+        self._responses_sent += 1
+        if self._responses_sent == 1:
+            if self._worker_holder:
+                self._worker_holder[0].start_draining()
+            self._recv_data = self._pending_second
+            self._recv_offset = 0
+        return result
+
+
 def test_keepalive_drain_forces_connection_close() -> None:
     """A keep-alive client mid-connection gets Connection: close once draining."""
     config = _make_config()
@@ -86,6 +121,33 @@ def test_keepalive_drain_forces_connection_close() -> None:
     # Worker must be idle afterwards (loop exited, _active_connections back to 0).
     assert worker.is_idle()
     assert sock.closed
+
+
+def test_health_check_returns_503_when_draining() -> None:
+    """Keep-alive health probes on a draining worker must not report ready."""
+    config = _make_config(health_check_path="/healthz")
+    holder: list[SyncWorker] = []
+    worker = _make_worker(config=config)
+    holder.append(worker)
+
+    first = _build_http_request(path="/healthz", headers={"Host": "localhost", "Connection": "keep-alive"})
+    second = _build_http_request(path="/healthz", headers={"Host": "localhost", "Connection": "keep-alive"})
+    sock = _DrainAfterFirstResponse(first, second, worker_holder=holder)
+
+    import asyncio
+
+    runner = asyncio.Runner()
+    try:
+        worker._handle_connection(sock, ("127.0.0.1", 54321), runner)
+    finally:
+        runner.close()
+
+    blocks = _response_blocks(bytes(sock.sent_data))
+    assert len(blocks) >= 2
+    assert b"200" in blocks[0]
+    assert b'"status": "ok"' in blocks[0] or b'"status":"ok"' in blocks[0]
+    assert b"503" in blocks[1]
+    assert b"draining" in blocks[1]
 
 
 def test_keepalive_no_drain_keeps_alive() -> None:

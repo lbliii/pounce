@@ -834,6 +834,7 @@ class SyncWorker:
         status, health_headers, body_bytes = build_health_response(
             worker_id=self._worker_id,
             active_connections=1,
+            draining=self._drain_event.is_set(),
         )
         health_headers = [*health_headers, (b"connection", conn_header)]
         date_hdr = self._cached_date_header()

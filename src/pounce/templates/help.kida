@@ -55,3 +55,7 @@
 {% endfor %}
 {%- endif -%}
 {%- endfor %}
+{%- if state.epilog %}
+{{ section("Configuration") }}
+  {{ state.epilog | dim }}
+{%- endif %}
