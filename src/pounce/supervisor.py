@@ -498,21 +498,22 @@ class Supervisor:
                     per,
                 )
 
-        # Thread/subinterpreter mode: cannot force-kill threads. If any old worker
-        # still alive, do not spawn replacements — would cause split-brain.
-        if self._mode in ("thread", "subinterpreter"):
-            still_alive: list[_WorkerHandle | _H3WorkerHandle] = [
-                h for h in self._handles if h.target.is_alive()
-            ]
-            still_alive += [h for h in self._h3_handles if h.target.is_alive()]
-            if still_alive:
-                logger.warning(
-                    "%d %s worker(s) still alive after shutdown — not respawning "
-                    "(would cause split-brain). Wait for them to drain or restart process.",
-                    len(still_alive),
-                    self._mode,
-                )
-                return
+        # If any old worker still alive, do not spawn replacements — would cause
+        # split-brain (extra listeners and/or orphan processes). Thread and
+        # subinterpreter workers cannot be force-killed; process workers should
+        # have been terminated above but guard anyway.
+        still_alive: list[_WorkerHandle | _H3WorkerHandle] = [
+            h for h in self._handles if h.target.is_alive()
+        ]
+        still_alive += [h for h in self._h3_handles if h.target.is_alive()]
+        if still_alive:
+            logger.warning(
+                "%d %s worker(s) still alive after shutdown — not respawning "
+                "(would cause split-brain). Wait for them to drain or restart process.",
+                len(still_alive),
+                self._mode,
+            )
+            return
 
         # Clear shutdown event for new workers
         self._shutdown_event.clear()
@@ -942,13 +943,18 @@ class Supervisor:
     def _worker_socket(self, socket_index: int) -> socket.socket:
         """Return a worker-owned socket handle.
 
-        Thread workers often share one listener object in ``self._sockets``.
-        Each worker receives a duplicated handle so one generation can close
-        its asyncio server without invalidating the listener used by the next
-        generation during graceful reload.
+        Thread workers always receive a duplicated handle so one generation
+        can close its asyncio server without invalidating the canonical
+        listener kept in ``self._sockets`` for the next reload generation.
+
+        This applies both when workers share one listener object (macOS /
+        Windows fallback) and when each worker has its own ``SO_REUSEPORT``
+        socket (Linux): without a dup, an old worker closing its asyncio
+        server would close the supervisor-owned socket and leave reload
+        with ``EBADF``.
         """
         sock = self._sockets[socket_index]
-        if self._mode == "thread" and self._sockets.count(sock) > 1:
+        if self._mode == "thread":
             return sock.dup()
         return sock
 

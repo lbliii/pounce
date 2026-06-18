@@ -21,6 +21,14 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _has_subinterpreters() -> bool:
+    try:
+        import concurrent.interpreters  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def _purge_pyc(source: Path) -> None:
     """Delete the bytecode cache for *source* so the next import recompiles.
 
@@ -124,7 +132,7 @@ def _wait_for_hello(port: int, *, timeout: float = 5.0) -> bytes:
     raise RuntimeError(msg)
 
 
-def _start_cli_server(*, workers: int) -> tuple[subprocess.Popen[bytes], int]:
+def _start_cli_server(*, workers: int, worker_mode: str = "async") -> tuple[subprocess.Popen[bytes], int]:
     port = _free_port()
     proc = subprocess.Popen(
         [
@@ -141,7 +149,7 @@ def _start_cli_server(*, workers: int) -> tuple[subprocess.Popen[bytes], int]:
             "--workers",
             str(workers),
             "--worker-mode",
-            "async",
+            worker_mode,
             "--shutdown-timeout",
             "2",
             "--no-access-log",
@@ -197,9 +205,12 @@ def test_cli_sigterm_drains_and_exits_cleanly() -> None:
 
 @pytest.mark.integration
 @pytest.mark.skipif(not hasattr(signal, "SIGHUP"), reason="SIGHUP is POSIX-only")
+@pytest.mark.skipif(not _has_subinterpreters(), reason="subinterpreters unavailable")
 def test_cli_sighup_reload_path_recovers_serving() -> None:
     """SIGHUP should keep the CLI process alive and return to serving traffic."""
-    with _running_cli_server(workers=2) as (proc, port):
+    proc, port = _start_cli_server(workers=2, worker_mode="subinterpreter")
+    try:
+        assert b"Hello, World!" in _wait_for_hello(port)
         proc.send_signal(signal.SIGHUP)
         deadline = time.monotonic() + 8
         last_error: Exception | None = None
@@ -216,10 +227,13 @@ def test_cli_sighup_reload_path_recovers_serving() -> None:
                 return
             time.sleep(0.05)
 
-    msg = "pounce did not serve traffic after SIGHUP reload"
-    if last_error is not None:
-        raise RuntimeError(msg) from last_error
-    raise RuntimeError(msg)
+        msg = "pounce did not serve traffic after SIGHUP reload"
+        if last_error is not None:
+            raise RuntimeError(msg) from last_error
+        raise RuntimeError(msg)
+    finally:
+        stdout, stderr = _stop_cli_server(proc)
+        assert b"Traceback" not in stdout + stderr
 
 
 # ---------------------------------------------------------------------------
@@ -229,14 +243,6 @@ def test_cli_sighup_reload_path_recovers_serving() -> None:
 # execution path only runs in thread mode on free-threaded 3.14t, so the
 # ``sync`` parameter is xfail-marked here and proven by the CI 3.14t lane.
 # ---------------------------------------------------------------------------
-
-
-def _has_subinterpreters() -> bool:
-    try:
-        import concurrent.interpreters  # noqa: F401
-    except ImportError:
-        return False
-    return True
 
 
 def _start_probe_server(

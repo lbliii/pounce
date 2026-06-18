@@ -1,0 +1,1 @@
+Thread workers now always receive a dup'd listener handle so graceful reload on platforms with independent ``SO_REUSEPORT`` sockets no longer leaves the next generation with ``EBADF`` after old workers close their asyncio servers.

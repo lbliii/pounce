@@ -465,3 +465,34 @@ class TestForkContextProcessRecognition:
             if proc.is_alive():
                 proc.kill()
                 proc.join(timeout=5.0)
+
+
+class TestWorkerSocketDup:
+    """Thread workers must dup listener handles so reload can respawn."""
+
+    def test_thread_mode_always_dups_per_worker_socket(self):
+        config = ServerConfig(workers=2)
+        sup = Supervisor(config, _noop_app, mode="thread")
+        s0, s1 = _make_sockets(2)
+        try:
+            sup._sockets = [s0, s1]
+            w0 = sup._worker_socket(0)
+            w1 = sup._worker_socket(1)
+            assert w0.fileno() != s0.fileno()
+            assert w1.fileno() != s1.fileno()
+        finally:
+            for sock in (s0, s1, w0, w1):
+                with contextlib.suppress(OSError, UnboundLocalError):
+                    sock.close()
+
+    def test_process_mode_returns_canonical_socket(self):
+        config = ServerConfig(workers=2)
+        sup = Supervisor(config, _noop_app, mode="process")
+        s0, s1 = _make_sockets(2)
+        try:
+            sup._sockets = [s0, s1]
+            assert sup._worker_socket(0) is s0
+            assert sup._worker_socket(1) is s1
+        finally:
+            for sock in (s0, s1):
+                sock.close()
