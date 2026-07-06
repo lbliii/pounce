@@ -5,7 +5,7 @@ import json
 import pytest
 
 from pounce._compression import _HAS_ZSTD, CompressionDictionary
-from pounce._request_pipeline import negotiate_compressor
+from pounce._request_pipeline import maybe_build_builtin_response, negotiate_compressor
 from pounce.config import ServerConfig
 
 
@@ -223,3 +223,82 @@ class TestNegotiateCompressorFromMeta:
         assert meta_c is not None
         assert scanned_c.encoding == meta_c.encoding
         assert scanned_d is meta_d is cd
+
+
+class TestBuiltinEndpointDispatch:
+    """Built-in selection is shared without touching normal-request providers."""
+
+    def test_regular_request_does_not_resolve_live_state(self) -> None:
+        def unexpected() -> int:
+            raise AssertionError("normal requests must not resolve live state")
+
+        response = maybe_build_builtin_response(
+            ServerConfig(),
+            "GET",
+            "/app",
+            worker_id=3,
+            active_connections=unexpected,
+            draining=lambda: (_ for _ in ()).throw(AssertionError("unexpected drain read")),
+        )
+
+        assert response is None
+
+    def test_health_uses_real_worker_and_lazy_state(self) -> None:
+        response = maybe_build_builtin_response(
+            ServerConfig(health_check_path="/healthz"),
+            b"GET",
+            "/healthz",
+            worker_id=7,
+            active_connections=lambda: 11,
+            draining=lambda: True,
+        )
+
+        assert response is not None
+        assert response.kind == "health"
+        assert response.status == 503
+        payload = json.loads(response.body)
+        assert payload["worker_id"] == 7
+        assert payload["active_connections"] == 11
+        assert payload["status"] == "draining"
+
+    def test_introspection_uses_real_worker_and_redacted_config(self) -> None:
+        response = maybe_build_builtin_response(
+            ServerConfig(introspection_enabled=True),
+            "GET",
+            "/_pounce/info",
+            worker_id=9,
+            active_connections=4,
+        )
+
+        assert response is not None
+        assert response.kind == "introspection"
+        payload = json.loads(response.body)
+        assert payload["worker"] == {"worker_id": 9, "active_connections": 4}
+        assert "config" in payload
+
+    def test_builtin_endpoints_only_match_get(self) -> None:
+        response = maybe_build_builtin_response(
+            ServerConfig(health_check_path="/healthz", introspection_enabled=True),
+            "POST",
+            "/healthz",
+            worker_id=0,
+            active_connections=0,
+        )
+
+        assert response is None
+
+    @pytest.mark.skipif(not _HAS_ZSTD, reason="zstd not available")
+    def test_dictionary_endpoint_serves_configured_bytes(self) -> None:
+        dictionary = _make_dict()
+        response = maybe_build_builtin_response(
+            ServerConfig(compression_dictionaries=(dictionary,)),
+            "GET",
+            f"/.well-known/compression-dictionary/{dictionary.sf_hash}",
+            worker_id=0,
+            active_connections=0,
+        )
+
+        assert response is not None
+        assert response.kind == "dictionary"
+        assert response.status == 200
+        assert response.body == dictionary.zstd_dict.dict_content

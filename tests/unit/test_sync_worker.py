@@ -809,6 +809,24 @@ class TestSyncWorkerHandoffs:
         assert b"200" in response
         assert b"connection: keep-alive" in response.lower()
 
+    def test_introspection_bypasses_asgi_and_reports_worker(self) -> None:
+        """The shared built-in dispatcher serves introspection in sync mode."""
+        request_bytes = _build_http_request(path="/_pounce/info")
+        mock_sock = MockSocket(request_bytes)
+        config = _make_config(introspection_enabled=True)
+        worker = _make_worker(config=config)
+        runner = asyncio.Runner()
+        try:
+            worker._handle_connection(mock_sock, ("127.0.0.1", 54321), runner)
+        finally:
+            runner.close()
+
+        response = bytes(mock_sock.sent_data)
+        assert b"200" in response
+        assert b"application/json" in response
+        assert b'"worker_id": 0' in response
+        assert b'"config"' in response
+
 
 # ---------------------------------------------------------------------------
 # Sprint 2: Compression negotiation
