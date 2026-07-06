@@ -1,1 +1,0 @@
-Built-in health endpoint returns HTTP 503 with `{"status":"draining"}` while a worker is draining, threaded through H1 async, sync, H2, and H3 paths so keep-alive load-balancer probes stop routing traffic during deploys. ([#107](https://github.com/lbliii/pounce/issues/107))

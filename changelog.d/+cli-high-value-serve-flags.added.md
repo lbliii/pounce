@@ -1,1 +1,0 @@
-`serve` and `check` now accept `--debug`, `--trusted-hosts`, and `--metrics`; branded help and the README point to the TOML escape hatch (`pounce config schema --output-format toml-template`). ([#158](https://github.com/lbliii/pounce/issues/158))
