@@ -16,13 +16,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from pounce._compression import Compressor
+from pounce._compression import CompressionDictionary, Compressor
 from pounce._headers import get_header as _get_header_from_list
-from pounce._health import build_health_response
 from pounce._request_id import extract_or_generate
 from pounce._request_pipeline import (
     is_trusted_peer,
     log_request,
+    maybe_build_builtin_response,
     negotiate_compressor,
 )
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
@@ -76,6 +76,7 @@ def _create_zoomies_datagram_protocol(
     server: tuple[str, int],
     quic_config: Any,  # zoomies.core.configuration.QuicConfiguration
     lifespan_state: dict[str, Any] | None = None,
+    worker_id: int = 0,
 ) -> type:
     """Factory that returns a ZoomiesDatagramProtocol class bound to app/config/logger/server."""
 
@@ -449,7 +450,13 @@ def _create_zoomies_datagram_protocol(
         def _prepare_stream(
             self,
             scope: dict[str, Any],
-        ) -> tuple[str, tuple[tuple[bytes, bytes], ...], ServerTiming | None, Compressor | None]:
+        ) -> tuple[
+            str,
+            tuple[tuple[bytes, bytes], ...],
+            ServerTiming | None,
+            Compressor | None,
+            CompressionDictionary | None,
+        ]:
             """Extract request ID, negotiate timing/compression for a stream."""
             headers_tuples = tuple((n, v) for n, v in scope["headers"])
             request_id = extract_or_generate(
@@ -464,13 +471,13 @@ def _create_zoomies_datagram_protocol(
 
             # Compression is negotiated from the (proxy-adjusted) scope headers
             # so dictionary ``match`` patterns see the resolved request path.
-            compressor, _dictionary = negotiate_compressor(
+            compressor, dictionary = negotiate_compressor(
                 self._config,
                 headers_tuples,
                 request_target=scope.get("path", ""),
             )
 
-            return request_id, headers_tuples, timing, compressor
+            return request_id, headers_tuples, timing, compressor, dictionary
 
         def _send_error_response(
             self,
@@ -520,27 +527,29 @@ def _create_zoomies_datagram_protocol(
                 request_id=request_id,
             )
 
-        def _maybe_handle_health_check(
+        def _maybe_handle_builtin_endpoint(
             self,
             conn: _ZoomiesConnection,
             stream_id: int,
             scope: dict[str, Any],
             addr: tuple[str, int],
         ) -> bool:
-            """Handle health check request if applicable. Returns True if handled."""
-            health_path = self._config.health_check_path
-            if health_path is None or scope["path"] != health_path or scope["method"] != "GET":
-                return False
-            h_status, h_headers, h_body = build_health_response(
-                worker_id=0,
+            """Serialize a matching built-in endpoint response on HTTP/3."""
+            builtin = maybe_build_builtin_response(
+                self._config,
+                scope["method"],
+                scope["path"],
+                worker_id=worker_id,
                 active_connections=0,
                 draining=self._draining,
             )
+            if builtin is None:
+                return False
             conn.h3.send_headers(
                 stream_id=stream_id,
-                headers=[(b":status", str(h_status).encode()), *h_headers],
+                headers=[(b":status", str(builtin.status).encode()), *builtin.headers],
             )
-            conn.h3.send_data(stream_id=stream_id, data=h_body, end_stream=True)
+            conn.h3.send_data(stream_id=stream_id, data=builtin.body, end_stream=True)
             self._flush(conn, addr)
             conn.stream_tasks.pop(stream_id, None)
             conn.stream_body_bytes.pop(stream_id, None)
@@ -674,9 +683,9 @@ def _create_zoomies_datagram_protocol(
             addr: tuple[str, int],
         ) -> None:
             request_start = monotonic_ns()
-            request_id, _, timing, compressor = self._prepare_stream(scope)
+            request_id, _, timing, compressor, dictionary = self._prepare_stream(scope)
 
-            if self._maybe_handle_health_check(conn, stream_id, scope, addr):
+            if self._maybe_handle_builtin_endpoint(conn, stream_id, scope, addr):
                 return
 
             if timing:
@@ -692,6 +701,7 @@ def _create_zoomies_datagram_protocol(
                 send_state,
                 timing=timing,
                 compressor=compressor,
+                dictionary_hash=dictionary.sf_hash if dictionary is not None else None,
                 request_method=scope["method"],
                 request_id=request_id,
                 compression_min_size=self._config.compression_min_size,
@@ -727,6 +737,7 @@ def create_zoomies_datagram_protocol_factory(
     server: tuple[str, int],
     quic_config: Any,
     lifespan_state: dict[str, Any] | None = None,
+    worker_id: int = 0,
 ) -> Callable[[], asyncio.DatagramProtocol]:
     """Create a factory for ZoomiesDatagramProtocol.
 
@@ -743,6 +754,7 @@ def create_zoomies_datagram_protocol_factory(
         server,
         quic_config,
         lifespan_state=lifespan_state,
+        worker_id=worker_id,
     )
 
     def factory() -> asyncio.DatagramProtocol:

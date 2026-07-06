@@ -34,16 +34,15 @@ import h11
 
 from pounce._concurrency import cancel_and_drain, wait_first_completed
 from pounce._cpu_affinity import maybe_pin_worker
-from pounce._dictionary_endpoint import build_dictionary_response, use_as_dictionary_headers
+from pounce._dictionary_endpoint import use_as_dictionary_headers
 from pounce._drain import write_drain_503_async
 from pounce._errors import ParseError
 from pounce._h2_handler import handle_h2_connection
 from pounce._headers import is_websocket_upgrade as _is_websocket_upgrade
-from pounce._health import build_health_response
-from pounce._introspect import build_introspect_response
 from pounce._profile import ProfileCollector, RequestProfile
 from pounce._request_pipeline import (
     log_request,
+    maybe_build_builtin_response,
     negotiate_compressor,
     prepare_request,
 )
@@ -221,6 +220,11 @@ class Worker:
         if self._loop and not self._loop.is_closed() and self._async_shutdown is not None:
             # Begin the shutdown/drain sequence in the worker's own loop.
             self._loop.call_soon_threadsafe(self._async_shutdown.set)
+
+    def _active_connection_count(self) -> int:
+        """Return the active connection count under its free-threading lock."""
+        with self._conn_lock:
+            return self._active_connections
 
     async def _await_drain_idle(self, timeout: float) -> None:
         """Keep accepting (503ing new conns) until idle or *timeout* elapses.
@@ -909,19 +913,19 @@ class Worker:
             sendfile_fn = create_sendfile_callable(writer)
             scope.setdefault("extensions", {})["pounce.sendfile"] = {"version": 1}
 
-        # Built-in health check — respond before ASGI dispatch.
-        # Skips access log to reduce noise from k8s/load balancer probes.
-        health_path = self._config.health_check_path
-        if health_path is not None and scope["path"] == health_path and request.method == b"GET":
-            with self._conn_lock:
-                active = self._active_connections
-            status, resp_headers, body = build_health_response(
-                worker_id=self._worker_id,
-                active_connections=active,
-                draining=self._draining,
-            )
+        # Built-in endpoints bypass ASGI; selection and response construction
+        # are shared across H1/H2/H3 while each transport owns serialization.
+        builtin = maybe_build_builtin_response(
+            self._config,
+            request.method,
+            scope["path"],
+            worker_id=self._worker_id,
+            active_connections=self._active_connection_count,
+            draining=self._draining,
+        )
+        if builtin is not None:
             send_state = SendState()
-            send_state.status = status
+            send_state.status = builtin.status
             send_fn = create_send(
                 proto,
                 writer,
@@ -933,81 +937,12 @@ class Worker:
             await send_fn(
                 {
                     "type": "http.response.start",
-                    "status": status,
-                    "headers": resp_headers,
+                    "status": builtin.status,
+                    "headers": builtin.headers,
                 }
             )
-            await send_fn(
-                {
-                    "type": "http.response.body",
-                    "body": body,
-                }
-            )
+            await send_fn({"type": "http.response.body", "body": builtin.body})
             return
-
-        # Built-in /_pounce/info introspection — opt-in via
-        # ``introspection_enabled``. Allowlist-redacted config + live counters.
-        if (
-            self._config.introspection_enabled
-            and scope["path"] == self._config.introspection_path
-            and request.method == b"GET"
-        ):
-            with self._conn_lock:
-                active = self._active_connections
-            status, resp_headers, body = build_introspect_response(
-                config=self._config,
-                worker_id=self._worker_id,
-                active_connections=active,
-            )
-            send_state = SendState()
-            send_state.status = status
-            send_fn = create_send(
-                proto,
-                writer,
-                send_state,
-                request_id=request_id,
-                config=self._config,
-                server=server,
-            )
-            await send_fn(
-                {
-                    "type": "http.response.start",
-                    "status": status,
-                    "headers": resp_headers,
-                }
-            )
-            await send_fn(
-                {
-                    "type": "http.response.body",
-                    "body": body,
-                }
-            )
-            return
-
-        # Built-in dictionary serving (RFC 9842) — serve dictionaries at
-        # /.well-known/compression-dictionary/<hash> before ASGI dispatch.
-        if self._config.compression_dictionaries and request.method == b"GET":
-            dict_resp = build_dictionary_response(
-                self._config.compression_dictionaries,
-                scope["path"],
-            )
-            if dict_resp is not None:
-                status, resp_headers, body = dict_resp
-                send_state = SendState()
-                send_state.status = status
-                send_fn = create_send(
-                    proto,
-                    writer,
-                    send_state,
-                    request_id=request_id,
-                    config=self._config,
-                    server=server,
-                )
-                await send_fn(
-                    {"type": "http.response.start", "status": status, "headers": resp_headers}
-                )
-                await send_fn({"type": "http.response.body", "body": body})
-                return
 
         # Set up timing if enabled
         timing: ServerTiming | None = None

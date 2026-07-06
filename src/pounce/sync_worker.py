@@ -26,13 +26,14 @@ from pounce._compression import (
     Compressor,
 )
 from pounce._cpu_affinity import maybe_pin_worker
-from pounce._dictionary_endpoint import build_dictionary_response, use_as_dictionary_headers
+from pounce._dictionary_endpoint import use_as_dictionary_headers
 from pounce._drain import write_drain_503_sync
 from pounce._fast_h1 import ParseError
 from pounce._fast_h1 import parse_request as _fast_parse
-from pounce._health import build_health_response
 from pounce._request_pipeline import (
+    BuiltinResponse,
     log_request,
+    maybe_build_builtin_response,
     negotiate_compressor_from_meta,
     prepare_request,
 )
@@ -286,6 +287,11 @@ class SyncWorker:
         """True if no connection is currently being handled."""
         with self._conn_lock:
             return self._active_connections == 0
+
+    def _active_connection_count(self) -> int:
+        """Return the active connection count under its free-threading lock."""
+        with self._conn_lock:
+            return self._active_connections
 
     def run(self) -> None:
         """Accept connections until shutdown (blocking)."""
@@ -618,31 +624,26 @@ class SyncWorker:
                 )
                 scope.setdefault("extensions", {})["pounce.inline_sync"] = True
 
-                if (
-                    self._config.health_check_path
-                    and scope["path"] == self._config.health_check_path
-                    and request.method == b"GET"
-                ):
-                    self._serve_health(
+                builtin = maybe_build_builtin_response(
+                    self._config,
+                    request.method,
+                    scope["path"],
+                    worker_id=self._worker_id,
+                    active_connections=self._active_connection_count,
+                    draining=self._drain_event.is_set,
+                )
+                if builtin is not None:
+                    self._serve_builtin(
                         conn,
                         scope["path"],
                         conn_header,
+                        builtin,
                         conn_id=conn_id,
                         request_start=request_start,
                         http_version=request.http_version,
                         client_str=client_str,
                         request_id=request_id,
                     )
-                    if close_after or at_limit:
-                        break
-                    continue
-
-                # Built-in dictionary serving (RFC 9842)
-                if (
-                    self._config.compression_dictionaries
-                    and request.method == b"GET"
-                    and (self._serve_dictionary(conn, scope["path"], conn_header))
-                ):
                     if close_after or at_limit:
                         break
                     continue
@@ -818,11 +819,12 @@ class SyncWorker:
         )
         return client, server, client_str, conn_id, conn_start
 
-    def _serve_health(
+    def _serve_builtin(
         self,
         conn: socket.socket,
         path: str,
         conn_header: bytes,
+        response: BuiltinResponse,
         *,
         conn_id: int,
         request_start: int,
@@ -830,29 +832,27 @@ class SyncWorker:
         client_str: str,
         request_id: str | None,
     ) -> None:
-        """Serialize and send the built-in health-check response (plain sendall)."""
-        status, health_headers, body_bytes = build_health_response(
-            worker_id=self._worker_id,
-            active_connections=1,
-            draining=self._drain_event.is_set(),
-        )
-        health_headers = [*health_headers, (b"connection", conn_header)]
+        """Serialize and send a protocol-neutral built-in response."""
+        headers = [*response.headers, (b"connection", conn_header)]
         date_hdr = self._cached_date_header()
         head, body_out_bytes = serialize_raw_response_parts(
-            status,
-            tuple(health_headers),
-            body_bytes,
+            response.status,
+            tuple(headers),
+            response.body,
             server_header=self._config.server_header,
             date_header=date_hdr,
         )
         conn.sendall(head + body_out_bytes)
+        if response.kind != "health":
+            return
+
         health_duration = elapsed_ms(request_start)
         self._lifecycle.record(
             ResponseCompleted(
                 connection_id=conn_id,
                 worker_id=self._worker_id,
-                status=status,
-                bytes_sent=len(body_bytes),
+                status=response.status,
+                bytes_sent=len(response.body),
                 duration_ms=health_duration,
                 timestamp_ns=lifecycle_ns(),
                 method="GET",
@@ -862,36 +862,14 @@ class SyncWorker:
             self._config,
             "GET",
             path,
-            status,
-            len(body_bytes),
+            response.status,
+            len(response.body),
             health_duration,
             client_str,
             http_version=http_version,
             request_id=request_id,
             worker_id=self._worker_id,
         )
-
-    def _serve_dictionary(self, conn: socket.socket, path: str, conn_header: bytes) -> bool:
-        """Serve a built-in compression dictionary (RFC 9842) if ``path`` matches.
-
-        Returns True when a dictionary response was sent (plain sendall),
-        False when no dictionary matched and the caller should fall through.
-        """
-        dict_resp = build_dictionary_response(self._config.compression_dictionaries, path)
-        if dict_resp is None:
-            return False
-        d_status, d_headers, d_body = dict_resp
-        d_headers = [*d_headers, (b"connection", conn_header)]
-        date_hdr = self._cached_date_header()
-        head, body_out_bytes = serialize_raw_response_parts(
-            d_status,
-            tuple(d_headers),
-            d_body,
-            server_header=self._config.server_header,
-            date_header=date_hdr,
-        )
-        conn.sendall(head + body_out_bytes)
-        return True
 
     def _serialize_send_and_log(
         self,

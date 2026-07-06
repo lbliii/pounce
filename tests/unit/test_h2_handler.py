@@ -1,6 +1,7 @@
 """Tests for HTTP/2 connection-level behavior."""
 
 import asyncio
+import json
 import logging
 from typing import Any
 
@@ -277,21 +278,26 @@ def _make_compression_dictionary(match: str = "/api/*") -> Any:
     return CompressionDictionary(trained.dict_content, match)
 
 
-def _response_content_encoding(client: Any, data: bytes) -> str | None:
-    """Return the content-encoding header value from the H2 response, if any.
-
-    The test client decodes headers as ``str`` (``header_encoding="utf-8"``).
-    """
+def _response_headers(client: Any, data: bytes) -> dict[str, str]:
+    """Return the decoded H2 response headers."""
     for event in client.receive_data(data):
         if isinstance(event, h2.events.ResponseReceived):
-            for name, value in event.headers:
-                key = name.decode() if isinstance(name, bytes) else name
-                if key == "content-encoding":
-                    return value.decode() if isinstance(value, bytes) else value
-    return None
+            return {
+                name.decode() if isinstance(name, bytes) else name: (
+                    value.decode() if isinstance(value, bytes) else value
+                )
+                for name, value in event.headers
+            }
+    return {}
 
 
-async def _run_h2_request(app: Any, config: ServerConfig, request_bytes: bytes) -> bytes:
+async def _run_h2_request(
+    app: Any,
+    config: ServerConfig,
+    request_bytes: bytes,
+    *,
+    worker_id: int | None = None,
+) -> bytes:
     """Drive a single H2 request to completion through ``handle_h2_connection``.
 
     Unlike ``_run_h2_bytes`` (which feeds EOF immediately and is suited to the
@@ -316,6 +322,7 @@ async def _run_h2_request(app: Any, config: ServerConfig, request_bytes: bytes) 
             ("127.0.0.1", 50000),
             ("127.0.0.1", 8443),
             "127.0.0.1:50000",
+            worker_id=worker_id,
         )
     )
     # Let the per-stream ASGI task run to completion.  Each ASGI ``send`` awaits
@@ -328,6 +335,114 @@ async def _run_h2_request(app: Any, config: ServerConfig, request_bytes: bytes) 
     reader.feed_eof()
     await asyncio.wait_for(task, timeout=2.0)
     return bytes(writer.data)
+
+
+def _response_body(client: Any, data: bytes) -> tuple[int, bytes]:
+    status = 0
+    body = bytearray()
+    for event in client.receive_data(data):
+        if isinstance(event, h2.events.ResponseReceived):
+            status = int(dict(event.headers)[":status"])
+        elif isinstance(event, h2.events.DataReceived):
+            body.extend(event.data)
+    return status, bytes(body)
+
+
+async def test_h2_health_reports_real_worker_id_without_app_dispatch() -> None:
+    app_called = False
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:
+        nonlocal app_called
+        app_called = True
+
+    client = _make_client()
+    client.send_headers(
+        1,
+        [
+            (":method", "GET"),
+            (":path", "/healthz"),
+            (":authority", "example.test"),
+            (":scheme", "https"),
+        ],
+        end_stream=True,
+    )
+
+    output = await _run_h2_request(
+        app,
+        ServerConfig(health_check_path="/healthz", access_log=False),
+        client.data_to_send(),
+        worker_id=7,
+    )
+    status, body = _response_body(client, output)
+
+    assert status == 200
+    assert json.loads(body)["worker_id"] == 7
+    assert app_called is False
+
+
+async def test_h2_serves_introspection_without_app_dispatch() -> None:
+    app_called = False
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:
+        nonlocal app_called
+        app_called = True
+
+    client = _make_client()
+    client.send_headers(
+        1,
+        [
+            (":method", "GET"),
+            (":path", "/_pounce/info"),
+            (":authority", "example.test"),
+            (":scheme", "https"),
+        ],
+        end_stream=True,
+    )
+
+    output = await _run_h2_request(
+        app,
+        ServerConfig(introspection_enabled=True, access_log=False),
+        client.data_to_send(),
+        worker_id=8,
+    )
+    status, body = _response_body(client, output)
+
+    assert status == 200
+    assert json.loads(body)["worker"]["worker_id"] == 8
+    assert app_called is False
+
+
+@pytest.mark.skipif(not _HAS_ZSTD, reason="zstd not available")
+async def test_h2_serves_compression_dictionary_without_app_dispatch() -> None:
+    app_called = False
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:
+        nonlocal app_called
+        app_called = True
+
+    dictionary = _make_compression_dictionary()
+    client = _make_client()
+    client.send_headers(
+        1,
+        [
+            (":method", "GET"),
+            (":path", f"/.well-known/compression-dictionary/{dictionary.sf_hash}"),
+            (":authority", "example.test"),
+            (":scheme", "https"),
+        ],
+        end_stream=True,
+    )
+
+    output = await _run_h2_request(
+        app,
+        ServerConfig(compression_dictionaries=(dictionary,), access_log=False),
+        client.data_to_send(),
+    )
+    status, body = _response_body(client, output)
+
+    assert status == 200
+    assert body == dictionary.zstd_dict.dict_content
+    assert app_called is False
 
 
 @pytest.mark.skipif(not _HAS_ZSTD, reason="zstd not available")
@@ -365,7 +480,9 @@ async def test_h2_negotiates_dcz_with_available_dictionary() -> None:
     )
     output = await _run_h2_request(app, config, client.data_to_send())
 
-    assert _response_content_encoding(client, output) == "dcz"
+    headers = _response_headers(client, output)
+    assert headers["content-encoding"] == "dcz"
+    assert headers["used-dictionary"] == cd.sf_hash
 
 
 async def test_h2_access_log_filter_suppresses_entry(monkeypatch: Any) -> None:

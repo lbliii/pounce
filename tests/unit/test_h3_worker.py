@@ -8,7 +8,7 @@ import asyncio
 import socket
 import threading
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import pytest
 
@@ -190,5 +190,46 @@ class TestH3WorkerZoomiesGate:
             )
             with patch("pounce.h3_worker.is_h3_available", return_value=False):
                 await worker._serve()  # Should return without error
+        finally:
+            sock.close()
+
+    @requires_zoomies
+    async def test_serve_passes_worker_id_to_protocol_factory(self) -> None:
+        """Health/introspection responses receive the owning H3 worker ID."""
+        sock = _make_udp_socket()
+        try:
+            worker = H3Worker(
+                _make_config(),
+                _noop_app,
+                sock,
+                worker_id=7,
+                ssl_certfile="/tmp/cert.pem",
+                ssl_keyfile="/tmp/key.pem",
+            )
+            transport = MagicMock()
+            protocol = MagicMock()
+            protocol.drain_connections = None
+            protocol.close_all_connections = None
+            loop = asyncio.get_running_loop()
+
+            with (
+                patch("builtins.open", mock_open(read_data=b"test")),
+                patch(
+                    "pounce._h3_handler.create_zoomies_datagram_protocol_factory"
+                ) as create_factory,
+                patch.object(
+                    loop,
+                    "create_datagram_endpoint",
+                    AsyncMock(return_value=(transport, protocol)),
+                ),
+            ):
+                task = asyncio.create_task(worker._serve())
+                while worker._async_shutdown is None:
+                    await asyncio.sleep(0)
+                worker._async_shutdown.set()
+                await task
+
+            assert create_factory.call_args.kwargs["worker_id"] == 7
+            transport.close.assert_called_once()
         finally:
             sock.close()

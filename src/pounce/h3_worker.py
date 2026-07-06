@@ -149,6 +149,7 @@ class H3Worker:
             server,
             quic_config,
             lifespan_state=self._lifespan_state,
+            worker_id=self._worker_id,
         )
 
         transport, _protocol = await self._loop.create_datagram_endpoint(

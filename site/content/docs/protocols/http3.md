@@ -66,7 +66,8 @@ pounce serve --app myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem --htt
 - Oversized request bodies are rejected with `413`.
 - Malformed or contradictory pseudo-headers are rejected before ASGI scope construction.
 - `Alt-Svc` is advertised from HTTP/2 responses when HTTP/3 is enabled.
-- The built-in health endpoint and request ID handling match the HTTP/1.1 and HTTP/2 paths.
+- Built-in health, introspection, and compression-dictionary endpoints match
+  the HTTP/1.1 and HTTP/2 paths and report the serving worker's real ID.
 - Lifespan state is passed into H3 ASGI scopes.
 - Reload/drain parity and benchmark artifacts remain explicit proof gates.
 

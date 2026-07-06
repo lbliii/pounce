@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from pounce._compression import _HAS_ZSTD
 from pounce.asgi.bridge import SendState
 from pounce.config import ServerConfig
 from pounce.protocols.h3 import is_h3_available
@@ -1218,7 +1219,7 @@ class TestRefactoredMethods:
             "client": _ADDR_A,
             "headers": [(b"x-request-id", b"test-123")],
         }
-        request_id, _, _timing, _compressor = protocol._prepare_stream(scope)
+        request_id, _, _timing, _compressor, _dictionary = protocol._prepare_stream(scope)
         assert request_id is not None
         assert scope["extensions"]["request_id"] == request_id
 
@@ -1244,7 +1245,7 @@ class TestRefactoredMethods:
             "client": _ADDR_A,
             "headers": [(b"accept-encoding", b"gzip, deflate")],
         }
-        _, _, _, compressor = protocol._prepare_stream(scope)
+        _, _, _, compressor, _dictionary = protocol._prepare_stream(scope)
         assert compressor is not None
 
     def test_send_error_response_sends_500(self) -> None:
@@ -1262,15 +1263,17 @@ class TestRefactoredMethods:
         assert conn.h3.sent_data[0][1] == b"Internal Server Error"
         assert send_state.status == 500
 
-    def test_maybe_handle_health_check_returns_false_for_non_health(self) -> None:
-        """_maybe_handle_health_check returns False for regular requests."""
+    def test_maybe_handle_builtin_endpoint_returns_false_for_regular_request(self) -> None:
+        """The built-in dispatcher returns False for regular requests."""
         protocol, _ = _build_protocol()
         conn = _make_connection(addr=_ADDR_A)
         scope = {"path": "/api/data", "method": "GET"}
-        assert protocol._maybe_handle_health_check(conn, 0, scope, _ADDR_A) is False
+        assert protocol._maybe_handle_builtin_endpoint(conn, 0, scope, _ADDR_A) is False
 
-    def test_maybe_handle_health_check_handles_health_path(self) -> None:
-        """_maybe_handle_health_check handles configured health path."""
+    def test_maybe_handle_builtin_endpoint_reports_real_worker_id(self) -> None:
+        """The H3 health response reports the factory's real worker ID."""
+        import json
+
         from zoomies.core import QuicConfiguration
 
         from pounce._h3_handler import _create_zoomies_datagram_protocol
@@ -1278,7 +1281,12 @@ class TestRefactoredMethods:
         config = _make_config(health_check_path="/healthz")
         quic_config = QuicConfiguration(certificate=b"cert", private_key=b"key")
         cls = _create_zoomies_datagram_protocol(
-            _dummy_app, config, logging.getLogger("test"), _SERVER, quic_config
+            _dummy_app,
+            config,
+            logging.getLogger("test"),
+            _SERVER,
+            quic_config,
+            worker_id=7,
         )
         protocol = cls()
         transport = MagicMock(spec=asyncio.DatagramTransport)
@@ -1287,9 +1295,76 @@ class TestRefactoredMethods:
         conn = _make_connection(addr=_ADDR_A)
         conn.h3 = _FakeH3Connection()
         scope = {"path": "/healthz", "method": "GET"}
-        result = protocol._maybe_handle_health_check(conn, 0, scope, _ADDR_A)
+        result = protocol._maybe_handle_builtin_endpoint(conn, 0, scope, _ADDR_A)
         assert result is True
         assert len(conn.h3.sent_headers) == 1
+        assert json.loads(conn.h3.sent_data[0][1])["worker_id"] == 7
+
+    def test_maybe_handle_builtin_endpoint_serves_introspection(self) -> None:
+        """The opt-in introspection endpoint bypasses ASGI on H3."""
+        import json
+
+        from zoomies.core import QuicConfiguration
+
+        from pounce._h3_handler import _create_zoomies_datagram_protocol
+
+        config = _make_config(introspection_enabled=True)
+        quic_config = QuicConfiguration(certificate=b"cert", private_key=b"key")
+        cls = _create_zoomies_datagram_protocol(
+            _dummy_app,
+            config,
+            logging.getLogger("test"),
+            _SERVER,
+            quic_config,
+            worker_id=8,
+        )
+        protocol = cls()
+        transport = MagicMock(spec=asyncio.DatagramTransport)
+        protocol.connection_made(transport)
+        conn = _make_connection(addr=_ADDR_A)
+        conn.h3 = _FakeH3Connection()
+
+        handled = protocol._maybe_handle_builtin_endpoint(
+            conn,
+            0,
+            {"path": "/_pounce/info", "method": "GET"},
+            _ADDR_A,
+        )
+
+        assert handled is True
+        assert json.loads(conn.h3.sent_data[0][1])["worker"]["worker_id"] == 8
+
+    @pytest.mark.skipif(not _HAS_ZSTD, reason="zstd not available")
+    def test_maybe_handle_builtin_endpoint_serves_dictionary(self) -> None:
+        """Configured compression dictionaries are downloadable over H3."""
+        from zoomies.core import QuicConfiguration
+
+        from pounce._h3_handler import _create_zoomies_datagram_protocol
+
+        dictionary = _make_compression_dictionary()
+        config = _make_config(compression_dictionaries=(dictionary,))
+        quic_config = QuicConfiguration(certificate=b"cert", private_key=b"key")
+        cls = _create_zoomies_datagram_protocol(
+            _dummy_app, config, logging.getLogger("test"), _SERVER, quic_config
+        )
+        protocol = cls()
+        transport = MagicMock(spec=asyncio.DatagramTransport)
+        protocol.connection_made(transport)
+        conn = _make_connection(addr=_ADDR_A)
+        conn.h3 = _FakeH3Connection()
+
+        handled = protocol._maybe_handle_builtin_endpoint(
+            conn,
+            0,
+            {
+                "path": f"/.well-known/compression-dictionary/{dictionary.sf_hash}",
+                "method": "GET",
+            },
+            _ADDR_A,
+        )
+
+        assert handled is True
+        assert conn.h3.sent_data[0][1] == dictionary.zstd_dict.dict_content
 
 
 # ---------------------------------------------------------------------------
@@ -1358,11 +1433,6 @@ class TestZeroRttPolicyWiring:
 # Issue #160 — shared request-pipeline prelude (compressor + access-log filter)
 # ---------------------------------------------------------------------------
 
-try:
-    from pounce._compression import _HAS_ZSTD
-except ImportError:  # pragma: no cover - zstd is optional
-    _HAS_ZSTD = False
-
 
 def _make_compression_dictionary(match: str = "/api/*") -> Any:
     """Train a small zstd dictionary for dcz negotiation tests."""
@@ -1382,7 +1452,7 @@ class TestRequestPipelinePrelude:
     """Issue #160 — H3 prelude is delegated to _request_pipeline helpers."""
 
     @pytest.mark.skipif(not _HAS_ZSTD, reason="zstd not available")
-    def test_prepare_stream_negotiates_dcz_with_available_dictionary(self) -> None:
+    async def test_prepare_stream_negotiates_dcz_with_available_dictionary(self) -> None:
         """Available-Dictionary + zstd negotiates a dcz compressor on H3 (#160).
 
         Compression is negotiated from the (proxy-adjusted) ``scope['headers']``,
@@ -1400,7 +1470,7 @@ class TestRequestPipelinePrelude:
         )
         quic_config = QuicConfiguration(certificate=b"cert", private_key=b"key")
         cls = _create_zoomies_datagram_protocol(
-            _dummy_app, config, logging.getLogger("test"), _SERVER, quic_config
+            _echo_app, config, logging.getLogger("test"), _SERVER, quic_config
         )
         protocol = cls()
         transport = MagicMock(spec=asyncio.DatagramTransport)
@@ -1416,9 +1486,21 @@ class TestRequestPipelinePrelude:
                 (b"available-dictionary", cd.sf_hash.encode()),
             ],
         }
-        _, _, _, compressor = protocol._prepare_stream(scope)
+        _, _, _, compressor, dictionary = protocol._prepare_stream(scope)
         assert compressor is not None
         assert compressor.encoding == "dcz"
+        assert dictionary is cd
+
+        conn = _make_connection(addr=_ADDR_A)
+        conn.h3 = _FakeH3Connection()
+        body_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        body_queue.put_nowait({"type": "http.request", "body": b"", "more_body": False})
+
+        await protocol._run_stream(conn, 0, scope, body_queue, _ADDR_A)
+
+        response_headers = dict(conn.h3.sent_headers[0][1])
+        assert response_headers[b"content-encoding"] == b"dcz"
+        assert response_headers[b"used-dictionary"] == cd.sf_hash.encode()
 
     async def test_log_access_filter_suppresses_entry(self, monkeypatch: Any) -> None:
         """access_log_filter returning False suppresses the H3 access log (#160).
