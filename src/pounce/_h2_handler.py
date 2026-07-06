@@ -22,12 +22,12 @@ from typing import Any
 
 from pounce._concurrency import race_first_completed
 from pounce._headers import get_header as _get_header_from_tuple
-from pounce._health import build_health_response
 from pounce._priority import PriorityScheduler, parse_priority
 from pounce._request_id import extract_or_generate
 from pounce._request_pipeline import (
     is_trusted_peer,
     log_request,
+    maybe_build_builtin_response,
     negotiate_compressor,
 )
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
@@ -177,20 +177,42 @@ async def handle_h2_connection(
         if priority_header is not None:
             scheduler.set_priority(stream_id, parse_priority(priority_header))
 
-        # Built-in health check — respond before ASGI dispatch
-        health_path = config.health_check_path
-        if health_path is not None and scope["path"] == health_path and request.method == b"GET":
-            draining = is_draining() if is_draining is not None else False
-            h_status, h_headers, h_body = build_health_response(
-                worker_id=worker_id or 0,
-                active_connections=0,
-                draining=draining,
+        builtin = maybe_build_builtin_response(
+            config,
+            request.method,
+            scope["path"],
+            worker_id=worker_id if worker_id is not None else 0,
+            active_connections=0,
+            draining=is_draining if is_draining is not None else False,
+        )
+        if builtin is not None:
+            send_state = SendState()
+            send = create_h2_send(
+                h2_conn,
+                stream_id,
+                writer,
+                send_state,
+                request_method=request.method,
+                request_id=request_id,
+                config=config,
+                server=server,
+                scheduler=scheduler,
             )
-            h2_conn.send_response_headers(stream_id, h_status, h_headers)
-            h2_conn.send_data(stream_id, h_body, end_stream=True)
-            writer.write(h2_conn.data_to_send())
-            h2_conn.remove_stream(stream_id)
-            stream_tasks.pop(stream_id, None)
+            try:
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": builtin.status,
+                        "headers": builtin.headers,
+                    }
+                )
+                await send({"type": "http.response.body", "body": builtin.body})
+            finally:
+                h2_conn.remove_stream(stream_id)
+                scheduler.remove_stream(stream_id)
+                stream_tasks.pop(stream_id, None)
+                stream_body_bytes.pop(stream_id, None)
+                stream_body_rejected.discard(stream_id)
             return
 
         timing: ServerTiming | None = None
@@ -198,7 +220,7 @@ async def handle_h2_connection(
             timing = ServerTiming()
             timing.add("parse", elapsed_ms(request_start))
 
-        compressor, _dictionary = negotiate_compressor(
+        compressor, dictionary = negotiate_compressor(
             config,
             request.headers,
             request_target=request.target.decode("ascii", errors="replace"),
@@ -214,6 +236,7 @@ async def handle_h2_connection(
             send_state,
             timing=timing,
             compressor=compressor,
+            dictionary_hash=dictionary.sf_hash if dictionary is not None else None,
             request_method=request.method,
             request_id=request_id,
             config=config,

@@ -53,6 +53,11 @@ flowchart LR
 
 All streams are processed concurrently within the worker's asyncio event loop.
 
+Built-in endpoints use the same pre-ASGI dispatch as HTTP/1.1: configured
+health checks, the opt-in `/_pounce/info` introspection endpoint, and RFC 9842
+compression-dictionary downloads are available over HTTP/2 and report the
+serving worker's real ID.
+
 ## Priority Signals
 
 Pounce parses HTTP Priority Signals (RFC 9218) and uses them internally for stream scheduling. Clients can indicate request urgency and whether responses can be delivered incrementally.

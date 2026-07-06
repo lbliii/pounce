@@ -91,6 +91,7 @@ def create_h2_send(
     *,
     timing: ServerTiming | None = None,
     compressor: Compressor | None = None,
+    dictionary_hash: str | None = None,
     request_method: bytes = b"GET",
     request_id: str | None = None,
     config: ServerConfig | None = None,
@@ -144,6 +145,8 @@ def create_h2_send(
                 compressor = None
             else:
                 filtered.append((b"content-encoding", compressor.encoding.encode("ascii")))
+                if dictionary_hash is not None:
+                    filtered.append((b"used-dictionary", dictionary_hash.encode("ascii")))
                 headers = filtered
 
         # Inject Server-Timing header

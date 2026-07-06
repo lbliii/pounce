@@ -151,6 +151,7 @@ def create_h3_send(
     *,
     timing: ServerTiming | None = None,
     compressor: Compressor | None = None,
+    dictionary_hash: str | None = None,
     request_method: str = "GET",
     request_id: str | None = None,
     compression_min_size: int = 0,
@@ -192,6 +193,8 @@ def create_h3_send(
                 compressor = None
             else:
                 filtered.append((b"content-encoding", compressor.encoding.encode("ascii")))
+                if dictionary_hash is not None:
+                    filtered.append((b"used-dictionary", dictionary_hash.encode("ascii")))
                 headers = filtered
 
         if timing is not None:
