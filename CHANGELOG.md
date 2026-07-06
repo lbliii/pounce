@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- towncrier release notes start -->
 
+## [0.8.2] — 2026-07-06
+
+### Added
+
+- `serve` and `check` now accept `--debug`, `--trusted-hosts`, and `--metrics`; branded help and the README point to the TOML escape hatch (`pounce config schema --output-format toml-template`). ([#158](https://github.com/lbliii/pounce/issues/158))
+
+### Fixed
+
+- Unify built-in health, introspection, and compression-dictionary endpoints across HTTP/1.1, HTTP/2, and HTTP/3, including real worker IDs in HTTP/3 health responses. ([#161](https://github.com/lbliii/pounce/issues/161))
+- Built-in health endpoint returns HTTP 503 with `{"status":"draining"}` while a worker is draining, threaded through H1 async, sync, H2, and H3 paths so keep-alive load-balancer probes stop routing traffic during deploys. ([#107](https://github.com/lbliii/pounce/issues/107))
+- Fix three production access-log/protocol bugs from Chirp triage: ASGI bridges (H1/H2/H3/sync) now drop app body bytes for HEAD so Content-Length matches zero wire octets (fixes `LocalProtocolError: Too much data for declared Content-Length`), `LoggingCollector` converts monotonic `timestamp_ns` to real UTC via a wall-clock offset, and long-lived SSE/chunked streams no longer get `slow:true` thanks to a new `ResponseCompleted.streaming` field. ([#217](https://github.com/lbliii/pounce/issues/217), [#218](https://github.com/lbliii/pounce/issues/218), [#219](https://github.com/lbliii/pounce/issues/219))
+- Thread workers now always receive a dup'd listener handle so graceful reload on platforms with independent ``SO_REUSEPORT`` sockets no longer leaves the next generation with ``EBADF`` after old workers close their asyncio servers. ([#222](https://github.com/lbliii/pounce/pull/222))
+
+
 ## [0.8.1] — 2026-06-15
 
 ### Added
