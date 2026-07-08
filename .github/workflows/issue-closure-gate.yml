@@ -1,0 +1,24 @@
+name: Issue closure gate
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  closure-acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.14"
+
+      - name: Check issue acceptance linkage
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: uv run --no-project python scripts/check_closure_acceptance.py

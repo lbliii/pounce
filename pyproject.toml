@@ -182,6 +182,7 @@ markers = [
     "benchmark: performance benchmarks",
     "timeout: per-test timeout (requires pytest-timeout)",
     "process: process/fork worker-mode tests (GIL build only)",
+    "issue: associate a test with the GitHub issue whose acceptance criteria it proves",
 ]
 
 # =============================================================================

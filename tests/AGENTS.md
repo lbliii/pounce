@@ -24,6 +24,7 @@ implementation trivia, sleeps, and mock-only proof for public claims.
 - **Default suite shape.** `pyproject.toml` points pytest at `tests` and `benchmarks`, with `-m not benchmark` by default.
 - **Strict markers.** Pytest uses `--strict-markers`; benchmark tests remain opt-in.
 - **Public contract guards.** `tests/unit/test_public_contract.py` enforces config/schema/TOML/CLI/docs/extras/claim/protocol/benchmark parity.
+- **Issue acceptance linkage.** Tests that close an issue carry `@pytest.mark.issue(N)`; the PR closure gate requires the marker or an explicit non-testable exemption.
 - **Error-code guards.** `tests/unit/test_error_codes.py` AST-scans every `PounceError` raise site for literal `POUNCE_*` codes.
 - **Redaction guards.** `tests/unit/test_config_schema.py` requires allowlist coverage and canary-secret redaction.
 - **Package export guards.** `tests/unit/test_package_exports.py` keeps top-level exports and `ServerConfigKwargs` aligned.
