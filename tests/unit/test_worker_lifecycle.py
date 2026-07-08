@@ -18,6 +18,7 @@ from pounce._types import Receive, Scope, Send
 from pounce.config import ServerConfig
 from pounce.net.listener import create_listener
 from pounce.server import Server
+from pounce.sync_worker import SyncWorker
 from pounce.worker import Worker
 from tests.conftest import send_raw_request, start_worker
 
@@ -127,6 +128,110 @@ class TestWorkerLifecycleScopes:
         sock.close()
 
         assert events == ["startup", "shutdown"]
+
+
+class TestSyncWorkerLifecycleScopes:
+    """Sync workers provide the same lifecycle scopes on their runner loop."""
+
+    def test_sync_worker_hooks_and_request_share_runner_loop(self) -> None:
+        events: list[tuple[str, int, asyncio.AbstractEventLoop]] = []
+        startup_seen = threading.Event()
+
+        async def app(scope: Scope, receive: Receive, send: Send) -> None:
+            scope_type = scope["type"]
+            if scope_type in {"pounce.worker.startup", "pounce.worker.shutdown"}:
+                events.append(
+                    (
+                        scope_type,
+                        scope["worker_id"],
+                        asyncio.get_running_loop(),
+                    )
+                )
+                if scope_type == "pounce.worker.startup":
+                    startup_seen.set()
+                return
+            if scope_type == "http":
+                events.append(("http", 11, asyncio.get_running_loop()))
+                await receive()
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 200,
+                        "headers": [(b"content-length", b"2")],
+                    }
+                )
+                await send({"type": "http.response.body", "body": b"ok"})
+
+        config = ServerConfig(host="127.0.0.1", port=0, access_log=False)
+        sock = create_listener(config)
+        shutdown = threading.Event()
+        worker = SyncWorker(
+            config,
+            app,
+            sock,
+            worker_id=11,
+            shutdown_event=shutdown,
+        )
+        thread = threading.Thread(target=worker.run, daemon=True)
+        thread.start()
+
+        try:
+            assert startup_seen.wait(timeout=3.0)
+            response = send_raw_request(
+                sock.getsockname(),
+                b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+            )
+            assert b"HTTP/1.1 200" in response
+            assert response.endswith(b"ok")
+        finally:
+            shutdown.set()
+            thread.join(timeout=3.0)
+            sock.close()
+
+        assert not thread.is_alive()
+        assert [event[0] for event in events] == [
+            "pounce.worker.startup",
+            "http",
+            "pounce.worker.shutdown",
+        ]
+        assert events[0][1] == events[2][1] == 11
+        assert events[0][2] is events[1][2] is events[2][2]
+
+    def test_sync_worker_fatal_startup_failure_never_accepts(self) -> None:
+        shutdown_scope_seen = False
+
+        async def app(scope: Scope, receive: Receive, send: Send) -> None:
+            nonlocal shutdown_scope_seen
+            if scope["type"] == "pounce.worker.startup":
+                raise RuntimeError("required worker resource unavailable")
+            if scope["type"] == "pounce.worker.shutdown":
+                shutdown_scope_seen = True
+            if scope["type"] == "http":  # pragma: no cover - must never accept
+                raise AssertionError("failed sync worker must not accept requests")
+
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
+            worker_startup_failure="shutdown",
+        )
+        sock = create_listener(config)
+        shutdown = threading.Event()
+        worker = SyncWorker(
+            config,
+            app,
+            sock,
+            worker_id=12,
+            shutdown_event=shutdown,
+        )
+        thread = threading.Thread(target=worker.run, daemon=True)
+        thread.start()
+        thread.join(timeout=3.0)
+        sock.close()
+
+        assert not thread.is_alive()
+        assert shutdown.is_set()
+        assert shutdown_scope_seen is False
 
 
 class TestWorkerStartupFailure:

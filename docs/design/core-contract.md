@@ -82,6 +82,12 @@ recovery to serving traffic in `tests/integration/test_signal_lifecycle.py`.
 Load-bearing reload/drain claims still require mixed-traffic proof with bounded
 503/disconnect behavior and orphan-worker checks.
 
+Every serving mode emits `pounce.worker.startup` before accepting requests and
+`pounce.worker.shutdown` after draining, with the numeric `worker_id` in both
+scopes. The hooks run on the same per-worker event loop used for that worker's
+inline ASGI requests; sync workers use their private runner loop. Requests
+handed to the async streaming pool follow that pool's existing loop ownership.
+
 ## Observability Name Contract
 
 The following identifier names are stable operator contracts: renaming or
