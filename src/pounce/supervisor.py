@@ -398,15 +398,16 @@ class Supervisor:
         pending = set(range(len(iic_queues)))
         while pending and not self._shutdown_event.is_set():
             for worker_id in tuple(pending):
-                message = _try_iic_get(iic_queues[worker_id][1])
-                if message is None:
-                    continue
-                status = str(message[0])
-                detail = str(message[1]) if len(message) > 1 else None
-                if status == "serving":
-                    pending.remove(worker_id)
-                elif status == "error":
-                    return f"worker {worker_id}: {detail or 'unknown error'}"
+                while worker_id in pending:
+                    message = _try_iic_get(iic_queues[worker_id][1])
+                    if message is None:
+                        break
+                    status = str(message[0])
+                    detail = str(message[1]) if len(message) > 1 else None
+                    if status == "serving":
+                        pending.remove(worker_id)
+                    elif status == "error":
+                        return f"worker {worker_id}: {detail or 'unknown error'}"
             if pending:
                 time.sleep(0.01)
             if time.monotonic() >= deadline:
