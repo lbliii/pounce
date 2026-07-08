@@ -15,6 +15,8 @@ from dataclasses import fields
 from pathlib import Path
 from typing import ClassVar
 
+import pytest
+
 from pounce import _cli
 from pounce._config_file import _EXCLUDED_FIELDS as TOML_EXCLUDED_FIELDS
 from pounce._config_file import _VALID_KEYS as TOML_VALID_KEYS
@@ -317,6 +319,29 @@ class TestDocsCliSnippets:
 
 
 class TestDeploymentDocsContract:
+    @pytest.mark.issue(264)
+    def test_deployment_smoke_evidence_format_requires_operational_proof(self) -> None:
+        evidence = (ROOT / "docs/design/deployment-smoke-evidence.md").read_text()
+
+        required = {
+            "Status: not-run | incomplete | failed | passed",
+            "Git commit:",
+            "Python version / GIL state:",
+            "Deployment ID:",
+            "Raw output path or durable URL:",
+            "Runtime identity",
+            "GET and HEAD",
+            "In-flight drain",
+            "New traffic during drain",
+            "Shutdown bound",
+            "Replacement readiness",
+            "POUNCE_* diagnostics",
+            "Never record environment-variable values",
+        }
+
+        missing = {term for term in required if term not in evidence}
+        assert missing == set(), f"Deployment evidence format missing {sorted(missing)}"
+
     def test_observability_guide_names_otel_semantic_contract(self) -> None:
         guide = (ROOT / "site/content/docs/deployment/observability.md").read_text()
 
