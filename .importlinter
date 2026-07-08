@@ -1,0 +1,51 @@
+[importlinter]
+root_package = pounce
+
+# These contracts preserve the sans-I/O and ownership boundaries documented in
+# AGENTS.md. They intentionally police direct edges: shared foundational helpers
+# may be reached transitively without turning this file into a full dependency
+# graph freeze.
+
+[importlinter:contract:protocols-stay-sans-io]
+name = Protocol state machines must not import transports, ASGI bridges, or runtime orchestration
+type = forbidden
+source_modules =
+    pounce.protocols
+forbidden_modules =
+    pounce.asgi
+    pounce.net
+    pounce.server
+    pounce.supervisor
+    pounce.worker
+    pounce.sync_worker
+    pounce.h3_worker
+allow_indirect_imports = True
+
+[importlinter:contract:asgi-does-not-own-transport-or-workers]
+name = ASGI bridges may consume protocol events but must not own transports or workers
+type = forbidden
+source_modules =
+    pounce.asgi
+forbidden_modules =
+    pounce.net
+    pounce.server
+    pounce.supervisor
+    pounce.worker
+    pounce.sync_worker
+    pounce.h3_worker
+allow_indirect_imports = True
+
+[importlinter:contract:net-stays-transport-only]
+name = Network and TLS helpers must not import protocol, ASGI, or runtime orchestration layers
+type = forbidden
+source_modules =
+    pounce.net
+forbidden_modules =
+    pounce.protocols
+    pounce.asgi
+    pounce.server
+    pounce.supervisor
+    pounce.worker
+    pounce.sync_worker
+    pounce.h3_worker
+allow_indirect_imports = True

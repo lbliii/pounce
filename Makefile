@@ -17,7 +17,7 @@ help:
 	@echo "  make setup      - Create virtual environment with Python $(PYTHON_VERSION)"
 	@echo "  make install    - Install dependencies in development mode"
 	@echo "  make test       - Run the test suite"
-	@echo "  make lint       - Run ruff linter"
+	@echo "  make lint       - Run lint, diagnostics, and architecture gates"
 	@echo "  make format     - Run ruff formatter"
 	@echo "  make ty         - Run ty type checker"
 	@echo "  make build      - Build distribution packages"
@@ -42,10 +42,13 @@ test:
 	uv run python -m pytest -q --tb=short
 
 lint:
-	uv run ruff check src/ tests/
+	uv run ruff check .
+	bash scripts/check_silent_exceptions.sh src/pounce
+	uv run python scripts/lint_raise_messages.py
+	uv run lint-imports --config .importlinter
 
 format:
-	uv run ruff format src/ tests/
+	uv run ruff format .
 
 ty:
 	uv run ty check src/pounce/

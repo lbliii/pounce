@@ -24,7 +24,7 @@ surprising release paths.
 ## Protect
 
 - **Free-threaded CI.** `ci.yml` runs Python `3.14t` and verifies `sys._is_gil_enabled()` is false for that matrix.
-- **Lint and format proof.** CI runs `ruff check .`, `ruff format . --check`, and `scripts/check_silent_exceptions.sh src/pounce`.
+- **Lint and architecture proof.** CI runs `ruff check .`, `ruff format . --check`, the silent-exception and raise-message gates, and `.importlinter` contracts for protocol/ASGI/network ownership.
 - **Type proof.** CI runs `ty check src/pounce/`.
 - **Test proof.** CI installs dev plus protocol extras and runs tests on Ubuntu and macOS.
 - **Framework compatibility.** CI installs the framework dependency group and runs `tests/integration/frameworks/`.
@@ -38,7 +38,7 @@ surprising release paths.
 
 When this domain changes, check:
 
-- `.github/workflows/ci.yml` - lint, format, silent exceptions, typecheck, test matrix, extras, GIL proof, framework job.
+- `.github/workflows/ci.yml` - lint, format, diagnostic/architecture gates, typecheck, test matrix, extras, GIL proof, framework job.
 - `.github/workflows/changelog.yml` - fragment policy, changed-file detection, labels, fetch depth, Towncrier command.
 - `.github/workflows/issue-closure-gate.yml` - closing-keyword parsing, acceptance marker coverage, and exemption policy.
 - `.github/workflows/python-publish.yml` - release trigger, build backend, artifact upload/download, OIDC permissions, PyPI environment.
