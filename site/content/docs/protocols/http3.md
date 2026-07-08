@@ -16,8 +16,8 @@ transport handshake.
 
 :::{note}
 HTTP/3 has its own support boundary from HTTP/1.1 and HTTP/2 because it uses a
-UDP listener and QUIC transport state. Check lifecycle, reload, 0-RTT, limit, and
-benchmark notes before treating it as production-equivalent to the TCP paths.
+UDP listener and QUIC transport state. Reload/drain and benchmark gates are
+proven, with the bounded lifecycle exception described below.
 WebSocket over HTTP/3 is not currently supported.
 :::
 
@@ -69,8 +69,14 @@ pounce serve --app myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem --htt
 - Built-in health, introspection, and compression-dictionary endpoints match
   the HTTP/1.1 and HTTP/2 paths and report the serving worker's real ID.
 - Lifespan state is passed into H3 ASGI scopes.
-- Reload/drain parity and benchmark artifacts remain explicit proof gates.
+- Real-socket reload/drain tests cover generation rotation, bounded shutdown,
+  and orphan-thread cleanup. Streams that finish within `shutdown_timeout`
+  complete normally; over-budget streams are cancelled and QUIC closes.
+- The reproducible local benchmark artifact records five Python 3.14t samples,
+  persistent QUIC connections, variance, raw client output, and telemetry at
+  `benchmarks/artifacts/2026-07-08/http3-pounce-local.json`. It is a protocol
+  proof snapshot, not a public performance target or an HTTP/2 comparison.
 
-Long term, H3 should graduate by proving the same reload/drain behavior as the
-TCP paths. Until then, keep H3 deployment language optional-limited rather than
-production-equivalent.
+HTTP/3 is therefore an optional protocol path in the proof ledger. Its QUIC
+lifecycle semantics remain explicit rather than being described as identical
+to TCP, and WebSocket-over-H3 remains separately unsupported.

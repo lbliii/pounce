@@ -4,6 +4,8 @@ These cover the artifact-wiring logic only; the SSE/worker-spawn drivers
 themselves are exercised under the ``benchmark`` marker, not here.
 """
 
+import pytest
+
 from benchmarks.drain_profile import (
     _HUNG,
     _REFUSED,
@@ -126,6 +128,7 @@ def test_summarize_streams_handles_no_connections() -> None:
 # ── HTTP/3 profile (#240) ───────────────────────────────────────────
 
 
+@pytest.mark.issue(240)
 def test_summarize_http3_aggregates_connections_and_latency() -> None:
     summary = summarize_http3(
         [
@@ -156,6 +159,7 @@ def test_summarize_http3_aggregates_connections_and_latency() -> None:
     assert summary["latency_p99_ms"] == 4.0
 
 
+@pytest.mark.issue(240)
 def test_summarize_http3_handles_no_completed_requests() -> None:
     summary = summarize_http3(
         [{"requests": 0, "errors": 1, "response_bytes": 0, "latencies_ms": []}],

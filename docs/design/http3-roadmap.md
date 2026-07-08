@@ -1,7 +1,7 @@
-# HTTP/3 Support: Current State and Open Gates
+# HTTP/3 Support: Current State and Closed Parity Gates
 
-**Status:** Implemented — `bengal-zoomies` backend (optional, limited parity)
-**Updated:** March 2026
+**Status:** Implemented — `bengal-zoomies` backend (optional)
+**Updated:** July 2026
 
 HTTP/3 is implemented in Pounce using
 [zoomies](https://github.com/lbliii/zoomies) (`bengal-zoomies`), a
@@ -20,7 +20,7 @@ must stay secondary to those.
 
 ## Current Implementation
 
-HTTP/3 is an **optional, limited-parity** protocol extra. It runs over a UDP
+HTTP/3 is an **optional** protocol extra. It runs over a UDP
 listener with QUIC transport state, separate from the TCP paths used by
 HTTP/1.1 and HTTP/2.
 
@@ -60,17 +60,16 @@ Proof lives in `tests/integration/test_h3_integration.py`,
 `tests/unit/test_h3_handler.py`, `tests/unit/test_h3_worker.py`, and
 `tests/unit/test_optional_protocol_diagnostics.py`.
 
-## Open Parity Gates
+## Closed Parity Gates
 
-HTTP/3 stays `optional-limited` rather than production-equivalent to the TCP
-paths until both gates named in `protocol-proof-ledger.json` close:
+Both gates named in `protocol-proof-ledger.json` are closed:
 
-1. **Reload/drain parity proof** — exercise H3 reload and drain under
-   representative traffic and demonstrate the same bounded behavior the TCP
-   paths prove, or document explicit, ledgered exceptions.
-2. **Benchmark artifact** — publish reproducible H3 benchmark numbers with
-   environment, Python build, workload, variance, and caveats. Until then, no
-   public performance claim may be made for the H3 path.
+1. **Reload/drain proof** — real-UDP tests exercise generation rotation,
+   bounded shutdown, and orphan-thread cleanup. Under-budget streams complete;
+   streams exceeding `shutdown_timeout` are cancelled and QUIC closes.
+2. **Benchmark artifact** — the real-CLI profile and five-sample local artifact
+   record environment, Python build, workload, variance, raw output, telemetry,
+   and caveats. The numbers remain a protocol snapshot, not a product target.
 
 WebSocket over HTTP/3 (RFC 9220 Extended CONNECT) is **not supported** and is
 not in scope here.
@@ -79,8 +78,7 @@ not in scope here.
 
 Treat `protocol-proof-ledger.json` as the source of truth for the H3 claim
 level. Keep protocol feature tables, public wording, and this document aligned
-with the ledger's `status` and `gaps` for `http3`. Do not promote H3 language
-beyond `optional-limited` until the ledger records the gates above as closed.
+with the ledger's `status` and explicit lifecycle semantics for `http3`.
 
 ---
 

@@ -41,7 +41,7 @@ Normative language:
 |---|---|---|---|
 | HTTP/2 | Optional protocol extra | `bengal-pounce[h2]`, `http2_enabled` | Supported only when `h2` is installed and enabled by listener negotiation/config. Operators may disable h2 ALPN to force HTTP/1.1 at a Pounce-owned TLS origin. Missing extras must fail clearly. |
 | WebSocket | Optional protocol extra | `bengal-pounce[ws]` | Supported only when `wsproto` is installed. HTTP/1 WebSocket and WebSocket-over-H2 claims need separate wire-to-ASGI proof. |
-| HTTP/3 | Optional protocol extra, limited parity | `bengal-pounce[h3]`, TLS, UDP | Supported through `bengal-zoomies` when enabled. Docs must state lifecycle, reload, 0-RTT, limit, and benchmark caveats until parity is proven. |
+| HTTP/3 | Optional protocol extra | `bengal-pounce[h3]`, TLS, UDP | Supported through `bengal-zoomies` when enabled. QUIC lifecycle exceptions, 0-RTT policy, limits, and benchmark snapshot caveats remain explicit. |
 | TLS | Optional transport support | `ssl_certfile`, `ssl_keyfile`, optional `truststore` | Owns listener TLS setup and ALPN; certificate management stays with operators. |
 | Static files | Optional server helper | `static_files` | Convenience ASGI handler. Must not alter protocol or worker contracts when disabled. |
 | Middleware | Optional server helper | `middleware` | ASGI middleware composition. Must not add framework-specific branches to the server core. |
@@ -62,7 +62,7 @@ Normative language:
 | HTTP/1.1 | Core | built in | Parser safety tests, response framing tests, limits tests, ASGI integration, and hot-path benchmark notes when changed. |
 | HTTP/2 | Optional | `bengal-pounce[h2]` | Installed-extra tests, missing-extra diagnostics, stream/reset tests, scope parity, and docs for unsupported cases. |
 | WebSocket | Optional | `bengal-pounce[ws]` | Handshake, accept/send/receive/close, disconnect, subprotocol, compression, and missing-extra tests. WebSocket-over-H2 requires RFC 8441 integration proof before broad claims. |
-| HTTP/3 | Optional, limited parity | `bengal-pounce[h3]` plus TLS/UDP | Real QUIC request tests, TLS/Alt-Svc behavior, malformed/limit handling, 0-RTT policy, lifecycle/reload notes, and missing-extra diagnostics. |
+| HTTP/3 | Optional | `bengal-pounce[h3]` plus TLS/UDP | Real QUIC request tests, TLS/Alt-Svc behavior, malformed/limit handling, 0-RTT policy, lifecycle/reload proof, benchmark evidence, and missing-extra diagnostics. Over-budget drain closes QUIC after `shutdown_timeout`; WebSocket-over-H3 is a separate unsupported protocol. |
 
 Timeouts are state-specific rather than interchangeable:
 
