@@ -244,6 +244,13 @@ container reports `gil_enabled=false`, then uploads a second deployment while
 continuously probing fast and slow requests. It exits nonzero on any dropped
 request or failed deployment.
 
+For deployments that enable and protect `/_pounce/info`, set
+`POUNCE_BUILD_ID` to the git SHA or immutable release fingerprint injected by
+your delivery pipeline. The endpoint returns that value verbatim alongside the
+Pounce version, Python build, free-threaded capability, runtime GIL state, and
+resolved worker model. Do not place secrets in `POUNCE_BUILD_ID`, and do not
+expose the introspection path publicly without reverse-proxy controls.
+
 ## Multi-Tenant Host Routing
 
 For Chirp or LB Sonic style host routing, prefer deriving tenant identity from

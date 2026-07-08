@@ -70,16 +70,55 @@ class TestBuildIntrospectResponse:
         payload = json.loads(body)
         assert set(payload.keys()) == {"runtime", "worker", "config"}
 
-    def test_runtime_section_exposes_python_and_gil(self, cfg: ServerConfig) -> None:
+    def test_runtime_section_exposes_python_and_gil(
+        self, cfg: ServerConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("POUNCE_BUILD_ID", raising=False)
         _, _, body = build_introspect_response(config=cfg, worker_id=0, active_connections=0)
         payload = json.loads(body)
         runtime = payload["runtime"]
+        assert "pounce_version" in runtime
+        assert runtime["build_id"] is None
         assert "python_version" in runtime
+        assert set(runtime["python_build"]) == {
+            "implementation",
+            "build_number",
+            "build_date",
+            "compiler",
+            "free_threaded",
+        }
+        assert isinstance(runtime["python_build"]["free_threaded"], bool)
         assert "gil_enabled" in runtime
         assert isinstance(runtime["gil_enabled"], bool)
         assert runtime["worker_mode"] == cfg.worker_mode
         assert runtime["worker_model"] == "single (async)"
         assert runtime["uptime_seconds"] >= 0
+
+    @pytest.mark.issue(252)
+    def test_runtime_section_exposes_declared_operator_build_id(
+        self, cfg: ServerConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("POUNCE_BUILD_ID", "git:abc123")
+        monkeypatch.setenv("POUNCE_PRIVATE_DEPLOY_TOKEN", "CANARY-secret")
+
+        _, _, body = build_introspect_response(config=cfg, worker_id=0, active_connections=0)
+        runtime = json.loads(body)["runtime"]
+
+        assert runtime["build_id"] == "git:abc123"
+        assert "CANARY-secret" not in body.decode("utf-8")
+
+    @pytest.mark.issue(252)
+    def test_python_build_distinguishes_capability_from_runtime_gil(
+        self, cfg: ServerConfig, mocker
+    ) -> None:
+        mocker.patch("pounce._introspect.is_free_threaded_build", return_value=True)
+        mocker.patch("pounce._introspect.is_gil_enabled", return_value=True)
+
+        _, _, body = build_introspect_response(config=cfg, worker_id=0, active_connections=0)
+        runtime = json.loads(body)["runtime"]
+
+        assert runtime["python_build"]["free_threaded"] is True
+        assert runtime["gil_enabled"] is True
 
     @pytest.mark.issue(246)
     def test_runtime_section_resolves_auto_mode_for_free_threading(self, mocker) -> None:

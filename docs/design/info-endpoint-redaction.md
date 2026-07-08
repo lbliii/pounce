@@ -182,19 +182,24 @@ All timeouts and limits are numeric and non-sensitive.
 
 Live fields added alongside the redacted config view:
 
-| Field                | Classification | Source                                        |
-|----------------------|----------------|-----------------------------------------------|
-| `version`            | EXPOSE         | `pounce.__version__`                          |
-| `python`             | EXPOSE         | `sys.version`                                 |
-| `gil_enabled`        | EXPOSE         | `sys._is_gil_enabled()`                       |
-| `worker_mode`           | EXPOSE      | Configured `ServerConfig.worker_mode` value   |
-| `worker_model`          | EXPOSE      | Resolved worker strategy and execution model  |
-| `workers_configured` | EXPOSE         | `config.resolve_workers()`                    |
-| `workers_alive`      | EXPOSE         | Supervisor                                    |
-| `workers_generation` | EXPOSE         | Supervisor (reload counter)                   |
-| `uptime_seconds`     | EXPOSE         | `time.monotonic()` - startup                  |
-| `active_connections` | EXPOSE         | Lifecycle state                               |
-| `requests_in_flight` | EXPOSE         | Lifecycle state                               |
+| Field                | Classification | Source                                         |
+|----------------------|----------------|------------------------------------------------|
+| `pounce_version`     | EXPOSE         | `pounce.__version__`                           |
+| `build_id`           | EXPOSE         | `POUNCE_BUILD_ID`, explicitly public or `null` |
+| `python_version`     | EXPOSE         | `sys.version`                                  |
+| `python_build`       | EXPOSE         | Implementation, compiler, build, free-threaded capability |
+| `gil_enabled`        | EXPOSE         | `sys._is_gil_enabled()`                        |
+| `worker_mode`        | EXPOSE         | Configured `ServerConfig.worker_mode` value    |
+| `worker_model`       | EXPOSE         | Resolved worker strategy and execution model   |
+| `uptime_seconds`     | EXPOSE         | `time.monotonic()` - startup                   |
+| `worker_id`          | EXPOSE         | Current worker identity                        |
+| `active_connections` | EXPOSE         | Lifecycle state                                |
+
+`POUNCE_BUILD_ID` is the only environment variable read into this response.
+Setting it is an explicit request to publish that exact value, so operators
+must use a non-secret identifier such as a git SHA or freeze fingerprint. An
+unset or empty value is returned as `null`; arbitrary environment variables
+remain outside the introspection contract.
 
 ## Implementation Notes for Sprint 4.1
 

@@ -8,6 +8,7 @@ from pounce._errors import SupervisorError
 from pounce._runtime import (
     default_worker_count,
     detect_worker_mode,
+    is_free_threaded_build,
     is_gil_enabled,
     resolve_worker_execution_mode,
     resolve_worker_model,
@@ -38,6 +39,20 @@ class TestIsGilEnabled:
             # No _is_gil_enabled attribute — should default to True (GIL)
             result = is_gil_enabled()
             assert result is True
+
+
+class TestIsFreeThreadedBuild:
+    """Build capability is separate from the runtime GIL switch (#252)."""
+
+    @pytest.mark.issue(252)
+    def test_true_when_python_was_built_free_threaded(self):
+        with patch("pounce._runtime.sysconfig.get_config_var", return_value=1):
+            assert is_free_threaded_build() is True
+
+    @pytest.mark.issue(252)
+    def test_false_for_standard_python_build(self):
+        with patch("pounce._runtime.sysconfig.get_config_var", return_value=0):
+            assert is_free_threaded_build() is False
 
 
 class TestDetectWorkerMode:

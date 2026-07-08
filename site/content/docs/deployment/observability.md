@@ -313,7 +313,16 @@ curl http://127.0.0.1:8000/_pounce/info
 ```json
 {
   "runtime": {
+    "pounce_version": "0.8.2",
+    "build_id": "git:abc123",
     "python_version": "3.14.0",
+    "python_build": {
+      "implementation": "CPython",
+      "build_number": "main",
+      "build_date": "Jul 8 2026 12:00:00",
+      "compiler": "Clang 21.1.4",
+      "free_threaded": true
+    },
     "gil_enabled": false,
     "worker_mode": "auto",
     "worker_model": "thread (sync)",
@@ -339,6 +348,22 @@ The response carries `Content-Type: application/json` and
 `worker_mode` is the configured value. `worker_model` is the resolved runtime
 path: `single (async)`, `thread (sync)`, `process (async)`, or
 `subinterpreter (async)`.
+
+Set `POUNCE_BUILD_ID` before startup to attach a deployment identity such as a
+git SHA or dependency-freeze fingerprint:
+
+```bash
+POUNCE_BUILD_ID=git:abc123 pounce serve --app myapp:app
+```
+
+`build_id` is `null` when the variable is unset or empty. It is the only
+environment variable copied into the response, and its value is returned
+verbatim. Never put a credential, token, customer identifier, or other secret
+in `POUNCE_BUILD_ID`.
+
+`python_build.free_threaded` identifies interpreter build capability;
+`gil_enabled` reports the current runtime state. A free-threaded build can
+start with its GIL enabled, so operators should inspect both fields.
 
 ### Redaction
 
