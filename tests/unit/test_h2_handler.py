@@ -524,3 +524,85 @@ async def test_h2_access_log_filter_suppresses_entry(monkeypatch: Any) -> None:
 
     assert 200 in _response_statuses(client, output)
     assert calls == [], "filtered request must not reach access_log"
+
+
+async def test_h2_keep_alive_timeout_does_not_cancel_active_response() -> None:
+    """A quiet receiving peer must not lose a response at the idle timeout (#231)."""
+    from pounce._h2_handler import handle_h2_connection
+
+    first_chunk_sent = asyncio.Event()
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"first-",
+                "more_body": True,
+            }
+        )
+        first_chunk_sent.set()
+        await asyncio.sleep(0.04)
+        await send({"type": "http.response.body", "body": b"second"})
+
+    client = _make_client()
+    client.send_headers(
+        1,
+        [
+            (":method", "GET"),
+            (":path", "/slow-response"),
+            (":authority", "example.test"),
+            (":scheme", "https"),
+        ],
+        end_stream=True,
+    )
+    reader = asyncio.StreamReader()
+    reader.feed_data(client.data_to_send())
+    writer = _FakeWriter()
+
+    task = asyncio.create_task(
+        handle_h2_connection(
+            app,
+            ServerConfig(keep_alive_timeout=0.01, access_log=False),
+            logging.getLogger("test.h2"),
+            reader,
+            writer,
+            ("127.0.0.1", 50000),
+            ("127.0.0.1", 8443),
+            "127.0.0.1:50000",
+        )
+    )
+
+    await asyncio.wait_for(first_chunk_sent.wait(), timeout=0.2)
+    await asyncio.wait_for(task, timeout=0.3)
+
+    status, body = _response_body(client, bytes(writer.data))
+    assert status == 200
+    assert body == b"first-second"
+
+
+async def test_h2_keep_alive_timeout_still_reaps_idle_connection() -> None:
+    """A connection with no active streams still closes at the idle timeout."""
+    from pounce._h2_handler import handle_h2_connection
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:  # pragma: no cover
+        raise AssertionError("idle connection must not dispatch the app")
+
+    client = _make_client()
+    reader = asyncio.StreamReader()
+    reader.feed_data(client.data_to_send())
+    writer = _FakeWriter()
+
+    await asyncio.wait_for(
+        handle_h2_connection(
+            app,
+            ServerConfig(keep_alive_timeout=0.01, access_log=False),
+            logging.getLogger("test.h2"),
+            reader,
+            writer,
+            ("127.0.0.1", 50000),
+            ("127.0.0.1", 8443),
+            "127.0.0.1:50000",
+        ),
+        timeout=0.2,
+    )

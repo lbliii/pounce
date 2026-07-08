@@ -64,6 +64,10 @@ Normative language:
 | WebSocket | Optional | `bengal-pounce[ws]` | Handshake, accept/send/receive/close, disconnect, subprotocol, compression, and missing-extra tests. WebSocket-over-H2 requires RFC 8441 integration proof before broad claims. |
 | HTTP/3 | Optional, limited parity | `bengal-pounce[h3]` plus TLS/UDP | Real QUIC request tests, TLS/Alt-Svc behavior, malformed/limit handling, 0-RTT policy, lifecycle/reload notes, and missing-extra diagnostics. |
 
+For HTTP/2, `keep_alive_timeout` applies only when the connection has no
+active streams. A peer may remain quiet while it receives a response, so the
+idle timer must not cancel an in-flight response stream.
+
 ## Worker And Lifecycle Matrix
 
 | Mode | Startup Contract | Reload Contract | Shutdown Contract | Known Limits |

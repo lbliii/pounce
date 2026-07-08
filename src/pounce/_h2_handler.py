@@ -304,6 +304,13 @@ async def handle_h2_connection(
                     timeout=config.keep_alive_timeout,
                 )
             except TimeoutError:
+                # ``keep_alive_timeout`` reaps an idle connection; it must not
+                # cancel an in-flight response merely because the peer is
+                # quietly receiving it.  Stream tasks remove themselves on
+                # completion, so rearm the read timeout while any stream is
+                # active and close only after the connection becomes idle.
+                if stream_tasks:
+                    continue
                 break
             except (ConnectionError, OSError):  # fmt: skip
                 break
