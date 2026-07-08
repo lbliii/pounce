@@ -74,6 +74,7 @@ from the request path when disabled. Inspect the live classification with
 |-------|------|---------|-------------|
 | `workers` | `int` | `1` | Worker count. 0 = auto-detect from CPU cores. 1 = single-worker (no supervisor). 2+ = multi-worker with supervisor. |
 | `worker_mode` | `str` | `"auto"` | Worker execution model: `auto` (sync on 3.14t, async on GIL), `sync` (blocking I/O fast path), `async` (event loop), or `subinterpreter` (**beta**, PEP 734). |
+| `worker_startup_failure` | `str` | `"ignore"` | Worker-hook failure policy: `ignore` logs and serves for generic ASGI compatibility; `shutdown` fails boot with `POUNCE_WORKER_STARTUP_FAILED` before readiness. |
 | `backlog` | `int` | `2048` | Socket listen backlog |
 | `cpu_affinity` | `bool` | `False` | Pin each worker to a CPU core (Linux only, reduces cache thrashing) |
 | `executor_threads_per_worker` | `int` | `0` | Per-worker thread pool size for `asyncio.to_thread()`. 0 = auto-size. |

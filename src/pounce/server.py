@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pounce.logging as pounce_logging
+from pounce._errors import WorkerError
 from pounce._runtime import WorkerMode, detect_worker_mode, is_gil_enabled
 from pounce._state import (
     BANNER,
@@ -414,7 +415,14 @@ class Server:
                 if self._async_shutdown is not None:
                     self._async_shutdown.set()
                 self._loop = None
-                return
+                raise WorkerError(
+                    "Worker 0 startup hook failed; server did not become ready",
+                    code="POUNCE_WORKER_STARTUP_FAILED",
+                    hint=(
+                        "Fix the pounce.worker.startup hook, or set "
+                        "worker_startup_failure='ignore' to preserve compatibility."
+                    ),
+                )
 
             server = await asyncio.start_server(
                 worker._handle_connection,
@@ -484,8 +492,6 @@ class Server:
         sockets = create_listeners(self._config, effective_workers, shared=(mode == "thread"))
         actual_addr = sockets[0].getsockname()
         udp_sockets = self._create_udp_listeners_if_h3(actual_addr, effective_workers)
-
-        dispatch(READY, host=actual_addr[0], port=actual_addr[1], uds=self._config.uds)
 
         self._supervisor = Supervisor(
             self._config,

@@ -106,6 +106,10 @@ Every serving mode emits `pounce.worker.startup` before accepting requests and
 scopes. The hooks run on the same per-worker event loop used for that worker's
 inline ASGI requests; sync workers use their private runner loop. Requests
 handed to the async streaming pool follow that pool's existing loop ownership.
+The default `worker_startup_failure="ignore"` policy preserves compatibility
+with apps that reject unknown scopes. With `"shutdown"`, a hook failure aborts
+boot before readiness, exits non-zero, and reports
+`POUNCE_WORKER_STARTUP_FAILED`.
 
 ## Observability Name Contract
 

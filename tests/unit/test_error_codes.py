@@ -78,10 +78,11 @@ ALL_SITES = _collect_raise_sites()
 
 def test_expected_site_count() -> None:
     """Keep count stable so accidentally-added raise sites trigger review."""
-    # 24 from Sprint 1 (docs/plans/vibe-coding-epic.md) + 1 for the
-    # duplicate-Host rejection added in _fast_h1 (issue #119).
-    assert len(ALL_SITES) == 25, (
-        f"Found {len(ALL_SITES)} pounce-error raise sites; expected 25. "
+    # 24 from Sprint 1 (docs/plans/vibe-coding-epic.md), 1 for the
+    # duplicate-Host rejection added in _fast_h1 (issue #119), and 2
+    # fail-loud worker-startup sites (issue #245).
+    assert len(ALL_SITES) == 27, (
+        f"Found {len(ALL_SITES)} pounce-error raise sites; expected 27. "
         f"If this changed intentionally, update this test."
     )
 
@@ -143,6 +144,7 @@ def test_codes_unique_per_class() -> None:
     allowed_shares: set[tuple[str, str]] = {
         ("ParseError", "POUNCE_PARSE_MALFORMED_REQUEST_LINE"),
         ("ParseError", "POUNCE_PARSE_HEADERS_TOO_LARGE"),
+        ("WorkerError", "POUNCE_WORKER_STARTUP_FAILED"),
     }
 
     violations: list[str] = []

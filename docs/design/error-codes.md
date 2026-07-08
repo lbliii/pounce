@@ -51,7 +51,7 @@ Derived from existing `_errors.py` classes, plus `CONFIG` for Sprint 2's config-
 | `APP`        | `AppError`               | 500    | `POUNCE_APP_UNHANDLED`, `POUNCE_APP_BAD_RESPONSE`          |
 | `LIFESPAN`   | `LifespanError`          | 500    | `POUNCE_LIFESPAN_STARTUP_FAILED`, `POUNCE_LIFESPAN_TIMEOUT` |
 | `SUPERVISOR` | `SupervisorError`        | 500    | `POUNCE_SUPERVISOR_SPAWN_FAILED`, `POUNCE_SUPERVISOR_RESTART_EXHAUSTED` |
-| `WORKER`     | `WorkerError`            | 500    | `POUNCE_WORKER_CRASHED`, `POUNCE_WORKER_UNRESPONSIVE`      |
+| `WORKER`     | `WorkerError`            | 500    | `POUNCE_WORKER_STARTUP_FAILED`, `POUNCE_WORKER_CRASHED`     |
 | `TLS`        | `TLSError`               | 500    | `POUNCE_TLS_CERT_MISSING`, `POUNCE_TLS_HANDSHAKE_FAILED`   |
 | `RELOAD`     | `ReloadError`            | 500    | `POUNCE_RELOAD_WATCHER_FAILED`, `POUNCE_RELOAD_DRAIN_TIMEOUT` |
 | `CONFIG`     | (added in Sprint 2)      | N/A    | `POUNCE_CONFIG_INVALID_VALUE`, `POUNCE_CONFIG_FILE_NOT_FOUND` |

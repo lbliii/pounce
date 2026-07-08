@@ -53,6 +53,13 @@ supervisor logs.
 A worker-level failure surfaced to the supervisor. Check worker logs for
 the underlying cause.
 
+### POUNCE_WORKER_STARTUP_FAILED
+A required `pounce.worker.startup` hook raised, timed out, or never reported
+ready while `worker_startup_failure="shutdown"` was enabled. Fix the hook's
+dependency or initialization failure; increase `startup_timeout` only when the
+hook is healthy but legitimately slow. Use the default `"ignore"` policy only
+for generic ASGI apps that intentionally do not implement this extension.
+
 ### POUNCE_TLS_E
 A TLS configuration failure with no specific code. Check certfile, keyfile,
 and ciphers.
