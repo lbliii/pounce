@@ -9,6 +9,7 @@ thread-based (nogil) and process-based (GIL) worker spawning.
 
 import os
 import sys
+import sysconfig
 from enum import StrEnum
 
 from pounce._errors import SupervisorError
@@ -32,12 +33,21 @@ class WorkerExecutionMode(StrEnum):
 def is_gil_enabled() -> bool:
     """Check whether the GIL is active in the current interpreter.
 
-    Returns ``False`` on Python 3.14t (free-threading) and ``True`` on
-    standard GIL-enabled builds. Falls back to ``True`` on Python < 3.13
-    where ``sys._is_gil_enabled`` does not exist.
+    Returns the runtime state, which can be ``True`` on either a standard
+    build or a free-threaded build started with its GIL enabled. Falls back to
+    ``True`` on Python < 3.13 where ``sys._is_gil_enabled`` does not exist.
 
     """
-    return getattr(sys, "_is_gil_enabled", lambda: True)()
+    return bool(getattr(sys, "_is_gil_enabled", lambda: True)())
+
+
+def is_free_threaded_build() -> bool:
+    """Return whether this interpreter was compiled with free-threading support.
+
+    This is distinct from :func:`is_gil_enabled`: a free-threaded build can
+    still start with its GIL enabled, while a standard build cannot disable it.
+    """
+    return bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
 
 
 def has_subinterpreters() -> bool:

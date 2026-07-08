@@ -141,7 +141,7 @@ Bind `/_pounce/info` to a Unix domain socket by default.
 
 - **Threat model in scope:** an attacker on a neighboring network process/container/VM, or accidentally public binding.
 - **Out of scope:** a root-level attacker on the same host (already game over), and authenticated reverse-proxy bypass (user's responsibility).
-- **Data at risk:** even with the redaction allowlist, an attacker who reaches `/_pounce/info` learns pounce version, Python version, feature flags, timeout values, and live connection counts. This is operational info that aids fingerprinting but contains no credentials or user data.
+- **Data at risk:** even with the redaction allowlist, an attacker who reaches `/_pounce/info` learns pounce version, Python build identity, an explicitly supplied `POUNCE_BUILD_ID`, feature flags, timeout values, and live connection counts. This is operational info that aids fingerprinting. Operators must never place credentials or user data in `POUNCE_BUILD_ID`.
 - **Log hygiene:** the endpoint is served on the main listener, so access-log behavior follows the main `access_log` setting.
 
 ## Implementation Notes

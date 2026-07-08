@@ -156,7 +156,7 @@ Run `pounce config schema --output-format toml-template` for every available fie
 | **Request Queueing** | Optional bounded queue with 503 load shedding | [Request Queueing →](https://lbliii.github.io/pounce/docs/deployment/backpressure/) |
 | **Prometheus** | Optional `/metrics` endpoint | [Metrics →](https://lbliii.github.io/pounce/docs/deployment/observability/) |
 | **Sentry** | Optional error tracking and performance monitoring | [Sentry →](https://lbliii.github.io/pounce/docs/deployment/observability/) |
-| **Introspection** | Opt-in `/_pounce/info` endpoint for live config/runtime debugging (loopback-only by default) | [Introspection →](https://lbliii.github.io/pounce/docs/deployment/observability/) |
+| **Introspection** | Opt-in `/_pounce/info` endpoint for live config, build, and runtime identity (loopback-only by default) | [Introspection →](https://lbliii.github.io/pounce/docs/deployment/observability/) |
 | **Testing** | `TestServer` + pytest fixture for integration tests | [Testing →](https://lbliii.github.io/pounce/docs/testing/) |
 | **Benchmarking** | Built-in `pounce bench` command with comparative analysis | [Bench →](https://lbliii.github.io/pounce/docs/features/) |
 | **Lifecycle Events** | Public API for typed connection/request events | [API →](https://lbliii.github.io/pounce/docs/reference/api/) |

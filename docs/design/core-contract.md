@@ -151,6 +151,12 @@ worker model as `single (async)`, `thread (sync)`, `process (async)`, or
 `subinterpreter (async)` rather than requiring operators to infer it from the
 configured value.
 
+When enabled, `/_pounce/info` also reports the Pounce version, Python version
+and build fingerprint, whether the interpreter supports free-threading,
+runtime GIL state, and the optional operator-supplied `POUNCE_BUILD_ID`. That
+named environment value is explicitly public and returned verbatim; other
+environment variables are not inspected or exposed.
+
 Subprocess signal proof in `tests/integration/test_signal_lifecycle.py` covers
 CLI SIGTERM clean exit, SIGHUP recovery to serving traffic, and mixed-traffic
 SIGTERM drain. The mixed-traffic matrix asserts complete in-flight slow and
