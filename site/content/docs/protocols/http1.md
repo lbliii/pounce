@@ -41,11 +41,25 @@ h11 is a state-machine-based HTTP/1.1 parser. It's well-tested, handles edge cas
 The sync worker hot path uses a custom parser measured around ~3 µs/req on the
 local parser microbenchmark, with tested safety checks:
 
-- Method validation (rejects unknown methods)
+- Method-token validation (rejects malformed tokens; valid extension methods pass through)
 - Header size limits (16 KB, prevents exhaustion)
 - Null byte and control character injection detection
 - Duplicate Content-Length detection (request smuggling prevention)
 - Content-Length + Transfer-Encoding conflict detection
+
+## Extension Methods and `QUERY`
+
+Pounce preserves syntactically valid HTTP method tokens instead of maintaining
+an allowlist. In particular, `QUERY` requests and their bodies reach the ASGI
+application with `scope["method"] == "QUERY"` on HTTP/1.1, HTTP/2, and HTTP/3.
+This behavior is tested through each protocol path.
+
+`QUERY` remains defined by an
+[active IETF Internet-Draft](https://datatracker.ietf.org/doc/draft-ietf-httpbis-safe-method-w-body/),
+not a published RFC. Pounce supplies transport and ASGI forwarding only: the
+application owns query semantics, media-type validation, caching, authorization,
+and any `Accept-Query` response field. Intermediaries in front of Pounce must
+also be configured to pass the method and request body.
 
 ## Keep-Alive
 

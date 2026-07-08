@@ -92,6 +92,27 @@ class TestH1ReceiveData:
         # Last body event should have more=False
         assert body_events[-1].more is False
 
+    @pytest.mark.issue(257)
+    def test_query_with_body(self):
+        """The h11 path preserves the QUERY extension method and its body."""
+        proto = H1Protocol()
+        body = b'{"category":"books"}'
+        events = proto.receive_data(
+            _make_request(
+                "QUERY",
+                "/catalog",
+                headers={"content-type": "application/json"},
+                body=body,
+            )
+        )
+
+        request = events[0]
+        assert isinstance(request, RequestReceived)
+        assert request.method == b"QUERY"
+        body_events = [event for event in events if isinstance(event, BodyReceived)]
+        assert b"".join(event.data for event in body_events) == body
+        assert body_events[-1].more is False
+
     def test_incremental_data(self):
         """Data arrives in multiple chunks."""
         proto = H1Protocol()

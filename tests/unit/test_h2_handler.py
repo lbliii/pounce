@@ -406,6 +406,49 @@ def _response_body(client: Any, data: bytes) -> tuple[int, bytes]:
     return status, bytes(body)
 
 
+@pytest.mark.issue(257)
+async def test_h2_query_method_and_body_reach_asgi() -> None:
+    """HTTP/2 preserves QUERY and request content through app dispatch."""
+    observed: tuple[str, bytes] | None = None
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:
+        nonlocal observed
+        body = bytearray()
+        while True:
+            message = await receive()
+            body.extend(message.get("body", b""))
+            if not message.get("more_body", False):
+                break
+        observed = (scope["method"], bytes(body))
+        response = scope["method"].encode() + b":" + bytes(body)
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": response, "more_body": False})
+
+    body = b'{"category":"books"}'
+    client = _make_client()
+    client.send_headers(
+        1,
+        [
+            (":method", "QUERY"),
+            (":path", "/catalog"),
+            (":authority", "example.test"),
+            (":scheme", "https"),
+            ("content-type", "application/json"),
+            ("content-length", str(len(body))),
+        ],
+    )
+    client.send_data(1, body, end_stream=True)
+
+    output = await _run_h2_request(
+        app,
+        ServerConfig(access_log=False),
+        client.data_to_send(),
+    )
+
+    assert observed == ("QUERY", body)
+    assert _response_body(client, output) == (200, b"QUERY:" + body)
+
+
 async def test_h2_health_reports_real_worker_id_without_app_dispatch() -> None:
     app_called = False
 

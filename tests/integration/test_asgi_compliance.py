@@ -129,6 +129,26 @@ async def _method_echo_app(scope: Scope, receive: Receive, send: Send) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
+async def _query_echo_app(scope: Scope, receive: Receive, send: Send) -> None:
+    """Return the method and complete request body observed by the ASGI app."""
+    body = b""
+    while True:
+        message = await receive()
+        body += message.get("body", b"")
+        if not message.get("more_body", False):
+            break
+
+    response = scope["method"].encode() + b":" + body
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-length", str(len(response)).encode())],
+        }
+    )
+    await send({"type": "http.response.body", "body": response})
+
+
 async def _receive_inspector_app(scope: Scope, receive: Receive, send: Send) -> None:
     """Returns the raw receive() message as JSON to validate structure."""
     if scope["type"] == "lifespan":
@@ -625,6 +645,28 @@ class TestHTTPMethods:
             response = send_raw_request(addr, request)
             body = _parse_body(response)
             assert body == method
+        finally:
+            worker.shutdown()
+            thread.join(timeout=2)
+            sock.close()
+
+    @pytest.mark.issue(257)
+    def test_query_method_and_body_reach_asgi(self) -> None:
+        """HTTP/1.1 forwards QUERY and its body through the real worker path."""
+        body = b'{"category":"books"}'
+        worker, sock, thread = start_worker(_query_echo_app)
+        addr = sock.getsockname()
+        try:
+            request = (
+                b"QUERY /catalog HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Content-Type: application/json\r\n"
+                + f"Content-Length: {len(body)}\r\n".encode()
+                + b"Connection: close\r\n\r\n"
+                + body
+            )
+            response = send_raw_request(addr, request)
+            assert _parse_body(response) == b"QUERY:" + body
         finally:
             worker.shutdown()
             thread.join(timeout=2)

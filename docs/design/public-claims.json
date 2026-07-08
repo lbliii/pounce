@@ -96,6 +96,19 @@
       "notes": "The active-stream and drain-hook proof covers HTTP/1 async workers and the free-threaded sync handoff pool. Railway still imposes its own documented request-duration limit, so clients must reconnect."
     },
     {
+      "id": "http-query-forwarding",
+      "type": "behavior",
+      "status": "protocol-scoped-proof",
+      "files": [
+        "site/content/docs/protocols/http1.md",
+        "site/content/docs/protocols/http2.md",
+        "site/content/docs/protocols/http3.md"
+      ],
+      "patterns": ["QUERY", "scope[\"method\"]"],
+      "proof": "tests/integration/test_asgi_compliance.py proves HTTP/1 ASGI forwarding; tests/unit/test_security.py proves the sync fast parser; tests/unit/test_h2_handler.py proves HTTP/2 app dispatch; tests/integration/test_h3_integration.py proves a real QUIC/H3 exchange; tests/unit/test_h3_handler.py locks the 0-RTT classification.",
+      "notes": "Pounce forwards the extension method and request body only. The method remains an active Internet-Draft, and applications and intermediaries own semantics, authorization, caching, replay tolerance, and Accept-Query behavior."
+    },
+    {
       "id": "server-timing-every-response",
       "type": "behavior",
       "status": "config-scoped",

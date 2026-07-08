@@ -9,6 +9,7 @@
         "tests/unit/test_security.py",
         "tests/unit/test_chunked_edge_cases.py",
         "tests/unit/test_fuzz_extended.py",
+        "tests/integration/test_asgi_compliance.py",
         "tests/integration/test_limits.py"
       ],
       "gaps": []

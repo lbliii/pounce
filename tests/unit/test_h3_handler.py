@@ -907,6 +907,21 @@ class TestZeroRttRejection:
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await asyncio.wait_for(task, timeout=2.0)
 
+    @pytest.mark.issue(257)
+    async def test_0rtt_query_allowed(self) -> None:
+        """The draft defines QUERY as safe/idempotent, so it is not rejected."""
+        protocol, _ = _build_protocol()
+        conn = _make_connection(addr=_ADDR_A)
+        conn.h3 = _FakeH3Connection()
+        protocol._connections[_ADDR_A] = conn
+
+        self._handle_headers_with_0rtt(protocol, conn, "QUERY")
+
+        assert 0 in conn.stream_tasks
+        assert not any((b":status", b"425") in headers for _, headers in conn.h3.sent_headers)
+        task, _ = conn.stream_tasks[0]
+        await asyncio.wait_for(task, timeout=2.0)
+
 
 # ---------------------------------------------------------------------------
 # Task 3.1 — Graceful Shutdown Tests

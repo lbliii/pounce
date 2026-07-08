@@ -78,6 +78,12 @@ HTTP/2 requests produce a standard ASGI HTTP scope. The `http_version` field is 
 }
 ```
 
+Valid extension-method tokens are preserved. A `QUERY` request, including its
+body, reaches the app with `scope["method"] == "QUERY"`. Pounce does not add
+application or cache behavior for the still-draft method; see
+[[docs/protocols/http1#extension-methods-and-query|Extension Methods and QUERY]]
+for the support boundary.
+
 ## See Also
 
 - [[docs/protocols/http1|HTTP/1.1]] — Default protocol
