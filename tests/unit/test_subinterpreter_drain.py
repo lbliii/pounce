@@ -57,9 +57,22 @@ class _FakeQueue:
 @dataclass
 class _FakeServer:
     closed: bool = False
+    clients_closed: asyncio.Event = field(default_factory=asyncio.Event)
+    accepted_before_drain: list[bool] | None = None
+    worker: object | None = None
+    sockets: tuple = ()
 
     def close(self) -> None:
         self.closed = True
+        if self.accepted_before_drain is not None and self.worker is not None:
+            loop = asyncio.get_running_loop()
+            loop.call_soon(
+                self.accepted_before_drain.append,
+                not self.worker._draining,
+            )
+
+    async def wait_closed(self) -> None:
+        await self.clients_closed.wait()
 
 
 @dataclass
@@ -106,6 +119,7 @@ async def test_reload_drain_closes_old_acceptor_before_announcing_idle() -> None
     ctrl = _FakeQueue()
     status = _FakeQueue()
     server = _FakeServer()
+    server.clients_closed.set()
 
     ctrl.put((CMD_RELOAD_DRAIN,))
     ctrl.put((CMD_SHUTDOWN,))
@@ -114,6 +128,40 @@ async def test_reload_drain_closes_old_acceptor_before_announcing_idle() -> None
 
     assert server.closed is True
     assert worker._draining is True
+    assert worker._async_shutdown.is_set()
+
+
+@pytest.mark.issue(239)
+@pytest.mark.asyncio
+async def test_reload_idle_waits_for_accepted_transport_to_detach() -> None:
+    """The worker counter cannot declare idle ahead of asyncio's clients."""
+    worker = _FakeWorker(_FakeConfig(shutdown_timeout=5.0))
+    ctrl = _FakeQueue()
+    status = _FakeQueue()
+    accepted_before_drain: list[bool] = []
+    server = _FakeServer(
+        accepted_before_drain=accepted_before_drain,
+        worker=worker,
+    )
+
+    ctrl.put((CMD_RELOAD_DRAIN,))
+    bridge = asyncio.create_task(_iic_bridge(worker, ctrl, status, server))
+
+    await asyncio.sleep(0.15)
+    assert server.closed is True
+    assert accepted_before_drain == [True]
+    assert not any(message[0] == STATUS_IDLE for message in status.drain_all())
+
+    server.clients_closed.set()
+    for _ in range(40):
+        await asyncio.sleep(0.05)
+        if any(message[0] == STATUS_IDLE for message in status.drain_all()):
+            break
+    else:
+        pytest.fail("bridge declared no idle state after accepted clients detached")
+
+    ctrl.put((CMD_SHUTDOWN,))
+    await asyncio.wait_for(bridge, timeout=2.0)
     assert worker._async_shutdown.is_set()
 
 

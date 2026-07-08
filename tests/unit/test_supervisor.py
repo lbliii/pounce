@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pounce._errors import SupervisorError, WorkerError
+from pounce._runtime import is_free_threaded_build
 from pounce._state import READY
 from pounce._types import Receive, Scope, Send
 from pounce.config import ServerConfig
@@ -458,6 +459,10 @@ def _sleep_forever() -> None:
 @pytest.mark.skipif(
     "fork" not in multiprocessing.get_all_start_methods(),
     reason="fork start method unavailable on this platform",
+)
+@pytest.mark.skipif(
+    is_free_threaded_build(),
+    reason="forking a multithreaded free-threaded interpreter is unsafe; process CI proves this",
 )
 class TestForkContextProcessRecognition:
     """Regression: fork-context workers must be recognized as processes.

@@ -6,7 +6,7 @@ Tests for structured lifecycle event logging.
 import json
 import logging
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import ThreadingMock, patch
 
 import pytest
 
@@ -404,6 +404,7 @@ class TestLoggingCollectorThreadSafety:
 
         collector = LoggingCollector(log_format="json")
         events_logged = []
+        events_lock = threading.Lock()
 
         def log_event(event_id):
             event = ConnectionOpened(
@@ -416,20 +417,23 @@ class TestLoggingCollectorThreadSafety:
                 protocol="h1",
                 timestamp_ns=monotonic_ns(),
             )
-            with patch.object(collector._logger, "log"):
-                collector.record(event)
+            collector.record(event)
+            with events_lock:
                 events_logged.append(event_id)
 
         # Create multiple threads logging concurrently
         threads = [threading.Thread(target=log_event, args=(i,)) for i in range(10)]
 
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+        mocked_log = ThreadingMock()
+        with patch.object(collector._logger, "log", new=mocked_log):
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
 
         # All events should be logged
         assert len(events_logged) == 10
+        assert mocked_log.call_count == 10
 
 
 class TestTimestampConversion:
