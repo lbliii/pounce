@@ -7,6 +7,7 @@ Tests the full flow: HTTP upgrade → 101 response with extensions → compresse
 
 import asyncio
 import contextlib
+import logging
 
 import pytest
 
@@ -226,6 +227,61 @@ class TestWebSocketCompressionIntegration:
         assert b"HTTP/1.1 101 Switching Protocols" in written
         assert b"Sec-WebSocket-Extensions:" not in written
 
+    @pytest.mark.issue(256)
+    @pytest.mark.parametrize(
+        ("offer", "compressed"),
+        [
+            (None, False),
+            (b"permessage-deflate", True),
+        ],
+    )
+    async def test_outgoing_frame_compression_requires_client_offer(
+        self, offer: bytes | None, compressed: bool
+    ) -> None:
+        """The RSV1 compression bit follows negotiation, not config alone."""
+        config = ServerConfig(websocket_compression=True, access_log=False)
+
+        async def app(scope, receive, send):
+            await send({"type": "websocket.accept"})
+            await send({"type": "websocket.send", "text": "A" * 1000})
+            await send({"type": "websocket.close"})
+
+        headers = [
+            (b"host", b"localhost"),
+            (b"connection", b"upgrade"),
+            (b"upgrade", b"websocket"),
+            (b"sec-websocket-version", b"13"),
+            (b"sec-websocket-key", b"dGhlIHNhbXBsZSBub25jZQ=="),
+        ]
+        if offer is not None:
+            headers.append((b"sec-websocket-extensions", offer))
+        request = RequestReceived(
+            method=b"GET",
+            target=b"/ws",
+            http_version="1.1",
+            headers=tuple(headers),
+        )
+        writer = MockStreamWriter()
+
+        await asyncio.wait_for(
+            handle_websocket(
+                app,
+                config,
+                logger=logging.getLogger("test.websocket.compression"),
+                request=request,
+                reader=MockStreamReader(),
+                writer=writer,
+                client=("127.0.0.1", 12345),
+                server=("127.0.0.1", 8000),
+                client_str="127.0.0.1:12345",
+            ),
+            timeout=1.0,
+        )
+
+        head, frames = writer.get_written().split(b"\r\n\r\n", 1)
+        assert (b"Sec-WebSocket-Extensions: permessage-deflate" in head) is compressed
+        assert bool(frames[0] & 0x40) is compressed
+
 
 class TestCompressionRatio:
     """Tests for actual compression effectiveness."""
@@ -235,7 +291,10 @@ class TestCompressionRatio:
         from pounce.protocols.ws import WSProtocol
 
         # Create protocol instances
-        compressed = WSProtocol(enable_compression=True)
+        compressed = WSProtocol(
+            enable_compression=True,
+            compression_offer="permessage-deflate",
+        )
         uncompressed = WSProtocol(enable_compression=False)
 
         # Test with highly compressible data
@@ -252,7 +311,10 @@ class TestCompressionRatio:
         """Test compression on JSON-like data (common in WebSocket apps)."""
         from pounce.protocols.ws import WSProtocol
 
-        compressed = WSProtocol(enable_compression=True)
+        compressed = WSProtocol(
+            enable_compression=True,
+            compression_offer="permessage-deflate",
+        )
         uncompressed = WSProtocol(enable_compression=False)
 
         # Simulate a JSON message with repeated keys (common pattern)
