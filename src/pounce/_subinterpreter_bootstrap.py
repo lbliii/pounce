@@ -319,52 +319,84 @@ async def _iic_bridge(
     drain_deadline: float | None = None
     idle_announced = False
     draining_hook_task: asyncio.Task[None] | None = None
+    acceptor_drained_task: asyncio.Task[None] | None = None
 
-    while True:
-        await asyncio.sleep(poll_interval)
-        msg = _try_get(ctrl_queue)
-        if msg is not None:
-            cmd = msg[0]
-            if cmd == CMD_SHUTDOWN:
-                if not draining:
-                    draining_hook_task = asyncio.create_task(
-                        _run_worker_draining_hook(worker, "shutdown")
-                    )
-                if draining_hook_task is not None:
-                    with contextlib.suppress(TimeoutError):
-                        await asyncio.wait_for(
-                            asyncio.shield(draining_hook_task),
-                            timeout=_DRAIN_HOOK_TIMEOUT,
+    try:
+        while True:
+            await asyncio.sleep(poll_interval)
+            msg = _try_get(ctrl_queue)
+            if msg is not None:
+                cmd = msg[0]
+                if cmd == CMD_SHUTDOWN:
+                    if not draining:
+                        draining_hook_task = asyncio.create_task(
+                            _run_worker_draining_hook(worker, "shutdown")
                         )
-                status_queue.put((STATUS_DRAINING,))
+                    if draining_hook_task is not None:
+                        with contextlib.suppress(TimeoutError):
+                            await asyncio.wait_for(
+                                asyncio.shield(draining_hook_task),
+                                timeout=_DRAIN_HOOK_TIMEOUT,
+                            )
+                    status_queue.put((STATUS_DRAINING,))
+                    worker._async_shutdown.set()
+                    return
+                if cmd in (CMD_DRAIN, CMD_RELOAD_DRAIN) and not draining:
+                    status_queue.put((STATUS_DRAINING,))
+                    reason = "reload" if cmd == CMD_RELOAD_DRAIN else "shutdown"
+                    draining_hook_task = asyncio.create_task(
+                        _run_worker_draining_hook(worker, reason)
+                    )
+                    if cmd == CMD_RELOAD_DRAIN and server is not None:
+                        # Pause this generation's selector reader without
+                        # closing its duplicated listener yet. A read callback
+                        # already scheduled by asyncio may have accepted a
+                        # socket and queued ``_accept_connection2`` without
+                        # attaching that transport to ``Server._clients``.
+                        # Closing in that gap makes Server._attach fail and
+                        # resets the boundary request. The replacement owns a
+                        # different dup'd descriptor and keeps accepting while
+                        # this reader is paused.
+                        loop = asyncio.get_running_loop()
+                        for sock in server.sockets or ():
+                            with contextlib.suppress(NotImplementedError, RuntimeError, ValueError):
+                                loop.remove_reader(sock.fileno())
+                        # A positive delay lets the ready queue drain through
+                        # accept coroutine -> transport connection_made ->
+                        # Worker._handle_connection before Server.close().
+                        await asyncio.sleep(poll_interval)
+                        server.close()
+                        acceptor_drained_task = asyncio.create_task(server.wait_closed())
+                    worker._draining = True
+                    draining = True
+                    drain_deadline = monotonic() + worker._config.shutdown_timeout
+
+            if not draining:
+                continue
+
+            # Bound the drain wait: once the deadline elapses, signal shutdown so
+            # the worker's finally block can run even if a connection outlives us.
+            if drain_deadline is not None and monotonic() >= drain_deadline:
+                if not idle_announced:
+                    status_queue.put((STATUS_IDLE,))
                 worker._async_shutdown.set()
                 return
-            if cmd in (CMD_DRAIN, CMD_RELOAD_DRAIN) and not draining:
-                status_queue.put((STATUS_DRAINING,))
-                reason = "reload" if cmd == CMD_RELOAD_DRAIN else "shutdown"
-                draining_hook_task = asyncio.create_task(_run_worker_draining_hook(worker, reason))
-                if cmd == CMD_RELOAD_DRAIN and server is not None:
-                    server.close()
-                worker._draining = True
-                draining = True
-                drain_deadline = monotonic() + worker._config.shutdown_timeout
 
-        if not draining:
-            continue
-
-        # Bound the drain wait: once the deadline elapses, signal shutdown so
-        # the worker's finally block can run even if a connection outlives us.
-        if drain_deadline is not None and monotonic() >= drain_deadline:
-            if not idle_announced:
+            # ``Worker.is_idle()`` alone has a narrow accept race: asyncio owns
+            # the accepted transport before the client callback increments the
+            # worker counter. During reload, also require the closed Server to
+            # report that all transports it accepted have detached. This keeps
+            # the supervisor from shutting down the old interpreter underneath
+            # a request that has not entered Pounce's counter yet.
+            acceptor_drained = acceptor_drained_task is None or acceptor_drained_task.done()
+            if not idle_announced and acceptor_drained and worker.is_idle():
                 status_queue.put((STATUS_IDLE,))
-            worker._async_shutdown.set()
-            return
-
-        # Announce idle exactly once so the supervisor's reload poll unblocks,
-        # but keep running so a queued ('shutdown',) is still observed.
-        if not idle_announced and worker.is_idle():
-            status_queue.put((STATUS_IDLE,))
-            idle_announced = True
+                idle_announced = True
+    finally:
+        if acceptor_drained_task is not None and not acceptor_drained_task.done():
+            acceptor_drained_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await acceptor_drained_task
 
 
 async def _run_worker_draining_hook(worker: Any, reason: str) -> None:
