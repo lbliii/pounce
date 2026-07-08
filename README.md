@@ -71,12 +71,21 @@ Pounce achieves compatibility through correct ASGI 3.0 implementation — no fra
 ## Performance
 
 Pounce is designed to make the pure-Python request path competitive while keeping
-the server core free of C extensions. The committed Chirp-shaped local snapshot
-reports a median **9,194 req/s**, **12.12 ms p99**, and about **58.7 MiB RSS** for
-one Pounce worker. It used five 5-second `wrk` samples at 50 connections on
-Python 3.14t/macOS Apple Silicon. This is a short local snapshot, not sustained
-release evidence or a universal target; inspect the
-[raw artifact](benchmarks/artifacts/2026-05-22/chirp-pounce-local.json).
+the server core free of C extensions. In a sustained Chirp-shaped
+[GitHub Actions snapshot](https://github.com/lbliii/pounce/actions/runs/28981909028),
+four Pounce workers completed every request at a fixed 1,000 req/s target:
+
+| Python / Pounce mode | Completed req/s | p99 | p999 | Peak RSS | Errors |
+|---|---:|---:|---:|---:|---:|
+| 3.14 / processes | 1,000 | 0.436 ms | 0.721 ms | 196.7 MiB | 0 |
+| 3.14t / threads | 1,000 | 0.443 ms | 0.521 ms | 108.0 MiB | 0 |
+
+The thread-mode sample used about 45% less aggregate peak RSS than the process
+sample. These are medians from three 120-second samples on GitHub-hosted Ubuntu
+runners with four persistent connections, not maximum-throughput results or
+universal targets. The [benchmark evidence notes](benchmarks/README.md) include
+the uvicorn, Hypercorn, and Granian results, scheduler drops, commands, and raw
+artifact caveats.
 
 Run `pounce bench --workers 4 --compare` to reproduce on your machine.
 For release or PR evidence, use

@@ -5,10 +5,14 @@
       "id": "readme-throughput-snapshot",
       "type": "performance",
       "status": "scoped-snapshot",
-      "files": ["README.md"],
-      "patterns": ["req/s"],
-      "proof": "README cites benchmarks/artifacts/2026-05-22/chirp-pounce-local.json and states its workload, five-sample command shape, platform, p99, RSS, and short local snapshot caveat.",
-      "notes": "Do not substitute the scheduled/release workflow results until its attached artifact is retained and cited."
+      "files": [
+        "README.md",
+        "benchmarks/README.md",
+        "site/content/docs/about/performance.md"
+      ],
+      "patterns": ["req/s", "45% less"],
+      "proof": "GitHub Actions run 28981909028 retains four schema-validated artifacts for commit fd826630: Python 3.14 process and 3.14t thread lanes, hello and Chirp workloads, three 120-second fixed-rate samples per server at 1,000 scheduled req/s. The docs publish the Chirp medians and explicitly retain scheduler drops, platform, workload, command shape, and fixed-rate caveats.",
+      "notes": "This is a GitHub-hosted Ubuntu fixed-rate snapshot, not a capacity benchmark or universal target. Published releases attach equivalent raw artifacts; do not detach the numbers from the run link and caveats."
     },
     {
       "id": "parser-microbenchmark-snapshot",
