@@ -146,7 +146,7 @@ _SERVE_HELP = {
     "max_requests_per_connection": "Max requests per connection; 0 = unlimited",
     "shutdown_timeout": "Max seconds per worker during shutdown",
     "uds": "Unix domain socket path",
-    "health_check_path": "Built-in health check endpoint path",
+    "health_check_path": "Built-in readiness endpoint path",
     "debug": "Enable rich error pages (never use in production!)",
     "trusted_hosts": "Comma-separated trusted hostnames for X-Forwarded-* headers",
     "metrics": "Enable Prometheus /metrics endpoint (config: metrics_enabled)",

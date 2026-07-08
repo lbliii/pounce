@@ -763,7 +763,7 @@ class TestSyncWorkerHandoffs:
         assert b'"status"' in response
 
     def test_health_check_only_matches_get(self) -> None:
-        """Health check path only responds to GET, POST falls through to ASGI."""
+        """Health check path rejects POST, which falls through to ASGI."""
         request_bytes = _build_http_request(method="POST", path="/healthz", body=b"x")
         mock_sock = MockSocket(request_bytes)
         config = _make_config(health_check_path="/healthz")
@@ -777,6 +777,24 @@ class TestSyncWorkerHandoffs:
         response = bytes(mock_sock.sent_data)
         # Should get ASGI response (200 "ok"), not health check JSON
         assert b"200" in response
+
+    def test_health_check_head_preserves_get_headers_without_body(self) -> None:
+        request_bytes = _build_http_request(method="HEAD", path="/readyz")
+        mock_sock = MockSocket(request_bytes)
+        config = _make_config(health_check_path="/readyz")
+        worker = _make_worker(config=config)
+        runner = asyncio.Runner()
+        try:
+            worker._handle_connection(mock_sock, ("127.0.0.1", 54321), runner)
+        finally:
+            runner.close()
+
+        head, separator, body = bytes(mock_sock.sent_data).partition(b"\r\n\r\n")
+        assert separator
+        assert b"HTTP/1.1 200" in head
+        assert b"content-type: application/json" in head.lower()
+        assert b"content-length:" in head.lower()
+        assert body == b""
 
     def test_health_check_non_matching_path_falls_through(self) -> None:
         """Non-matching path goes to ASGI even when health_check_path is set."""

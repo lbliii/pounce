@@ -549,7 +549,8 @@ def _create_zoomies_datagram_protocol(
                 stream_id=stream_id,
                 headers=[(b":status", str(builtin.status).encode()), *builtin.headers],
             )
-            conn.h3.send_data(stream_id=stream_id, data=builtin.body, end_stream=True)
+            body = b"" if scope["method"] == "HEAD" else builtin.body
+            conn.h3.send_data(stream_id=stream_id, data=body, end_stream=True)
             self._flush(conn, addr)
             conn.stream_tasks.pop(stream_id, None)
             conn.stream_body_bytes.pop(stream_id, None)

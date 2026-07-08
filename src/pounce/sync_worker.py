@@ -708,6 +708,7 @@ class SyncWorker:
                         scope["path"],
                         conn_header,
                         builtin,
+                        request_method=request.method,
                         conn_id=conn_id,
                         request_start=request_start,
                         http_version=request.http_version,
@@ -896,6 +897,7 @@ class SyncWorker:
         conn_header: bytes,
         response: BuiltinResponse,
         *,
+        request_method: bytes,
         conn_id: int,
         request_start: int,
         http_version: str,
@@ -905,10 +907,11 @@ class SyncWorker:
         """Serialize and send a protocol-neutral built-in response."""
         headers = [*response.headers, (b"connection", conn_header)]
         date_hdr = self._cached_date_header()
+        response_body = b"" if request_method == b"HEAD" else response.body
         head, body_out_bytes = serialize_raw_response_parts(
             response.status,
             tuple(headers),
-            response.body,
+            response_body,
             server_header=self._config.server_header,
             date_header=date_hdr,
         )
@@ -922,18 +925,18 @@ class SyncWorker:
                 connection_id=conn_id,
                 worker_id=self._worker_id,
                 status=response.status,
-                bytes_sent=len(response.body),
+                bytes_sent=len(response_body),
                 duration_ms=health_duration,
                 timestamp_ns=lifecycle_ns(),
-                method="GET",
+                method=request_method.decode("ascii", errors="replace"),
             )
         )
         log_request(
             self._config,
-            "GET",
+            request_method.decode("ascii", errors="replace"),
             path,
             response.status,
-            len(response.body),
+            len(response_body),
             health_duration,
             client_str,
             http_version=http_version,

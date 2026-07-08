@@ -91,7 +91,7 @@ def maybe_build_builtin_response(
     normal application requests do not acquire connection-count locks or call
     drain-state hooks on the latency-sensitive request path.
     """
-    if method not in ("GET", b"GET"):
+    if method not in ("GET", b"GET", "HEAD", b"HEAD"):
         return None
 
     if config.health_check_path is not None and path == config.health_check_path:

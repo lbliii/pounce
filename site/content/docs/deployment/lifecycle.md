@@ -114,7 +114,7 @@ spec:
           command: ["sh", "-c", "sleep 5"]  # LB de-registration delay
     readinessProbe:
       httpGet:
-        path: /health
+        path: /readyz
         port: 8000
   terminationGracePeriodSeconds: 40  # > shutdown_timeout + preStop
 ```

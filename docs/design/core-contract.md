@@ -92,6 +92,15 @@ ASGI `lifespan.shutdown`, then release listeners and exit. The ordering between
 in-flight completion and final lifespan shutdown is enforced across worker
 modes by `test_sigterm_runs_lifespan_shutdown_after_inflight_completion`.
 
+The built-in `health_check_path` is a readiness endpoint. Deployments should
+configure it as `/readyz`: it returns 200 while the worker accepts traffic and
+503 with `{"status":"draining"}` once drain begins. `GET` and `HEAD` have the
+same status and headers; `HEAD` has no body. A separate `/healthz` liveness
+endpoint, when required by the platform, is application-owned and should remain
+successful until the process can no longer make forward progress. During final
+connection rejection, clients may observe the generic drain 503 or a refused
+connection instead of the endpoint JSON; all three outcomes mean not ready.
+
 Every serving mode emits `pounce.worker.startup` before accepting requests and
 `pounce.worker.shutdown` after draining, with the numeric `worker_id` in both
 scopes. The hooks run on the same per-worker event loop used for that worker's

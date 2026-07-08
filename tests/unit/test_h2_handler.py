@@ -297,6 +297,7 @@ async def _run_h2_request(
     request_bytes: bytes,
     *,
     worker_id: int | None = None,
+    is_draining: Any = None,
 ) -> bytes:
     """Drive a single H2 request to completion through ``handle_h2_connection``.
 
@@ -323,6 +324,7 @@ async def _run_h2_request(
             ("127.0.0.1", 8443),
             "127.0.0.1:50000",
             worker_id=worker_id,
+            is_draining=is_draining,
         )
     )
     # Let the per-stream ASGI task run to completion.  Each ASGI ``send`` awaits
@@ -377,6 +379,55 @@ async def test_h2_health_reports_real_worker_id_without_app_dispatch() -> None:
 
     assert status == 200
     assert json.loads(body)["worker_id"] == 7
+    assert app_called is False
+
+
+async def test_h2_readiness_head_matches_get_while_draining() -> None:
+    app_called = False
+    results: dict[str, tuple[int, dict[str, str], bytes]] = {}
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:
+        nonlocal app_called
+        app_called = True
+
+    for method in ("GET", "HEAD"):
+        client = _make_client()
+        client.send_headers(
+            1,
+            [
+                (":method", method),
+                (":path", "/readyz"),
+                (":authority", "example.test"),
+                (":scheme", "https"),
+            ],
+            end_stream=True,
+        )
+        output = await _run_h2_request(
+            app,
+            ServerConfig(health_check_path="/readyz", access_log=False),
+            client.data_to_send(),
+            worker_id=7,
+            is_draining=lambda: True,
+        )
+        status = 0
+        headers: dict[str, str] = {}
+        body = bytearray()
+        for event in client.receive_data(output):
+            if isinstance(event, h2.events.ResponseReceived):
+                decoded = dict(event.headers)
+                status = int(decoded[":status"])
+                headers = {str(name): str(value) for name, value in event.headers}
+            elif isinstance(event, h2.events.DataReceived):
+                body.extend(event.data)
+        results[method] = (status, headers, bytes(body))
+
+    get_status, get_headers, get_body = results["GET"]
+    head_status, head_headers, head_body = results["HEAD"]
+    assert get_status == head_status == 503
+    for name in ("content-type", "content-length", "cache-control"):
+        assert get_headers[name] == head_headers[name]
+    assert json.loads(get_body)["status"] == "draining"
+    assert head_body == b""
     assert app_called is False
 
 

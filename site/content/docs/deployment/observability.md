@@ -14,12 +14,13 @@ category: how-to
 
 Pounce provides six observability layers: health checks, request IDs, Prometheus metrics, OpenTelemetry tracing, Sentry error tracking, and the opt-in `/_pounce/info` introspection endpoint.
 
-## Health Checks
+## Readiness and Liveness
 
-Built-in endpoint that responds before the ASGI app is invoked:
+Configure Pounce's built-in endpoint as `/readyz`. It bypasses the ASGI app and
+reports whether this worker should receive new traffic:
 
 ```bash
-pounce serve --app myapp:app --health-check-path /health
+pounce serve --app myapp:app --health-check-path /readyz
 ```
 
 Response:
@@ -30,18 +31,29 @@ Response:
 
 Characteristics: fast (bypasses ASGI), excluded from access logs, works even if your app is unhealthy, includes `Cache-Control: no-cache`.
 
+During drain it returns HTTP 503 with `{"status":"draining"}` before the
+worker exits. `HEAD /readyz` returns the same status and headers as `GET`
+without a body. Once final connection rejection starts, a probe may instead
+receive the generic drain 503 or a refused connection; those are also
+not-ready outcomes.
+
+Use `/healthz` for liveness only when your platform needs a separate process
+health signal. That endpoint is application-owned: keep it successful while
+the process can make forward progress, and do not use it for load-balancer
+de-registration.
+
 ### Kubernetes
 
 ```yaml
 livenessProbe:
   httpGet:
-    path: /health
+    path: /healthz
     port: 8000
   initialDelaySeconds: 5
   periodSeconds: 10
 readinessProbe:
   httpGet:
-    path: /health
+    path: /readyz
     port: 8000
   initialDelaySeconds: 2
   periodSeconds: 5
