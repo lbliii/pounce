@@ -124,6 +124,7 @@ Current local snapshot artifacts:
 |----------|-------|--------|
 | `benchmarks/artifacts/2026-05-22/bengal-pounce-local.json` | Bengal home page, pounce-only, 5 samples, 5s each | Local macOS/free-threaded run; use as investigation input, not a release claim. |
 | `benchmarks/artifacts/2026-05-22/chirp-pounce-local.json` | Chirp thread page, pounce-only, 5 samples, 5s each | Local macOS/free-threaded run; no uvicorn comparison. |
+| `benchmarks/artifacts/2026-07-08/process-cpu-local.json` | Hello workload, pounce-only, 2 process-worker samples with per-process CPU/RSS series | Local macOS/GIL-enabled proof run; validates telemetry capture, not a release performance claim. |
 
 ## Regression Gate
 
