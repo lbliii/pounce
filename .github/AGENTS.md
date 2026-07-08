@@ -29,6 +29,7 @@ surprising release paths.
 - **Test proof.** CI installs dev plus protocol extras and runs tests on Ubuntu and macOS.
 - **Framework compatibility.** CI installs the framework dependency group and runs `tests/integration/frameworks/`.
 - **Changelog gate.** `changelog.yml` requires Towncrier fragments for package-affecting changes unless release/skip policy applies.
+- **Issue closure gate.** `issue-closure-gate.yml` requires executable `@pytest.mark.issue(N)` acceptance proof or an explicit non-testable exemption when a PR closes an issue.
 - **Release path.** `python-publish.yml` builds on release publish and uses OIDC `id-token: write` only for PyPI upload.
 - **Dependency automation.** `dependabot.yml` updates GitHub Actions weekly.
 - **Local parity.** `Makefile` and `pyproject.toml` poe tasks should stay aligned with CI feedback loops.
@@ -39,6 +40,7 @@ When this domain changes, check:
 
 - `.github/workflows/ci.yml` - lint, format, silent exceptions, typecheck, test matrix, extras, GIL proof, framework job.
 - `.github/workflows/changelog.yml` - fragment policy, changed-file detection, labels, fetch depth, Towncrier command.
+- `.github/workflows/issue-closure-gate.yml` - closing-keyword parsing, acceptance marker coverage, and exemption policy.
 - `.github/workflows/python-publish.yml` - release trigger, build backend, artifact upload/download, OIDC permissions, PyPI environment.
 - `.github/workflows/pages.yml` - docs/site deployment, environment config, cache behavior, Pages permissions.
 - `.github/dependabot.yml` - ecosystem, cadence, scope.

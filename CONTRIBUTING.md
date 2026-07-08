@@ -141,6 +141,10 @@ hand-cut GitHub release works too, but you must tag `vX.Y.Z` exactly.
 
 - **Tight diff.** One concern per PR. Section headers in a diff mean it's two
   PRs. Exceptions: refactors that rename a concept across many files.
+- **Executable issue acceptance.** A PR that says `Closes #123` carries a
+  `@pytest.mark.issue(123)` acceptance test. For non-testable docs or
+  positioning work, record `Acceptance: n/a (reason)` in the PR body. See
+  [docs/backlog-automation.md](docs/backlog-automation.md).
 - **No `type: ignore`.** Target is zero. Narrow the type or fix the code.
 - **No silent excepts.** S110 is enforced in CI. If you must swallow, log
   what and why in one line.
