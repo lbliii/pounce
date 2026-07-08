@@ -58,6 +58,10 @@ class _MockH2Connection:
     def local_flow_control_window(self, stream_id: int) -> int:
         return self._flow_window
 
+    @property
+    def max_outbound_frame_size(self) -> int:
+        return 16384
+
     def data_to_send(self) -> bytes:
         out = bytes(self._pending_data)
         self._pending_data.clear()
