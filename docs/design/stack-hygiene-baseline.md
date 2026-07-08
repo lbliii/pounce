@@ -68,6 +68,7 @@ Priority order: rosettes (claims currently outrun proof), zoomies (category entr
 | bengal | bengal#694 | bengal#695 |
 | milo-cli | milo-cli#109 | milo-cli#110 |
 | purr | purr#1 | deferred until beta |
+| furatena | furatena#365 | n/a (app; multi-lane CI, coverage ratchets, and evidence artifacts are the exports) |
 | elbysodic | elbysodic#213 (cloud CI) | n/a (app; recorded-evidence practice is the export) |
 
 ## Maintenance
