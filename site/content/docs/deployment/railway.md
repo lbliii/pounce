@@ -228,6 +228,11 @@ Confirm the actual Railway ingress headers for your deployed service before
 enabling `trusted_hosts`. If those details are unknown, leave `trusted_hosts`
 empty and route tenants from the normal `Host` header.
 
+Frameworks that construct `ServerConfig` on behalf of the app should also use
+the [[docs/deployment/embedding|Framework Embedding]] checklist so body limits,
+lifecycle bounds, and proxy trust reach Pounce instead of stopping at the
+framework config.
+
 ## References
 
 - [Railway Edge Networking](https://docs.railway.com/networking/edge-networking)

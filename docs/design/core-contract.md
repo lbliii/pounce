@@ -98,6 +98,31 @@ The implementation source is `src/pounce/_proxy.py`; cross-protocol authority
 proof lives in `tests/unit/test_tenant_scope_matrix.py` and Railway example
 proof lives in `tests/integration/test_examples.py`.
 
+## Framework Embedding Contract
+
+A framework embedding Pounce owns an adapter boundary; it must not imply that
+its configuration exposes Pounce behavior that it silently leaves at a
+different default. The preferred integration accepts a complete frozen
+`ServerConfig` and passes it directly to `Server`. An adapter that mirrors
+individual settings instead must maintain an explicit parity table and tests.
+
+At minimum, an embedding framework must make intentional decisions for:
+
+- application identity: pass `app_path` when subinterpreter bootstrap or code
+  reimport is supported, and otherwise reject those modes clearly;
+- worker lifecycle: `workers`, `worker_mode`, `worker_startup_failure`,
+  `startup_timeout`, `shutdown_timeout`, and `reload_timeout`;
+- network safety: `header_timeout`, `keep_alive_timeout`, `request_timeout`,
+  request/header/connection limits, and proxy trust/authority fields;
+- execution capacity: `executor_threads_per_worker` when the framework sends
+  blocking work through `asyncio.to_thread()`;
+- operator ownership: whether health, readiness, metrics, introspection, TLS,
+  and logging are provided by Pounce, the framework, or the deployment edge.
+
+Framework-owned policy is valid, but it must be documented and tested rather
+than emerging from omitted constructor arguments. The public adapter checklist
+is `site/content/docs/deployment/embedding.md`.
+
 ## Worker And Lifecycle Matrix
 
 | Mode | Startup Contract | Reload Contract | Shutdown Contract | Known Limits |

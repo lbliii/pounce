@@ -327,3 +327,26 @@ class TestDeploymentDocsContract:
 
         missing = {term for term in required if term not in guide}
         assert missing == set(), f"Railway proxy-topology guide missing {sorted(missing)}"
+
+    def test_embedding_guide_covers_minimum_framework_surface(self) -> None:
+        guide_path = ROOT / "site/content/docs/deployment/embedding.md"
+        guide = guide_path.read_text()
+        deployment_index = (ROOT / "site/content/docs/deployment/_index.md").read_text()
+
+        required = {
+            "ServerConfig",
+            "app_path",
+            "worker_startup_failure",
+            "startup_timeout",
+            "shutdown_timeout",
+            "header_timeout",
+            "executor_threads_per_worker",
+            "max_request_size",
+            "trusted_hosts",
+            "forwarded_for_trusted_hops",
+            "https://github.com/lbliii/chirp/issues/627",
+        }
+
+        missing = {term for term in required if term not in guide}
+        assert missing == set(), f"Embedding guide missing {sorted(missing)}"
+        assert ":link: ./embedding" in deployment_index
