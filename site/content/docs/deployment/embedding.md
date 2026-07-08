@@ -63,7 +63,7 @@ document a deliberate framework-owned fixed policy.
 | Application identity | `Server(..., app_path=...)` | Required for subinterpreter import and for reload paths that reimport application code. A live callable alone is not importable in another interpreter. |
 | Worker hooks | `worker_startup_failure` | Generic ASGI compatibility defaults to `ignore`; frameworks with required worker hooks normally need `shutdown` so readiness cannot succeed after hook failure. |
 | Lifecycle bounds | `startup_timeout`, `shutdown_timeout`, `reload_timeout` | Bounds deploy readiness, graceful shutdown, and generation rotation. Platform drain windows must be longer than Pounce shutdown bounds. |
-| Connection timeouts | `header_timeout`, `keep_alive_timeout`, `request_timeout` | Pounce exposes distinct controls. Preserve them independently; [#242](https://github.com/lbliii/pounce/issues/242) tracks the complete cross-protocol idle/active taxonomy. |
+| Connection timeouts | `header_timeout`, `keep_alive_timeout`, `request_timeout`, `write_timeout` | Preserve the state-specific header, request-body, between-request idle, and blocked-output controls independently. HTTP/3 output liveness uses `http3_idle_timeout`. |
 | Request envelope | `max_request_size`, `max_header_size`, `max_headers` | Pounce validates bytes before the framework sees them. A larger framework body limit is ineffective if Pounce retains its smaller default. |
 | Capacity | `backlog`, `max_connections`, `executor_threads_per_worker` | Bounds queued connections, live connections, and blocking work offloaded from async handlers. |
 | Proxy authority | `trusted_hosts`, `forwarded_for_trusted_hops`, `root_path` | Controls trusted client IP, scheme, host authority, and subpath routing before framework middleware runs. |
@@ -125,7 +125,8 @@ The issue that produced this guide audited Chirp `main` at commit
 
 Already aligned:
 
-- `worker_mode`, `metrics_path`, `keep_alive_timeout`, and `request_timeout`;
+- `worker_mode`, `metrics_path`, `keep_alive_timeout`, `request_timeout`, and
+  `write_timeout`;
 - `trusted_proxies` → `trusted_hosts` plus
   `forwarded_for_trusted_hops`;
 - TLS, logging, backpressure, WebSocket, OpenTelemetry, and Sentry settings;

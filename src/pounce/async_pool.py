@@ -18,7 +18,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from pounce._compression import Compressor, create_compressor
+from pounce._errors import RequestTimeoutError
 from pounce._headers import get_header as _get_header
+from pounce._timeouts import drain_with_timeout
 from pounce._types import ASGIApp
 from pounce.asgi.bridge import SendState, create_send
 from pounce.config import ServerConfig
@@ -314,6 +316,9 @@ class AsyncPool:
 
         try:
             await self._app(scope, receive, send)
+        except RequestTimeoutError as exc:
+            if exc.code != "POUNCE_TIMEOUT_WRITE":
+                raise
         except Exception:
             self._logger.exception("ASGI app error on handoff")
             if not send_state.response_started:
@@ -321,8 +326,8 @@ class AsyncPool:
                     raw = proto.send_response(500, [(b"content-type", b"text/plain")])
                     raw += proto.send_body(b"Internal Server Error", more=False)
                     writer.write(raw)
-                    await writer.drain()
-                except (OSError, ConnectionError):  # fmt: skip
+                    await drain_with_timeout(writer, self._config.write_timeout)
+                except (OSError, ConnectionError, RequestTimeoutError):  # fmt: skip
                     pass
         finally:
             try:

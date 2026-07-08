@@ -64,9 +64,22 @@ Normative language:
 | WebSocket | Optional | `bengal-pounce[ws]` | Handshake, accept/send/receive/close, disconnect, subprotocol, compression, and missing-extra tests. WebSocket-over-H2 requires RFC 8441 integration proof before broad claims. |
 | HTTP/3 | Optional, limited parity | `bengal-pounce[h3]` plus TLS/UDP | Real QUIC request tests, TLS/Alt-Svc behavior, malformed/limit handling, 0-RTT policy, lifecycle/reload notes, and missing-extra diagnostics. |
 
-For HTTP/2, `keep_alive_timeout` applies only when the connection has no
-active streams. A peer may remain quiet while it receives a response, so the
-idle timer must not cancel an in-flight response stream.
+Timeouts are state-specific rather than interchangeable:
+
+- `header_timeout` bounds receipt of request headers;
+- `request_timeout` bounds each wait for the next request-body event after
+  headers are complete and emits `POUNCE_TIMEOUT_REQUEST_BODY` on expiry;
+- `keep_alive_timeout` applies only between HTTP requests, or to an HTTP/2
+  connection with no active streams;
+- accepted WebSockets and active streaming/SSE responses are not idle
+  keep-alive connections;
+- `write_timeout` bounds blocked response delivery on HTTP/1.1, HTTP/2, and
+  WebSocket transports and emits `POUNCE_TIMEOUT_WRITE` before closing the
+  slow peer;
+- HTTP/3 output is queued synchronously into QUIC, so it has no stream-writer
+  drain to bound with `write_timeout`; QUIC connection liveness remains
+  governed by `http3_idle_timeout`. HTTP/3 request-body waits still use
+  `request_timeout`.
 
 ## Proxy And Edge Topology Contract
 
@@ -113,6 +126,7 @@ At minimum, an embedding framework must make intentional decisions for:
 - worker lifecycle: `workers`, `worker_mode`, `worker_startup_failure`,
   `startup_timeout`, `shutdown_timeout`, and `reload_timeout`;
 - network safety: `header_timeout`, `keep_alive_timeout`, `request_timeout`,
+  `write_timeout`,
   request/header/connection limits, and proxy trust/authority fields;
 - execution capacity: `executor_threads_per_worker` when the framework sends
   blocking work through `asyncio.to_thread()`;

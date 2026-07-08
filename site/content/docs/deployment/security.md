@@ -105,8 +105,15 @@ pounce serve --app myapp:app --header-timeout 10
 |---|---|---|
 | `header_timeout` | Max seconds to receive complete request headers | 10s |
 | `keep_alive_timeout` | Max seconds to wait between keep-alive requests | 5s |
+| `request_timeout` | Max seconds to wait for the next request-body event | 30s |
+| `write_timeout` | Max seconds for blocked H1/H2/WebSocket response delivery | 30s |
 
-The `header_timeout` applies to the initial header read of each new request. If headers are not received within the limit, the connection is closed. Between keep-alive requests, the `keep_alive_timeout` applies instead.
+The `header_timeout` applies to request headers. After headers complete,
+`request_timeout` governs request-body progress. Between completed HTTP
+requests, `keep_alive_timeout` applies; it does not reap active HTTP/2 streams,
+SSE responses, or accepted WebSockets. `write_timeout` closes a downstream H1,
+H2, or WebSocket peer that stops accepting response bytes. HTTP/3 output uses
+QUIC's `http3_idle_timeout` because it has no asynchronous stream-writer drain.
 
 ## Connection Backpressure
 

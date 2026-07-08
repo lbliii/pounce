@@ -84,6 +84,7 @@ class ServerConfigKwargs(TypedDict, total=False):
     executor_threads_per_worker: int
     keep_alive_timeout: float
     request_timeout: float
+    write_timeout: float
     header_timeout: float
     startup_timeout: float
     shutdown_timeout: float

@@ -593,6 +593,11 @@ class SyncWorker:
                 if request is None:
                     break
 
+                # Header/body reads have finished. Bound every subsequent
+                # blocking response write independently of keep-alive and
+                # request-input deadlines.
+                conn.settimeout(self._config.write_timeout)
+
                 meta = _classify_request(request)
                 close_after = meta.wants_close
                 # Drain (issue #100): once the supervisor signals drain via
@@ -807,6 +812,13 @@ class SyncWorker:
 
                 if close_after or at_limit:
                     break
+        except TimeoutError:
+            close_reason = "write_timeout"
+            self._logger.warning(
+                "POUNCE_TIMEOUT_WRITE: client did not accept response bytes within %.1fs; "
+                "closing the connection",
+                self._config.write_timeout,
+            )
         except (ConnectionError, OSError):  # fmt: skip
             close_reason = "client_disconnect"
             self._lifecycle.record(
@@ -993,6 +1005,8 @@ class SyncWorker:
                 conn.sendmsg([head, body_bytes])
             else:
                 conn.sendall(head + body_bytes)
+        except TimeoutError:
+            raise
         except OSError:
             conn.sendall(head + body_bytes)
         duration = elapsed_ms(request_start)
@@ -1032,10 +1046,25 @@ class SyncWorker:
         mv = memoryview(buf)
         total = self._recv_buf_len
         sent_100 = False
+        awaiting_body = False
 
         while True:
             try:
                 n = conn.recv_into(mv[total:])
+            except TimeoutError:
+                self._recv_buf_len = 0
+                if awaiting_body:
+                    self._send_error(
+                        conn,
+                        408,
+                        "Request Timeout",
+                        code="POUNCE_TIMEOUT_REQUEST_BODY",
+                        hint=(
+                            "Increase request_timeout only for clients that "
+                            "legitimately upload slowly."
+                        ),
+                    )
+                return (None, b"")
             except OSError:
                 # ConnectionError and TimeoutError are both OSError subclasses,
                 # so a single base-class handler covers a dropped/timed-out
@@ -1086,6 +1115,9 @@ class SyncWorker:
             # once so the client unblocks instead of stalling until timeout.
             if not sent_100:
                 header_end = bytes(mv[:total]).find(_CRLFCRLF)
+                if header_end != -1 and not awaiting_body:
+                    awaiting_body = True
+                    conn.settimeout(self._config.request_timeout)
                 if header_end != -1 and _wants_100_continue(bytes(mv[:header_end])):
                     try:
                         # ConnectionError is a subclass of OSError, so a single

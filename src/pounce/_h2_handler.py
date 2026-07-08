@@ -21,6 +21,7 @@ from collections.abc import Callable
 from typing import Any
 
 from pounce._concurrency import race_first_completed
+from pounce._errors import RequestTimeoutError
 from pounce._headers import get_header as _get_header_from_tuple
 from pounce._priority import PriorityScheduler, parse_priority
 from pounce._request_id import extract_or_generate
@@ -30,6 +31,7 @@ from pounce._request_pipeline import (
     maybe_build_builtin_response,
     negotiate_compressor,
 )
+from pounce._timeouts import drain_with_timeout
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
 from pounce.asgi.bridge import SendState, _sanitize_headers
@@ -97,7 +99,7 @@ async def handle_h2_connection(
     h2_conn = H2Connection()
     h2_conn.initiate_connection()
     writer.write(h2_conn.data_to_send())
-    await writer.drain()
+    await drain_with_timeout(writer, config.write_timeout)
 
     # Per-connection RFC 9218 priority scheduler — gates DATA frame writes
     # so higher-urgency streams preempt lower ones and incremental streams
@@ -158,6 +160,22 @@ async def handle_h2_connection(
         # in this batch (before the peer observes the reset) is dropped without
         # touching app state.
         stream_body_rejected.add(stream_id)
+
+    def _send_request_timeout(stream_id: int) -> None:
+        """End one H2 stream with a stable request-body timeout response."""
+        inbound_open = not h2_conn.stream_ended(stream_id)
+        h2_conn.send_response_headers(
+            stream_id,
+            408,
+            [
+                (b"content-type", b"text/plain"),
+                (b"x-pounce-error-code", b"POUNCE_TIMEOUT_REQUEST_BODY"),
+            ],
+            end_stream=True,
+        )
+        if inbound_open:
+            h2_conn.reset_stream(stream_id, error_code=0x8)  # RFC 7540 CANCEL
+        writer.write(h2_conn.data_to_send())
 
     async def _run_stream(
         stream_id: int,
@@ -229,7 +247,7 @@ async def handle_h2_connection(
             request_target=request.target.decode("ascii", errors="replace"),
         )
 
-        receive = create_h2_receive(body_queue)
+        receive = create_h2_receive(body_queue, timeout=config.request_timeout)
         app_start = monotonic_ns()
         send_state = SendState()
         send = create_h2_send(
@@ -251,6 +269,12 @@ async def handle_h2_connection(
 
         try:
             await app(scope, receive, send)
+        except RequestTimeoutError as exc:
+            if exc.code == "POUNCE_TIMEOUT_REQUEST_BODY" and send_state.status == 0:
+                _send_request_timeout(stream_id)
+                send_state.status = 408
+            elif send_state.status == 0:
+                send_state.status = 408
         except Exception:
             logger.exception(
                 "ASGI app error on H2 stream %d %s %s",
@@ -284,8 +308,8 @@ async def handle_h2_connection(
         if timing:
             timing.add("app", elapsed_ms(app_start))
 
-        with contextlib.suppress(ConnectionError, OSError):
-            await writer.drain()
+        with contextlib.suppress(ConnectionError, OSError, RequestTimeoutError):
+            await drain_with_timeout(writer, config.write_timeout)
 
         log_request(
             config,
@@ -409,8 +433,8 @@ async def handle_h2_connection(
                         break  # Stop reading, finish existing streams
 
             try:
-                await writer.drain()
-            except (ConnectionError, OSError):  # fmt: skip
+                await drain_with_timeout(writer, config.write_timeout)
+            except (ConnectionError, OSError, RequestTimeoutError):  # fmt: skip
                 break
 
     finally:
@@ -427,8 +451,8 @@ async def handle_h2_connection(
         try:
             h2_conn.close_connection()
             writer.write(h2_conn.data_to_send())
-            await writer.drain()
-        except (OSError, ConnectionError):  # fmt: skip
+            await drain_with_timeout(writer, config.write_timeout)
+        except (OSError, ConnectionError, RequestTimeoutError):  # fmt: skip
             pass
 
 

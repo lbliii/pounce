@@ -659,6 +659,54 @@ async def test_h2_keep_alive_timeout_still_reaps_idle_connection() -> None:
     )
 
 
+@pytest.mark.issue(242)
+async def test_h2_request_body_timeout_returns_408() -> None:
+    """An incomplete H2 upload is bounded independently per stream."""
+    from pounce._h2_handler import handle_h2_connection
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:
+        await receive()
+        raise AssertionError("timed-out receive must not resume the app")
+
+    client = _make_client()
+    client.send_headers(
+        1,
+        [
+            (":method", "POST"),
+            (":path", "/slow-upload"),
+            (":authority", "example.test"),
+            (":scheme", "https"),
+        ],
+        end_stream=False,
+    )
+    reader = asyncio.StreamReader()
+    reader.feed_data(client.data_to_send())
+    writer = _FakeWriter()
+
+    await asyncio.wait_for(
+        handle_h2_connection(
+            app,
+            ServerConfig(
+                keep_alive_timeout=0.01,
+                request_timeout=0.02,
+                access_log=False,
+            ),
+            logging.getLogger("test.h2"),
+            reader,
+            writer,
+            ("127.0.0.1", 50000),
+            ("127.0.0.1", 8443),
+            "127.0.0.1:50000",
+        ),
+        timeout=0.3,
+    )
+
+    events = client.receive_data(bytes(writer.data))
+    responses = [event for event in events if isinstance(event, h2.events.ResponseReceived)]
+    assert int(dict(responses[0].headers)[":status"]) == 408
+    assert dict(responses[0].headers)["x-pounce-error-code"] == "POUNCE_TIMEOUT_REQUEST_BODY"
+
+
 async def test_h2_large_response_advances_on_window_updates() -> None:
     """Large responses resume promptly as the peer replenishes flow control (#232)."""
     from h2.settings import SettingCodes

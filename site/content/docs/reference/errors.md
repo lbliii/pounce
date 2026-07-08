@@ -33,7 +33,7 @@ flowchart TD
 | Error Class | Status | When Raised |
 |-------------|--------|-------------|
 | `ParseError` | 400 | h11 or the fast parser cannot parse the HTTP request |
-| `RequestTimeoutError` | 408 | Request not completed within `request_timeout`, or headers not received within `header_timeout` |
+| `RequestTimeoutError` | 408 | Request-body progress exceeded `request_timeout`, or response delivery exceeded `write_timeout` |
 | `LimitError` | 413 | Body exceeds `max_request_size`. Pass `status_code=431` for header limits (`max_header_size`, `max_headers`). |
 
 ## Server Errors

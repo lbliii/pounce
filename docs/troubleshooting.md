@@ -31,7 +31,19 @@ A parser-layer error with no specific code. See logs for the offending bytes.
 
 ### POUNCE_TIMEOUT_E
 A request or keep-alive timeout with no specific code. Check
-`header_timeout`, `request_timeout`, and `keep_alive_timeout`.
+`header_timeout`, `request_timeout`, `keep_alive_timeout`, and `write_timeout`.
+
+### POUNCE_TIMEOUT_REQUEST_BODY
+The client stopped making progress while uploading a request body. Check the
+client and proxy path first. Increase `request_timeout` only for clients that
+legitimately upload slowly.
+
+### POUNCE_TIMEOUT_WRITE
+The client or downstream proxy stopped accepting response bytes. Pounce closes
+the affected HTTP/1.1, HTTP/2, or WebSocket connection after `write_timeout`.
+Check downstream health and backpressure before increasing the timeout. HTTP/3
+uses QUIC's `http3_idle_timeout` because its output path has no asynchronous
+stream-writer drain.
 
 ### POUNCE_LIMIT_E
 A size-limit rejection with no specific code. Check `max_header_size`,

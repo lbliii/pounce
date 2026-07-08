@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pounce._compression import CompressionDictionary, Compressor
+from pounce._errors import RequestTimeoutError
 from pounce._headers import get_header as _get_header_from_list
 from pounce._request_id import extract_or_generate
 from pounce._request_pipeline import (
@@ -625,6 +626,29 @@ def _create_zoomies_datagram_protocol(
                 )
             self._flush(conn, addr)
 
+        def _send_request_timeout(
+            self,
+            conn: _ZoomiesConnection,
+            stream_id: int,
+            addr: tuple[str, int],
+        ) -> None:
+            """Send a 408 and stop a request body that exceeded its deadline."""
+            conn.h3.send_headers(
+                stream_id=stream_id,
+                headers=[
+                    (b":status", b"408"),
+                    (b"content-type", b"text/plain"),
+                    (b"x-pounce-error-code", b"POUNCE_TIMEOUT_REQUEST_BODY"),
+                ],
+            )
+            conn.h3.send_data(
+                stream_id=stream_id,
+                data=b"Request Timeout",
+                end_stream=True,
+            )
+            self._signal_stop_sending(conn, stream_id)
+            self._flush(conn, addr)
+
         def _send_bad_request(
             self,
             conn: _ZoomiesConnection,
@@ -692,7 +716,10 @@ def _create_zoomies_datagram_protocol(
             if timing:
                 timing.add("parse", elapsed_ms(request_start))
 
-            receive = create_h3_receive(body_queue)
+            receive = create_h3_receive(
+                body_queue,
+                timeout=self._config.request_timeout,
+            )
             app_start = monotonic_ns()
             send_state = SendState()
             send = create_h3_send(
@@ -710,6 +737,10 @@ def _create_zoomies_datagram_protocol(
 
             try:
                 await self._app(scope, receive, send)
+            except RequestTimeoutError as exc:
+                if exc.code == "POUNCE_TIMEOUT_REQUEST_BODY" and send_state.status == 0:
+                    self._send_request_timeout(conn, stream_id, addr)
+                    send_state.status = 408
             except Exception:
                 self._logger.exception(
                     "ASGI app error on H3 stream %d %s %s",

@@ -77,13 +77,21 @@ The supervisor limits restarts to 5 per 60-second window. If workers are crashin
 
 If you're on a GIL build, workers are processes — each with its own memory copy. Switch to Python 3.14t for thread-based workers with shared memory, or reduce the worker count.
 
-### Request timeouts
+### Request-body timeouts
 
-Increase `request_timeout` for slow endpoints:
+`POUNCE_TIMEOUT_REQUEST_BODY` means the client stopped making progress while
+uploading. Check the client and proxy path before increasing the deadline:
 
 ```bash
 pounce serve --app myapp:app --request-timeout 60
 ```
+
+### Response write timeouts
+
+`POUNCE_TIMEOUT_WRITE` means an HTTP/1.1, HTTP/2, or WebSocket downstream peer
+stopped accepting response bytes. Check downstream health and backpressure
+before increasing `write_timeout`. HTTP/3 output liveness is governed by
+`http3_idle_timeout`.
 
 ### Connection refused
 

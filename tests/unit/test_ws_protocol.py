@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from typing import Any, cast
 
 import pytest
 
@@ -599,7 +600,7 @@ class TestWSCleanCloseDisconnect:
 
         await asyncio.wait_for(
             handle_websocket(
-                app,  # type: ignore[arg-type]
+                cast(Any, app),
                 ServerConfig(access_log=False),
                 logging.getLogger("test-ws"),
                 request,
@@ -615,6 +616,46 @@ class TestWSCleanCloseDisconnect:
         disconnects = [m for m in received if m["type"] == "websocket.disconnect"]
         assert len(disconnects) == 1
         assert disconnects[0]["code"] == 1000
+
+    @pytest.mark.issue(242)
+    async def test_established_websocket_ignores_http_keep_alive_timeout(self) -> None:
+        """A quiet accepted WebSocket remains active until app/peer close."""
+        from pounce._ws_handler import handle_websocket
+        from pounce.config import ServerConfig
+
+        class BlockingReader:
+            async def read(self, _n: int) -> bytes:
+                await asyncio.Event().wait()
+                return b""
+
+        async def app(scope: dict, receive, send) -> None:
+            assert (await receive())["type"] == "websocket.connect"
+            await send({"type": "websocket.accept"})
+            await asyncio.sleep(0.03)
+            await send({"type": "websocket.close", "code": 1000})
+
+        writer = _FakeWSWriter()
+        await asyncio.wait_for(
+            handle_websocket(
+                cast(Any, app),
+                ServerConfig(
+                    access_log=False,
+                    keep_alive_timeout=0.01,
+                ),
+                logging.getLogger("test-ws"),
+                _ws_upgrade_request(),
+                cast(Any, BlockingReader()),
+                cast(Any, writer),
+                client=("127.0.0.1", 54321),
+                server=("127.0.0.1", 8000),
+                client_str="127.0.0.1:54321",
+            ),
+            timeout=0.2,
+        )
+
+        head, frames = bytes(writer.data).split(b"\r\n\r\n", 1)
+        assert b"101 Switching Protocols" in head
+        assert frames, "app close frame was lost to HTTP keep-alive reaping"
 
 
 # ---------------------------------------------------------------------------

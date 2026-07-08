@@ -24,6 +24,9 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING
 
+from pounce._errors import RequestTimeoutError
+from pounce._timeouts import drain_with_timeout
+
 if TYPE_CHECKING:
     import asyncio
     import socket
@@ -53,15 +56,19 @@ def write_drain_503_sync(conn: socket.socket) -> None:
         conn.sendall(DRAIN_503_RESPONSE)
 
 
-async def write_drain_503_async(writer: asyncio.StreamWriter) -> None:
+async def write_drain_503_async(
+    writer: asyncio.StreamWriter,
+    *,
+    timeout: float = 30.0,
+) -> None:
     """Send the drain 503 on an asyncio writer and close it.
 
     Tolerates a client that has already gone away — a dropped connection
     during shutdown is expected, not exceptional.
     """
     # silent: client may have closed mid-drain; a 503 we cannot deliver is benign
-    with contextlib.suppress(OSError):
+    with contextlib.suppress(OSError, RequestTimeoutError):
         writer.write(DRAIN_503_RESPONSE)
-        await writer.drain()
+        await drain_with_timeout(writer, timeout)
         writer.close()
         await writer.wait_closed()

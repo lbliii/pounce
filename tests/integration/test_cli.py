@@ -97,17 +97,22 @@ class TestCLIServeCommand:
         config = mock_server.call_args[0][0]
         assert config.reload_dirs == ("./templates", "./static")
 
-    def test_keepalive_args(self, mocker):
+    @pytest.mark.issue(242)
+    def test_timeout_args(self, mocker):
         mock_server = mocker.patch("pounce._cli.Server")
         mocker.patch("pounce._cli.import_app", return_value=lambda: None)
         cli.call(
             "serve",
             app="myapp:app",
             keep_alive_timeout=30.0,
+            request_timeout=45.0,
+            write_timeout=60.0,
             max_requests_per_connection=1000,
         )
         config = mock_server.call_args[0][0]
         assert config.keep_alive_timeout == 30.0
+        assert config.request_timeout == 45.0
+        assert config.write_timeout == 60.0
         assert config.max_requests_per_connection == 1000
 
     def test_factory_pattern_preserved(self, mocker):

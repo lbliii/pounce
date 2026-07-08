@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pounce._timeouts import drain_with_timeout, wait_for_write
+
 logger = logging.getLogger("pounce.sendfile")
 
 # Type for the sendfile extension callable
@@ -67,7 +69,11 @@ def can_use_sendfile(writer: asyncio.StreamWriter) -> bool:
     return hasattr(os, "sendfile")
 
 
-def create_sendfile_callable(writer: asyncio.StreamWriter) -> SendfileCallable:
+def create_sendfile_callable(
+    writer: asyncio.StreamWriter,
+    *,
+    write_timeout: float = 30.0,
+) -> SendfileCallable:
     """Create an async sendfile callable bound to this writer's transport.
 
     The returned callable transfers file data to the socket using
@@ -110,7 +116,7 @@ def create_sendfile_callable(writer: asyncio.StreamWriter) -> SendfileCallable:
         # before the file body so ordering on the wire is correct.  A drain
         # failure means the client already vanished — abort cleanly.
         try:
-            await writer.drain()
+            await drain_with_timeout(writer, write_timeout)
         except ConnectionError:
             # BrokenPipeError / ConnectionResetError both subclass ConnectionError.
             return
@@ -127,12 +133,16 @@ def create_sendfile_callable(writer: asyncio.StreamWriter) -> SendfileCallable:
                 # then restores the transport.  fallback=True degrades to a
                 # read+send loop (e.g. partial-file edge cases) instead of
                 # raising.  Returns the number of bytes actually transferred.
-                sent = await loop.sendfile(
-                    transport,
-                    f,
-                    offset=offset,
-                    count=count,
-                    fallback=True,
+                sent = await wait_for_write(
+                    loop.sendfile(
+                        transport,
+                        f,
+                        offset=offset,
+                        count=count,
+                        fallback=True,
+                    ),
+                    writer,
+                    write_timeout,
                 )
             except ConnectionError:
                 # Client vanished mid-transfer (BrokenPipeError /

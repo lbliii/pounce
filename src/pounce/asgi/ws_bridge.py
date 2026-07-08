@@ -16,6 +16,7 @@ ASGI WebSocket lifecycle:
 import asyncio
 from typing import TYPE_CHECKING, Any
 
+from pounce._timeouts import drain_with_timeout
 from pounce._types import Receive, Send
 from pounce.asgi._scope import build_base_scope
 from pounce.asgi.bridge import _sanitize_headers
@@ -109,6 +110,7 @@ def create_ws_send(
     *,
     accept_event: asyncio.Event,
     close_event: asyncio.Event,
+    write_timeout: float = 30.0,
 ) -> Send:
     """Create an ASGI send callable for WebSocket.
 
@@ -146,7 +148,7 @@ def create_ws_send(
                 extensions=ws_protocol.extensions_response,
             )
             writer.write(raw)
-            await writer.drain()
+            await drain_with_timeout(writer, write_timeout)
             accept_event.set()
 
         elif msg_type == "websocket.send":
@@ -162,7 +164,7 @@ def create_ws_send(
             else:
                 raw = ws_protocol.send_message(message.get("bytes", b""))
             writer.write(raw)
-            await writer.drain()
+            await drain_with_timeout(writer, write_timeout)
 
         elif msg_type == "websocket.close":
             closed = True
@@ -177,13 +179,13 @@ def create_ws_send(
                     b"Forbidden"
                 )
                 writer.write(raw)
-                await writer.drain()
+                await drain_with_timeout(writer, write_timeout)
             else:
                 code = message.get("code", 1000)
                 reason = message.get("reason", "")
                 raw = ws_protocol.close(code=code, reason=reason)
                 writer.write(raw)
-                await writer.drain()
+                await drain_with_timeout(writer, write_timeout)
             close_event.set()
 
         elif msg_type == "websocket.http.response.start":
@@ -217,7 +219,7 @@ def create_ws_send(
                 writer.write(body)
             more_body = message.get("more_body", False)
             if not more_body:
-                await writer.drain()
+                await drain_with_timeout(writer, write_timeout)
                 close_event.set()
 
     return send

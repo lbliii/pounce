@@ -81,8 +81,8 @@ def test_expected_site_count() -> None:
     # 24 from Sprint 1 (docs/plans/vibe-coding-epic.md), 1 for the
     # duplicate-Host rejection added in _fast_h1 (issue #119), and 2
     # fail-loud worker-startup sites (issue #245).
-    assert len(ALL_SITES) == 27, (
-        f"Found {len(ALL_SITES)} pounce-error raise sites; expected 27. "
+    assert len(ALL_SITES) == 29, (
+        f"Found {len(ALL_SITES)} pounce-error raise sites; expected 29. "
         f"If this changed intentionally, update this test."
     )
 

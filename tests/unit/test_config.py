@@ -32,6 +32,7 @@ class TestServerConfigDefaults:
         config = ServerConfig()
         assert config.keep_alive_timeout == 5.0
         assert config.request_timeout == 30.0
+        assert config.write_timeout == 30.0
         assert config.shutdown_timeout == 10.0
 
     def test_default_limits(self):
@@ -128,10 +129,12 @@ class TestServerConfigOverrides:
         config = ServerConfig(
             keep_alive_timeout=10.0,
             request_timeout=60.0,
+            write_timeout=45.0,
             shutdown_timeout=30.0,
         )
         assert config.keep_alive_timeout == 10.0
         assert config.request_timeout == 60.0
+        assert config.write_timeout == 45.0
         assert config.shutdown_timeout == 30.0
 
     def test_custom_root_path(self):
@@ -247,6 +250,11 @@ class TestServerConfigValidation:
     def test_keep_alive_timeout_negative_raises(self):
         with pytest.raises(ValueError, match="keep_alive_timeout must be > 0"):
             ServerConfig(keep_alive_timeout=-1.0)
+
+    @pytest.mark.issue(242)
+    def test_write_timeout_must_be_positive(self):
+        with pytest.raises(ValueError, match="write_timeout must be > 0"):
+            ServerConfig(write_timeout=0.0)
 
     def test_max_requests_per_connection_negative_raises(self):
         with pytest.raises(ValueError, match="max_requests_per_connection must be >= 0"):
@@ -503,6 +511,7 @@ class TestServerConfigHypothesisRoundTrip:
         backlog=st.integers(min_value=1, max_value=65535),
         keep_alive_timeout=st.floats(min_value=0.1, max_value=300.0),
         request_timeout=st.floats(min_value=0.1, max_value=300.0),
+        write_timeout=st.floats(min_value=0.1, max_value=300.0),
         max_request_size=st.integers(min_value=1, max_value=100_000_000),
         max_connections=st.integers(min_value=0, max_value=100_000),
         access_log=st.booleans(),
@@ -516,6 +525,7 @@ class TestServerConfigHypothesisRoundTrip:
         backlog,
         keep_alive_timeout,
         request_timeout,
+        write_timeout,
         max_request_size,
         max_connections,
         access_log,
@@ -528,6 +538,7 @@ class TestServerConfigHypothesisRoundTrip:
             backlog=backlog,
             keep_alive_timeout=keep_alive_timeout,
             request_timeout=request_timeout,
+            write_timeout=write_timeout,
             max_request_size=max_request_size,
             max_connections=max_connections,
             access_log=access_log,
@@ -540,6 +551,7 @@ class TestServerConfigHypothesisRoundTrip:
         assert restored.backlog == config.backlog
         assert restored.keep_alive_timeout == config.keep_alive_timeout
         assert restored.request_timeout == config.request_timeout
+        assert restored.write_timeout == config.write_timeout
         assert restored.max_request_size == config.max_request_size
         assert restored.max_connections == config.max_connections
         assert restored.access_log == config.access_log

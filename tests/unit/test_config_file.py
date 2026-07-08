@@ -57,10 +57,13 @@ class TestLoadPounceToml:
         assert result["access_log"] is False
 
     def test_float_values(self, tmp_path):
-        (tmp_path / "pounce.toml").write_text("keep_alive_timeout = 30.0\nrequest_timeout = 60.0\n")
+        (tmp_path / "pounce.toml").write_text(
+            "keep_alive_timeout = 30.0\nrequest_timeout = 60.0\nwrite_timeout = 45.0\n"
+        )
         result = load_config_file(tmp_path / "pounce.toml")
         assert result["keep_alive_timeout"] == 30.0
         assert result["request_timeout"] == 60.0
+        assert result["write_timeout"] == 45.0
 
     def test_static_files_table(self, tmp_path):
         (tmp_path / "pounce.toml").write_text(
