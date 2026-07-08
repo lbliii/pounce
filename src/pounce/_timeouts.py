@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("pounce.timeouts")
 
+
 async def receive_with_timeout[T](queue: Queue[T], timeout: float) -> T:
     """Read one request-body event, bounded by ``request_timeout``."""
     try:
