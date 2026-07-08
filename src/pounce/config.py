@@ -139,6 +139,7 @@ class ServerConfig:
     access_log_filter: Callable[[str, str, int], bool] | None = None
 
     # HTTP
+    http2_enabled: bool = True  # Advertise h2 via TLS ALPN when the extra is installed
     server_header: str = "pounce"
     date_header: bool = True
     root_path: str = ""

@@ -118,6 +118,7 @@ from the request path when disabled. Inspect the live classification with
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `http2_enabled` | `bool` | `True` | Advertise h2 via TLS ALPN when the optional dependency is installed; set false to force H1 at a Pounce-owned TLS origin |
 | `server_header` | `str` | `"pounce"` | Value of the `Server` response header |
 | `date_header` | `bool` | `True` | Include `Date` response header |
 | `root_path` | `str` | `""` | ASGI root_path for reverse proxy setups |

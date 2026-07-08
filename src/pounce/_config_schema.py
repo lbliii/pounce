@@ -266,6 +266,7 @@ INFO_ALLOWLIST: dict[str, Classification] = {
     "lifecycle_logging": "EXPOSE",
     "log_slow_requests_threshold": "EXPOSE",
     # HTTP
+    "http2_enabled": "EXPOSE",
     "server_header": "REDACT_TO_BOOL",
     "date_header": "EXPOSE",
     "root_path": "REDACT_TO_BOOL",

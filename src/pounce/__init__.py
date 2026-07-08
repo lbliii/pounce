@@ -103,6 +103,7 @@ class ServerConfigKwargs(TypedDict, total=False):
     signage: str | None
     access_log_filter: Callable[[str, str, int], bool] | None
     server_header: str
+    http2_enabled: bool
     date_header: bool
     root_path: str
     compression: bool

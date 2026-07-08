@@ -65,6 +65,24 @@ pounce serve --app myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem
 
 ## Runtime Issues
 
+### HTTP 200 response is silently truncated behind an edge proxy
+
+Client-to-edge and edge-to-origin protocols are separate hops. Check the edge
+and Pounce logs to identify the origin protocol, and upgrade to a release with
+the HTTP/2 active-stream timeout and flow-control fixes.
+
+As a temporary diagnostic mitigation, force HTTP/1.1 when Pounce owns origin
+TLS:
+
+```bash
+pounce serve --app myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem --no-http2
+```
+
+The TOML/`ServerConfig` equivalent is `http2_enabled = false`. It does not
+affect TLS terminated by the edge. Preserve `keep_alive_timeout`,
+`request_timeout`, and `write_timeout` as separate downstream configuration
+fields; increasing one does not mitigate a failure governed by another.
+
 ### Workers crashing in a loop
 
 The supervisor limits restarts to 5 per 60-second window. If workers are crashing repeatedly:

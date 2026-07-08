@@ -54,6 +54,7 @@ class TestServerConfigDefaults:
 
     def test_default_http(self):
         config = ServerConfig()
+        assert config.http2_enabled is True
         assert config.server_header == "pounce"
         assert config.date_header is True
         assert config.root_path == ""
@@ -140,6 +141,11 @@ class TestServerConfigOverrides:
     def test_custom_root_path(self):
         config = ServerConfig(root_path="/api/v1")
         assert config.root_path == "/api/v1"
+
+    @pytest.mark.issue(243)
+    def test_http2_can_be_disabled(self):
+        config = ServerConfig(http2_enabled=False)
+        assert config.http2_enabled is False
 
     def test_compression_disabled(self):
         config = ServerConfig(compression=False)

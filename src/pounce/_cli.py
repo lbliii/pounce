@@ -135,6 +135,7 @@ _SERVE_HELP = {
     "no_access_log": "Disable access logging (config file: access_log = false)",
     "ssl_certfile": "Path to TLS certificate file (enables HTTPS)",
     "ssl_keyfile": "Path to TLS private key file",
+    "no_http2": "Disable h2 ALPN advertisement; force HTTP/1.1 at the TLS origin",
     "http3": "Enable HTTP/3 (QUIC/UDP); requires TLS (config: http3_enabled)",
     "reload": "Auto-reload on source file changes",
     "reload_include": "Extra file extensions to watch (comma-separated)",
@@ -220,6 +221,7 @@ def serve(
     no_access_log: bool = False,
     ssl_certfile: str | None = None,
     ssl_keyfile: str | None = None,
+    no_http2: bool = False,
     http3: bool = False,
     reload: bool = False,
     reload_include: str | None = None,
@@ -266,6 +268,7 @@ def serve(
             no_access_log=no_access_log,
             ssl_certfile=ssl_certfile,
             ssl_keyfile=ssl_keyfile,
+            no_http2=no_http2,
             http3=http3,
             reload=reload,
             reload_include=reload_include,
@@ -337,6 +340,7 @@ def _serve_impl(
     no_access_log: bool,
     ssl_certfile: str | None,
     ssl_keyfile: str | None,
+    no_http2: bool,
     http3: bool,
     reload: bool,
     reload_include: str | None,
@@ -394,6 +398,8 @@ def _serve_impl(
         cli_overrides["ssl_certfile"] = ssl_certfile
     if ssl_keyfile is not None:
         cli_overrides["ssl_keyfile"] = ssl_keyfile
+    if no_http2:
+        cli_overrides["http2_enabled"] = False
     if http3:
         cli_overrides["http3_enabled"] = True
     if reload:
@@ -712,6 +718,7 @@ def check(
     no_access_log: bool = False,
     ssl_certfile: str | None = None,
     ssl_keyfile: str | None = None,
+    no_http2: bool = False,
     http3: bool = False,
     reload: bool = False,
     reload_include: str | None = None,
@@ -775,6 +782,8 @@ def check(
         cli_overrides["ssl_certfile"] = ssl_certfile
     if ssl_keyfile is not None:
         cli_overrides["ssl_keyfile"] = ssl_keyfile
+    if no_http2:
+        cli_overrides["http2_enabled"] = False
     if http3:
         cli_overrides["http3_enabled"] = True
     if reload:
@@ -974,6 +983,7 @@ def _check_config_valid(
     no_access_log: bool,
     ssl_certfile: str | None,
     ssl_keyfile: str | None,
+    no_http2: bool,
     http3: bool,
     reload: bool,
     reload_include: str | None,
@@ -1004,6 +1014,7 @@ def _check_config_valid(
             access_log=not no_access_log,
             ssl_certfile=ssl_certfile,
             ssl_keyfile=ssl_keyfile,
+            http2_enabled=not no_http2,
             http3_enabled=http3,
             reload=reload,
             reload_include=parse_extensions(reload_include),

@@ -115,6 +115,16 @@ class TestCLIServeCommand:
         assert config.write_timeout == 60.0
         assert config.max_requests_per_connection == 1000
 
+    @pytest.mark.issue(243)
+    def test_no_http2_forces_h1_origin_alpn(self, mocker):
+        mock_server = mocker.patch("pounce._cli.Server")
+        mocker.patch("pounce._cli.import_app", return_value=lambda: None)
+
+        cli.call("serve", app="myapp:app", no_http2=True)
+
+        config = mock_server.call_args[0][0]
+        assert config.http2_enabled is False
+
     def test_factory_pattern_preserved(self, mocker):
         mocker.patch("pounce._cli.Server")
         mock_import = mocker.patch("pounce._cli.import_app", return_value=lambda: None)

@@ -82,6 +82,7 @@ All timeouts and limits are numeric and non-sensitive.
 | Field                  | Classification    | Note                                                |
 |------------------------|-------------------|-----------------------------------------------------|
 | `server_header`        | REDACT_TO_BOOL    | Users set this to hide that they use pounce         |
+| `http2_enabled`        | EXPOSE            | Protocol negotiation policy                         |
 | `date_header`          | EXPOSE            |                                                     |
 | `root_path`            | REDACT_TO_BOOL    | URL structure hint                                  |
 | `compression`          | EXPOSE            |                                                     |
