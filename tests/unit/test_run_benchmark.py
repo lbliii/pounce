@@ -45,6 +45,18 @@ def test_pounce_server_command_uses_current_cli_shape() -> None:
     assert "benchmarks.apps.chirp_forum:app" in command
 
 
+def test_comparison_server_commands_use_documented_cli_shapes() -> None:
+    hypercorn = _server_command("hypercorn", "hello", 8101, 2)
+    granian = _server_command("granian", "hello", 8102, 2)
+
+    assert hypercorn[1:5] == ["-m", "hypercorn", "--bind", "127.0.0.1:8101"]
+    assert hypercorn[-1] == "benchmarks.apps.hello:app"
+    assert granian[1:5] == ["-m", "granian", "--interface", "asgi"]
+    assert "127.0.0.1" in granian
+    assert "8102" in granian
+    assert granian[-1] == "benchmarks.apps.hello:app"
+
+
 def test_command_string_redacts_sys_executable_path() -> None:
     command = _server_command("pounce", "chirp", 8100, 2)
     rendered = _command_string(command)
@@ -156,6 +168,42 @@ def test_build_artifact_has_required_schema_fields(monkeypatch: pytest.MonkeyPat
     assert artifact["comparison_target_version"] == "uvicorn 1.2.3"
     assert "pounce:chirp" in artifact["server_command"]
     assert "uvicorn:chirp" in artifact["server_command"]
+
+
+def test_build_artifact_records_multiple_comparison_servers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runner, "_server_version", lambda module: f"{module} 1.2.3")
+    suite = BenchmarkSuite(timestamp="2026-07-08T120000-0400")
+
+    artifact = build_artifact(
+        suite,
+        command=["python", "benchmarks/run_benchmark.py"],
+        workload="hello",
+        workers=4,
+        duration=120,
+        connections=100,
+        threads=4,
+        load_tool="pounce-fixed-rate",
+        load_tool_version="builtin-v1",
+        compare=False,
+        servers=("pounce", "uvicorn", "hypercorn", "granian"),
+        target_rps=1000,
+    )
+
+    assert artifact["target_rps"] == 1000
+    assert artifact["comparison_target"] == ["uvicorn", "hypercorn", "granian"]
+    assert artifact["comparison_target_version"] == {
+        "uvicorn": "uvicorn 1.2.3",
+        "hypercorn": "hypercorn 1.2.3",
+        "granian": "granian 1.2.3",
+    }
+    assert set(artifact["server_command"]) == {
+        "pounce:hello",
+        "uvicorn:hello",
+        "hypercorn:hello",
+        "granian:hello",
+    }
 
 
 def test_build_artifact_separates_samples_from_raw_output() -> None:
