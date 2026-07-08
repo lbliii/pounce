@@ -3,7 +3,7 @@
 import pytest
 
 from pounce._types import Receive, Scope, Send
-from pounce.testing import TestServer, serve
+from pounce.testing import RoundRobinTestProxy, TestServer, serve
 
 # ---------------------------------------------------------------------------
 # ASGI test apps
@@ -114,3 +114,88 @@ class TestPounceServerFixtureIntegration:
         resp = httpx.get(f"{server.url}/")
         assert resp.status_code == 200
         assert resp.text == "Hello, World!"
+
+
+@pytest.mark.integration
+class TestRoundRobinTestProxy:
+    """Two real Pounce instances stay connection-pinned behind one proxy."""
+
+    @staticmethod
+    def _instance_app(instance: str):
+        async def app(scope: Scope, receive: Receive, send: Send) -> None:
+            if scope["type"] != "http":
+                return
+            await receive()
+            body = instance.encode()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-length", str(len(body)).encode())],
+                }
+            )
+            await send({"type": "http.response.body", "body": body})
+
+        return app
+
+    @staticmethod
+    def _sse_instance_app(instance: str):
+        async def app(scope: Scope, receive: Receive, send: Send) -> None:
+            if scope["type"] != "http":
+                return
+            await receive()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/event-stream")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": f"data: {instance}\n\n".encode(),
+                    "more_body": True,
+                }
+            )
+            await receive()
+
+        return app
+
+    @staticmethod
+    def _read_sse_instance(proxy: RoundRobinTestProxy) -> str:
+        import socket
+
+        client = socket.create_connection((proxy.host, proxy.port), timeout=3.0)
+        client.settimeout(3.0)
+        try:
+            client.sendall(b"GET /events HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            response = b""
+            while b"\n\n" not in response:
+                response += client.recv(4096)
+            return response.split(b"data: ", 1)[1].split(b"\n", 1)[0].decode()
+        finally:
+            client.close()
+
+    def test_routes_new_connections_across_two_instances(self):
+        with (
+            TestServer(self._instance_app("instance-a")) as first,
+            TestServer(self._instance_app("instance-b")) as second,
+            RoundRobinTestProxy([first, second]) as proxy,
+        ):
+            responses = [
+                httpx.get(proxy.url, headers={"connection": "close"}).text for _ in range(4)
+            ]
+
+        assert responses == ["instance-a", "instance-b", "instance-a", "instance-b"]
+
+    @pytest.mark.issue(238)
+    def test_pins_sse_connections_across_two_instances(self):
+        with (
+            TestServer(self._sse_instance_app("instance-a")) as first,
+            TestServer(self._sse_instance_app("instance-b")) as second,
+            RoundRobinTestProxy([first, second]) as proxy,
+        ):
+            instances = [self._read_sse_instance(proxy) for _ in range(4)]
+
+        assert instances == ["instance-a", "instance-b", "instance-a", "instance-b"]

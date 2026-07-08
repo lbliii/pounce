@@ -73,6 +73,7 @@ _CRLFCRLF: bytes = b"\r\n\r\n"
 # ``wait_closed()`` returning when ``active == 0``).
 _DRAIN_ACCEPT_GRACE_S: float = 0.5
 _DRAIN_ACCEPT_POLL_S: float = 0.1
+_DRAIN_HOOK_TIMEOUT: float = 1.0
 
 
 async def _worker_lifecycle_receive() -> dict[str, Any]:
@@ -239,6 +240,7 @@ class SyncWorker:
         "_date_header_bytes",
         "_drain_event",
         "_ext_shutdown",
+        "_generation",
         "_lifecycle",
         "_lifespan_state",
         "_logger",
@@ -258,6 +260,7 @@ class SyncWorker:
         sock: socket.socket | None,
         *,
         worker_id: int = 0,
+        generation: int = 0,
         shutdown_event: threading.Event | None = None,
         ssl_context: ssl.SSLContext | None = None,
         lifecycle_collector: LifecycleCollector | None = None,
@@ -273,6 +276,7 @@ class SyncWorker:
         self._app = app
         self._sock = sock
         self._worker_id = worker_id
+        self._generation = generation
         self._ext_shutdown = shutdown_event
         self._drain_event = threading.Event()
         self._ssl_context = ssl_context
@@ -335,6 +339,11 @@ class SyncWorker:
                 self._run_accept_loop(poll_interval, runner)
         finally:
             if started:
+                full_shutdown = self._ext_shutdown is not None and self._ext_shutdown.is_set()
+                reason = (
+                    "reload" if self._drain_event.is_set() and not full_shutdown else "shutdown"
+                )
+                runner.run(self._run_worker_draining_hook(reason))
                 runner.run(self._run_worker_shutdown_hook())
             runner.close()
 
@@ -350,7 +359,11 @@ class SyncWorker:
         try:
             await asyncio.wait_for(
                 self._app(
-                    {"type": "pounce.worker.startup", "worker_id": self._worker_id},
+                    {
+                        "type": "pounce.worker.startup",
+                        "worker_id": self._worker_id,
+                        "generation": self._generation,
+                    },
                     _worker_lifecycle_receive,
                     _worker_lifecycle_send,
                 ),
@@ -378,7 +391,11 @@ class SyncWorker:
         try:
             await asyncio.wait_for(
                 self._app(
-                    {"type": "pounce.worker.shutdown", "worker_id": self._worker_id},
+                    {
+                        "type": "pounce.worker.shutdown",
+                        "worker_id": self._worker_id,
+                        "generation": self._generation,
+                    },
                     _worker_lifecycle_receive,
                     _worker_lifecycle_send,
                 ),
@@ -387,6 +404,29 @@ class SyncWorker:
         except Exception:
             self._logger.warning(
                 "Sync worker shutdown hook raised — if this is unexpected, check your app",
+                exc_info=True,
+            )
+
+    async def _run_worker_draining_hook(self, reason: str) -> None:
+        """Notify the app before streaming handoffs are retired."""
+        try:
+            await asyncio.wait_for(
+                self._app(
+                    {
+                        "type": "pounce.worker.draining",
+                        "worker_id": self._worker_id,
+                        "generation": self._generation,
+                        "reason": reason,
+                        "timeout": self._config.shutdown_timeout,
+                    },
+                    _worker_lifecycle_receive,
+                    _worker_lifecycle_send,
+                ),
+                timeout=min(self._config.shutdown_timeout, _DRAIN_HOOK_TIMEOUT),
+            )
+        except Exception:
+            self._logger.debug(
+                "Sync worker draining hook raised or timed out (expected for apps without it)",
                 exc_info=True,
             )
 
@@ -710,6 +750,11 @@ class SyncWorker:
                 scope, request_id = prepare_request(
                     request, self._config, client, server, self._lifespan_state
                 )
+                scope.setdefault("extensions", {})["pounce.worker"] = {
+                    "version": 1,
+                    "worker_id": self._worker_id,
+                    "generation": self._generation,
+                }
                 scope.setdefault("extensions", {})["pounce.inline_sync"] = True
 
                 builtin = maybe_build_builtin_response(
@@ -745,7 +790,7 @@ class SyncWorker:
                         runner=runner,
                     )
                 except NeedsAsyncError:
-                    if self._streaming_handoff(conn, scope, body, request_id):
+                    if self._streaming_handoff(conn, scope, body, request_id, conn_id):
                         return True
                     break
                 except Exception:
@@ -759,7 +804,7 @@ class SyncWorker:
                     )
                     break
                 if response.needs_async:
-                    if self._streaming_handoff(conn, scope, body, request_id):
+                    if self._streaming_handoff(conn, scope, body, request_id, conn_id):
                         return True
                     break
 
@@ -849,6 +894,7 @@ class SyncWorker:
         scope: dict[str, Any],
         body: bytes,
         request_id: str | None,
+        connection_id: int,
     ) -> bool:
         """Hand a streaming response off to the async pool, or send 501.
 
@@ -863,6 +909,8 @@ class SyncWorker:
                     scope=scope,
                     body=body,
                     request_id=request_id,
+                    worker_id=self._worker_id,
+                    connection_id=connection_id,
                 )
             )
             return True

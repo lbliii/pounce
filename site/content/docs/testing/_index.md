@@ -42,3 +42,24 @@ def test_with_fixture(pounce_server):
 
 The helper uses Pounce's normal listener, worker, lifespan, and shutdown paths,
 so it catches integration bugs that a direct ASGI harness would miss.
+
+## Multi-instance SSE
+
+`RoundRobinTestProxy` pins each incoming TCP connection to the next real
+`TestServer`. It preserves long-lived response bytes and is intended for tests
+such as cross-instance EventStream fan-out; it is not a production proxy and
+does not add forwarding headers.
+
+```python
+from pounce.testing import RoundRobinTestProxy, TestServer
+
+
+with (
+    TestServer(app_a) as instance_a,
+    TestServer(app_b) as instance_b,
+    RoundRobinTestProxy([instance_a, instance_b]) as proxy,
+):
+    assert proxy.url.startswith("http://")
+    # Open SSE clients through proxy.url; successive TCP connections alternate
+    # between instance_a and instance_b.
+```

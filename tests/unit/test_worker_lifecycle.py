@@ -2,7 +2,8 @@
 
 Covers:
 - Worker sends ``pounce.worker.startup`` before accepting connections.
-- Worker sends ``pounce.worker.shutdown`` after closing the server.
+- Worker sends ``pounce.worker.draining`` before bounded drain and
+  ``pounce.worker.shutdown`` after closing the server.
 - Startup failure prevents the worker from accepting connections.
 - Shutdown failure is logged but does not prevent worker exit.
 - Apps that raise on unknown scope types are handled gracefully.
@@ -99,12 +100,17 @@ class TestWorkerLifecycleScopes:
 
     @pytest.mark.asyncio
     async def test_startup_and_shutdown_both_sent(self):
-        """Both startup and shutdown scopes fire in correct order."""
+        """Startup, draining, and shutdown scopes fire in contract order."""
         events: list[str] = []
+        draining_scopes: list[dict] = []
 
         async def app(scope: Scope, receive: Receive, send: Send) -> None:
             if scope["type"] == "pounce.worker.startup":
                 events.append("startup")
+                return
+            if scope["type"] == "pounce.worker.draining":
+                events.append("draining")
+                draining_scopes.append(dict(scope))
                 return
             if scope["type"] == "pounce.worker.shutdown":
                 events.append("shutdown")
@@ -129,7 +135,16 @@ class TestWorkerLifecycleScopes:
         thread.join(timeout=3)
         sock.close()
 
-        assert events == ["startup", "shutdown"]
+        assert events == ["startup", "draining", "shutdown"]
+        assert draining_scopes == [
+            {
+                "type": "pounce.worker.draining",
+                "worker_id": 0,
+                "generation": 0,
+                "reason": "shutdown",
+                "timeout": config.shutdown_timeout,
+            }
+        ]
 
 
 class TestSyncWorkerLifecycleScopes:
@@ -141,7 +156,11 @@ class TestSyncWorkerLifecycleScopes:
 
         async def app(scope: Scope, receive: Receive, send: Send) -> None:
             scope_type = scope["type"]
-            if scope_type in {"pounce.worker.startup", "pounce.worker.shutdown"}:
+            if scope_type in {
+                "pounce.worker.startup",
+                "pounce.worker.draining",
+                "pounce.worker.shutdown",
+            }:
                 events.append(
                     (
                         scope_type,
@@ -194,10 +213,11 @@ class TestSyncWorkerLifecycleScopes:
         assert [event[0] for event in events] == [
             "pounce.worker.startup",
             "http",
+            "pounce.worker.draining",
             "pounce.worker.shutdown",
         ]
-        assert events[0][1] == events[2][1] == 11
-        assert events[0][2] is events[1][2] is events[2][2]
+        assert events[0][1] == events[2][1] == events[3][1] == 11
+        assert events[0][2] is events[1][2] is events[2][2] is events[3][2]
 
     def test_sync_worker_fatal_startup_failure_never_accepts(self) -> None:
         shutdown_scope_seen = False
@@ -455,6 +475,9 @@ class TestSingleWorkerLifecycle:
             if scope["type"] == "pounce.worker.startup":
                 events.append("startup")
                 return
+            if scope["type"] == "pounce.worker.draining":
+                events.append("draining")
+                return
             if scope["type"] == "pounce.worker.shutdown":
                 events.append("shutdown")
                 return
@@ -480,7 +503,7 @@ class TestSingleWorkerLifecycle:
         server.shutdown()
         thread.join(timeout=3)
 
-        assert events == ["startup", "shutdown"]
+        assert events == ["startup", "draining", "shutdown"]
 
     @pytest.mark.asyncio
     async def test_single_worker_ignores_unknown_startup_scope_exception(self):

@@ -3,7 +3,7 @@
 import pytest
 
 from pounce._types import Receive, Scope, Send
-from pounce.testing import TestServer
+from pounce.testing import RoundRobinTestProxy, TestServer
 
 # ---------------------------------------------------------------------------
 # Minimal ASGI app for tests
@@ -98,6 +98,26 @@ class TestTestServerLifecycle:
             assert server.port > 0
             assert server.url.startswith("http://127.0.0.1:")
         assert not server.is_running
+
+
+class TestRoundRobinTestProxyProperties:
+    def test_requires_a_backend(self):
+        with pytest.raises(ValueError, match="at least one backend"):
+            RoundRobinTestProxy([])
+
+    def test_properties_before_start_raise(self):
+        proxy = RoundRobinTestProxy([TestServer(_test_app)])
+        with pytest.raises(RuntimeError, match="not started"):
+            _ = proxy.url
+        assert not proxy.is_running
+
+    def test_stop_is_idempotent(self):
+        RoundRobinTestProxy([TestServer(_test_app)]).stop()
+
+    def test_backends_must_be_running(self):
+        proxy = RoundRobinTestProxy([TestServer(_test_app)])
+        with pytest.raises(RuntimeError, match="backends must be running"):
+            proxy.start()
 
     def test_ephemeral_port(self):
         """port=0 should bind to a random available port."""

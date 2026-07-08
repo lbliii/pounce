@@ -17,6 +17,7 @@ Phase 4 hot-path optimizations:
 """
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -46,6 +47,7 @@ class SendState:
     response_started: bool = False  # True when http.response.start was sent
     response_complete: bool = False  # True after final http.response.body
     streaming: bool = False  # True for SSE or chunked (no Content-Length)
+    client_disconnected: bool = False
 
 
 def is_streaming_response(headers: list[tuple[bytes, bytes]]) -> bool:
@@ -300,6 +302,7 @@ def create_send(
     extra_headers: list[tuple[bytes, bytes]] | None = None,
     sendfile_fn: SendfileCallable | None = None,
     compression_min_size: int = 0,
+    on_stream_start: Callable[[], None] | None = None,
 ) -> Send:
     """Create an ASGI send callable that streams to the transport.
 
@@ -465,6 +468,8 @@ def create_send(
             # but we guard at the bridge level to catch it before serialization.
             headers = _sanitize_headers(headers)
             state.streaming = is_streaming_response(headers)
+            if state.streaming and on_stream_start is not None:
+                on_stream_start()
 
             # Alt-Svc for HTTP/3 upgrade (RFC 7838)
             # Use actual bound port from server tuple; config.port may be 0 (ephemeral)

@@ -52,6 +52,8 @@ STATUS_IDLE = "idle"
 STATUS_STOPPED = "stopped"
 STATUS_ERROR = "error"
 
+_DRAIN_HOOK_TIMEOUT = 1.0
+
 
 def bootstrap(
     ctrl_queue: Any,
@@ -62,6 +64,7 @@ def bootstrap(
     sock_fd: int,
     sock_family: int,
     worker_id: int,
+    generation: int,
     parent_sys_path: tuple[str, ...],
 ) -> None:
     """Bootstrap a Worker inside a subinterpreter.
@@ -120,6 +123,7 @@ def bootstrap(
                 app,
                 server_sock,
                 worker_id=worker_id,
+                generation=generation,
                 shutdown_event=None,
                 max_connections=per_worker_max,
             )
@@ -169,7 +173,11 @@ async def _run_worker_with_iic(
     try:
         await asyncio.wait_for(
             worker._app(
-                {"type": "pounce.worker.startup", "worker_id": worker._worker_id},
+                {
+                    "type": "pounce.worker.startup",
+                    "worker_id": worker._worker_id,
+                    "generation": worker._generation,
+                },
                 _noop_receive,
                 _noop_send,
             ),
@@ -235,7 +243,11 @@ async def _run_worker_with_iic(
         try:
             await asyncio.wait_for(
                 worker._app(
-                    {"type": "pounce.worker.shutdown", "worker_id": worker._worker_id},
+                    {
+                        "type": "pounce.worker.shutdown",
+                        "worker_id": worker._worker_id,
+                        "generation": worker._generation,
+                    },
                     _noop_receive,
                     _noop_send,
                 ),
@@ -306,6 +318,7 @@ async def _iic_bridge(
     draining = False
     drain_deadline: float | None = None
     idle_announced = False
+    draining_hook_task: asyncio.Task[None] | None = None
 
     while True:
         await asyncio.sleep(poll_interval)
@@ -313,11 +326,23 @@ async def _iic_bridge(
         if msg is not None:
             cmd = msg[0]
             if cmd == CMD_SHUTDOWN:
+                if not draining:
+                    draining_hook_task = asyncio.create_task(
+                        _run_worker_draining_hook(worker, "shutdown")
+                    )
+                if draining_hook_task is not None:
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(
+                            asyncio.shield(draining_hook_task),
+                            timeout=_DRAIN_HOOK_TIMEOUT,
+                        )
                 status_queue.put((STATUS_DRAINING,))
                 worker._async_shutdown.set()
                 return
             if cmd in (CMD_DRAIN, CMD_RELOAD_DRAIN) and not draining:
                 status_queue.put((STATUS_DRAINING,))
+                reason = "reload" if cmd == CMD_RELOAD_DRAIN else "shutdown"
+                draining_hook_task = asyncio.create_task(_run_worker_draining_hook(worker, reason))
                 if cmd == CMD_RELOAD_DRAIN and server is not None:
                     server.close()
                 worker._draining = True
@@ -340,6 +365,30 @@ async def _iic_bridge(
         if not idle_announced and worker.is_idle():
             status_queue.put((STATUS_IDLE,))
             idle_announced = True
+
+
+async def _run_worker_draining_hook(worker: Any, reason: str) -> None:
+    """Notify a subinterpreter app before its streams are force-closed."""
+    try:
+        await asyncio.wait_for(
+            worker._app(
+                {
+                    "type": "pounce.worker.draining",
+                    "worker_id": worker._worker_id,
+                    "generation": worker._generation,
+                    "reason": reason,
+                    "timeout": worker._config.shutdown_timeout,
+                },
+                _noop_receive,
+                _noop_send,
+            ),
+            timeout=min(worker._config.shutdown_timeout, _DRAIN_HOOK_TIMEOUT),
+        )
+    except Exception:
+        logger.debug(
+            "Subinterpreter draining hook raised or timed out (expected for apps without it)",
+            exc_info=True,
+        )
 
 
 def _import_app(app_path: str) -> Any:

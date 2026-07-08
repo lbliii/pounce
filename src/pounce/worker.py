@@ -66,6 +66,8 @@ from pounce.lifecycle import (
     NoopCollector,
     RequestStarted,
     ResponseCompleted,
+    StreamClosed,
+    StreamOpened,
     next_connection_id,
 )
 from pounce.lifecycle import (
@@ -77,6 +79,8 @@ from pounce.protocols._base import (
     RequestReceived,
 )
 from pounce.protocols.h1 import H1Protocol
+
+_DRAIN_HOOK_TIMEOUT = 1.0
 
 
 def _create_h1_protocol(
@@ -138,6 +142,7 @@ class Worker:
         "_conn_lock",
         "_draining",
         "_ext_shutdown",
+        "_generation",
         "_lifecycle",
         "_lifespan_state",
         "_logger",
@@ -158,6 +163,7 @@ class Worker:
         sock: socket.socket,
         *,
         worker_id: int = 0,
+        generation: int = 0,
         shutdown_event: threading.Event | None = None,
         max_connections: int = 0,
         ssl_context: ssl.SSLContext | None = None,
@@ -169,6 +175,7 @@ class Worker:
 
         self._sock = sock
         self._worker_id = worker_id
+        self._generation = generation
         self._ext_shutdown = shutdown_event
         self._async_shutdown: asyncio.Event | None = None  # created inside event loop
         self._loop: asyncio.AbstractEventLoop | None = None  # set in _serve
@@ -371,9 +378,13 @@ class Worker:
             # finish its existing connections; it must not 503 traffic the new
             # generation is meant to serve.
             timeout = self._config.shutdown_timeout
+            drain_deadline = asyncio.get_running_loop().time() + timeout
             full_shutdown = self._ext_shutdown is not None and self._ext_shutdown.is_set()
+            drain_reason = "shutdown" if full_shutdown or not self._draining else "reload"
+            await self._run_worker_draining_hook(drain_reason, timeout)
+            remaining = max(0.0, drain_deadline - asyncio.get_running_loop().time())
             if full_shutdown and self._draining:
-                await self._await_drain_idle(timeout)
+                await self._await_drain_idle(remaining)
 
             # Guard against shared-fd sockets: on macOS all workers share
             # the same socket fd.  When the first worker closes the asyncio
@@ -388,7 +399,7 @@ class Worker:
                 # (WebSocket, SSE) block wait_closed() indefinitely, preventing
                 # the worker thread from ever exiting.
                 try:
-                    await asyncio.wait_for(server.wait_closed(), timeout=timeout)
+                    await asyncio.wait_for(server.wait_closed(), timeout=remaining)
                 except TimeoutError:
                     self._logger.warning(
                         "Worker %d: %d connection(s) still open after %.1fs "
@@ -410,7 +421,11 @@ class Worker:
             try:
                 await asyncio.wait_for(
                     self._app(
-                        {"type": "pounce.worker.shutdown", "worker_id": self._worker_id},
+                        {
+                            "type": "pounce.worker.shutdown",
+                            "worker_id": self._worker_id,
+                            "generation": self._generation,
+                        },
                         _worker_lifecycle_receive,
                         _worker_lifecycle_send,
                     ),
@@ -474,7 +489,11 @@ class Worker:
         try:
             await asyncio.wait_for(
                 self._app(
-                    {"type": "pounce.worker.startup", "worker_id": self._worker_id},
+                    {
+                        "type": "pounce.worker.startup",
+                        "worker_id": self._worker_id,
+                        "generation": self._generation,
+                    },
                     _worker_lifecycle_receive,
                     _worker_lifecycle_send,
                 ),
@@ -496,6 +515,29 @@ class Worker:
             )
             return False
         return True
+
+    async def _run_worker_draining_hook(self, reason: str, timeout: float) -> None:
+        """Notify the app that active streams should finish promptly."""
+        try:
+            await asyncio.wait_for(
+                self._app(
+                    {
+                        "type": "pounce.worker.draining",
+                        "worker_id": self._worker_id,
+                        "generation": self._generation,
+                        "reason": reason,
+                        "timeout": timeout,
+                    },
+                    _worker_lifecycle_receive,
+                    _worker_lifecycle_send,
+                ),
+                timeout=min(timeout, _DRAIN_HOOK_TIMEOUT),
+            )
+        except Exception:
+            self._logger.debug(
+                "Worker draining hook raised or timed out (expected for apps without it)",
+                exc_info=True,
+            )
 
     async def _bridge_shutdown(self, ext_event: threading.Event) -> None:
         """Poll an external ``threading.Event`` and set the async shutdown.
@@ -898,6 +940,11 @@ class Worker:
         scope, request_id = prepare_request(
             request, self._config, client, server, self._lifespan_state
         )
+        scope.setdefault("extensions", {})["pounce.worker"] = {
+            "version": 1,
+            "worker_id": self._worker_id,
+            "generation": self._generation,
+        }
 
         compressor, dictionary = negotiate_compressor(
             self._config,
@@ -1007,6 +1054,23 @@ class Worker:
         app_start = monotonic_ns()
         profile_app_start = app_start if profile_ctx is not None else 0
         send_state = SendState()
+        stream_started_ns = 0
+
+        def record_stream_started() -> None:
+            nonlocal stream_started_ns
+            if stream_started_ns:
+                return
+            stream_started_ns = lifecycle_ns()
+            self._lifecycle.record(
+                StreamOpened(
+                    connection_id=connection_id,
+                    worker_id=self._worker_id,
+                    method=scope.get("method", "unknown"),
+                    path=scope.get("path", "/"),
+                    timestamp_ns=stream_started_ns,
+                )
+            )
+
         # Build Use-As-Dictionary advertisement headers for matching paths
         dict_advert_headers: list[tuple[bytes, bytes]] | None = None
         if self._config.compression_dictionaries:
@@ -1034,6 +1098,7 @@ class Worker:
             extra_headers=dict_advert_headers,
             sendfile_fn=sendfile_fn,
             compression_min_size=self._config.compression_min_size,
+            on_stream_start=record_stream_started,
         )
 
         # Create OpenTelemetry span for this request
@@ -1101,6 +1166,25 @@ class Worker:
 
         if profile_ctx is not None:
             profile_ctx.app_ms = elapsed_ms(profile_app_start)
+
+        if stream_started_ns:
+            if self._draining:
+                stream_reason = "drain"
+            elif send_state.client_disconnected:
+                stream_reason = "client_disconnect"
+            elif send_state.response_complete:
+                stream_reason = "complete"
+            else:
+                stream_reason = "error"
+            self._lifecycle.record(
+                StreamClosed(
+                    connection_id=connection_id,
+                    worker_id=self._worker_id,
+                    duration_ms=round((lifecycle_ns() - stream_started_ns) / 1_000_000, 1),
+                    reason=stream_reason,
+                    timestamp_ns=lifecycle_ns(),
+                )
+            )
 
         # If app returned without sending http.response.start, send 500 now.
         # Do not treat empty-body responses (HEAD/204/304) as "no response".
@@ -1242,6 +1326,7 @@ class Worker:
 
             # If the monitor won (client disconnected), emit event
             if monitor_task in done and app_task not in done:
+                send_state.client_disconnected = True
                 self._lifecycle.record(
                     ClientDisconnected(
                         connection_id=connection_id,

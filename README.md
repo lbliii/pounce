@@ -222,7 +222,7 @@ Compression uses Python 3.14's stdlib `compression.zstd` — zero external depen
 <summary><strong>Testing</strong> — Real server for integration tests</summary>
 
 ```python
-from pounce.testing import TestServer
+from pounce.testing import RoundRobinTestProxy, TestServer
 import httpx
 
 def test_homepage(my_app):
@@ -239,6 +239,10 @@ def test_api(pounce_server, my_app):
     resp = httpx.get(f"{server.url}/health")
     assert resp.status_code == 200
 ```
+
+For multi-instance HTTP/SSE tests, run two `TestServer` instances behind
+`RoundRobinTestProxy([first, second])`; each new TCP connection is pinned to
+the next backend.
 
 </details>
 

@@ -7,6 +7,8 @@ from pounce.lifecycle import (
     ConnectionOpened,
     RequestStarted,
     ResponseCompleted,
+    StreamClosed,
+    StreamOpened,
 )
 from pounce.metrics import PrometheusCollector
 
@@ -207,6 +209,42 @@ class TestPrometheusCollector:
         snap = collector.snapshot()
         assert snap["requests_in_flight"] == 0
 
+    def test_stream_gauge_and_duration_histogram(self):
+        collector = PrometheusCollector(duration_buckets=(0.1, 1.0, float("inf")))
+
+        collector.record(
+            StreamOpened(
+                connection_id=1,
+                worker_id=0,
+                method="GET",
+                path="/events",
+                timestamp_ns=self._now(),
+            )
+        )
+        assert collector.snapshot()["streams_active"] == 1
+        assert "http_streams_active 1" in collector.export()
+
+        collector.record(
+            StreamClosed(
+                connection_id=1,
+                worker_id=0,
+                duration_ms=250.0,
+                reason="drain",
+                timestamp_ns=self._now(),
+            )
+        )
+
+        snap = collector.snapshot()
+        assert snap["streams_active"] == 0
+        assert snap["stream_duration_count"] == 1
+        assert snap["stream_duration_sum_seconds"] == 0.25
+        text = collector.export()
+        assert "http_streams_active 0" in text
+        assert 'http_stream_duration_seconds_bucket{le="0.1"} 0' in text
+        assert 'http_stream_duration_seconds_bucket{le="1.0"} 1' in text
+        assert "http_stream_duration_seconds_sum 0.25" in text
+        assert "http_stream_duration_seconds_count 1" in text
+
     def test_export_format(self):
         """Export produces valid Prometheus text format."""
         collector = PrometheusCollector()
@@ -237,6 +275,8 @@ class TestPrometheusCollector:
         assert "# TYPE http_request_duration_seconds histogram" in text
         assert "# TYPE http_connections_active gauge" in text
         assert "# TYPE http_requests_in_flight gauge" in text
+        assert "# TYPE http_streams_active gauge" in text
+        assert "# TYPE http_stream_duration_seconds histogram" in text
         assert "http_requests_total{" in text
         assert 'http_request_duration_seconds_bucket{le="+Inf"}' in text
         assert "http_request_duration_seconds_sum" in text

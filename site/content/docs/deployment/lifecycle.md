@@ -91,18 +91,31 @@ config = ServerConfig(
 
 On SIGTERM or SIGINT, pounce drains connections then exits:
 
-1. **Stops accepting** new connections immediately
-2. **Finishes** active requests (up to `shutdown_timeout`)
-3. **Force-terminates** work that exceeds the timeout
-4. Runs per-worker `pounce.worker.shutdown` hooks
-5. Completes ASGI `lifespan.shutdown`
-6. Releases listeners and **exits** with status 0
+1. Emits `pounce.worker.draining` with worker/generation identity, reason, and timeout
+2. **Stops accepting** new connections immediately
+3. **Finishes** active requests (up to `shutdown_timeout`)
+4. **Force-terminates** work that exceeds the timeout
+5. Runs per-worker `pounce.worker.shutdown` hooks
+6. Completes ASGI `lifespan.shutdown`
+7. Releases listeners and **exits** with status 0
 
 ```python
 config = ServerConfig(
     shutdown_timeout=30.0,  # Per-worker drain time (default: 10s)
 )
 ```
+
+The draining hook is a Pounce ASGI extension scope. It is bounded to one
+second inside the existing shutdown budget. Stream registries can use
+`(worker_id, generation)` to emit a final SSE close event only to clients on
+the retiring generation; HTTP scopes carry the matching identity at
+`scope["extensions"]["pounce.worker"]`. Apps that do not recognize the hook
+may return or raise as they do for the existing worker hooks.
+
+On graceful reload, old-generation streams receive `reason="reload"`. They
+keep running until the app closes them or the configured drain deadline forces
+the old worker closed. New-generation streams use a different generation and
+are not part of that notification.
 
 ### Kubernetes
 

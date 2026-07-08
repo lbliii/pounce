@@ -11,6 +11,8 @@ from pounce.lifecycle import (
     NoopCollector,
     RequestStarted,
     ResponseCompleted,
+    StreamClosed,
+    StreamOpened,
     monotonic_ns,
     next_connection_id,
 )
@@ -71,6 +73,24 @@ class TestEventTypes:
             timestamp_ns=monotonic_ns(),
         )
         assert event.during_streaming is True
+
+    def test_stream_lifecycle_fields(self):
+        opened = StreamOpened(
+            connection_id=1,
+            worker_id=2,
+            method="GET",
+            path="/events",
+            timestamp_ns=monotonic_ns(),
+        )
+        closed = StreamClosed(
+            connection_id=1,
+            worker_id=2,
+            duration_ms=250.0,
+            reason="drain",
+            timestamp_ns=monotonic_ns(),
+        )
+        assert opened.path == "/events"
+        assert closed.reason == "drain"
 
     def test_connection_closed_fields(self):
         event = ConnectionCompleted(

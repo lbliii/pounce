@@ -28,6 +28,7 @@ from pounce.async_pool import (
     _create_h1_protocol,
 )
 from pounce.config import ServerConfig
+from pounce.metrics import PrometheusCollector
 from pounce.protocols._base import RequestReceived
 
 
@@ -186,6 +187,52 @@ class TestStreamingHandoff:
         out = asyncio.run(run())
         assert b"HTTP/1.1 200" in out
         assert b"hello-world" in out
+
+    def test_records_stream_lifecycle_for_sync_handoff(self) -> None:
+        collector = PrometheusCollector()
+
+        async def sse_app(scope: Scope, receive: Receive, send: Send) -> None:
+            await receive()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/event-stream")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"data: done\n\n",
+                    "more_body": False,
+                }
+            )
+
+        async def run() -> None:
+            pool = AsyncPool(
+                ServerConfig(compression=False),
+                sse_app,
+                lifecycle_collector=collector,
+            )
+            s, c = socket.socketpair()
+            s.setblocking(False)
+            try:
+                handoff = dataclasses.replace(
+                    _streaming_handoff(s),
+                    worker_id=7,
+                    connection_id=9,
+                )
+                await pool._handle_streaming_handoff(handoff)
+                _drain_socket(c)
+            finally:
+                with contextlib.suppress(OSError):
+                    s.close()
+
+        asyncio.run(run())
+        snapshot = collector.snapshot()
+        assert snapshot["streams_active"] == 0
+        assert snapshot["stream_duration_count"] == 1
+        assert snapshot["duration_count"] == 1
 
     def test_negotiates_compression_when_accepted(self) -> None:
         async def big_app(scope: Scope, receive: Receive, send: Send) -> None:

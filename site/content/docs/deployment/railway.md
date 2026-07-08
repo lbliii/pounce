@@ -251,6 +251,16 @@ Pounce version, Python build, free-threaded capability, runtime GIL state, and
 resolved worker model. Do not place secrets in `POUNCE_BUILD_ID`, and do not
 expose the introspection path publicly without reverse-proxy controls.
 
+## Long-lived SSE
+
+Pounce treats an open SSE response as active work: `header_timeout`,
+`request_timeout`, and `keep_alive_timeout` do not reap it. Send a lightweight
+SSE comment heartbeat such as `: keepalive\n\n` every 15–30 seconds for
+intermediaries that close silent connections. This does not override
+Railway's documented 15-minute maximum request duration; EventSource clients
+must reconnect and use event IDs/backfill when continuity matters. See
+[Railway's SSE and WebSocket guide](https://docs.railway.com/guides/sse-vs-websockets).
+
 ## Multi-Tenant Host Routing
 
 For Chirp or LB Sonic style host routing, prefer deriving tenant identity from
