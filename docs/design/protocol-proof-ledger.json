@@ -53,7 +53,7 @@
       ]
     },
     "http3": {
-      "status": "optional-limited",
+      "status": "optional",
       "install": "bengal-pounce[h3] + TLS",
       "proof": [
         "tests/integration/test_h3_integration.py",
@@ -62,11 +62,11 @@
         "tests/unit/test_h3_bridge.py",
         "tests/unit/test_h3_handler.py",
         "tests/unit/test_h3_worker.py",
-        "tests/unit/test_optional_protocol_diagnostics.py"
+        "tests/unit/test_optional_protocol_diagnostics.py",
+        "benchmarks/h3_profile.py",
+        "benchmarks/artifacts/2026-07-08/http3-pounce-local.json"
       ],
-      "gaps": [
-        "benchmark artifact"
-      ]
+      "gaps": []
     },
     "websocket_h3": {
       "status": "unsupported",

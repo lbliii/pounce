@@ -14,7 +14,7 @@ cascade:
   type: doc
 ---
 
-Pounce supports multiple protocols through a modular handler system. The core ships with HTTP/1.1 via h11. HTTP/2 and WebSocket are optional extras. HTTP/3 is optional with limited parity while reload/drain and benchmark proof remain open.
+Pounce supports multiple protocols through a modular handler system. The core ships with HTTP/1.1 via h11. HTTP/2, HTTP/3, and WebSocket are optional extras with protocol-specific support boundaries.
 TLS support is also optional and installs with `bengal-pounce[tls]`.
 
 :::{cards}
@@ -38,7 +38,7 @@ Install with `bengal-pounce[h2]`.
 :::{card} HTTP/3
 :icon: radio
 :link: ./http3
-:description: Optional-limited QUIC/UDP transport, QPACK, 0-RTT policy, TLS required
+:description: Optional QUIC/UDP transport, QPACK, 0-RTT policy, TLS required
 Install with `bengal-pounce[h3]`.
 :::{/card}
 

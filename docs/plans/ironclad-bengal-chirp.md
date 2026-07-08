@@ -55,8 +55,9 @@ Completed or covered by current proof:
 
 Remaining high-value gaps:
 
-- H3 reload/drain parity under load. Long-term stance: keep H3 optional-limited
-  until the H3-specific harness proves parity with the TCP lifecycle contract.
+- H3 reload/drain and benchmark gates closed in #240. The optional H3 contract
+  retains its explicit QUIC exception: over-budget streams are cancelled and
+  their connections close after `shutdown_timeout`.
 - Mixed-traffic signal proof. `tests/integration/test_signal_lifecycle.py`
   now covers CLI SIGTERM clean exit and SIGHUP recovery to serving traffic, but
   it does not yet prove active-request drain behavior, bounded 503/disconnect
@@ -88,8 +89,9 @@ Accepted findings:
 - Introspection same-listener behavior is no longer an unresolved ADR conflict;
   `docs/design/introspection-auth.md` records the accepted contract and
   `tests/unit/test_introspect.py` covers warning behavior.
-- HTTP/3 current truth is optional-limited zoomies support. H3 lifespan-state
-  handoff is proven; H3 reload/drain and benchmark artifacts remain open.
+- At this synthesis date, HTTP/3 was optional-limited zoomies support. Issue
+  #240 later closed the reload/drain and benchmark gates and promoted the
+  ledger status to optional while retaining explicit QUIC lifecycle semantics.
 - Public docs should narrow zero-downtime, immutable-config, H3 parity, and
   optional-extra wording to match `core-contract.md` and
   `protocol-proof-ledger.json`.

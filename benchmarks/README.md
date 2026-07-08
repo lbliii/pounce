@@ -125,6 +125,7 @@ Current local snapshot artifacts:
 | `benchmarks/artifacts/2026-05-22/bengal-pounce-local.json` | Bengal home page, pounce-only, 5 samples, 5s each | Local macOS/free-threaded run; use as investigation input, not a release claim. |
 | `benchmarks/artifacts/2026-05-22/chirp-pounce-local.json` | Chirp thread page, pounce-only, 5 samples, 5s each | Local macOS/free-threaded run; no uvicorn comparison. |
 | `benchmarks/artifacts/2026-07-08/process-cpu-local.json` | Hello workload, pounce-only, 2 process-worker samples with per-process CPU/RSS series | Local macOS/GIL-enabled proof run; validates telemetry capture, not a release performance claim. |
+| `benchmarks/artifacts/2026-07-08/http3-pounce-local.json` | HTTP/3 hello response over 4 persistent QUIC connections, 5 samples, 5s each | Local macOS/Python 3.14t run; protocol snapshot only, with no HTTP/2 comparison or product-level performance claim. |
 
 ## Regression Gate
 
@@ -159,7 +160,7 @@ against committed baselines on a free-threaded build.
 
 ## Profiles
 
-Beyond steady-state throughput, three profiles capture flagship behavior as
+Beyond steady-state throughput, four profiles capture flagship behavior as
 artifact-schema JSON:
 
 ```bash
@@ -179,9 +180,14 @@ python benchmarks/worker_modes.py --requests 2000 --concurrency 20 --workers 4 \
 # absence (one variance group per worker mode).
 python benchmarks/drain_profile.py --worker-mode async --workers 2 \
     --artifact-output benchmarks/artifacts/<date>/drain.json
+
+# HTTP/3: drive persistent QUIC connections through the real CLI and record
+# throughput, response latency, variance, and process telemetry.
+python benchmarks/h3_profile.py --connections 4 --duration 5 --repeat 5 \
+    --artifact-output benchmarks/artifacts/<date>/http3-local.json
 ```
 
-All three emit `artifact-schema.json`-compatible JSON, so their output feeds the
+All four emit `artifact-schema.json`-compatible JSON, so their output feeds the
 regression gate above (each worker mode is recorded as a distinct `server`). The
 drain profile's per-sample `drain` block records the four drain-contract
 metrics; `clean_drain` is true only when every in-flight request completed, no

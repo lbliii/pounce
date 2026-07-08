@@ -35,7 +35,7 @@ builds, Pounce falls back to multi-process workers automatically.
 - **ASGI-first** — Runs standard ASGI apps with CLI and programmatic entry points
 - **Free-threading native** — True thread parallelism with a frozen shared `ServerConfig`
 - **Fast-path parsing** — Built-in HTTP/1.1 parser for sync workers with tested smuggling and header-limit checks
-- **Protocol extras** — HTTP/2 and WebSocket are install-gated optional paths; HTTP/3 is optional with limited parity
+- **Protocol extras** — HTTP/2, HTTP/3, and WebSocket are install-gated optional paths with protocol-specific support boundaries
 - **Thread-worker reloads** — Rolling restart uses generational worker swap with drain behavior on supported worker modes
 - **Observable surfaces** — Typed lifecycle events, optional Prometheus metrics, OpenTelemetry, and Server-Timing headers
 - **Optional helpers** — TLS, compression, static files, middleware, rate limiting, and request queueing stay opt-in
@@ -108,7 +108,7 @@ Requires Python 3.14+
 pip install bengal-pounce[h2]     # HTTP/2 stream multiplexing
 pip install bengal-pounce[ws]     # WebSocket via wsproto
 pip install bengal-pounce[tls]    # TLS with truststore
-pip install bengal-pounce[h3]     # HTTP/3 (QUIC/UDP, requires TLS; limited parity)
+pip install bengal-pounce[h3]     # HTTP/3 (QUIC/UDP, requires TLS)
 pip install bengal-pounce[full]   # All protocol extras
 ```
 
@@ -140,7 +140,7 @@ Run `pounce config schema --output-format toml-template` for every available fie
 | **Migration** | Move from Uvicorn with similar CLI concepts | [Migrate from Uvicorn →](https://lbliii.github.io/pounce/docs/tutorials/migrate-from-uvicorn/) |
 | **HTTP/1.1** | h11 (async) + fast built-in parser (sync) | [HTTP/1.1 →](https://lbliii.github.io/pounce/docs/protocols/http1/) |
 | **HTTP/2** | Optional stream multiplexing via h2 | [HTTP/2 →](https://lbliii.github.io/pounce/docs/protocols/http2/) |
-| **HTTP/3** | Optional QUIC/UDP via bengal-zoomies; limited parity until reload/drain and benchmark proof lands | [HTTP/3 →](https://lbliii.github.io/pounce/docs/protocols/http3/) |
+| **HTTP/3** | Optional QUIC/UDP via bengal-zoomies, with real-socket lifecycle and benchmark proof | [HTTP/3 →](https://lbliii.github.io/pounce/docs/protocols/http3/) |
 | **WebSocket** | Optional RFC 6455 support via wsproto; WS-over-H2 requires h2 + ws extras | [WebSocket →](https://lbliii.github.io/pounce/docs/protocols/websocket/) |
 | **Static Files** | Pre-compressed files, ETags, range requests | [Static Files →](https://lbliii.github.io/pounce/docs/features/static-files/) |
 | **Middleware** | ASGI3 middleware stack support | [Middleware →](https://lbliii.github.io/pounce/docs/features/middleware/) |

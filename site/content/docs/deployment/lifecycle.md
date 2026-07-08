@@ -45,15 +45,17 @@ Time 5s:   [Worker-4] [Worker-5] [Worker-6] [Worker-7]  (Gen 1 only)
 If the reimport fails, pounce logs the error and continues with the old code
 instead of swapping to the failed generation.
 
-HTTP/3 uses a separate UDP/QUIC listener. Treat H3 reload/drain as limited until
-the protocol proof ledger records parity for that path.
+HTTP/3 uses a separate UDP/QUIC listener. Its proof ledger covers generation
+rotation, bounded drain, and orphan-thread cleanup. Under-budget streams finish;
+streams exceeding `shutdown_timeout` are cancelled and QUIC closes.
 
 Current subprocess proof covers SIGTERM mixed-traffic drain and SIGHUP recovery
 to serving traffic across the documented worker-mode matrix. The reproducible
 drain profile also drives SIGHUP followed by SIGTERM and records in-flight
 completion, bounded refusal outcomes, exit time, and orphan-worker absence.
 This mode-scoped proof does not imply lossless reload across every protocol;
-HTTP/3 remains limited by its separate proof ledger.
+HTTP/3 keeps the bounded QUIC exception above rather than claiming TCP-identical
+semantics.
 
 ### Configuration
 

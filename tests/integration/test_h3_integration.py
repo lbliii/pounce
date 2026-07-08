@@ -576,6 +576,7 @@ def _real_handshake_and_inflight_request(
     return client, h3, client_sock
 
 
+@pytest.mark.issue(240)
 class TestH3ReloadDrainDeployContract:
     """#113: lock the H3 (HTTP/3) reload/drain deploy contract under real load.
 
