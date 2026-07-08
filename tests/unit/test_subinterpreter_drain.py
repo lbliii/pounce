@@ -23,6 +23,7 @@ import pytest
 
 from pounce._subinterpreter_bootstrap import (
     CMD_DRAIN,
+    CMD_RELOAD_DRAIN,
     CMD_SHUTDOWN,
     STATUS_DRAINING,
     STATUS_IDLE,
@@ -50,6 +51,14 @@ class _FakeQueue:
             except queue.Empty:
                 break
         return out
+
+
+@dataclass
+class _FakeServer:
+    closed: bool = False
+
+    def close(self) -> None:
+        self.closed = True
 
 
 @dataclass
@@ -87,6 +96,24 @@ async def test_drain_then_shutdown_sets_async_shutdown() -> None:
     assert worker._draining is True
     statuses = [m[0] for m in status.drain_all()]
     assert STATUS_DRAINING in statuses
+
+
+@pytest.mark.asyncio
+async def test_reload_drain_closes_old_acceptor_before_announcing_idle() -> None:
+    """Reload drain retires only the old generation's accept socket."""
+    worker = _FakeWorker()
+    ctrl = _FakeQueue()
+    status = _FakeQueue()
+    server = _FakeServer()
+
+    ctrl.put((CMD_RELOAD_DRAIN,))
+    ctrl.put((CMD_SHUTDOWN,))
+
+    await asyncio.wait_for(_iic_bridge(worker, ctrl, status, server), timeout=2.0)
+
+    assert server.closed is True
+    assert worker._draining is True
+    assert worker._async_shutdown.is_set()
 
 
 @pytest.mark.asyncio

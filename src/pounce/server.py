@@ -704,16 +704,15 @@ class Server:
         return detect_worker_mode()
 
     def _log_worker_mode_notice(self, mode: WorkerMode) -> None:
-        """Emit a one-line notice when the beta subinterpreter mode is used.
+        """Emit a compatibility reminder for explicit subinterpreter mode.
 
-        Subinterpreter workers (PEP 734) are a beta path with limited
-        lifecycle proof; operators should see at startup that they opted into
-        it rather than the stable thread/process modes.
+        The lifecycle contract is stable, but applications and C extensions
+        still need to support isolated interpreters.
         """
         if mode is WorkerMode.SUBINTERPRETER:
             logger.info(
-                "Worker mode: subinterpreter (beta) — PEP 734 isolated "
-                "interpreters; limited lifecycle proof, expect rough edges"
+                "Worker mode: subinterpreter — PEP 734 isolated interpreters; "
+                "verify application dependencies support subinterpreters"
             )
 
     def _apply_integrations(self) -> None:

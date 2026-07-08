@@ -43,6 +43,7 @@ logger = logging.getLogger("pounce.subinterpreter")
 # ---------------------------------------------------------------------------
 CMD_SHUTDOWN = "shutdown"
 CMD_DRAIN = "drain"
+CMD_RELOAD_DRAIN = "reload_drain"
 
 STATUS_STARTED = "started"
 STATUS_SERVING = "serving"
@@ -198,7 +199,7 @@ async def _run_worker_with_iic(
     status_queue.put((STATUS_SERVING,))
 
     # IIC bridge task — polls ctrl_queue and signals worker shutdown
-    bridge_task = asyncio.create_task(_iic_bridge(worker, ctrl_queue, status_queue))
+    bridge_task = asyncio.create_task(_iic_bridge(worker, ctrl_queue, status_queue, server))
 
     try:
         await worker._async_shutdown.wait()
@@ -277,6 +278,7 @@ async def _iic_bridge(
     worker: Any,
     ctrl_queue: Any,
     status_queue: Any,
+    server: Any | None = None,
 ) -> None:
     """Poll the IIC ctrl_queue and translate commands to Worker state changes.
 
@@ -291,6 +293,9 @@ async def _iic_bridge(
     - ``CMD_SHUTDOWN``  -> set ``_async_shutdown`` and return immediately.
     - ``CMD_DRAIN``     -> mark the worker draining and arm a deadline of
       ``config.shutdown_timeout`` from now; keep polling.
+    - ``CMD_RELOAD_DRAIN`` -> first close this generation's accept socket,
+      then follow the same bounded drain protocol. A replacement generation
+      is already serving before the supervisor sends this command.
     - while draining and idle -> emit ``STATUS_IDLE`` once so the supervisor's
       reload poll can observe it, then keep polling for the explicit shutdown.
     - while draining and past the deadline -> emit a final ``STATUS_IDLE`` and
@@ -311,8 +316,10 @@ async def _iic_bridge(
                 status_queue.put((STATUS_DRAINING,))
                 worker._async_shutdown.set()
                 return
-            if cmd == CMD_DRAIN and not draining:
+            if cmd in (CMD_DRAIN, CMD_RELOAD_DRAIN) and not draining:
                 status_queue.put((STATUS_DRAINING,))
+                if cmd == CMD_RELOAD_DRAIN and server is not None:
+                    server.close()
                 worker._draining = True
                 draining = True
                 drain_deadline = monotonic() + worker._config.shutdown_timeout

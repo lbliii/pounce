@@ -5,9 +5,8 @@ Covers:
   limiting / request queueing are enabled (aggregate = limit x workers in
   process/subinterpreter mode for the rate limiter, and in ALL modes for the
   per-worker request queue).
-- Issue #157: a one-line INFO notice when the beta ``subinterpreter`` worker
-  mode is actually resolved/used, plus the ``(beta)`` marker on the
-  ``--worker-mode`` CLI help text.
+- A one-line INFO compatibility notice when ``subinterpreter`` worker mode is
+  resolved, with stable CLI help shared by ``serve`` and ``check``.
 """
 
 import logging
@@ -105,14 +104,16 @@ class TestRequestQueueAggregateLog:
 
 
 class TestSubinterpreterNotice:
-    """Issue #157: beta notice when subinterpreter worker mode is resolved."""
+    """Dependency compatibility stays visible for subinterpreter mode."""
 
     def test_notice_emitted_for_subinterpreter(self, caplog) -> None:
         config = ServerConfig()
         server = Server(config, _ok_app)
         with caplog.at_level(logging.INFO, logger="pounce"):
             server._log_worker_mode_notice(WorkerMode.SUBINTERPRETER)
-        assert "subinterpreter (beta)" in caplog.text
+        assert "subinterpreter" in caplog.text
+        assert "dependencies support subinterpreters" in caplog.text
+        assert "beta" not in caplog.text
 
     @pytest.mark.parametrize("mode", [WorkerMode.THREAD, WorkerMode.PROCESS])
     def test_no_notice_for_stable_modes(self, caplog, mode) -> None:
@@ -136,16 +137,18 @@ class TestSubinterpreterNotice:
 
 
 class TestWorkerModeHelpText:
-    """Issue #157: the --worker-mode CLI help marks subinterpreter as beta."""
+    """The stable --worker-mode help stays aligned across commands."""
 
-    def test_serve_help_marks_subinterpreter_beta(self) -> None:
+    def test_serve_help_lists_stable_subinterpreter_mode(self) -> None:
         from pounce._cli import _SERVE_HELP
 
-        assert "subinterpreter (beta)" in _SERVE_HELP["worker_mode"]
+        assert "subinterpreter" in _SERVE_HELP["worker_mode"]
+        assert "beta" not in _SERVE_HELP["worker_mode"]
 
-    def test_check_inherits_beta_marker(self) -> None:
+    def test_check_inherits_stable_help(self) -> None:
         # 'check' must expose the same flags/help as 'serve' (parity).
         from pounce._cli import _CHECK_HELP, _SERVE_HELP
 
         assert _CHECK_HELP["worker_mode"] == _SERVE_HELP["worker_mode"]
-        assert "subinterpreter (beta)" in _CHECK_HELP["worker_mode"]
+        assert "subinterpreter" in _CHECK_HELP["worker_mode"]
+        assert "beta" not in _CHECK_HELP["worker_mode"]

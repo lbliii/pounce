@@ -383,6 +383,43 @@ class Supervisor:
             hint=hint,
         )
 
+    def _wait_for_subinterpreter_generation_ready(
+        self,
+        iic_queues: list[tuple[Any, Any]],
+    ) -> str | None:
+        """Wait for a replacement generation without changing global state.
+
+        Initial startup failures abort the server through
+        :meth:`_raise_startup_failure`. A reload is different: the old
+        generation is still healthy, so a replacement failure must be
+        reported to the caller without setting the supervisor shutdown event.
+        """
+        deadline = time.monotonic() + self._config.startup_timeout
+        pending = set(range(len(iic_queues)))
+        while pending and not self._shutdown_event.is_set():
+            for worker_id in tuple(pending):
+                while worker_id in pending:
+                    message = _try_iic_get(iic_queues[worker_id][1])
+                    if message is None:
+                        break
+                    status = str(message[0])
+                    detail = str(message[1]) if len(message) > 1 else None
+                    if status == "serving":
+                        pending.remove(worker_id)
+                    elif status == "error":
+                        return f"worker {worker_id}: {detail or 'unknown error'}"
+            if pending:
+                time.sleep(0.01)
+            if time.monotonic() >= deadline:
+                worker_list = ", ".join(str(worker_id) for worker_id in sorted(pending))
+                return (
+                    "replacement workers did not report ready within "
+                    f"{self._config.startup_timeout:.1f}s: {worker_list}"
+                )
+        if pending:
+            return "shutdown requested while replacement workers were starting"
+        return None
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -712,6 +749,38 @@ class Supervisor:
                 self._spawn_subinterpreter_worker(i)
             new_handles = list(self._handles)
             new_iic_queues = list(self._iic_queues)
+            # A rolling handoff is only safe once every replacement listener
+            # has reported serving. Otherwise the old generation can stop
+            # accepting while the new interpreter is still importing the app.
+            replacement_failure = self._wait_for_subinterpreter_generation_ready(new_iic_queues)
+            if replacement_failure is not None:
+                logger.error(
+                    "Reload failed before handoff — keeping generation %d: %s",
+                    old_generation,
+                    replacement_failure,
+                )
+                for ctrl_queue, _status_queue in new_iic_queues:
+                    try:
+                        ctrl_queue.put(("shutdown",))
+                    except Exception:
+                        logger.debug(
+                            "Failed to stop replacement subinterpreter",
+                            exc_info=True,
+                        )
+                if new_handles:
+                    _parallel_join_targets(
+                        [handle.target for handle in new_handles],
+                        self._config.shutdown_timeout,
+                    )
+                for handle in new_handles:
+                    if handle.target.is_alive():
+                        self._force_stop(handle, self._config.shutdown_timeout)
+                        self._reclaim_subinterpreter_fd(handle)
+                self._handles = old_handles
+                self._iic_queues = old_iic_queues
+                self._generation = old_generation
+                dispatch(RELOAD_FAILED, error=replacement_failure)
+                return
         else:
             for i in range(self._effective_workers):
                 worker = self._create_worker(
@@ -754,10 +823,12 @@ class Supervisor:
 
         # Mark old workers for draining
         if self._mode == "subinterpreter":
-            # Send drain command via IIC
+            # Stop the old generation's dup'd accept socket before draining
+            # its in-flight connections. The canonical listener and the ready
+            # replacement generation remain open.
             for ctrl_queue, _status_queue in old_iic_queues:
                 try:
-                    ctrl_queue.put(("drain",))
+                    ctrl_queue.put(("reload_drain",))
                 except Exception:
                     logger.debug("Failed to send drain command via IIC queue", exc_info=True)
         else:

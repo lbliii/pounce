@@ -160,13 +160,6 @@ def build_schema(cls: type = ServerConfig) -> dict[str, Any]:
         if _field_stability(f.name) == "beta":
             schema["x-stability"] = "beta"
             schema["description"] = _BETA_STABILITY_NOTE
-        elif f.name == "worker_mode":
-            # The field is stable, but the "subinterpreter" value is beta.
-            schema["x-stability-values"] = {"subinterpreter": "beta"}
-            schema["description"] = (
-                'worker_mode="subinterpreter" is beta (PEP 734, limited '
-                "lifecycle proof); auto/sync/async are stable"
-            )
         properties[f.name] = schema
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

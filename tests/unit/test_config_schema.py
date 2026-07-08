@@ -111,12 +111,9 @@ class TestStabilityTiers:
         for name in ("host", "port", "workers", "log_level", "request_timeout"):
             assert "x-stability" not in props[name], name
 
-    def test_worker_mode_marks_subinterpreter_beta(self) -> None:
+    def test_all_worker_mode_values_are_stable(self) -> None:
         wm = build_schema()["properties"]["worker_mode"]
-        # The field is stable, but the subinterpreter VALUE is beta.
-        assert wm.get("x-stability-values", {}).get("subinterpreter") == "beta"
-        assert "subinterpreter" in wm.get("description", "")
-        # auto/sync/async remain offered without a beta value marker.
+        assert "x-stability-values" not in wm
         assert "x-stability" not in wm
 
 
