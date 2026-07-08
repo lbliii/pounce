@@ -33,7 +33,8 @@ python benchmarks/run_benchmark.py --servers pounce,uvicorn,hypercorn,granian --
 
 # Sustained fixed-rate evidence with p50/p99/p999 and RSS/CPU over time
 python benchmarks/run_benchmark.py --workload chirp --workers 4 --duration 120 \
-    --repeat 3 --rate 1000 --servers pounce,uvicorn,hypercorn,granian \
+    --connections 4 --repeat 3 --rate 1000 \
+    --servers pounce,uvicorn,hypercorn,granian \
     --artifact-output artifacts/chirp-sustained.json
 
 # Save structured runner output as JSON
@@ -147,8 +148,12 @@ schema-validated artifacts for the hello and Chirp-shaped workloads on:
   benchmark-only comparison and does not define Pounce's free-threaded contract.
 
 Each sample defaults to 120 seconds at a scheduled 1,000 requests/second, with
-three repeated samples. The artifact records p50, p99, p999, errors, aggregate
-RSS/CPU time series, raw driver output, versions, commands, and variance.
+three repeated samples and four persistent connections for four workers. The
+equal connection/worker count matters for Pounce's free-threaded sync mode,
+where each worker owns one connection at a time; using 100 persistent
+connections with four workers would measure connection admission timeouts, not
+the same active request capacity. The artifact records p50, p99, p999, errors,
+aggregate RSS/CPU time series, raw driver output, versions, commands, and variance.
 Workflow artifacts are retained by Actions; release-triggered artifacts are
 also attached directly to the GitHub release.
 
