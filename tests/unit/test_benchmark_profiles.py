@@ -283,6 +283,7 @@ def test_drain_artifact_groups_per_mode_and_is_schema_shaped() -> None:
     assert servers == {"async"}
     # Every schema-required field is present so the gate can consume it.
     schema_required = {
+        "artifact_schema_version",
         "artifact_id",
         "created_at",
         "git_sha",

@@ -107,8 +107,10 @@ Required metadata:
 - sample count and grouped variance by server, workload, and worker count
 - per-sample server RSS when the platform exposes it
 - under-load process telemetry (`telemetry`): peak RSS summed across the
-  supervisor and any forked worker processes, mean/peak CPU%, and the observed
-  worker pids; best-effort and null when the platform does not expose it
+  root server and any forked worker processes, mean/peak aggregate CPU%, the
+  observed worker pids, and a per-process CPU/RSS time series for each repeated
+  benchmark sample; best-effort with null summaries or empty point lists when
+  the platform does not expose it
 - raw load-tool stdout/stderr entries per sample
 - summary table
 
@@ -122,6 +124,7 @@ Current local snapshot artifacts:
 |----------|-------|--------|
 | `benchmarks/artifacts/2026-05-22/bengal-pounce-local.json` | Bengal home page, pounce-only, 5 samples, 5s each | Local macOS/free-threaded run; use as investigation input, not a release claim. |
 | `benchmarks/artifacts/2026-05-22/chirp-pounce-local.json` | Chirp thread page, pounce-only, 5 samples, 5s each | Local macOS/free-threaded run; no uvicorn comparison. |
+| `benchmarks/artifacts/2026-07-08/process-cpu-local.json` | Hello workload, pounce-only, 2 process-worker samples with per-process CPU/RSS series | Local macOS/GIL-enabled proof run; validates telemetry capture, not a release performance claim. |
 
 ## Regression Gate
 

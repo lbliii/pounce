@@ -51,6 +51,7 @@ _SERVER_START_RETRY_ERRORS = (ConnectionRefusedError, OSError)
 _UVICORN_COMPARISON_ERRORS = (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired)
 _PROCESS_QUERY_ERRORS = (FileNotFoundError, subprocess.TimeoutExpired)
 _PROCESS_PARSE_ERRORS = (IndexError, ValueError)
+_ARTIFACT_SCHEMA_PATH = Path(__file__).with_name("artifact-schema.json")
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +78,8 @@ class BenchmarkResult:
     cpu_percent_peak: float | None = None
     cpu_seconds: float | None = None
     worker_pids: list[int] = field(default_factory=list)
+    telemetry_interval_seconds: float | None = None
+    process_cpu_series: list[dict] = field(default_factory=list)
     load_tool_stdout: str = ""
     load_tool_stderr: str = ""
 
@@ -411,6 +414,8 @@ class _ProcessTelemetry:
     cpu_percent_mean: float | None = None
     cpu_percent_peak: float | None = None
     worker_pids: list[int] = field(default_factory=list)
+    interval_seconds: float | None = None
+    process_cpu_series: list[dict] = field(default_factory=list)
     sample_count: int = 0
     supported: bool = False
 
@@ -418,11 +423,10 @@ class _ProcessTelemetry:
 class _TelemetrySampler:
     """Background poller for peak RSS and CPU% of a process tree.
 
-    Polls ``ps`` for the supervisor pid and every descendant worker pid at a
-    fixed interval. Records the peak aggregate RSS (summed across the whole
-    tree, so process-mode runs include forked children) and the per-sample
-    aggregate CPU% (mean and peak). Degrades gracefully: if no process stats
-    can be read it reports ``supported=False`` and null metrics.
+    Polls ``ps`` for the root server pid and every descendant worker pid at a
+    fixed interval. Records the per-process CPU/RSS series plus peak aggregate
+    RSS and aggregate CPU% (mean and peak). Degrades gracefully: if no process
+    stats can be read it reports ``supported=False`` and an empty series.
     """
 
     def __init__(self, pid: int, *, interval: float = 0.2) -> None:
@@ -430,8 +434,10 @@ class _TelemetrySampler:
         self._interval = max(0.01, interval)
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="bench-telemetry", daemon=True)
+        self._started_ns = time.monotonic_ns()
         self._peak_rss = 0
         self._cpu_samples: list[float] = []
+        self._process_cpu_series: list[dict] = []
         self._worker_pids: set[int] = set()
         self._any_sample = False
 
@@ -446,6 +452,22 @@ class _TelemetrySampler:
         total_cpu = sum(entry["cpu_percent"] for entry in stats.values())
         self._peak_rss = max(self._peak_rss, total_rss)
         self._cpu_samples.append(total_cpu)
+        self._process_cpu_series.append(
+            {
+                "elapsed_seconds": round((time.monotonic_ns() - self._started_ns) / 1e9, 3),
+                "rss_bytes_total": total_rss,
+                "cpu_percent_total": round(total_cpu, 2),
+                "processes": [
+                    {
+                        "pid": sampled_pid,
+                        "role": "root" if sampled_pid == self._pid else "child",
+                        "rss_bytes": int(entry["rss_bytes"]),
+                        "cpu_percent": round(entry["cpu_percent"], 2),
+                    }
+                    for sampled_pid, entry in sorted(stats.items())
+                ],
+            }
+        )
 
     def _run(self) -> None:
         while not self._stop.is_set():
@@ -477,6 +499,8 @@ class _TelemetrySampler:
             cpu_percent_mean=round(cpu_mean, 2) if cpu_mean is not None else None,
             cpu_percent_peak=round(cpu_peak, 2) if cpu_peak is not None else None,
             worker_pids=sorted(self._worker_pids),
+            interval_seconds=self._interval,
+            process_cpu_series=list(self._process_cpu_series),
             sample_count=len(self._cpu_samples),
             supported=True,
         )
@@ -755,6 +779,8 @@ def run_benchmark(
                 cpu_percent_mean=telemetry.cpu_percent_mean,
                 cpu_percent_peak=telemetry.cpu_percent_peak,
                 worker_pids=telemetry.worker_pids,
+                telemetry_interval_seconds=telemetry.interval_seconds,
+                process_cpu_series=telemetry.process_cpu_series,
                 **raw,
             )
         )
@@ -797,6 +823,8 @@ def run_benchmark(
                     cpu_percent_mean=telemetry.cpu_percent_mean,
                     cpu_percent_peak=telemetry.cpu_percent_peak,
                     worker_pids=telemetry.worker_pids,
+                    telemetry_interval_seconds=telemetry.interval_seconds,
+                    process_cpu_series=telemetry.process_cpu_series,
                     **raw,
                 )
             )
@@ -896,8 +924,8 @@ def _server_version(module: str) -> str:
 
 
 def _artifact_samples(results: list[dict]) -> list[dict]:
-    """Return parsed sample rows without verbose raw load-tool streams."""
-    raw_fields = {"load_tool_stdout", "load_tool_stderr"}
+    """Return compact sample rows without verbose raw streams/telemetry series."""
+    raw_fields = {"load_tool_stdout", "load_tool_stderr", "process_cpu_series"}
     return [{key: value for key, value in row.items() if key not in raw_fields} for row in results]
 
 
@@ -991,7 +1019,8 @@ def _telemetry_block(samples: list[dict]) -> dict:
     Reports whether the platform exposed process telemetry, the aggregate
     peak RSS (summed across the supervisor and any forked worker processes),
     CPU% (mean of per-sample peaks, and the maximum observed), CPU-seconds
-    when available, and the union of observed worker pids.
+    when available, the union of observed worker pids, and the per-process
+    time series for each benchmark sample.
     """
     peak_values = [
         float(row["peak_rss_bytes"]) for row in samples if row.get("peak_rss_bytes") is not None
@@ -1006,6 +1035,18 @@ def _telemetry_block(samples: list[dict]) -> dict:
         float(row["cpu_seconds"]) for row in samples if row.get("cpu_seconds") is not None
     ]
     worker_pids = sorted({pid for row in samples for pid in (row.get("worker_pids") or [])})
+    process_cpu_series = [
+        {
+            "server": row.get("server", "unknown"),
+            "workload": row.get("workload", "unknown"),
+            "workers": int(row.get("workers", 0)),
+            "sample_index": int(row.get("sample_index", 1)),
+            "interval_seconds": row.get("telemetry_interval_seconds"),
+            "points": row.get("process_cpu_series", []),
+        }
+        for row in samples
+        if "process_cpu_series" in row
+    ]
     return {
         "supported": bool(peak_values or cpu_peak_values),
         "peak_rss_bytes": int(max(peak_values)) if peak_values else None,
@@ -1015,10 +1056,13 @@ def _telemetry_block(samples: list[dict]) -> dict:
         },
         "cpu_seconds": round(max(cpu_seconds_values), 3) if cpu_seconds_values else None,
         "worker_pids": worker_pids,
+        "process_cpu_series": process_cpu_series,
         "note": (
             "peak_rss_bytes is the max under-load RSS summed across the supervisor and "
             "forked worker processes; cpu_percent aggregates the whole process tree. "
-            "Null fields mean the platform did not expose process telemetry."
+            "process_cpu_series preserves each ps observation by root/child pid and "
+            "elapsed sample time. Null summaries and empty point lists mean the platform "
+            "did not expose process telemetry."
         ),
     }
 
@@ -1041,7 +1085,7 @@ def build_artifact(
     created_at = suite.timestamp or time.strftime("%Y-%m-%dT%H:%M:%S%z")
     samples = _artifact_samples(suite.results)
     summaries = _group_sample_summaries(samples)
-    telemetry = _telemetry_block(samples)
+    telemetry = _telemetry_block(suite.results)
     server_commands: dict[str, str] = {}
     workloads = list(WORKLOADS) if workload == "all" else [workload]
     for wl in workloads:
@@ -1054,6 +1098,7 @@ def build_artifact(
             )
 
     return {
+        "artifact_schema_version": 2,
         "artifact_id": f"pounce-{workload}-{created_at.replace(':', '').replace('+', '-')}",
         "created_at": created_at,
         "git_sha": _git_sha(),
@@ -1121,8 +1166,9 @@ def build_profile_artifact(
     created_at = timestamp or time.strftime("%Y-%m-%dT%H:%M:%S%z")
     clean_samples = _artifact_samples(samples)
     summaries = _group_sample_summaries(clean_samples)
-    telemetry = _telemetry_block(clean_samples)
+    telemetry = _telemetry_block(samples)
     artifact = {
+        "artifact_schema_version": 2,
         "artifact_id": f"pounce-{profile}-{created_at.replace(':', '').replace('+', '-')}",
         "created_at": created_at,
         "git_sha": _git_sha(),
@@ -1160,8 +1206,83 @@ def build_profile_artifact(
     return artifact
 
 
+def _require_fields(value: dict, fields: list[str], *, context: str) -> None:
+    missing = sorted(set(fields) - set(value))
+    if missing:
+        msg = f"{context} missing required fields: {', '.join(missing)}"
+        raise ValueError(msg)
+
+
+def validate_artifact(artifact: dict) -> None:
+    """Validate artifact metadata and nested process-series shape."""
+    schema = json.loads(_ARTIFACT_SCHEMA_PATH.read_text())
+    _require_fields(artifact, schema["required_fields"], context="benchmark artifact")
+    if artifact["artifact_schema_version"] != schema["version"]:
+        msg = (
+            "benchmark artifact schema version "
+            f"{artifact['artifact_schema_version']} does not match {schema['version']}"
+        )
+        raise ValueError(msg)
+
+    telemetry = artifact["telemetry"]
+    if not isinstance(telemetry, dict):
+        raise ValueError("benchmark artifact telemetry must be an object")
+    telemetry_schema = schema["telemetry"]
+    _require_fields(
+        telemetry,
+        telemetry_schema["required_fields"],
+        context="benchmark artifact telemetry",
+    )
+    series = telemetry["process_cpu_series"]
+    if not isinstance(series, list):
+        raise ValueError("benchmark artifact process_cpu_series must be a list")
+    series_schema = telemetry_schema["process_cpu_series"]
+    for series_index, entry in enumerate(series):
+        if not isinstance(entry, dict):
+            raise ValueError(f"process_cpu_series[{series_index}] must be an object")
+        _require_fields(
+            entry,
+            series_schema["entry_required_fields"],
+            context=f"process_cpu_series[{series_index}]",
+        )
+        points = entry["points"]
+        if not isinstance(points, list):
+            raise ValueError(f"process_cpu_series[{series_index}].points must be a list")
+        for point_index, point in enumerate(points):
+            if not isinstance(point, dict):
+                raise ValueError(
+                    f"process_cpu_series[{series_index}].points[{point_index}] must be an object"
+                )
+            _require_fields(
+                point,
+                series_schema["point_required_fields"],
+                context=f"process_cpu_series[{series_index}].points[{point_index}]",
+            )
+            processes = point["processes"]
+            if not isinstance(processes, list):
+                raise ValueError(
+                    f"process_cpu_series[{series_index}].points[{point_index}].processes "
+                    "must be a list"
+                )
+            for process_index, process in enumerate(processes):
+                if not isinstance(process, dict):
+                    raise ValueError(
+                        f"process_cpu_series[{series_index}].points[{point_index}]"
+                        f".processes[{process_index}] must be an object"
+                    )
+                _require_fields(
+                    process,
+                    series_schema["process_required_fields"],
+                    context=(
+                        f"process_cpu_series[{series_index}].points[{point_index}]"
+                        f".processes[{process_index}]"
+                    ),
+                )
+
+
 def save_artifact(artifact: dict, path: Path) -> None:
-    """Save a benchmark artifact JSON file."""
+    """Validate and save a benchmark artifact JSON file."""
+    validate_artifact(artifact)
     path.write_text(json.dumps(artifact, indent=2) + "\n")
     print(f"\nBenchmark artifact saved to {path}")
 

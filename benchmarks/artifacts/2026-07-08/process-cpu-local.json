@@ -1,0 +1,805 @@
+{
+  "artifact_schema_version": 2,
+  "artifact_id": "pounce-hello-2026-07-08T131054-0400",
+  "created_at": "2026-07-08T13:10:54-0400",
+  "git_sha": "b2eebe04e814a8aa8df1d5e734e114d3de998652",
+  "command": "python benchmarks/run_benchmark.py --workload hello --workers 2 --duration 2 --threads 2 --connections 20 --repeat 2 --artifact-output benchmarks/artifacts/2026-07-08/process-cpu-local.json",
+  "server_command": {
+    "pounce:hello": "python -m pounce serve --app benchmarks.apps.hello:app --host 127.0.0.1 --port 8100 --workers 2 --no-access-log --no-compression"
+  },
+  "workload": "hello",
+  "python_version": "3.14.3 (main, Mar  3 2026, 15:46:55) [Clang 21.1.4 ]",
+  "python_gil_mode": "gil-enabled",
+  "os": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+  "hardware": "arm64 arm",
+  "worker_mode": "auto",
+  "workers": 2,
+  "duration_seconds": 2,
+  "connections": 20,
+  "threads": 2,
+  "load_tool": "wrk",
+  "load_tool_version": "wrk 4.2.0 [kqueue] Copyright (C) 2012 Will Glozer",
+  "comparison_target": null,
+  "comparison_target_version": null,
+  "samples": [
+    {
+      "server": "pounce",
+      "workload": "hello",
+      "workers": 2,
+      "duration_s": 2,
+      "threads": 2,
+      "connections": 20,
+      "req_per_sec": 7788.91,
+      "avg_latency_ms": 2.93,
+      "p50_latency_ms": 2.03,
+      "p99_latency_ms": 21.13,
+      "transfer_per_sec": "1.03MB",
+      "total_requests": 16361,
+      "errors": 0,
+      "sample_index": 1,
+      "server_rss_bytes": 52936704,
+      "peak_rss_bytes": 91258880,
+      "cpu_percent_mean": 70.27,
+      "cpu_percent_peak": 95.4,
+      "cpu_seconds": null,
+      "worker_pids": [
+        3642,
+        4246,
+        4250
+      ],
+      "telemetry_interval_seconds": 0.2
+    },
+    {
+      "server": "pounce",
+      "workload": "hello",
+      "workers": 2,
+      "duration_s": 2,
+      "threads": 2,
+      "connections": 20,
+      "req_per_sec": 4475.89,
+      "avg_latency_ms": 5.05,
+      "p50_latency_ms": 4.15,
+      "p99_latency_ms": 30.6,
+      "transfer_per_sec": "607.57KB",
+      "total_requests": 9416,
+      "errors": 0,
+      "sample_index": 2,
+      "server_rss_bytes": 52756480,
+      "peak_rss_bytes": 85573632,
+      "cpu_percent_mean": 10.08,
+      "cpu_percent_peak": 36.4,
+      "cpu_seconds": null,
+      "worker_pids": [
+        10497,
+        10918,
+        10920
+      ],
+      "telemetry_interval_seconds": 0.2
+    }
+  ],
+  "telemetry": {
+    "supported": true,
+    "peak_rss_bytes": 91258880,
+    "cpu_percent": {
+      "mean": 40.17,
+      "peak": 95.4
+    },
+    "cpu_seconds": null,
+    "worker_pids": [
+      3642,
+      4246,
+      4250,
+      10497,
+      10918,
+      10920
+    ],
+    "process_cpu_series": [
+      {
+        "server": "pounce",
+        "workload": "hello",
+        "workers": 2,
+        "sample_index": 1,
+        "interval_seconds": 0.2,
+        "points": [
+          {
+            "elapsed_seconds": 0.036,
+            "rss_bytes_total": 87015424,
+            "cpu_percent_total": 3.2,
+            "processes": [
+              {
+                "pid": 3642,
+                "role": "root",
+                "rss_bytes": 52936704,
+                "cpu_percent": 2.9
+              },
+              {
+                "pid": 4246,
+                "role": "child",
+                "rss_bytes": 16105472,
+                "cpu_percent": 0.1
+              },
+              {
+                "pid": 4250,
+                "role": "child",
+                "rss_bytes": 17973248,
+                "cpu_percent": 0.2
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 0.075,
+            "rss_bytes_total": 91062272,
+            "cpu_percent_total": 3.2,
+            "processes": [
+              {
+                "pid": 3642,
+                "role": "root",
+                "rss_bytes": 52936704,
+                "cpu_percent": 2.9
+              },
+              {
+                "pid": 4246,
+                "role": "child",
+                "rss_bytes": 16105472,
+                "cpu_percent": 0.1
+              },
+              {
+                "pid": 4250,
+                "role": "child",
+                "rss_bytes": 22020096,
+                "cpu_percent": 0.2
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 0.323,
+            "rss_bytes_total": 91176960,
+            "cpu_percent_total": 53.3,
+            "processes": [
+              {
+                "pid": 3642,
+                "role": "root",
+                "rss_bytes": 52936704,
+                "cpu_percent": 1.0
+              },
+              {
+                "pid": 4246,
+                "role": "child",
+                "rss_bytes": 16105472,
+                "cpu_percent": 0.1
+              },
+              {
+                "pid": 4250,
+                "role": "child",
+                "rss_bytes": 22134784,
+                "cpu_percent": 52.2
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 0.569,
+            "rss_bytes_total": 91193344,
+            "cpu_percent_total": 66.8,
+            "processes": [
+              {
+                "pid": 3642,
+                "role": "root",
+                "rss_bytes": 52936704,
+                "cpu_percent": 0.4
+              },
+              {
+                "pid": 4246,
+                "role": "child",
+                "rss_bytes": 16105472,
+                "cpu_percent": 0.1
+              },
+              {
+                "pid": 4250,
+                "role": "child",
+                "rss_bytes": 22151168,
+                "cpu_percent": 66.3
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 0.815,
+            "rss_bytes_total": 91209728,
+            "cpu_percent_total": 86.9,
+            "processes": [
+              {
+                "pid": 3642,
+                "role": "root",
+                "rss_bytes": 52936704,
+                "cpu_percent": 0.1
+              },
+              {
+                "pid": 4246,
+                "role": "child",
+                "rss_bytes": 16105472,
+                "cpu_percent": 0.0
+              },
+              {
+                "pid": 4250,
+                "role": "child",
+                "rss_bytes": 22167552,
+                "cpu_percent": 86.8
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 1.056,
+            "rss_bytes_total": 91209728,
+            "cpu_percent_total": 94.2,
+            "processes": [
+              {
+                "pid": 3642,
+                "role": "root",
+                "rss_bytes": 52936704,
+                "cpu_percent": 0.0
+              },
+              {
+                "pid": 4246,
+                "role": "child",
+                "rss_bytes": 16105472,
+                "cpu_percent": 0.0
+              },
+              {
+                "pid": 4250,
+                "role": "child",
+                "rss_bytes": 22167552,
+                "cpu_percent": 94.2
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 1.31,
+            "rss_bytes_total": 91209728,
+            "cpu_percent_total": 95.4,
+            "processes": [
+              {
+                "pid": 3642,
+                "role": "root",
+                "rss_bytes": 52936704,
+                "cpu_percent": 0.0
+              },
+              {
+                "pid": 4246,
+                "role": "child",
+                "rss_bytes": 16105472,
+                "cpu_percent": 0.0
+              },
+              {
+                "pid": 4250,
+                "role": "child",
+                "rss_bytes": 22167552,
+                "cpu_percent": 95.4
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 1.56,
+            "rss_bytes_total": 91226112,
+            "cpu_percent_total": 95.2,
+            "processes": [
+              {
+                "pid": 3642,
+                "role": "root",
+                "rss_bytes": 52936704,
+                "cpu_percent": 0.0
+              },
+              {
+                "pid": 4246,
+                "role": "child",
+                "rss_bytes": 16105472,
+                "cpu_percent": 0.1
+              },
+              {
+                "pid": 4250,
+                "role": "child",
+                "rss_bytes": 22183936,
+                "cpu_percent": 95.1
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 1.801,
+            "rss_bytes_total": 91226112,
+            "cpu_percent_total": 87.9,
+            "processes": [
+              {
+                "pid": 3642,
+                "role": "root",
+                "rss_bytes": 52936704,
+                "cpu_percent": 0.0
+              },
+              {
+                "pid": 4246,
+                "role": "child",
+                "rss_bytes": 16105472,
+                "cpu_percent": 0.0
+              },
+              {
+                "pid": 4250,
+                "role": "child",
+                "rss_bytes": 22183936,
+                "cpu_percent": 87.9
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 2.042,
+            "rss_bytes_total": 91226112,
+            "cpu_percent_total": 92.9,
+            "processes": [
+              {
+                "pid": 3642,
+                "role": "root",
+                "rss_bytes": 52936704,
+                "cpu_percent": 0.0
+              },
+              {
+                "pid": 4246,
+                "role": "child",
+                "rss_bytes": 16105472,
+                "cpu_percent": 0.0
+              },
+              {
+                "pid": 4250,
+                "role": "child",
+                "rss_bytes": 22183936,
+                "cpu_percent": 92.9
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 2.19,
+            "rss_bytes_total": 91258880,
+            "cpu_percent_total": 94.0,
+            "processes": [
+              {
+                "pid": 3642,
+                "role": "root",
+                "rss_bytes": 52936704,
+                "cpu_percent": 0.0
+              },
+              {
+                "pid": 4246,
+                "role": "child",
+                "rss_bytes": 16105472,
+                "cpu_percent": 0.1
+              },
+              {
+                "pid": 4250,
+                "role": "child",
+                "rss_bytes": 22216704,
+                "cpu_percent": 93.9
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "server": "pounce",
+        "workload": "hello",
+        "workers": 2,
+        "sample_index": 2,
+        "interval_seconds": 0.2,
+        "points": [
+          {
+            "elapsed_seconds": 0.028,
+            "rss_bytes_total": 50053120,
+            "cpu_percent_total": 31.4,
+            "processes": [
+              {
+                "pid": 10497,
+                "role": "root",
+                "rss_bytes": 50053120,
+                "cpu_percent": 31.4
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 0.065,
+            "rss_bytes_total": 51298304,
+            "cpu_percent_total": 36.4,
+            "processes": [
+              {
+                "pid": 10497,
+                "role": "root",
+                "rss_bytes": 51298304,
+                "cpu_percent": 36.4
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 0.379,
+            "rss_bytes_total": 85573632,
+            "cpu_percent_total": 21.1,
+            "processes": [
+              {
+                "pid": 10497,
+                "role": "root",
+                "rss_bytes": 52756480,
+                "cpu_percent": 19.5
+              },
+              {
+                "pid": 10918,
+                "role": "child",
+                "rss_bytes": 16384000,
+                "cpu_percent": 0.9
+              },
+              {
+                "pid": 10920,
+                "role": "child",
+                "rss_bytes": 16433152,
+                "cpu_percent": 0.7
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 0.643,
+            "rss_bytes_total": 85573632,
+            "cpu_percent_total": 8.2,
+            "processes": [
+              {
+                "pid": 10497,
+                "role": "root",
+                "rss_bytes": 52756480,
+                "cpu_percent": 7.5
+              },
+              {
+                "pid": 10918,
+                "role": "child",
+                "rss_bytes": 16384000,
+                "cpu_percent": 0.4
+              },
+              {
+                "pid": 10920,
+                "role": "child",
+                "rss_bytes": 16433152,
+                "cpu_percent": 0.3
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 0.96,
+            "rss_bytes_total": 85573632,
+            "cpu_percent_total": 1.9,
+            "processes": [
+              {
+                "pid": 10497,
+                "role": "root",
+                "rss_bytes": 52756480,
+                "cpu_percent": 1.7
+              },
+              {
+                "pid": 10918,
+                "role": "child",
+                "rss_bytes": 16384000,
+                "cpu_percent": 0.1
+              },
+              {
+                "pid": 10920,
+                "role": "child",
+                "rss_bytes": 16433152,
+                "cpu_percent": 0.1
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 1.251,
+            "rss_bytes_total": 85573632,
+            "cpu_percent_total": 0.8,
+            "processes": [
+              {
+                "pid": 10497,
+                "role": "root",
+                "rss_bytes": 52756480,
+                "cpu_percent": 0.6
+              },
+              {
+                "pid": 10918,
+                "role": "child",
+                "rss_bytes": 16384000,
+                "cpu_percent": 0.1
+              },
+              {
+                "pid": 10920,
+                "role": "child",
+                "rss_bytes": 16433152,
+                "cpu_percent": 0.1
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 1.523,
+            "rss_bytes_total": 85573632,
+            "cpu_percent_total": 0.4,
+            "processes": [
+              {
+                "pid": 10497,
+                "role": "root",
+                "rss_bytes": 52756480,
+                "cpu_percent": 0.2
+              },
+              {
+                "pid": 10918,
+                "role": "child",
+                "rss_bytes": 16384000,
+                "cpu_percent": 0.1
+              },
+              {
+                "pid": 10920,
+                "role": "child",
+                "rss_bytes": 16433152,
+                "cpu_percent": 0.1
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 1.808,
+            "rss_bytes_total": 85573632,
+            "cpu_percent_total": 0.2,
+            "processes": [
+              {
+                "pid": 10497,
+                "role": "root",
+                "rss_bytes": 52756480,
+                "cpu_percent": 0.0
+              },
+              {
+                "pid": 10918,
+                "role": "child",
+                "rss_bytes": 16384000,
+                "cpu_percent": 0.1
+              },
+              {
+                "pid": 10920,
+                "role": "child",
+                "rss_bytes": 16433152,
+                "cpu_percent": 0.1
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 2.11,
+            "rss_bytes_total": 85573632,
+            "cpu_percent_total": 0.2,
+            "processes": [
+              {
+                "pid": 10497,
+                "role": "root",
+                "rss_bytes": 52756480,
+                "cpu_percent": 0.0
+              },
+              {
+                "pid": 10918,
+                "role": "child",
+                "rss_bytes": 16384000,
+                "cpu_percent": 0.1
+              },
+              {
+                "pid": 10920,
+                "role": "child",
+                "rss_bytes": 16433152,
+                "cpu_percent": 0.1
+              }
+            ]
+          },
+          {
+            "elapsed_seconds": 2.198,
+            "rss_bytes_total": 85573632,
+            "cpu_percent_total": 0.2,
+            "processes": [
+              {
+                "pid": 10497,
+                "role": "root",
+                "rss_bytes": 52756480,
+                "cpu_percent": 0.0
+              },
+              {
+                "pid": 10918,
+                "role": "child",
+                "rss_bytes": 16384000,
+                "cpu_percent": 0.1
+              },
+              {
+                "pid": 10920,
+                "role": "child",
+                "rss_bytes": 16433152,
+                "cpu_percent": 0.1
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "note": "peak_rss_bytes is the max under-load RSS summed across the supervisor and forked worker processes; cpu_percent aggregates the whole process tree. process_cpu_series preserves each ps observation by root/child pid and elapsed sample time. Null summaries and empty point lists mean the platform did not expose process telemetry."
+  },
+  "variance": {
+    "sample_count": 2,
+    "groups": [
+      {
+        "server": "pounce",
+        "workload": "hello",
+        "workers": 2,
+        "sample_count": 2,
+        "req_per_sec": {
+          "min": 4475.89,
+          "median": 6132.4,
+          "p95": 7788.91,
+          "max": 7788.91,
+          "variance": 2744025.3800999993
+        },
+        "p99_latency_ms": {
+          "min": 21.13,
+          "median": 25.865000000000002,
+          "p95": 30.6,
+          "max": 30.6,
+          "variance": 22.420225000000013
+        },
+        "server_rss_bytes": {
+          "min": 52756480.0,
+          "median": 52846592.0,
+          "p95": 52936704.0,
+          "max": 52936704.0,
+          "variance": 8120172544.0
+        },
+        "peak_rss_bytes": {
+          "min": 85573632.0,
+          "median": 88416256.0,
+          "p95": 91258880.0,
+          "max": 91258880.0,
+          "variance": 8080511205376.0
+        },
+        "cpu_percent": {
+          "min": 36.4,
+          "median": 65.9,
+          "p95": 95.4,
+          "max": 95.4,
+          "variance": 870.2500000000002
+        },
+        "worker_pids": [
+          3642,
+          4246,
+          4250,
+          10497,
+          10918,
+          10920
+        ],
+        "errors_total": 0
+      }
+    ],
+    "note": "sample groups with sample_count < 2 are snapshots, not regression evidence"
+  },
+  "raw_output": [
+    {
+      "server": "pounce",
+      "workload": "hello",
+      "workers": 2,
+      "sample_index": 1,
+      "load_tool": "wrk",
+      "stdout": "Running 2s test @ http://127.0.0.1:8100/\n  2 threads and 20 connections\n  Thread Stats   Avg      Stdev     Max   +/- Stdev\n    Latency     2.93ms    3.32ms  42.06ms   95.89%\n    Req/Sec     4.01k     0.91k    7.03k    65.85%\n  Latency Distribution\n     50%    2.03ms\n     75%    2.76ms\n     90%    4.24ms\n     99%   21.13ms\n  16361 requests in 2.10s, 2.17MB read\nRequests/sec:   7788.91\nTransfer/sec:      1.03MB\n",
+      "stderr": ""
+    },
+    {
+      "server": "pounce",
+      "workload": "hello",
+      "workers": 2,
+      "sample_index": 2,
+      "load_tool": "wrk",
+      "stdout": "Running 2s test @ http://127.0.0.1:8100/\n  2 threads and 20 connections\n  Thread Stats   Avg      Stdev     Max   +/- Stdev\n    Latency     5.05ms    4.59ms  50.01ms   94.57%\n    Req/Sec     2.25k   493.12     2.92k    71.43%\n  Latency Distribution\n     50%    4.15ms\n     75%    5.53ms\n     90%    7.19ms\n     99%   30.60ms\n  9416 requests in 2.10s, 1.25MB read\nRequests/sec:   4475.89\nTransfer/sec:    607.57KB\n",
+      "stderr": ""
+    }
+  ],
+  "summary": {
+    "groups": [
+      {
+        "server": "pounce",
+        "workload": "hello",
+        "workers": 2,
+        "sample_count": 2,
+        "req_per_sec": {
+          "min": 4475.89,
+          "median": 6132.4,
+          "p95": 7788.91,
+          "max": 7788.91,
+          "variance": 2744025.3800999993
+        },
+        "p99_latency_ms": {
+          "min": 21.13,
+          "median": 25.865000000000002,
+          "p95": 30.6,
+          "max": 30.6,
+          "variance": 22.420225000000013
+        },
+        "server_rss_bytes": {
+          "min": 52756480.0,
+          "median": 52846592.0,
+          "p95": 52936704.0,
+          "max": 52936704.0,
+          "variance": 8120172544.0
+        },
+        "peak_rss_bytes": {
+          "min": 85573632.0,
+          "median": 88416256.0,
+          "p95": 91258880.0,
+          "max": 91258880.0,
+          "variance": 8080511205376.0
+        },
+        "cpu_percent": {
+          "min": 36.4,
+          "median": 65.9,
+          "p95": 95.4,
+          "max": 95.4,
+          "variance": 870.2500000000002
+        },
+        "worker_pids": [
+          3642,
+          4246,
+          4250,
+          10497,
+          10918,
+          10920
+        ],
+        "errors_total": 0
+      }
+    ],
+    "results": [
+      {
+        "server": "pounce",
+        "workload": "hello",
+        "workers": 2,
+        "duration_s": 2,
+        "threads": 2,
+        "connections": 20,
+        "req_per_sec": 7788.91,
+        "avg_latency_ms": 2.93,
+        "p50_latency_ms": 2.03,
+        "p99_latency_ms": 21.13,
+        "transfer_per_sec": "1.03MB",
+        "total_requests": 16361,
+        "errors": 0,
+        "sample_index": 1,
+        "server_rss_bytes": 52936704,
+        "peak_rss_bytes": 91258880,
+        "cpu_percent_mean": 70.27,
+        "cpu_percent_peak": 95.4,
+        "cpu_seconds": null,
+        "worker_pids": [
+          3642,
+          4246,
+          4250
+        ],
+        "telemetry_interval_seconds": 0.2
+      },
+      {
+        "server": "pounce",
+        "workload": "hello",
+        "workers": 2,
+        "duration_s": 2,
+        "threads": 2,
+        "connections": 20,
+        "req_per_sec": 4475.89,
+        "avg_latency_ms": 5.05,
+        "p50_latency_ms": 4.15,
+        "p99_latency_ms": 30.6,
+        "transfer_per_sec": "607.57KB",
+        "total_requests": 9416,
+        "errors": 0,
+        "sample_index": 2,
+        "server_rss_bytes": 52756480,
+        "peak_rss_bytes": 85573632,
+        "cpu_percent_mean": 10.08,
+        "cpu_percent_peak": 36.4,
+        "cpu_seconds": null,
+        "worker_pids": [
+          10497,
+          10918,
+          10920
+        ],
+        "telemetry_interval_seconds": 0.2
+      }
+    ]
+  }
+}

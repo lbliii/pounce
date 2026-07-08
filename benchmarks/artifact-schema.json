@@ -1,6 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "required_fields": [
+    "artifact_schema_version",
     "artifact_id",
     "created_at",
     "git_sha",
@@ -26,5 +27,38 @@
     "raw_output",
     "summary"
   ],
-  "notes": "Public numeric performance claims must reference an artifact with these fields, raw load-tool output entries, and repeated grouped variance, or explicitly state that the number is a local snapshot or tuning example, not a product claim. The telemetry field records under-load peak RSS and CPU% sampled across the supervisor and any forked worker processes (best-effort; null when the platform does not expose process telemetry). The reload/drain-under-load profile (benchmarks/drain_profile.py) adds an optional per-sample drain block recording the four drain-contract metrics: in-flight request completion (inflight_completed / inflight_expected), brand-new-connection disconnect_rate and silent drop_rate, drain_duration_s (bounded by shutdown_timeout), and orphan_workers; clean_drain is true only when every in-flight request completed, no connection was silently dropped, the process exited within the timeout, and no worker was orphaned."
+  "telemetry": {
+    "required_fields": [
+      "supported",
+      "peak_rss_bytes",
+      "cpu_percent",
+      "cpu_seconds",
+      "worker_pids",
+      "process_cpu_series",
+      "note"
+    ],
+    "process_cpu_series": {
+      "entry_required_fields": [
+        "server",
+        "workload",
+        "workers",
+        "sample_index",
+        "interval_seconds",
+        "points"
+      ],
+      "point_required_fields": [
+        "elapsed_seconds",
+        "rss_bytes_total",
+        "cpu_percent_total",
+        "processes"
+      ],
+      "process_required_fields": [
+        "pid",
+        "role",
+        "rss_bytes",
+        "cpu_percent"
+      ]
+    }
+  },
+  "notes": "Public numeric performance claims must reference an artifact with these fields, raw load-tool output entries, and repeated grouped variance, or explicitly state that the number is a local snapshot or tuning example, not a product claim. The telemetry field records under-load peak RSS, aggregate CPU%, and a per-process CPU/RSS time series sampled across the root server and any forked worker processes (best-effort; null summaries or empty point lists when the platform does not expose process telemetry). The reload/drain-under-load profile (benchmarks/drain_profile.py) adds an optional per-sample drain block recording the four drain-contract metrics: in-flight request completion (inflight_completed / inflight_expected), brand-new-connection disconnect_rate and silent drop_rate, drain_duration_s (bounded by shutdown_timeout), and orphan_workers; clean_drain is true only when every in-flight request completed, no connection was silently dropped, the process exited within the timeout, and no worker was orphaned."
 }
