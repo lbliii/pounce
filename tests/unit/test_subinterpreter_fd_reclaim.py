@@ -3,9 +3,9 @@
 The integration tests in ``tests/integration/test_subinterpreter_fd_leak.py``
 prove the end-to-end "no net FD growth" invariant with real subinterpreters.
 These unit tests pin the supervisor-side reclaim logic directly — closing a
-recorded FD, clearing it so it cannot be double-closed, and suppressing the
-``OSError`` from the race where the worker already self-closed the same FD —
-without needing a live, crashing subinterpreter.
+recorded FD, clearing it so it cannot be double-closed, and preserving a reused
+FD number after the worker acknowledges its own close — without needing a live,
+crashing subinterpreter.
 """
 
 import os
@@ -60,6 +60,25 @@ def test_reclaim_is_noop_when_no_fd_recorded() -> None:
     # Must not raise and must leave the slot cleared.
     _reclaim(handle)
     assert handle.sock_fd is None
+
+
+def test_reclaim_does_not_close_fd_after_worker_acknowledges_close() -> None:
+    """A worker-side close can release and immediately recycle the FD number."""
+    r, w = os.pipe()
+    try:
+        handle = _make_handle()
+        handle.sock_fd = w
+        handle.sock_fd_closed_by_worker = threading.Event()
+        handle.sock_fd_closed_by_worker.set()
+
+        _reclaim(handle)
+
+        assert _is_open(w), "worker acknowledgement must prevent a second os.close"
+        assert handle.sock_fd is None
+    finally:
+        os.close(r)
+        if _is_open(w):
+            os.close(w)
 
 
 def test_reclaim_is_idempotent_and_suppresses_double_close() -> None:
