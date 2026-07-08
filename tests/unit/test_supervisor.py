@@ -9,7 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pounce._errors import SupervisorError
+from pounce._errors import SupervisorError, WorkerError
+from pounce._state import READY
 from pounce._types import Receive, Scope, Send
 from pounce.config import ServerConfig
 from pounce.supervisor import (
@@ -42,6 +43,12 @@ def _wait_for_handles(
 
 async def _noop_app(scope: Scope, receive: Receive, send: Send) -> None:
     """Minimal ASGI app that does nothing."""
+
+
+async def _failing_worker_startup_app(scope: Scope, receive: Receive, send: Send) -> None:
+    """Raise only for the required per-worker startup hook."""
+    if scope["type"] == "pounce.worker.startup":
+        raise RuntimeError("required worker initialization failed")
 
 
 def _make_sockets(count: int, blocking: bool = False) -> list[socket.socket]:
@@ -163,6 +170,33 @@ class TestSupervisorThreadMode:
         for s in set(sockets):
             with contextlib.suppress(Exception):
                 s.close()
+
+    def test_required_worker_startup_failure_raises_before_ready(self):
+        """A required hook failure aborts initial multi-worker startup."""
+        config = ServerConfig(
+            workers=2,
+            host="127.0.0.1",
+            port=0,
+            access_log=False,
+            worker_mode="async",
+            worker_startup_failure="shutdown",
+        )
+        sup = Supervisor(config, _failing_worker_startup_app, mode="thread")
+        sockets = _make_sockets(2)
+
+        try:
+            with (
+                patch("pounce.supervisor.dispatch") as dispatch_mock,
+                pytest.raises(WorkerError) as exc_info,
+            ):
+                sup.run(sockets)
+        finally:
+            for sock in set(sockets):
+                with contextlib.suppress(OSError):
+                    sock.close()
+
+        assert exc_info.value.code == "POUNCE_WORKER_STARTUP_FAILED"
+        assert all(call.args[0] is not READY for call in dispatch_mock.call_args_list)
 
 
 class TestSupervisorRespawn:

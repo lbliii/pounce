@@ -14,6 +14,7 @@ import threading
 
 import pytest
 
+from pounce._errors import WorkerError
 from pounce._types import Receive, Scope, Send
 from pounce.config import ServerConfig
 from pounce.net.listener import create_listener
@@ -533,10 +534,9 @@ class TestSingleWorkerLifecycle:
             worker_startup_failure="shutdown",
         )
         server = Server(config, app)
-        thread = threading.Thread(target=server.run, daemon=True)
-        thread.start()
 
-        # The server exits on its own without ever becoming ready.
-        thread.join(timeout=3)
-        assert not thread.is_alive()
+        with pytest.raises(WorkerError) as exc_info:
+            server.run()
+
+        assert exc_info.value.code == "POUNCE_WORKER_STARTUP_FAILED"
         assert not server._started_event.is_set()

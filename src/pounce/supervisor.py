@@ -28,15 +28,16 @@ import ssl
 import threading
 import time
 from multiprocessing.process import BaseProcess
-from typing import Any, Final, Protocol
+from typing import Any, Final, Never, Protocol
 
-from pounce._errors import SupervisorError
+from pounce._errors import SupervisorError, WorkerError
 from pounce._runtime import (
     WorkerMode,
     detect_worker_mode,
     resolve_worker_execution_mode,
 )
 from pounce._state import (
+    READY,
     RELOAD_COMPLETE,
     RELOAD_FAILED,
     RELOAD_START,
@@ -236,6 +237,7 @@ class Supervisor:
         "_shutdown_event",
         "_sockets",
         "_ssl_context",
+        "_startup_status_queue",
         "_sync_app",
         "_udp_sockets",
     )
@@ -258,6 +260,9 @@ class Supervisor:
         self._mode: WorkerMode = mode or detect_worker_mode()
         self._fork_ctx: multiprocessing.context.BaseContext | None = (
             _get_fork_context() if self._mode == "process" else None
+        )
+        self._startup_status_queue: Any = (
+            self._fork_ctx.Queue() if self._fork_ctx is not None else queue.Queue()
         )
         self._execution_mode = resolve_worker_execution_mode(config.worker_mode)
         # Sync workers only supported in thread mode (3.14t). On GIL/process, fall back to async.
@@ -307,6 +312,74 @@ class Supervisor:
 
         """
         self._lifespan_state = state
+
+    def _await_initial_workers_ready(self) -> None:
+        """Wait for every initial worker hook and listener to succeed."""
+        deadline = time.monotonic() + self._config.startup_timeout
+        pending = set(range(self._effective_workers))
+
+        while pending:
+            if self._mode == "subinterpreter":
+                for worker_id in tuple(pending):
+                    if worker_id >= len(self._iic_queues):
+                        continue
+                    message = _try_iic_get(self._iic_queues[worker_id][1])
+                    if message is None:
+                        continue
+                    status = str(message[0])
+                    detail = str(message[1]) if len(message) > 1 else None
+                    if status == "serving":
+                        pending.remove(worker_id)
+                    elif status == "error":
+                        self._raise_startup_failure(
+                            f"Worker {worker_id} startup failed: {detail or 'unknown error'}",
+                            (
+                                "Fix the pounce.worker.startup hook, or set "
+                                "worker_startup_failure='ignore' to preserve compatibility."
+                            ),
+                        )
+                if pending:
+                    time.sleep(0.01)
+            else:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    status, worker_id, detail = self._startup_status_queue.get(
+                        timeout=min(remaining, 0.1)
+                    )
+                except queue.Empty:
+                    continue
+                if status == "serving":
+                    pending.discard(worker_id)
+                elif status == "error":
+                    self._raise_startup_failure(
+                        f"Worker {worker_id} startup failed: {detail or 'unknown error'}",
+                        (
+                            "Fix the pounce.worker.startup hook, or set "
+                            "worker_startup_failure='ignore' to preserve compatibility."
+                        ),
+                    )
+
+            if time.monotonic() >= deadline:
+                break
+
+        if pending:
+            worker_list = ", ".join(str(worker_id) for worker_id in sorted(pending))
+            self._raise_startup_failure(
+                f"Workers did not report ready within {self._config.startup_timeout:.1f}s: "
+                f"{worker_list}",
+                "Check worker startup logs and increase startup_timeout if initialization is slow.",
+            )
+
+    def _raise_startup_failure(self, message: str, hint: str) -> Never:
+        """Abort initial startup with the stable operator-facing error."""
+        self._shutdown_event.set()
+        raise WorkerError(
+            message,
+            code="POUNCE_WORKER_STARTUP_FAILED",
+            hint=hint,
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -392,8 +465,17 @@ class Supervisor:
             for i in range(self._effective_workers):
                 self._spawn_h3_worker(i)
 
-        # Health-check loop — blocks until shutdown
+        # Do not report READY until every worker hook and listener succeeded.
         try:
+            self._await_initial_workers_ready()
+            actual_addr = self._sockets[0].getsockname()
+            dispatch(
+                READY,
+                host=actual_addr[0],
+                port=actual_addr[1],
+                uds=self._config.uds,
+            )
+            # Health-check loop — blocks until shutdown
             self._watch()
         except KeyboardInterrupt:
             pass
@@ -924,6 +1006,7 @@ class Supervisor:
                 async_pool=self._async_pool,
                 conn_queue=self._conn_queue,
                 sync_app=self._sync_app,
+                startup_status_queue=self._startup_status_queue,
             )
         else:
             worker = Worker(
@@ -936,6 +1019,7 @@ class Supervisor:
                 + (1 if worker_id < self._per_worker_max_remainder else 0),
                 ssl_context=self._ssl_context,
                 lifecycle_collector=self._lifecycle_collector,
+                startup_status_queue=self._startup_status_queue,
             )
         worker.set_lifespan_state(self._lifespan_state)
         return worker

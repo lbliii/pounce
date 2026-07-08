@@ -246,6 +246,7 @@ class SyncWorker:
         "_recv_buf_len",
         "_sock",
         "_ssl_context",
+        "_startup_status_queue",
         "_sync_app",
         "_worker_id",
     )
@@ -263,6 +264,7 @@ class SyncWorker:
         async_pool: AsyncPool | None = None,
         conn_queue: queue.Queue[tuple[socket.socket, object]] | None = None,
         sync_app: SyncApp | None = None,
+        startup_status_queue: Any | None = None,
     ) -> None:
         self._config = config
         self._async_pool = async_pool
@@ -274,6 +276,7 @@ class SyncWorker:
         self._ext_shutdown = shutdown_event
         self._drain_event = threading.Event()
         self._ssl_context = ssl_context
+        self._startup_status_queue = startup_status_queue
         self._lifecycle: LifecycleCollector = lifecycle_collector or NoopCollector()
         self._lifespan_state: dict[str, Any] = {}
         self._logger = logging.getLogger(f"pounce.sync_worker.{worker_id}")
@@ -312,6 +315,10 @@ class SyncWorker:
         try:
             startup_ok = runner.run(self._run_worker_startup_hook())
             if not startup_ok and self._config.worker_startup_failure == "shutdown":
+                self._report_startup_status(
+                    "error",
+                    "pounce.worker.startup hook raised or timed out",
+                )
                 self._logger.error(
                     "Sync worker %d refusing to serve: pounce.worker.startup hook failed and "
                     "worker_startup_failure='shutdown' — signalling server shutdown",
@@ -321,6 +328,7 @@ class SyncWorker:
                     self._ext_shutdown.set()
                 return
             started = True
+            self._report_startup_status("serving")
             if self._conn_queue is not None:
                 self._run_from_queue(poll_interval, runner)
             else:
@@ -329,6 +337,11 @@ class SyncWorker:
             if started:
                 runner.run(self._run_worker_shutdown_hook())
             runner.close()
+
+    def _report_startup_status(self, status: str, detail: str | None = None) -> None:
+        """Report initial startup state to the owning supervisor."""
+        if self._startup_status_queue is not None:
+            self._startup_status_queue.put((status, self._worker_id, detail))
 
     async def _run_worker_startup_hook(self) -> bool:
         """Run ``pounce.worker.startup`` on this sync worker's runner loop."""

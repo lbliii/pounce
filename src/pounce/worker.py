@@ -146,6 +146,7 @@ class Worker:
         "_profile",
         "_sock",
         "_ssl_context",
+        "_startup_status_queue",
         "_worker_id",
     )
 
@@ -160,6 +161,7 @@ class Worker:
         max_connections: int = 0,
         ssl_context: ssl.SSLContext | None = None,
         lifecycle_collector: LifecycleCollector | None = None,
+        startup_status_queue: Any | None = None,
     ) -> None:
         self._config = config
         self._app = app
@@ -173,6 +175,7 @@ class Worker:
         self._conn_lock = threading.Lock()
         self._max_connections = max_connections
         self._ssl_context = ssl_context
+        self._startup_status_queue = startup_status_queue
         self._logger = logging.getLogger(f"pounce.worker.{worker_id}")
         self._lifecycle: LifecycleCollector = lifecycle_collector or NoopCollector()
         self._lifespan_state: dict[str, Any] = {}  # Populated after lifespan startup
@@ -296,6 +299,10 @@ class Worker:
         # refuses to serve and signals the supervisor to stop (issue #65).
         startup_ok = await self._run_worker_startup_hook()
         if not startup_ok and self._config.worker_startup_failure == "shutdown":
+            self._report_startup_status(
+                "error",
+                "pounce.worker.startup hook raised or timed out",
+            )
             self._logger.error(
                 "Worker %d refusing to serve: pounce.worker.startup hook failed and "
                 "worker_startup_failure='shutdown' — signalling server shutdown",
@@ -322,6 +329,7 @@ class Worker:
             sock=self._sock,
             ssl=self._ssl_context,
         )
+        self._report_startup_status("serving")
 
         self._logger.debug("Worker %d started, accepting connections", self._worker_id)
 
@@ -445,6 +453,11 @@ class Worker:
                 flush_otel()
 
             self._logger.debug("Worker %d stopped", self._worker_id)
+
+    def _report_startup_status(self, status: str, detail: str | None = None) -> None:
+        """Report initial startup state to the owning supervisor."""
+        if self._startup_status_queue is not None:
+            self._startup_status_queue.put((status, self._worker_id, detail))
 
     async def _run_worker_startup_hook(self) -> bool:
         """Run the ``pounce.worker.startup`` hook. Return True on success.

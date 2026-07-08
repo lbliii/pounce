@@ -90,9 +90,9 @@ class ServerConfig:
     #   continues — required for generic ASGI apps that don't recognise the
     #   scope and raise on it (e.g. KeyError on scope['method']).
     # "shutdown": treat a hook exception/timeout as fatal — the worker refuses
-    #   to serve and signals the server to shut down.  Lets frameworks that
-    #   intentionally use the hook fail loudly instead of serving with
-    #   uninitialised worker state.  See issue #65.
+    #   to serve and the server exits non-zero before reporting readiness. Lets
+    #   frameworks that intentionally use the hook fail loudly instead of
+    #   serving with uninitialised worker state. See issues #65 and #245.
     worker_startup_failure: str = "ignore"
 
     # CPU affinity (Linux only): pin each worker to a dedicated core.
