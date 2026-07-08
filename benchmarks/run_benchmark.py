@@ -43,12 +43,19 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+try:
+    from benchmarks.fixed_rate import run_fixed_rate
+except ModuleNotFoundError:
+    # Direct ``python benchmarks/run_benchmark.py`` execution places the
+    # benchmarks directory, not the repository root, on sys.path.
+    from fixed_rate import run_fixed_rate
+
 _COMMAND_ERRORS = (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired)
 _LOAD_TOOL_FIND_ERRORS = (FileNotFoundError, subprocess.TimeoutExpired)
 _LOAD_TOOL_VERSION_ERRORS = (FileNotFoundError, subprocess.TimeoutExpired)
 _RSS_PARSE_ERRORS = (IndexError, ValueError)
 _SERVER_START_RETRY_ERRORS = (ConnectionRefusedError, OSError)
-_UVICORN_COMPARISON_ERRORS = (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired)
+_COMPARISON_ERRORS = (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired)
 _PROCESS_QUERY_ERRORS = (FileNotFoundError, subprocess.TimeoutExpired)
 _PROCESS_PARSE_ERRORS = (IndexError, ValueError)
 _ARTIFACT_SCHEMA_PATH = Path(__file__).with_name("artifact-schema.json")
@@ -68,6 +75,7 @@ class BenchmarkResult:
     avg_latency_ms: float
     p50_latency_ms: float
     p99_latency_ms: float
+    p999_latency_ms: float
     transfer_per_sec: str
     total_requests: int
     errors: int
@@ -210,6 +218,32 @@ def _server_command(server: str, workload: str, port: int, workers: int) -> list
             "--workers",
             str(workers),
             "--no-access-log",
+        ]
+    if server == "hypercorn":
+        return [
+            sys.executable,
+            "-m",
+            "hypercorn",
+            "--bind",
+            f"127.0.0.1:{port}",
+            "--workers",
+            str(workers),
+            wl["app"],
+        ]
+    if server == "granian":
+        return [
+            sys.executable,
+            "-m",
+            "granian",
+            "--interface",
+            "asgi",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--workers",
+            str(workers),
+            wl["app"],
         ]
     msg = f"unknown benchmark server: {server}"
     raise ValueError(msg)
@@ -534,6 +568,8 @@ def _find_load_tool() -> str:
 
 def _load_tool_version(tool: str) -> str:
     """Return best-effort load tool version metadata."""
+    if tool == "pounce-fixed-rate":
+        return "builtin-v1"
     for flag in ("--version", "-version", "--help"):
         try:
             result = subprocess.run(
@@ -613,6 +649,7 @@ def _parse_wrk_output(output: str) -> dict:
         "avg_latency_ms": 0.0,
         "p50_latency_ms": 0.0,
         "p99_latency_ms": 0.0,
+        "p999_latency_ms": 0.0,
         "transfer_per_sec": "",
         "total_requests": 0,
         "errors": 0,
@@ -681,6 +718,7 @@ def _parse_hey_output(output: str) -> dict:
         "avg_latency_ms": 0.0,
         "p50_latency_ms": 0.0,
         "p99_latency_ms": 0.0,
+        "p999_latency_ms": 0.0,
         "transfer_per_sec": "",
         "total_requests": 0,
         "errors": 0,
@@ -734,84 +772,61 @@ def run_benchmark(
     threads: int,
     connections: int,
     compare: bool,
+    servers: tuple[str, ...] | None = None,
+    load_tool: str | None = None,
+    rate: int | None = None,
     port: int = 8100,
     sample_index: int = 1,
 ) -> list[BenchmarkResult]:
-    """Run a benchmark for a single workload, optionally comparing servers."""
+    """Run one workload against Pounce and selected comparison servers."""
     wl = WORKLOADS[workload]
-    tool = _find_load_tool()
-    runner = _run_wrk if tool == "wrk" else _run_hey
+    selected_servers = servers or (("pounce", "uvicorn") if compare else ("pounce",))
+    if "pounce" not in selected_servers:
+        raise ValueError("servers must include pounce")
+    tool = load_tool or ("pounce-fixed-rate" if rate is not None else _find_load_tool())
+    if tool == "pounce-fixed-rate" and (rate is None or rate < 1):
+        raise ValueError("fixed-rate load requires rate >= 1")
     results: list[BenchmarkResult] = []
 
     method = wl.get("method", "GET")
     body_size = wl.get("body_size")
 
-    # --- Pounce ---
-    print(f"\n  Starting pounce ({workload}, {workers} workers)...")
-    pounce_cmd = _server_command("pounce", workload, port, workers)
-    pounce_proc = _start_server(pounce_cmd, port)
-    time.sleep(0.5)
-
-    try:
-        print(f"  Running {tool} ({duration}s, {connections} connections)...")
-        with _TelemetrySampler(pounce_proc.pid) as sampler:
-            raw = runner(
-                _benchmark_url(port, workload),
+    def drive(url: str) -> dict:
+        if tool == "pounce-fixed-rate":
+            return run_fixed_rate(
+                url,
                 duration=duration,
-                threads=threads,
                 connections=connections,
+                rate=rate or 0,
                 method=method,
                 body_size=body_size,
             )
-        telemetry = sampler.result()
-        server_rss_bytes = _process_rss_bytes(pounce_proc)
-        results.append(
-            BenchmarkResult(
-                server="pounce",
-                workload=workload,
-                workers=workers,
-                duration_s=duration,
-                threads=threads,
-                connections=connections,
-                sample_index=sample_index,
-                server_rss_bytes=server_rss_bytes,
-                peak_rss_bytes=telemetry.peak_rss_bytes,
-                cpu_percent_mean=telemetry.cpu_percent_mean,
-                cpu_percent_peak=telemetry.cpu_percent_peak,
-                worker_pids=telemetry.worker_pids,
-                telemetry_interval_seconds=telemetry.interval_seconds,
-                process_cpu_series=telemetry.process_cpu_series,
-                **raw,
-            )
+        runner = _run_wrk if tool == "wrk" else _run_hey
+        return runner(
+            url,
+            duration=duration,
+            threads=threads,
+            connections=connections,
+            method=method,
+            body_size=body_size,
         )
-    finally:
-        _stop_server(pounce_proc)
 
-    # --- Uvicorn (optional comparison) ---
-    if compare:
-        uvicorn_port = port + 1
-        print(f"\n  Starting uvicorn ({workload}, {workers} workers)...")
-        uvicorn_cmd = _server_command("uvicorn", workload, uvicorn_port, workers)
-        uvicorn_proc: subprocess.Popen | None = None
+    for server_index, server_name in enumerate(selected_servers):
+        server_port = port + server_index
+        print(f"\n  Starting {server_name} ({workload}, {workers} workers)...")
+        command = _server_command(server_name, workload, server_port, workers)
+        process: subprocess.Popen | None = None
         try:
-            uvicorn_proc = _start_server(uvicorn_cmd, uvicorn_port)
+            process = _start_server(command, server_port)
             time.sleep(0.5)
-
             print(f"  Running {tool} ({duration}s, {connections} connections)...")
-            with _TelemetrySampler(uvicorn_proc.pid) as sampler:
-                raw = runner(
-                    _benchmark_url(uvicorn_port, workload),
-                    duration=duration,
-                    threads=threads,
-                    connections=connections,
-                    method=method,
-                    body_size=body_size,
-                )
+            with _TelemetrySampler(process.pid) as sampler:
+                raw = drive(_benchmark_url(server_port, workload))
             telemetry = sampler.result()
-            server_rss_bytes = _process_rss_bytes(uvicorn_proc)
+            server_rss_bytes = _process_rss_bytes(process)
             results.append(
                 BenchmarkResult(
-                    server="uvicorn",
+                    server=server_name,
                     workload=workload,
                     workers=workers,
                     duration_s=duration,
@@ -828,11 +843,13 @@ def run_benchmark(
                     **raw,
                 )
             )
-        except _UVICORN_COMPARISON_ERRORS as exc:
-            print(f"  Uvicorn comparison skipped: {exc}", file=sys.stderr)
+        except _COMPARISON_ERRORS as exc:
+            if server_name == "pounce":
+                raise
+            print(f"  {server_name} comparison skipped: {exc}", file=sys.stderr)
         finally:
-            if uvicorn_proc is not None and uvicorn_proc.poll() is None:
-                _stop_server(uvicorn_proc)
+            if process is not None and process.poll() is None:
+                _stop_server(process)
 
     return results
 
@@ -847,11 +864,11 @@ def print_markdown_table(results: list[BenchmarkResult]) -> None:
     print("\n## Benchmark Results\n")
     print(
         "| Server | Workload | Workers | Req/s | Avg (ms) | p50 (ms) | p99 (ms) | "
-        "Errors | Peak RSS (MB) | CPU% |"
+        "p999 (ms) | Errors | Peak RSS (MB) | CPU% |"
     )
     print(
         "|--------|----------|---------|-------|----------|----------|----------|"
-        "--------|---------------|------|"
+        "-----------|--------|---------------|------|"
     )
     for r in results:
         peak_rss = f"{r.peak_rss_bytes / 1_048_576:.1f}" if r.peak_rss_bytes is not None else "n/a"
@@ -859,21 +876,27 @@ def print_markdown_table(results: list[BenchmarkResult]) -> None:
         print(
             f"| {r.server} | {r.workload} | {r.workers} | "
             f"{r.req_per_sec:,.0f} | {r.avg_latency_ms:.2f} | "
-            f"{r.p50_latency_ms:.2f} | {r.p99_latency_ms:.2f} | {r.errors} | "
+            f"{r.p50_latency_ms:.2f} | {r.p99_latency_ms:.2f} | "
+            f"{r.p999_latency_ms:.2f} | {r.errors} | "
             f"{peak_rss} | {cpu} |"
         )
 
-    # Print pounce vs uvicorn ratios if comparison data exists
+    # Print Pounce ratios against every selected comparison server.
     pounce_results = [r for r in results if r.server == "pounce"]
-    uvicorn_results = [r for r in results if r.server == "uvicorn"]
+    comparison_results = [r for r in results if r.server != "pounce"]
 
-    if pounce_results and uvicorn_results:
-        print("\n### Throughput Ratio (pounce / uvicorn)\n")
+    if pounce_results and comparison_results:
+        print("\n### Throughput Ratios\n")
         for p in pounce_results:
-            for u in uvicorn_results:
-                if p.workload == u.workload and p.workers == u.workers:
-                    ratio = p.req_per_sec / u.req_per_sec if u.req_per_sec > 0 else 0
-                    print(f"- {p.workload} ({p.workers}w): **{ratio:.2f}x**")
+            for comparison in comparison_results:
+                if p.workload == comparison.workload and p.workers == comparison.workers:
+                    ratio = (
+                        p.req_per_sec / comparison.req_per_sec if comparison.req_per_sec > 0 else 0
+                    )
+                    print(
+                        f"- pounce / {comparison.server}, {p.workload} "
+                        f"({p.workers}w): **{ratio:.2f}x**"
+                    )
 
 
 def save_json(suite: BenchmarkSuite, path: Path) -> None:
@@ -999,6 +1022,7 @@ def _group_sample_summaries(samples: list[dict]) -> list[dict]:
                 "sample_count": len(rows),
                 "req_per_sec": _metric_summary(rows, "req_per_sec"),
                 "p99_latency_ms": _metric_summary(rows, "p99_latency_ms"),
+                "p999_latency_ms": _metric_summary(rows, "p999_latency_ms"),
                 "server_rss_bytes": _metric_summary(rss_rows, "server_rss_bytes")
                 if rss_rows
                 else None,
@@ -1079,6 +1103,8 @@ def build_artifact(
     load_tool: str,
     load_tool_version: str,
     compare: bool,
+    servers: tuple[str, ...] | None = None,
+    target_rps: int | None = None,
     port: int = 8100,
 ) -> dict:
     """Build JSON metadata matching benchmarks/artifact-schema.json."""
@@ -1087,14 +1113,24 @@ def build_artifact(
     summaries = _group_sample_summaries(samples)
     telemetry = _telemetry_block(suite.results)
     server_commands: dict[str, str] = {}
+    selected_servers = servers or (("pounce", "uvicorn") if compare else ("pounce",))
+    comparison_servers = [server for server in selected_servers if server != "pounce"]
+    if len(comparison_servers) == 1:
+        comparison_target: str | list[str] | None = comparison_servers[0]
+        comparison_version: str | dict[str, str] | None = _server_version(comparison_servers[0])
+    elif comparison_servers:
+        comparison_target = comparison_servers
+        comparison_version = {
+            server_name: _server_version(server_name) for server_name in comparison_servers
+        }
+    else:
+        comparison_target = None
+        comparison_version = None
     workloads = list(WORKLOADS) if workload == "all" else [workload]
     for wl in workloads:
-        server_commands[f"pounce:{wl}"] = _command_string(
-            _server_command("pounce", wl, port, workers)
-        )
-        if compare:
-            server_commands[f"uvicorn:{wl}"] = _command_string(
-                _server_command("uvicorn", wl, port + 1, workers)
+        for server_index, server_name in enumerate(selected_servers):
+            server_commands[f"{server_name}:{wl}"] = _command_string(
+                _server_command(server_name, wl, port + server_index, workers)
             )
 
     return {
@@ -1114,10 +1150,11 @@ def build_artifact(
         "duration_seconds": duration,
         "connections": connections,
         "threads": threads,
+        "target_rps": target_rps,
         "load_tool": load_tool,
         "load_tool_version": load_tool_version,
-        "comparison_target": "uvicorn" if compare else None,
-        "comparison_target_version": _server_version("uvicorn") if compare else None,
+        "comparison_target": comparison_target,
+        "comparison_target_version": comparison_version,
         "samples": samples,
         "telemetry": telemetry,
         "variance": {
@@ -1156,8 +1193,8 @@ def build_profile_artifact(
 ) -> dict:
     """Assemble an artifact-schema-compatible dict for a custom profile.
 
-    Unlike :func:`build_artifact` (which is wired to the wrk/hey workload
-    runner), this builds the same schema from pre-computed sample rows so that
+    Unlike :func:`build_artifact` (which is wired to the workload runner), this
+    builds the same schema from pre-computed sample rows so that
     in-process profiles — sustained streaming, worker-mode comparison — emit
     governed artifacts too. Each sample row should carry at least ``server``,
     ``workload``, ``workers``, ``req_per_sec``, and ``p99_latency_ms`` so the
@@ -1551,6 +1588,20 @@ def main() -> None:
     parser.add_argument(
         "--compare", action="store_true", help="Also benchmark uvicorn for comparison"
     )
+    parser.add_argument(
+        "--servers",
+        default=None,
+        help=("Comma-separated servers: pounce,uvicorn,hypercorn,granian. Overrides --compare."),
+    )
+    parser.add_argument(
+        "--rate",
+        type=int,
+        default=None,
+        help=(
+            "Schedule a fixed request rate using the built-in coordinated-omission-safe "
+            "driver; enables p999 reporting without an external load tool"
+        ),
+    )
     parser.add_argument("--output", type=str, default=None, help="Save results to JSON file")
     parser.add_argument(
         "--artifact-output",
@@ -1589,8 +1640,27 @@ def main() -> None:
     args = parser.parse_args()
     if args.repeat < 1:
         parser.error("--repeat must be >= 1")
+    if args.duration < 1:
+        parser.error("--duration must be >= 1")
+    if args.connections < 1:
+        parser.error("--connections must be >= 1")
+    if args.rate is not None and args.rate < 1:
+        parser.error("--rate must be >= 1")
     if args.rps_tolerance < 0 or args.p99_tolerance < 0:
         parser.error("--rps-tolerance and --p99-tolerance must be >= 0")
+
+    valid_servers = {"pounce", "uvicorn", "hypercorn", "granian"}
+    if args.servers:
+        selected_servers = tuple(
+            dict.fromkeys(server.strip().lower() for server in args.servers.split(","))
+        )
+    else:
+        selected_servers = ("pounce", "uvicorn") if args.compare else ("pounce",)
+    unknown_servers = sorted(set(selected_servers) - valid_servers)
+    if unknown_servers:
+        parser.error(f"unknown --servers value(s): {', '.join(unknown_servers)}")
+    if "pounce" not in selected_servers:
+        parser.error("--servers must include pounce")
 
     suite = BenchmarkSuite(
         timestamp=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -1604,7 +1674,7 @@ def main() -> None:
     print("Pounce Benchmark Suite")
     print(f"Python: {sys.version.split()[0]}")
     print(f"Platform: {platform.platform()}")
-    load_tool = _find_load_tool()
+    load_tool = "pounce-fixed-rate" if args.rate is not None else _find_load_tool()
     print(f"Tool: {load_tool}")
 
     for sample_index, wl in _sample_plan(workloads, args.repeat):
@@ -1621,6 +1691,9 @@ def main() -> None:
             threads=args.threads,
             connections=args.connections,
             compare=args.compare,
+            servers=selected_servers,
+            load_tool=load_tool,
+            rate=args.rate,
             sample_index=sample_index,
         )
         all_results.extend(results)
@@ -1647,6 +1720,8 @@ def main() -> None:
             load_tool=load_tool,
             load_tool_version=_load_tool_version(load_tool),
             compare=args.compare,
+            servers=selected_servers,
+            target_rps=args.rate,
         )
 
     if args.artifact_output and artifact is not None:

@@ -1,0 +1,110 @@
+name: Benchmark Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: Fixed-rate sample duration in seconds
+        required: false
+        default: "120"
+      repeat:
+        description: Samples per server and workload
+        required: false
+        default: "3"
+      rate:
+        description: Scheduled requests per second
+        required: false
+        default: "1000"
+  schedule:
+    - cron: "23 5 * * 1"
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: benchmark-evidence-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sustained:
+    name: ${{ matrix.runtime }} / ${{ matrix.workload }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runtime: python-3.14-process
+            python-version: "3.14"
+            workload: hello
+            servers: pounce,uvicorn,hypercorn,granian
+            install-granian: true
+          - runtime: python-3.14t-thread
+            python-version: "3.14t"
+            workload: hello
+            servers: pounce,uvicorn,hypercorn
+            install-granian: false
+          - runtime: python-3.14-process
+            python-version: "3.14"
+            workload: chirp
+            servers: pounce,uvicorn,hypercorn,granian
+            install-granian: true
+          - runtime: python-3.14t-thread
+            python-version: "3.14t"
+            workload: chirp
+            servers: pounce,uvicorn,hypercorn
+            install-granian: false
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Install Pounce and benchmark comparisons
+        run: |
+          uv sync --group dev
+          uv pip install uvicorn hypercorn
+          if [ "${{ matrix.install-granian }}" = "true" ]; then
+            uv pip install granian
+          fi
+
+      - name: Run sustained fixed-rate benchmark
+        env:
+          DURATION: ${{ inputs.duration || '120' }}
+          REPEAT: ${{ inputs.repeat || '3' }}
+          TARGET_RPS: ${{ inputs.rate || '1000' }}
+        run: |
+          mkdir -p benchmark-artifacts
+          .venv/bin/python benchmarks/run_benchmark.py \
+            --workload "${{ matrix.workload }}" \
+            --workers 4 \
+            --duration "${DURATION}" \
+            --connections 100 \
+            --repeat "${REPEAT}" \
+            --rate "${TARGET_RPS}" \
+            --servers "${{ matrix.servers }}" \
+            --artifact-output "benchmark-artifacts/${{ matrix.runtime }}-${{ matrix.workload }}.json"
+
+      - name: Validate benchmark artifact
+        run: |
+          .venv/bin/python -c 'import json, pathlib; from benchmarks.run_benchmark import validate_artifact; path = next(pathlib.Path("benchmark-artifacts").glob("*.json")); validate_artifact(json.loads(path.read_text()))'
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-${{ matrix.runtime }}-${{ matrix.workload }}
+          path: benchmark-artifacts/*.json
+          if-no-files-found: error
+
+      - name: Attach artifact to GitHub release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release upload "${{ github.event.release.tag_name }}"
+          benchmark-artifacts/*.json --clobber

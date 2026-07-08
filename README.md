@@ -71,21 +71,21 @@ Pounce achieves compatibility through correct ASGI 3.0 implementation — no fra
 ## Performance
 
 Pounce is designed to make the pure-Python request path competitive while keeping
-the server core free of C extensions. Treat the numbers below as a benchmark
-snapshot, not a universal guarantee.
-
-| Scenario | Pounce | Uvicorn | Notes |
-|----------|--------|---------|-------|
-| 1 worker | ~7.2k req/s | ~6.5k req/s | Async event loop, h11 parser |
-| 4 workers | ~16k req/s | ~17k req/s | Threads (pounce) vs processes (uvicorn) |
-
-*Measured with `wrk -t4 -c100 -d10s` on macOS Apple Silicon, plain-text "hello world" ASGI app, Python 3.14t. Re-run locally before making deployment decisions.*
+the server core free of C extensions. The committed Chirp-shaped local snapshot
+reports a median **9,194 req/s**, **12.12 ms p99**, and about **58.7 MiB RSS** for
+one Pounce worker. It used five 5-second `wrk` samples at 50 connections on
+Python 3.14t/macOS Apple Silicon. This is a short local snapshot, not sustained
+release evidence or a universal target; inspect the
+[raw artifact](benchmarks/artifacts/2026-05-22/chirp-pounce-local.json).
 
 Run `pounce bench --workers 4 --compare` to reproduce on your machine.
 For release or PR evidence, use
 `python benchmarks/run_benchmark.py --repeat 5 --artifact-output results.json`
 so the run carries the metadata required by `benchmarks/artifact-schema.json`
-and grouped variance across samples.
+and grouped variance across samples. The scheduled/release workflow adds
+two-minute fixed-rate p50/p99/p999 evidence for Python 3.14 process workers and
+Python 3.14t thread workers, with uvicorn, Hypercorn, and Granian comparisons
+where supported.
 
 Key optimizations in the sync worker path:
 - **Fast HTTP/1.1 parser** — Direct bytes parsing is benchmarked separately from h11 and covers method validation, header size limits, duplicate `Content-Length`, and `Content-Length`/`Transfer-Encoding` ambiguity

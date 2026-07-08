@@ -28,8 +28,13 @@ python benchmarks/run_benchmark.py --workload chirp --workers 4 --duration 30
 # Repeat each workload for artifact variance
 python benchmarks/run_benchmark.py --workload chirp --repeat 5 --artifact-output artifacts/chirp.json
 
-# Compare against uvicorn
-python benchmarks/run_benchmark.py --compare --workers 4
+# Compare against uvicorn, Hypercorn, and Granian
+python benchmarks/run_benchmark.py --servers pounce,uvicorn,hypercorn,granian --workers 4
+
+# Sustained fixed-rate evidence with p50/p99/p999 and RSS/CPU over time
+python benchmarks/run_benchmark.py --workload chirp --workers 4 --duration 120 \
+    --repeat 3 --rate 1000 --servers pounce,uvicorn,hypercorn,granian \
+    --artifact-output artifacts/chirp-sustained.json
 
 # Save structured runner output as JSON
 python benchmarks/run_benchmark.py --workload all --output results.json
@@ -65,6 +70,8 @@ python benchmarks/run_benchmark.py --workload chirp --artifact-output artifacts/
 | `--connections` | `100` | Concurrent connections |
 | `--repeat` | `1` | Repeat each workload and label each sample in the output |
 | `--compare` | off | Also benchmark uvicorn |
+| `--servers` | `pounce` | Comma-separated server set. Supports `pounce`, `uvicorn`, `hypercorn`, and `granian`; overrides `--compare`. |
+| `--rate` | none | Use the built-in fixed-rate driver at this scheduled RPS. Includes scheduler delay to avoid coordinated omission and reports p999. |
 | `--output` | none | Save structured runner output to JSON. This is not a benchmark artifact unless it contains the metadata required by `artifact-schema.json`. |
 | `--artifact-output` | none | Save artifact-schema-compatible metadata for PR/release evidence. |
 | `--compare-baseline` | none | Regression gate: diff this run against a committed baseline artifact and exit non-zero on regression (see below). |
@@ -126,6 +133,24 @@ Current local snapshot artifacts:
 | `benchmarks/artifacts/2026-05-22/chirp-pounce-local.json` | Chirp thread page, pounce-only, 5 samples, 5s each | Local macOS/free-threaded run; no uvicorn comparison. |
 | `benchmarks/artifacts/2026-07-08/process-cpu-local.json` | Hello workload, pounce-only, 2 process-worker samples with per-process CPU/RSS series | Local macOS/GIL-enabled proof run; validates telemetry capture, not a release performance claim. |
 | `benchmarks/artifacts/2026-07-08/http3-pounce-local.json` | HTTP/3 hello response over 4 persistent QUIC connections, 5 samples, 5s each | Local macOS/Python 3.14t run; protocol snapshot only, with no HTTP/2 comparison or product-level performance claim. |
+
+## Scheduled and Release Evidence
+
+`.github/workflows/benchmarks.yml` runs the fixed-rate driver weekly, on manual
+dispatch, and for every published GitHub release. It produces separate
+schema-validated artifacts for the hello and Chirp-shaped workloads on:
+
+- standard Python 3.14, where Pounce process workers are compared with
+  uvicorn, Hypercorn, and Granian;
+- Python 3.14t, where Pounce thread workers are compared with uvicorn and
+  Hypercorn. Granian is omitted from this lane because it is a native
+  benchmark-only comparison and does not define Pounce's free-threaded contract.
+
+Each sample defaults to 120 seconds at a scheduled 1,000 requests/second, with
+three repeated samples. The artifact records p50, p99, p999, errors, aggregate
+RSS/CPU time series, raw driver output, versions, commands, and variance.
+Workflow artifacts are retained by Actions; release-triggered artifacts are
+also attached directly to the GitHub release.
 
 ## Regression Gate
 

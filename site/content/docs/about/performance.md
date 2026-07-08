@@ -133,6 +133,21 @@ artifact metadata file:
 python benchmarks/run_benchmark.py --workload chirp --repeat 5 --artifact-output artifacts/chirp.json
 ```
 
+For sustained tail-latency evidence, use the built-in fixed-rate driver. It
+includes scheduled queue delay in latency (avoiding coordinated omission) and
+reports p50, p99, and p999 alongside the existing RSS/CPU time series:
+
+```bash
+python benchmarks/run_benchmark.py --workload chirp --duration 120 --repeat 3 \
+  --workers 4 --connections 100 --rate 1000 \
+  --servers pounce,uvicorn,hypercorn,granian \
+  --artifact-output benchmarks/artifacts/<date>/chirp-sustained.json
+```
+
+The weekly/manual/release benchmark workflow runs this shape on Python 3.14
+(Pounce process workers) and Python 3.14t (Pounce thread workers). Published
+GitHub releases receive the schema-validated JSON artifacts as release assets.
+
 An artifact file records the command, server command, git SHA, Python/GIL mode,
 OS/hardware, workload, worker count, duration, connections, load tool, samples,
 grouped variance, best-effort server RSS, raw output, and summary. A single

@@ -7,8 +7,8 @@
       "status": "scoped-snapshot",
       "files": ["README.md"],
       "patterns": ["req/s"],
-      "proof": "README states the wrk command, workload, platform, and caveat that numbers are a snapshot.",
-      "notes": "The runner can emit artifact metadata with --artifact-output; replace with actual artifact references before strengthening this claim."
+      "proof": "README cites benchmarks/artifacts/2026-05-22/chirp-pounce-local.json and states its workload, five-sample command shape, platform, p99, RSS, and short local snapshot caveat.",
+      "notes": "Do not substitute the scheduled/release workflow results until its attached artifact is retained and cited."
     },
     {
       "id": "parser-microbenchmark-snapshot",
@@ -107,6 +107,19 @@
       "patterns": ["QUERY", "scope[\"method\"]"],
       "proof": "tests/integration/test_asgi_compliance.py proves HTTP/1 ASGI forwarding; tests/unit/test_security.py proves the sync fast parser; tests/unit/test_h2_handler.py proves HTTP/2 app dispatch; tests/integration/test_h3_integration.py proves a real QUIC/H3 exchange; tests/unit/test_h3_handler.py locks the 0-RTT classification.",
       "notes": "Pounce forwards the extension method and request body only. The method remains an active Internet-Draft, and applications and intermediaries own semantics, authorization, caching, replay tolerance, and Accept-Query behavior."
+    },
+    {
+      "id": "release-benchmark-evidence-pipeline",
+      "type": "performance",
+      "status": "artifact-pipeline",
+      "files": [
+        ".github/workflows/benchmarks.yml",
+        "benchmarks/README.md",
+        "site/content/docs/about/performance.md"
+      ],
+      "patterns": ["fixed-rate", "p999", "Granian", "release assets"],
+      "proof": "tests/unit/test_fixed_rate_benchmark.py proves scheduled-load and p999 calculation; tests/unit/test_run_benchmark.py proves multi-server commands and metadata; tests/unit/test_benchmark_workflow.py proves 3.14/3.14t, hello/Chirp, schema validation, workflow upload, and release attachment wiring.",
+      "notes": "The pipeline is proof that release artifacts are generated, not itself a numeric product claim. Cite an attached artifact before publishing sustained numbers."
     },
     {
       "id": "server-timing-every-response",
