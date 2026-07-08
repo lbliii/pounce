@@ -41,13 +41,12 @@ in production. The same classification is surfaced programmatically:
 | **Stable** | Covered by the [core contract](https://github.com/lbliii/pounce/blob/main/docs/design/core-contract.md). Safe for production; behavior changes follow deprecation policy. |
 | **Beta** | Usable, but the behavior, surface, or proof is still firming up. Pin versions and validate in staging before relying on it. |
 
-**Stable knobs:** `host`/`port`/`uds`, `workers`/`backlog`, `worker_mode`
-values `auto`/`sync`/`async`, the timeouts (`*_timeout`), the limits (`max_*`),
-and logging (`access_log`/`log_level`/`log_format`).
+**Stable knobs:** `host`/`port`/`uds`, `workers`/`backlog`, all `worker_mode`
+values (`auto`/`sync`/`async`/`subinterpreter`), the timeouts (`*_timeout`),
+the limits (`max_*`), and logging (`access_log`/`log_level`/`log_format`).
 
-**Beta knobs:** `worker_mode="subinterpreter"` (PEP 734 — thread-like speed with
-process-like isolation, but limited lifecycle proof), rate limiting
-(`rate_limit_*`), request queueing (`request_queue_*`), introspection
+**Beta knobs:** rate limiting (`rate_limit_*`), request queueing
+(`request_queue_*`), introspection
 (`introspection_*`), HTTP/3 (`http3_*`), and the observability integrations
 (`otel_*`, `sentry_*`, `metrics_*`).
 
@@ -73,7 +72,7 @@ from the request path when disabled. Inspect the live classification with
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `workers` | `int` | `1` | Worker count. 0 = auto-detect from CPU cores. 1 = single-worker (no supervisor). 2+ = multi-worker with supervisor. |
-| `worker_mode` | `str` | `"auto"` | With multiple workers, `auto` resolves to sync threads on 3.14t and async processes on a GIL build. `workers=1` uses direct async unless explicit `subinterpreter` (**beta**, import path required). |
+| `worker_mode` | `str` | `"auto"` | With multiple workers, `auto` resolves to sync threads on 3.14t and async processes on a GIL build. `workers=1` uses direct async unless explicit `subinterpreter` (stable ASGI web-worker path; import path and compatible dependencies required). |
 | `worker_startup_failure` | `str` | `"ignore"` | Worker-hook failure policy: `ignore` logs and serves for generic ASGI compatibility; `shutdown` fails boot with `POUNCE_WORKER_STARTUP_FAILED` before readiness. |
 | `backlog` | `int` | `2048` | Socket listen backlog |
 | `cpu_affinity` | `bool` | `False` | Pin each worker to a CPU core (Linux only, reduces cache thrashing) |

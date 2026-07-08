@@ -49,13 +49,12 @@ class ServerConfig:
 
         Stable -- safe for production, behavior is covered by the core
         contract: ``host``/``port``/``uds``, ``workers``/``backlog``,
-        ``worker_mode`` values ``auto``/``sync``/``async``, the timeouts
-        (``*_timeout``), the limits (``max_*``), and logging
+        ``worker_mode`` values ``auto``/``sync``/``async``/``subinterpreter``,
+        the timeouts (``*_timeout``), the limits (``max_*``), and logging
         (``access_log``/``log_level``/``log_format``).
 
         Beta -- usable but the behavior, surface, or proof is still firming up;
         pin versions and validate in staging before relying on them:
-        ``worker_mode="subinterpreter"`` (PEP 734, limited lifecycle proof),
         the rate-limit knobs (``rate_limit_*``), the request-queue knobs
         (``request_queue_*``), introspection (``introspection_*``), HTTP/3
         (``http3_*``), and the observability integrations
@@ -80,9 +79,9 @@ class ServerConfig:
     # "auto": sync on 3.14t, async on GIL (default)
     # "sync": force sync workers (fast path; streaming hands off to async pool)
     # "async": force async workers (current behavior)
-    # "subinterpreter": BETA (PEP 734) -- one subinterpreter per worker thread.
-    #   Limited lifecycle proof; pin deps and validate in staging. See
-    #   docs/design/subinterpreter-workers.md and core-contract.md.
+    # "subinterpreter": one isolated async worker per subinterpreter thread.
+    #   Requires an importable app path and subinterpreter-safe dependencies.
+    #   See docs/design/subinterpreter-workers.md and core-contract.md.
     worker_mode: str = "auto"
 
     # Worker startup hook (pounce.worker.startup) failure policy.

@@ -21,6 +21,9 @@ pytestmark = pytest.mark.skipif(
 # Minimal ASGI app for testing — must be importable by path
 APP_PATH = "examples.hello:app"
 FACTORY_APP_PATH = "examples.factory_app:create_app()"
+STATE_APP_PATH = "examples.lifespan_state:app"
+LIFESPAN_STATE = {"app_name": "pounce-lifecycle-proof", "version": 239}
+EXPECTED_STATE_BODY = b"pounce-lifecycle-proof:239\n"
 
 
 def _find_free_port() -> int:
@@ -336,7 +339,7 @@ class TestSubinterpreterWorker:
             _close_sockets(sockets)
 
     def test_worker_respawn_after_crash(self) -> None:
-        """Supervisor should auto-restart a subinterpreter worker that dies."""
+        """A replacement worker should receive the original lifespan state."""
         port = _find_free_port()
         config = ServerConfig(
             host="127.0.0.1",
@@ -352,9 +355,9 @@ class TestSubinterpreterWorker:
             config,
             app=None,
             mode=WorkerMode.SUBINTERPRETER,
-            app_path=APP_PATH,
+            app_path=STATE_APP_PATH,
         )
-        supervisor.set_lifespan_state({})
+        supervisor.set_lifespan_state(LIFESPAN_STATE)
 
         sup_thread = threading.Thread(
             target=supervisor.run,
@@ -367,8 +370,9 @@ class TestSubinterpreterWorker:
             time.sleep(1.0)
 
             # Verify serving
-            status, _ = _http_get("127.0.0.1", port)
+            status, body = _http_get("127.0.0.1", port)
             assert status == 200
+            assert body == EXPECTED_STATE_BODY
 
             # Kill the worker by sending shutdown via IIC (simulates crash)
             assert len(supervisor._iic_queues) >= 1
@@ -381,7 +385,7 @@ class TestSubinterpreterWorker:
             # New worker should be serving
             status, body = _http_get("127.0.0.1", port)
             assert status == 200
-            assert b"Hello, World!" in body
+            assert body == EXPECTED_STATE_BODY
 
         finally:
             supervisor.shutdown()
@@ -389,7 +393,7 @@ class TestSubinterpreterWorker:
             _close_sockets(sockets)
 
     def test_graceful_reload(self) -> None:
-        """Graceful reload should swap workers with zero dropped requests."""
+        """Reload under load should preserve service and lifespan state."""
         port = _find_free_port()
         config = ServerConfig(
             host="127.0.0.1",
@@ -406,9 +410,9 @@ class TestSubinterpreterWorker:
             config,
             app=None,
             mode=WorkerMode.SUBINTERPRETER,
-            app_path=APP_PATH,
+            app_path=STATE_APP_PATH,
         )
-        supervisor.set_lifespan_state({})
+        supervisor.set_lifespan_state(LIFESPAN_STATE)
 
         sup_thread = threading.Thread(
             target=supervisor.run,
@@ -423,18 +427,44 @@ class TestSubinterpreterWorker:
             # Verify serving before reload
             status, body = _http_get("127.0.0.1", port)
             assert status == 200
-            assert b"Hello, World!" in body
+            assert body == EXPECTED_STATE_BODY
 
             old_generation = supervisor._generation
+
+            stop_requests = threading.Event()
+            request_results: list[tuple[int, bytes]] = []
+
+            def send_requests_during_reload() -> None:
+                while not stop_requests.is_set():
+                    try:
+                        request_results.append(_http_get("127.0.0.1", port))
+                    except (ConnectionError, TimeoutError, OSError) as exc:
+                        request_results.append((-1, str(exc).encode()))
+
+            load_thread = threading.Thread(
+                target=send_requests_during_reload,
+                daemon=True,
+            )
+            load_thread.start()
 
             # Trigger graceful reload in a background thread (it blocks)
             reload_thread = threading.Thread(
                 target=supervisor.graceful_reload,
                 daemon=True,
             )
-            reload_thread.start()
-            reload_thread.join(timeout=15.0)
-            assert not reload_thread.is_alive(), "Reload did not complete in time"
+            try:
+                reload_thread.start()
+                reload_thread.join(timeout=15.0)
+                assert not reload_thread.is_alive(), "Reload did not complete in time"
+            finally:
+                stop_requests.set()
+                load_thread.join(timeout=5.0)
+
+            assert request_results, "No requests completed during reload"
+            failed_requests = [
+                result for result in request_results if result != (200, EXPECTED_STATE_BODY)
+            ]
+            assert not failed_requests, failed_requests
 
             # Generation should have incremented
             assert supervisor._generation == old_generation + 1
@@ -445,7 +475,7 @@ class TestSubinterpreterWorker:
             # Verify new workers serve requests
             status, body = _http_get("127.0.0.1", port)
             assert status == 200
-            assert b"Hello, World!" in body
+            assert body == EXPECTED_STATE_BODY
 
         finally:
             supervisor.shutdown()

@@ -141,17 +141,17 @@ KillMode=mixed
 TimeoutStopSec=40s
 ```
 
-## Thread Mode vs Process Mode
+## Worker Mode Comparison
 
-| | Thread Mode (3.14t) | Process Mode (GIL) |
-|---|---|---|
-| Reload | Rolling generation swap with old + new overlap | Stop/start fallback may have a brief gap |
-| Shutdown | Drain per-thread | Drain per-process |
-| Recommendation | Production | Acceptable for dev |
+| | Thread Mode (3.14t) | Process Mode (GIL) | Subinterpreter Mode |
+|---|---|---|---|
+| Reload | Rolling generation swap with old + new overlap | Stop/start fallback may have a brief gap | Replacement readiness, then old-generation acceptor retirement and bounded drain |
+| Shutdown | Drain per-thread | Drain per-process | IIC-coordinated bounded drain and shutdown |
+| Scope | Shared-interpreter ASGI workers | Forked ASGI workers | Stable isolated ASGI web workers; import path and compatible dependencies required |
 
 Thread mode requires Python 3.14t (free-threading). Process mode falls back to stop-all-then-start.
-Subinterpreter reload is explicit and beta-scoped; validate dependency
-compatibility before relying on it for production deploys.
+Subinterpreter mode is explicit. Its lifecycle is stable for ASGI web workers,
+but dependency compatibility and JSON-safe lifespan-state limits still apply.
 
 ## Troubleshooting
 

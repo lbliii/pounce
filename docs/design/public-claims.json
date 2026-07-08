@@ -68,6 +68,20 @@
       "notes": "Async/process and subinterpreter paths run where available; free-threaded sync execution is proven on the Python 3.14t CI lanes. This does not imply lossless reload or zero downtime."
     },
     {
+      "id": "subinterpreter-web-worker-stability",
+      "type": "behavior",
+      "status": "mode-scoped-proof",
+      "files": [
+        "docs/design/core-contract.md",
+        "docs/design/subinterpreter-workers.md",
+        "site/content/docs/configuration/server-config.md",
+        "site/content/docs/deployment/lifecycle.md"
+      ],
+      "patterns": ["Subinterpreter ASGI web workers (stable)", "stable isolated ASGI web workers"],
+      "proof": "tests/integration/test_subinterpreter.py verifies exact JSON-safe lifespan state after health-monitor respawn and a replacement-readiness-gated graceful reload under concurrent TCP requests; test_subinterpreter_fd_leak.py and test_signal_lifecycle.py cover abnormal lifecycle and subprocess signals.",
+      "notes": "Stable is scoped to ASGI web workers. It does not claim job/hybrid worker support, arbitrary object sharing, synchronous execution, universal C-extension compatibility, or unqualified zero downtime."
+    },
+    {
       "id": "server-timing-every-response",
       "type": "behavior",
       "status": "config-scoped",

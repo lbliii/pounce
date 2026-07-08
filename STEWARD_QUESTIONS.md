@@ -8,8 +8,6 @@ relevant steward file after confirmation or keep the question here.
 
 - Which `ServerConfig` fields are considered stable public API versus beta
   implementation knobs?
-- Should `worker_mode="subinterpreter"` be described as beta, limited, or stable
-  in future public docs?
 - Which observability names, metric names, and lifecycle event names are allowed
   to change without a migration note?
 

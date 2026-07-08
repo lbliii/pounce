@@ -1,7 +1,7 @@
 # Design: Subinterpreter Workers (PEP 734)
 
-**Status**: Beta (Sprints 0-6 implemented; lifecycle/state-transfer proof still limited). Treat `worker_mode="subinterpreter"` as beta per `core-contract.md` until the specific lifecycle path has tests.
-**Date**: 2026-04-10
+**Status**: Stable for ASGI web workers within the limitation matrix below.
+**Date**: 2026-07-08
 **Python**: 3.14.2t (free-threaded, `concurrent.interpreters` available)
 
 ---
@@ -138,8 +138,12 @@ Handles `frozenset -> list` and `tuple -> list` round-tripping.
 
 Strategy: main interpreter runs lifespan, IIC-safe state keys are serialized
 to JSON and passed to workers. Non-serializable values (DB pools, HTTP clients)
-are skipped with a debug log. Workers should use `pounce.worker.startup` hook
+are skipped with a warning. Workers should use `pounce.worker.startup` hook
 for per-worker resource initialization.
+
+The lifecycle proof uses exact state sentinels before and after both rolling
+reload and health-monitor respawn. State transfer is a JSON-value contract,
+not shared object identity: each interpreter receives its own decoded copy.
 
 ---
 
@@ -147,12 +151,15 @@ for per-worker resource initialization.
 
 Generational model matching thread-mode behavior:
 
-1. Increment generation
-2. Spawn new subinterpreter workers (fresh app import)
-3. Send `("drain",)` to old workers via IIC
-4. Poll status queues for `("idle",)` responses
-5. Send `("shutdown",)` to old workers
-6. Join old worker threads, replace handles
+1. Increment generation.
+2. Spawn new subinterpreter workers (fresh app import).
+3. Wait for every replacement to report `("serving",)`; on failure, retire the
+   replacement and keep the old generation.
+4. Close only the old generation's duplicated accept sockets and mark it
+   draining.
+5. Poll status queues for `("idle",)` responses.
+6. Send `("shutdown",)` to old workers.
+7. Join old worker threads and retain the replacement handles.
 
 Skip `reimport_app` for subinterpreter mode (each subinterpreter imports fresh).
 
@@ -172,6 +179,13 @@ is logged and shutdown is forced.
 4. **C extensions** — some C extensions may not support subinterpreters. If the
    app fails to import, pounce logs the error and the worker dies (auto-restarted
    by health monitor).
+5. **Lifespan state is JSON-safe data only** — JSON-serializable values are
+   copied into each interpreter. Process-local resources must be initialized
+   with `pounce.worker.startup`.
+6. **ASGI web-worker scope only** — stability does not extend to the proposed
+   job/hybrid worker roles in issue #230. That design must define and prove its
+   own state-transfer, crash, reload, and shutdown contract before it can use
+   subinterpreters.
 
 ---
 
@@ -179,7 +193,10 @@ is logged and shutdown is forced.
 
 | Test file | Tests | Coverage |
 |-----------|-------|---------|
-| `tests/unit/test_subinterpreter_worker.py` | 35 unit tests | IIC protocol, config serialization, app import, mode detection |
-| `tests/unit/test_config.py` | 7 IIC serialization tests + Hypothesis | Round-trip, edge cases, property-based |
-| `tests/integration/test_subinterpreter.py` | 9 integration tests | Single/multi worker, factory app, lifespan state, shutdown under load, respawn, graceful reload, timeout |
+| `tests/unit/test_subinterpreter_worker.py` | Unit proof | IIC protocol, replacement readiness, config serialization, app import, mode detection |
+| `tests/unit/test_subinterpreter_drain.py` | Unit proof | Reload acceptor retirement, bounded drain, shutdown command handling |
+| `tests/unit/test_config.py` | Unit + property proof | IIC round-trip, edge cases, property-based serialization |
+| `tests/integration/test_subinterpreter.py` | Real-interpreter proof | Single/multi worker, exact lifespan state, shutdown under load, stateful respawn, reload under concurrent load, timeout |
+| `tests/integration/test_subinterpreter_fd_leak.py` | Real-interpreter proof | Repeated abnormal respawn and forced-reload FD ownership |
+| `tests/integration/test_signal_lifecycle.py` | Subprocess proof | SIGHUP reload and SIGTERM lifecycle behavior |
 | `benchmarks/worker_modes.py` | Benchmark script | Thread vs subinterpreter comparison |

@@ -7,6 +7,7 @@ import pytest
 from pounce._runtime import WorkerMode, has_subinterpreters
 from pounce._subinterpreter_bootstrap import _import_app, _try_get
 from pounce.config import _IIC_SKIP_FIELDS, ServerConfig
+from pounce.supervisor import Supervisor
 
 # ---------------------------------------------------------------------------
 # WorkerMode enum
@@ -254,10 +255,15 @@ class TestIICProtocolConstants:
     """IIC protocol constants are defined correctly."""
 
     def test_commands_are_strings(self):
-        from pounce._subinterpreter_bootstrap import CMD_DRAIN, CMD_SHUTDOWN
+        from pounce._subinterpreter_bootstrap import (
+            CMD_DRAIN,
+            CMD_RELOAD_DRAIN,
+            CMD_SHUTDOWN,
+        )
 
         assert CMD_SHUTDOWN == "shutdown"
         assert CMD_DRAIN == "drain"
+        assert CMD_RELOAD_DRAIN == "reload_drain"
 
     def test_status_constants(self):
         from pounce._subinterpreter_bootstrap import (
@@ -326,6 +332,80 @@ class TestTryIICGet:
                 raise RuntimeError("kaboom")
 
         assert self._try_iic_get(ExplodingQueue()) is None
+
+
+class TestReplacementGenerationReadiness:
+    """Reload readiness must not mutate the global shutdown boundary."""
+
+    @staticmethod
+    async def _app(scope, receive, send):
+        return None
+
+    def _supervisor(self, *, workers: int = 2) -> Supervisor:
+        return Supervisor(
+            ServerConfig(workers=workers, startup_timeout=0.05),
+            self._app,
+            mode=WorkerMode.SUBINTERPRETER,
+        )
+
+    def test_all_replacements_must_report_serving(self):
+        supervisor = self._supervisor()
+        queues = [(queue.Queue(), queue.Queue()) for _ in range(2)]
+        queues[0][1].put(("started",))
+        queues[0][1].put(("serving",))
+        queues[1][1].put(("serving",))
+
+        assert supervisor._wait_for_subinterpreter_generation_ready(queues) is None
+        assert not supervisor._shutdown_event.is_set()
+
+    def test_replacement_error_preserves_global_shutdown_state(self):
+        supervisor = self._supervisor(workers=1)
+        queues = [(queue.Queue(), queue.Queue())]
+        queues[0][1].put(("error", "import failed"))
+
+        failure = supervisor._wait_for_subinterpreter_generation_ready(queues)
+
+        assert failure == "worker 0: import failed"
+        assert not supervisor._shutdown_event.is_set()
+
+    def test_failed_replacement_keeps_old_generation(self, monkeypatch):
+        supervisor = self._supervisor(workers=1)
+        old_handle = object()
+        old_queues = [(queue.Queue(), queue.Queue())]
+        supervisor._handles = [old_handle]
+        supervisor._iic_queues = old_queues
+        supervisor._generation = 7
+
+        class _StoppedTarget:
+            def join(self, timeout=None):
+                return None
+
+            def is_alive(self):
+                return False
+
+        def _spawn_failed_replacement(self, worker_id):
+            ctrl_queue = queue.Queue()
+            status_queue = queue.Queue()
+            status_queue.put(("error", "replacement import failed"))
+            self._iic_queues.append((ctrl_queue, status_queue))
+
+            class _Handle:
+                target = _StoppedTarget()
+
+            self._handles.append(_Handle())
+
+        monkeypatch.setattr(
+            Supervisor,
+            "_spawn_subinterpreter_worker",
+            _spawn_failed_replacement,
+        )
+
+        supervisor._graceful_reload_impl()
+
+        assert supervisor._handles == [old_handle]
+        assert supervisor._iic_queues == old_queues
+        assert supervisor._generation == 7
+        assert not supervisor._shutdown_event.is_set()
 
 
 # ---------------------------------------------------------------------------
