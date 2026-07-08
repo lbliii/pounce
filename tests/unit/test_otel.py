@@ -11,6 +11,7 @@ from pounce._otel import (
     extract_trace_context,
     is_otel_available,
 )
+from pounce._runtime import is_free_threaded_build
 from pounce.config import ServerConfig
 
 
@@ -497,6 +498,10 @@ class TestOTelSemantics:
 @pytest.mark.skipif(
     not hasattr(__import__("os"), "fork"),
     reason="fork() not available on this platform",
+)
+@pytest.mark.skipif(
+    is_free_threaded_build(),
+    reason="forking a multithreaded free-threaded interpreter is unsafe; process CI proves this",
 )
 class TestForkExportFlush:
     """Spans created just before a forked worker exits must be flushed (#133).
