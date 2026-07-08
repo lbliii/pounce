@@ -86,6 +86,7 @@ async def handle_h2_connection(
         H2RequestReceived,
         H2StreamReset,
         H2WebSocketRequest,
+        H2WindowUpdated,
         is_h2_available,
     )
 
@@ -102,6 +103,7 @@ async def handle_h2_connection(
     # so higher-urgency streams preempt lower ones and incremental streams
     # interleave fairly across concurrent requests.
     scheduler = PriorityScheduler()
+    flow_control_updated = asyncio.Event()
 
     # Per-stream state: {stream_id: (task, body_queue)}
     stream_tasks: dict[int, tuple[asyncio.Task[None], asyncio.Queue[dict]]] = {}
@@ -197,6 +199,7 @@ async def handle_h2_connection(
                 config=config,
                 server=server,
                 scheduler=scheduler,
+                flow_control_updated=flow_control_updated,
             )
             try:
                 await send(
@@ -242,6 +245,7 @@ async def handle_h2_connection(
             config=config,
             server=server,
             scheduler=scheduler,
+            flow_control_updated=flow_control_updated,
             compression_min_size=config.compression_min_size,
         )
 
@@ -397,6 +401,9 @@ async def handle_h2_connection(
                         pair = stream_tasks.pop(event.stream_id, None)
                         if pair is not None:
                             pair[0].cancel()
+
+                    case H2WindowUpdated():
+                        flow_control_updated.set()
 
                     case H2GoAway():
                         break  # Stop reading, finish existing streams

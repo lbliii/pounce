@@ -500,6 +500,11 @@ class H2Connection:
         """
         return self._conn.local_flow_control_window(stream_id)
 
+    @property
+    def max_outbound_frame_size(self) -> int:
+        """Maximum DATA payload size currently accepted by the peer."""
+        return self._conn.max_outbound_frame_size
+
     # -- Properties ---------------------------------------------------------
 
     @property

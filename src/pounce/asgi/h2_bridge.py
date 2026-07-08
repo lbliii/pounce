@@ -97,6 +97,7 @@ def create_h2_send(
     config: ServerConfig | None = None,
     server: tuple[str, int] | None = None,
     scheduler: PriorityScheduler | None = None,
+    flow_control_updated: asyncio.Event | None = None,
     compression_min_size: int = 0,
 ) -> Send:
     """Create an ASGI send callable for an HTTP/2 stream.
@@ -274,15 +275,23 @@ def create_h2_send(
             if scheduler is not None and body:
                 scheduler.schedule(stream_id)
             remaining = body
-            deadline = asyncio.get_event_loop().time() + 30.0
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 30.0
             try:
                 while remaining:
                     window = h2_conn.local_flow_control_window(stream_id)
                     if window <= 0:
-                        # Window exhausted — flush and wait for WINDOW_UPDATE
+                        # Window exhausted.  ``writer.drain()`` is transport
+                        # back-pressure, not H2 flow-control back-pressure: it
+                        # may return synchronously and starve the read loop that
+                        # must process WINDOW_UPDATE.  Yield the scheduler slot
+                        # and wait for the handler to signal an H2 window change.
                         _flush(h2_conn, writer)
                         await writer.drain()
-                        if asyncio.get_event_loop().time() > deadline:
+                        if scheduler is not None:
+                            scheduler.unschedule(stream_id)
+                        timeout = deadline - loop.time()
+                        if timeout <= 0:
                             logger.warning(
                                 "H2 flow control window timeout on stream %d — resetting stream",
                                 stream_id,
@@ -290,10 +299,39 @@ def create_h2_send(
                             h2_conn.reset_stream(stream_id)
                             _flush(h2_conn, writer)
                             return
+                        if flow_control_updated is None:
+                            # Direct bridge users do not own the connection
+                            # read loop.  Preserve a cooperative fallback for
+                            # tests and custom integrations.
+                            await asyncio.sleep(0)
+                        else:
+                            flow_control_updated.clear()
+                            # Avoid losing an update that landed between the
+                            # first window check and clearing the event.
+                            if h2_conn.local_flow_control_window(stream_id) <= 0:
+                                try:
+                                    await asyncio.wait_for(
+                                        flow_control_updated.wait(),
+                                        timeout=timeout,
+                                    )
+                                except TimeoutError:
+                                    logger.warning(
+                                        "H2 flow control window timeout on stream %d — resetting stream",
+                                        stream_id,
+                                    )
+                                    h2_conn.reset_stream(stream_id)
+                                    _flush(h2_conn, writer)
+                                    return
+                        if scheduler is not None:
+                            scheduler.schedule(stream_id)
                         continue
                     if scheduler is not None:
                         await scheduler.await_turn(stream_id)
-                    chunk_size = min(len(remaining), window)
+                    chunk_size = min(
+                        len(remaining),
+                        window,
+                        h2_conn.max_outbound_frame_size,
+                    )
                     is_last = end_stream and chunk_size == len(remaining)
                     h2_conn.send_data(
                         stream_id,
