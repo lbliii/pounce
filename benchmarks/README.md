@@ -159,7 +159,7 @@ against committed baselines on a free-threaded build.
 
 ## Profiles
 
-Beyond steady-state throughput, three profiles capture flagship behavior as
+Beyond steady-state throughput, four profiles capture flagship behavior as
 artifact-schema JSON:
 
 ```bash
@@ -179,9 +179,14 @@ python benchmarks/worker_modes.py --requests 2000 --concurrency 20 --workers 4 \
 # absence (one variance group per worker mode).
 python benchmarks/drain_profile.py --worker-mode async --workers 2 \
     --artifact-output benchmarks/artifacts/<date>/drain.json
+
+# HTTP/3: drive persistent QUIC connections through the real CLI and record
+# throughput, response latency, variance, and process telemetry.
+python benchmarks/h3_profile.py --connections 4 --duration 5 --repeat 5 \
+    --artifact-output benchmarks/artifacts/<date>/http3-local.json
 ```
 
-All three emit `artifact-schema.json`-compatible JSON, so their output feeds the
+All four emit `artifact-schema.json`-compatible JSON, so their output feeds the
 regression gate above (each worker mode is recorded as a distinct `server`). The
 drain profile's per-sample `drain` block records the four drain-contract
 metrics; `clean_drain` is true only when every in-flight request completed, no

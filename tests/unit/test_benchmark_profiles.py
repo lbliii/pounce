@@ -12,6 +12,7 @@ from benchmarks.drain_profile import (
     drain_sample,
     summarize_drain,
 )
+from benchmarks.h3_profile import H3_WORKLOAD, summarize_http3
 from benchmarks.run_benchmark import build_profile_artifact, compare_artifact
 from benchmarks.streaming_profile import summarize_streams
 from benchmarks.worker_modes import (
@@ -120,6 +121,49 @@ def test_summarize_streams_handles_no_connections() -> None:
     assert summary["streams_connected"] == 0
     assert summary["event_rate_per_sec"] == 0.0
     assert summary["ttfb_p99_ms"] == 0.0
+
+
+# ── HTTP/3 profile (#240) ───────────────────────────────────────────
+
+
+def test_summarize_http3_aggregates_connections_and_latency() -> None:
+    summary = summarize_http3(
+        [
+            {
+                "requests": 2,
+                "errors": 0,
+                "response_bytes": 26,
+                "latencies_ms": [1.0, 4.0],
+            },
+            {
+                "requests": 1,
+                "errors": 1,
+                "response_bytes": 13,
+                "latencies_ms": [2.0],
+            },
+        ],
+        duration=2.0,
+    )
+    assert H3_WORKLOAD == "http3_hello"
+    assert summary["connections"] == 2
+    assert summary["successful_connections"] == 2
+    assert summary["requests"] == 3
+    assert summary["errors"] == 1
+    assert summary["response_bytes"] == 39
+    assert summary["req_per_sec"] == 1.5
+    assert summary["latency_avg_ms"] == 2.333
+    assert summary["latency_p50_ms"] == 2.0
+    assert summary["latency_p99_ms"] == 4.0
+
+
+def test_summarize_http3_handles_no_completed_requests() -> None:
+    summary = summarize_http3(
+        [{"requests": 0, "errors": 1, "response_bytes": 0, "latencies_ms": []}],
+        duration=5.0,
+    )
+    assert summary["successful_connections"] == 0
+    assert summary["req_per_sec"] == 0.0
+    assert summary["latency_p99_ms"] == 0.0
 
 
 # ── Reload/drain under load (#141) ───────────────────────────────────
