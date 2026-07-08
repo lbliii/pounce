@@ -293,12 +293,12 @@ def _drive_connection(
         while time.perf_counter() < deadline:
             try:
                 body_bytes, latency_ms = client.request()
-            except ConnectionError, OSError, TimeoutError:
+            except (ConnectionError, OSError, TimeoutError):  # fmt: skip
                 errors += 1
                 break
             response_bytes += body_bytes
             latencies_ms.append(latency_ms)
-    except ConnectionError, OSError, TimeoutError:
+    except (ConnectionError, OSError, TimeoutError):  # fmt: skip
         errors += 1
     finally:
         client.close()
