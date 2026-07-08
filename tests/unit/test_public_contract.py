@@ -317,6 +317,27 @@ class TestDocsCliSnippets:
 
 
 class TestDeploymentDocsContract:
+    def test_observability_guide_names_otel_semantic_contract(self) -> None:
+        guide = (ROOT / "site/content/docs/deployment/observability.md").read_text()
+
+        required = {
+            "OTLP/HTTP",
+            "service.name",
+            "http.request.method",
+            "url.path",
+            "url.scheme",
+            "server.address",
+            "server.port",
+            "http.response.status_code",
+            "http.response.body.size",
+            "traceparent",
+            "tracestate",
+        }
+
+        missing = {term for term in required if term not in guide}
+        assert missing == set(), f"Observability guide missing {sorted(missing)}"
+        assert "`{METHOD} {path}`" not in guide
+
     def test_railway_guide_covers_origin_protocol_and_proxy_identity(self) -> None:
         guide = (ROOT / "site/content/docs/deployment/railway.md").read_text()
 

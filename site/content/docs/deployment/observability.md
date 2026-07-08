@@ -180,7 +180,24 @@ OTel is disabled by default. Setting `otel_endpoint` enables it.
 
 ### What Gets Traced
 
-Every request creates a span named `{METHOD} {path}` with HTTP semantic convention attributes (`http.method`, `http.target`, `http.status_code`, etc.). Incoming `traceparent` headers are parsed to continue distributed traces. Unhandled exceptions are recorded on spans with `ERROR` status.
+Pounce exports request traces over OTLP/HTTP. It does not export OpenTelemetry
+metrics; use the Prometheus endpoint above for server metrics.
+
+The request-span contract is:
+
+| Signal | Guaranteed value |
+|---|---|
+| Span name | `{METHOD}`; never the raw request path |
+| Span kind | `SERVER` |
+| Resource | `service.name` from `otel_service_name` |
+| Request attributes | `http.request.method`, `url.path`, `url.scheme`, `server.address`, `server.port` |
+| Response attributes | `http.response.status_code`; `http.response.body.size` when the recorded body size is positive |
+| Status | `OK` for HTTP 1xx–4xx; `ERROR` for 5xx responses and recorded exceptions |
+| Exceptions | Standard `exception` span event plus `ERROR` status |
+
+Incoming W3C `traceparent` and `tracestate` headers are parsed so the server
+span continues the upstream trace. Pounce does not emit the deprecated
+`http.method`, `http.target`, or `http.status_code` attribute names.
 
 ### Platform Examples
 
