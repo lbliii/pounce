@@ -77,10 +77,13 @@ idle timer must not cancel an in-flight response stream.
 | Process workers on GIL builds | Workers run in forked processes when available. | Process-mode reload may have different availability and downtime characteristics than thread-mode rolling reload. | Supervisor coordinates process shutdown and joins. | App import/fork constraints apply; no shared app object. |
 | Subinterpreter mode (beta) | Explicit `worker_mode="subinterpreter"` path. Beta: surfaced as `x-stability: beta` in `pounce config schema` and marked beta in the config docs. | Treat as limited/beta unless the specific lifecycle path has tests. | Requires explicit proof for state transfer and shutdown behavior. | Compatibility depends on subinterpreter-safe app/dependencies. See `docs/design/subinterpreter-workers.md` (status: beta). |
 
-Subprocess signal proof currently covers CLI SIGTERM clean exit and SIGHUP
-recovery to serving traffic in `tests/integration/test_signal_lifecycle.py`.
-Load-bearing reload/drain claims still require mixed-traffic proof with bounded
-503/disconnect behavior and orphan-worker checks.
+Subprocess signal proof in `tests/integration/test_signal_lifecycle.py` covers
+CLI SIGTERM clean exit, SIGHUP recovery to serving traffic, and mixed-traffic
+SIGTERM drain. The mixed-traffic matrix asserts complete in-flight slow and
+streaming responses, bounded clean outcomes for new connections, bounded exit,
+zero orphan child processes, and listener release across async/process,
+subinterpreter, and free-threaded sync execution. Reproducible artifact-shaped
+profiling for the same contract lives in `benchmarks/drain_profile.py`.
 
 Every serving mode emits `pounce.worker.startup` before accepting requests and
 `pounce.worker.shutdown` after draining, with the numeric `worker_id` in both
