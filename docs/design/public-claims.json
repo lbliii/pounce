@@ -59,6 +59,15 @@
       "notes": "Needs an actual benchmark artifact before promotional use."
     },
     {
+      "id": "mixed-traffic-drain-proof",
+      "type": "behavior",
+      "status": "mode-scoped-proof",
+      "files": ["docs/design/core-contract.md", "benchmarks/README.md"],
+      "patterns": ["mixed-traffic", "clean_drain"],
+      "proof": "tests/integration/test_signal_lifecycle.py::test_sigterm_drains_under_mixed_load verifies in-flight completion, bounded clean refusal outcomes, bounded exit, no orphan processes, and listener release; benchmarks/drain_profile.py emits the corresponding artifact metrics.",
+      "notes": "Async/process and subinterpreter paths run where available; free-threaded sync execution is proven on the Python 3.14t CI lanes. This does not imply lossless reload or zero downtime."
+    },
+    {
       "id": "server-timing-every-response",
       "type": "behavior",
       "status": "config-scoped",
