@@ -186,11 +186,15 @@ pounce.run(
 <details>
 <summary><strong>How It Works</strong> — Adaptive worker model</summary>
 
-On **Python 3.14t** (free-threading): workers are threads. One process, N threads, each with
-its own asyncio event loop. Shared memory, no fork overhead, no IPC.
+With `workers=1`, Pounce uses the direct single-worker async path. With multiple
+workers and `worker_mode="auto"`, **Python 3.14t** resolves to sync thread
+workers in one shared process, while a **GIL build** resolves to async process
+workers. The supervisor detects the runtime through `sys._is_gil_enabled()`.
+Startup output and `/_pounce/info` expose the resolved model.
 
-On **GIL builds**: workers are processes. Same API, same config. The supervisor detects the
-runtime via `sys._is_gil_enabled()` and adapts automatically.
+`worker_mode="subinterpreter"` is explicit and uses isolated async workers even
+when `workers=1`; embedded `Server` callers must provide an importable
+`app_path="module:attribute"`.
 
 A request flows through: socket accept -> protocol parser -> ASGI scope
 construction -> `app(scope, receive, send)` -> response serialization -> socket write.

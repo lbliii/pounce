@@ -123,7 +123,11 @@ class TestSubinterpreterNotice:
         assert "subinterpreter" not in caplog.text
 
     def test_effective_worker_mode_honors_config(self) -> None:
-        sub = Server(ServerConfig(worker_mode="subinterpreter"), _ok_app)
+        sub = Server(
+            ServerConfig(worker_mode="subinterpreter"),
+            _ok_app,
+            app_path="tests.unit.test_backpressure_aggregate_log:_ok_app",
+        )
         assert sub._effective_worker_mode() is WorkerMode.SUBINTERPRETER
         # Non-subinterpreter config falls back to GIL-based detection
         # (PROCESS on a GIL build, THREAD on free-threaded).

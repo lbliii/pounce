@@ -35,6 +35,7 @@ from pounce._runtime import (
     WorkerMode,
     detect_worker_mode,
     resolve_worker_execution_mode,
+    validate_subinterpreter_app_path,
 )
 from pounce._state import (
     READY,
@@ -253,6 +254,7 @@ class Supervisor:
         app_path: str | None = None,
         sync_app: SyncApp | None = None,
     ) -> None:
+        validate_subinterpreter_app_path(config.worker_mode, app_path)
         self._config = config
         self._app = app
         self._app_path = app_path
@@ -1106,14 +1108,6 @@ class Supervisor:
         and the socket as a dup'd file descriptor — all IIC-safe types.
         """
         import concurrent.interpreters as ci
-
-        if not self._app_path:
-            raise SupervisorError(
-                "Subinterpreter workers require an app import path "
-                "(e.g., 'myapp:app'). Pass app_path to Server or use the CLI.",
-                code="POUNCE_SUPERVISOR_SUBINTERPRETER_NO_APP_PATH",
-                hint="Pass --app myapp:app at the CLI or app_path= to Server().",
-            )
 
         # Create IIC queues for this worker
         ctrl_queue = ci.create_queue()

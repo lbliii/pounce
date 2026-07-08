@@ -78,7 +78,24 @@ class TestBuildIntrospectResponse:
         assert "gil_enabled" in runtime
         assert isinstance(runtime["gil_enabled"], bool)
         assert runtime["worker_mode"] == cfg.worker_mode
+        assert runtime["worker_model"] == "single (async)"
         assert runtime["uptime_seconds"] >= 0
+
+    @pytest.mark.issue(246)
+    def test_runtime_section_resolves_auto_mode_for_free_threading(self, mocker) -> None:
+        config = ServerConfig(
+            workers=4,
+            worker_mode="auto",
+            introspection_enabled=True,
+        )
+        mocker.patch("pounce._runtime.is_gil_enabled", return_value=False)
+        _, _, body = build_introspect_response(
+            config=config,
+            worker_id=0,
+            active_connections=0,
+        )
+
+        assert json.loads(body)["runtime"]["worker_model"] == "thread (sync)"
 
     def test_worker_section_threads_identity(self, cfg: ServerConfig) -> None:
         _, _, body = build_introspect_response(config=cfg, worker_id=3, active_connections=11)

@@ -86,7 +86,9 @@ surface when the framework advertises that Pounce-owned feature.
 
 If a framework cannot supply `app_path`, it should reject
 `worker_mode="subinterpreter"` with an actionable error rather than silently
-falling back or starting an unusable worker.
+falling back or starting an unusable worker. Pounce enforces this boundary with
+`POUNCE_SUPERVISOR_SUBINTERPRETER_NO_APP_PATH`; explicit subinterpreter mode is
+supervised even when `workers=1`.
 
 ## Framework-Owned Endpoints
 

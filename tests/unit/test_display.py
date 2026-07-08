@@ -219,3 +219,4 @@ class TestStartupJsonApp:
         data = json.loads(buf.getvalue().strip())
         assert data["event"] == "startup"
         assert data["app"] == {"name": "MyApp", "tagline": "T", "version": "1.2.3"}
+        assert data["worker_model"] == "single (async)"

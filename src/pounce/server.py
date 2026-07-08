@@ -26,7 +26,13 @@ from typing import Any, cast
 
 import pounce.logging as pounce_logging
 from pounce._errors import WorkerError
-from pounce._runtime import WorkerMode, detect_worker_mode, is_gil_enabled
+from pounce._runtime import (
+    WorkerMode,
+    detect_worker_mode,
+    is_gil_enabled,
+    resolve_worker_model,
+    validate_subinterpreter_app_path,
+)
 from pounce._state import (
     BANNER,
     READY,
@@ -118,6 +124,7 @@ class Server:
         sync_app: SyncApp | None = None,
         cli_display: CliDisplayOverrides | None = None,
     ) -> None:
+        validate_subinterpreter_app_path(config.worker_mode, app_path)
         resolved_display = resolve_display_config(
             cli_name=cli_display.name if cli_display else None,
             cli_tagline=cli_display.tagline if cli_display else None,
@@ -171,7 +178,7 @@ class Server:
 
         self._print_banner(effective_workers, mode)
 
-        if effective_workers == 1:
+        if effective_workers == 1 and mode is not WorkerMode.SUBINTERPRETER:
             self._run_single()
         else:
             self._run_multi(effective_workers, mode)
@@ -1020,6 +1027,7 @@ class Server:
 
         gil_status = "nogil" if not is_gil_enabled() else "GIL"
         mode_label = f"{mode}s" if effective_workers > 1 else "single"
+        worker_model = resolve_worker_model(self._config.worker_mode, effective_workers)
 
         if pounce_logging.is_json():
             import json as json_module
@@ -1036,6 +1044,7 @@ class Server:
                 "pid": os.getpid(),
                 "workers": effective_workers,
                 "worker_mode": mode_label,
+                "worker_model": worker_model,
             }
             if self._ssl_context is not None:
                 banner["tls"] = True
@@ -1061,6 +1070,7 @@ class Server:
             config=self._config,
             effective_workers=effective_workers,
             mode_label=mode_label,
+            worker_model=worker_model,
             gil_status=gil_status,
         )
 

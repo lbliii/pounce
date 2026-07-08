@@ -315,7 +315,8 @@ curl http://127.0.0.1:8000/_pounce/info
   "runtime": {
     "python_version": "3.14.0",
     "gil_enabled": false,
-    "worker_mode": "sync",
+    "worker_mode": "auto",
+    "worker_model": "thread (sync)",
     "uptime_seconds": 3600.1
   },
   "worker": {
@@ -334,6 +335,10 @@ curl http://127.0.0.1:8000/_pounce/info
 
 The response carries `Content-Type: application/json` and
 `Cache-Control: no-cache, no-store`.
+
+`worker_mode` is the configured value. `worker_model` is the resolved runtime
+path: `single (async)`, `thread (sync)`, `process (async)`, or
+`subinterpreter (async)`.
 
 ### Redaction
 

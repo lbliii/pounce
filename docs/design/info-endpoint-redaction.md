@@ -187,7 +187,8 @@ Live fields added alongside the redacted config view:
 | `version`            | EXPOSE         | `pounce.__version__`                          |
 | `python`             | EXPOSE         | `sys.version`                                 |
 | `gil_enabled`        | EXPOSE         | `sys._is_gil_enabled()`                       |
-| `worker_mode_effective` | EXPOSE      | Resolved from `worker_mode` + GIL state       |
+| `worker_mode`           | EXPOSE      | Configured `ServerConfig.worker_mode` value   |
+| `worker_model`          | EXPOSE      | Resolved worker strategy and execution model  |
 | `workers_configured` | EXPOSE         | `config.resolve_workers()`                    |
 | `workers_alive`      | EXPOSE         | Supervisor                                    |
 | `workers_generation` | EXPOSE         | Supervisor (reload counter)                   |
