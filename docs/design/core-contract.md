@@ -39,7 +39,7 @@ Normative language:
 
 | Feature | Classification | Dependency Or Flag | Contract Boundary |
 |---|---|---|---|
-| HTTP/2 | Optional protocol extra | `bengal-pounce[h2]` | Supported only when `h2` is installed and enabled by listener negotiation/config. Missing extras must fail clearly. |
+| HTTP/2 | Optional protocol extra | `bengal-pounce[h2]`, `http2_enabled` | Supported only when `h2` is installed and enabled by listener negotiation/config. Operators may disable h2 ALPN to force HTTP/1.1 at a Pounce-owned TLS origin. Missing extras must fail clearly. |
 | WebSocket | Optional protocol extra | `bengal-pounce[ws]` | Supported only when `wsproto` is installed. HTTP/1 WebSocket and WebSocket-over-H2 claims need separate wire-to-ASGI proof. |
 | HTTP/3 | Optional protocol extra, limited parity | `bengal-pounce[h3]`, TLS, UDP | Supported through `bengal-zoomies` when enabled. Docs must state lifecycle, reload, 0-RTT, limit, and benchmark caveats until parity is proven. |
 | TLS | Optional transport support | `ssl_certfile`, `ssl_keyfile`, optional `truststore` | Owns listener TLS setup and ALPN; certificate management stays with operators. |

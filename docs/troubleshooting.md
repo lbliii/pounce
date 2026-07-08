@@ -13,6 +13,30 @@ the code means, what typically causes it, and what to do.
 See [docs/design/error-codes.md](design/error-codes.md) for the naming scheme
 and [AGENTS.md](../AGENTS.md) for contributing norms.
 
+## HTTP 200 with a silently truncated response behind an edge proxy
+
+**Symptom:** the client receives HTTP 200, but a streaming or large response
+ends early with a clean close when the edge uses HTTP/2 to the Pounce origin.
+
+**Diagnose:** compare the client-to-edge and edge-to-origin protocols; they are
+independent hops. Check Pounce and edge logs for the origin protocol, then
+reproduce directly against the origin if the deployment permits it.
+
+**Mitigate:** first upgrade to a release containing the HTTP/2 active-stream
+timeout and flow-control fixes. As a temporary escape hatch, force HTTP/1.1 at
+a Pounce-owned TLS origin:
+
+```bash
+pounce serve --app myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem --no-http2
+```
+
+The equivalent TOML setting is `http2_enabled = false`. This changes only the
+Pounce TLS ALPN list; it cannot control a TLS session terminated by the edge.
+Keep timeout values independently configurable through downstream adapters:
+`keep_alive_timeout` is between-request idle time, `request_timeout` is upload
+progress, and `write_timeout` is downstream response backpressure. Do not raise
+one to mask a failure governed by another.
+
 ---
 
 ## Category fallbacks

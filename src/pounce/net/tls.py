@@ -67,7 +67,7 @@ def create_tls_context(config: ServerConfig) -> ssl.SSLContext:
 
         # ALPN: advertise supported application protocols
         # HTTP/2 requires ALPN negotiation via TLS
-        alpn_protocols = _build_alpn_protocols()
+        alpn_protocols = _build_alpn_protocols(http2_enabled=config.http2_enabled)
         ctx.set_alpn_protocols(alpn_protocols)
         logger.debug("ALPN protocols: %s", ", ".join(alpn_protocols))
 
@@ -97,22 +97,24 @@ def create_tls_context(config: ServerConfig) -> ssl.SSLContext:
     return ctx
 
 
-def _build_alpn_protocols() -> list[str]:
+def _build_alpn_protocols(*, http2_enabled: bool = True) -> list[str]:
     """Return the ALPN protocol list based on available optional deps.
 
-    If h2 is installed, advertise ``h2`` first (preferred), then
-    ``http/1.1`` as fallback.  Otherwise only ``http/1.1``.
+    If HTTP/2 is enabled and h2 is installed, advertise ``h2`` first
+    (preferred), then ``http/1.1`` as fallback. Otherwise advertise only
+    ``http/1.1`` so operators can force H1 at the origin.
 
     """
     protocols: list[str] = []
 
-    # Check if h2 is available
-    try:
-        import h2  # noqa: F401
+    if http2_enabled:
+        # Check if h2 is available
+        try:
+            import h2  # noqa: F401
 
-        protocols.append("h2")
-    except ImportError:
-        pass
+            protocols.append("h2")
+        except ImportError:
+            pass
 
     protocols.append("http/1.1")
     return protocols

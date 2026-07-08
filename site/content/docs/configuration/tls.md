@@ -57,6 +57,17 @@ Your browser will warn about the self-signed certificate — this is expected in
 
 When TLS is enabled and `bengal-pounce[h2]` is installed, Pounce advertises both `h2` and `http/1.1` via ALPN (Application-Layer Protocol Negotiation). Clients that support HTTP/2 will automatically use it.
 
+To force HTTP/1.1 at a Pounce-owned TLS origin while diagnosing an edge/origin
+HTTP/2 problem, disable h2 advertisement:
+
+```bash
+pounce serve --app myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem --no-http2
+```
+
+For `ServerConfig` or TOML, set `http2_enabled = false`. This setting controls
+only TLS terminated by Pounce; it cannot change protocol negotiation on a TLS
+connection terminated by a reverse proxy or platform edge.
+
 ## Truststore Integration
 
 For production, install the `truststore` extra for system certificate store integration:

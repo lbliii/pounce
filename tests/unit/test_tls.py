@@ -142,3 +142,11 @@ class TestBuildALPNProtocols:
     def test_http11_is_last(self) -> None:
         protocols = _build_alpn_protocols()
         assert protocols[-1] == "http/1.1"
+
+    @pytest.mark.issue(243)
+    def test_http2_can_be_disabled_at_origin(self) -> None:
+        assert _build_alpn_protocols(http2_enabled=False) == ["http/1.1"]
+
+    @pytest.mark.issue(243)
+    def test_http2_enabled_prefers_h2_when_installed(self) -> None:
+        assert _build_alpn_protocols(http2_enabled=True) == ["h2", "http/1.1"]
