@@ -75,6 +75,15 @@ _DRAIN_ACCEPT_GRACE_S: float = 0.5
 _DRAIN_ACCEPT_POLL_S: float = 0.1
 
 
+async def _worker_lifecycle_receive() -> dict[str, Any]:
+    """Return a disconnect message for worker lifecycle extension scopes."""
+    return {"type": "http.disconnect"}
+
+
+async def _worker_lifecycle_send(message: dict[str, Any]) -> None:
+    """Ignore messages sent by worker lifecycle extension handlers."""
+
+
 def _wants_100_continue(header_block: bytes) -> bool:
     """Return True if the header block declares ``Expect: 100-continue``.
 
@@ -299,13 +308,74 @@ class SyncWorker:
         poll_interval = 0.25
 
         runner = asyncio.Runner()
+        started = False
         try:
+            startup_ok = runner.run(self._run_worker_startup_hook())
+            if not startup_ok and self._config.worker_startup_failure == "shutdown":
+                self._logger.error(
+                    "Sync worker %d refusing to serve: pounce.worker.startup hook failed and "
+                    "worker_startup_failure='shutdown' — signalling server shutdown",
+                    self._worker_id,
+                )
+                if self._ext_shutdown is not None:
+                    self._ext_shutdown.set()
+                return
+            started = True
             if self._conn_queue is not None:
                 self._run_from_queue(poll_interval, runner)
             else:
                 self._run_accept_loop(poll_interval, runner)
         finally:
+            if started:
+                runner.run(self._run_worker_shutdown_hook())
             runner.close()
+
+    async def _run_worker_startup_hook(self) -> bool:
+        """Run ``pounce.worker.startup`` on this sync worker's runner loop."""
+        fatal = self._config.worker_startup_failure == "shutdown"
+        level = logging.ERROR if fatal else logging.WARNING
+        try:
+            await asyncio.wait_for(
+                self._app(
+                    {"type": "pounce.worker.startup", "worker_id": self._worker_id},
+                    _worker_lifecycle_receive,
+                    _worker_lifecycle_send,
+                ),
+                timeout=self._config.startup_timeout,
+            )
+        except TimeoutError:
+            self._logger.log(
+                level,
+                "Sync worker %d startup hook timed out after %.1fs",
+                self._worker_id,
+                self._config.startup_timeout,
+            )
+            return False
+        except Exception:
+            self._logger.log(
+                level,
+                "Sync worker startup hook raised — if this is unexpected, check your app",
+                exc_info=True,
+            )
+            return False
+        return True
+
+    async def _run_worker_shutdown_hook(self) -> None:
+        """Run ``pounce.worker.shutdown`` on this sync worker's runner loop."""
+        try:
+            await asyncio.wait_for(
+                self._app(
+                    {"type": "pounce.worker.shutdown", "worker_id": self._worker_id},
+                    _worker_lifecycle_receive,
+                    _worker_lifecycle_send,
+                ),
+                timeout=10.0,
+            )
+        except Exception:
+            self._logger.warning(
+                "Sync worker shutdown hook raised — if this is unexpected, check your app",
+                exc_info=True,
+            )
 
     def _run_from_queue(self, poll_interval: float, runner: asyncio.Runner) -> None:
         """Get connections from distributor queue (no thundering herd)."""
