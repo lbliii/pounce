@@ -272,4 +272,5 @@ When the connection limit is reached (`max_connections`), Pounce returns an HTTP
 - [[docs/deployment/observability|Observability]] — Health checks, request IDs, Prometheus metrics
 - [[docs/configuration/tls|TLS]] — Direct TLS termination
 - [[docs/deployment/workers|Workers]] — Worker count tuning
+- [[docs/deployment/embedding|Framework Embedding]] — Minimum adapter surface for frameworks that launch Pounce
 - [[docs/configuration/server-config|ServerConfig]] — All configuration options

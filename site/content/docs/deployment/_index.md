@@ -41,6 +41,13 @@ Tuning parallelism for your workload.
 Deploying Pounce safely behind Railway public networking.
 :::{/card}
 
+:::{card} Framework Embedding
+:icon: plug
+:link: ./embedding
+:description: Minimum ServerConfig, lifecycle, and authority surface
+Keeping framework adapters aligned with Pounce's production contract.
+:::{/card}
+
 :::{card} Compression
 :icon: minimize-2
 :link: ./compression
