@@ -36,7 +36,7 @@ from pounce._concurrency import cancel_and_drain, wait_first_completed
 from pounce._cpu_affinity import maybe_pin_worker
 from pounce._dictionary_endpoint import use_as_dictionary_headers
 from pounce._drain import write_drain_503_async
-from pounce._errors import ParseError
+from pounce._errors import ParseError, RequestTimeoutError
 from pounce._h2_handler import handle_h2_connection
 from pounce._headers import is_websocket_upgrade as _is_websocket_upgrade
 from pounce._profile import ProfileCollector, RequestProfile
@@ -47,6 +47,7 @@ from pounce._request_pipeline import (
     prepare_request,
 )
 from pounce._sendfile import can_use_sendfile, create_sendfile_callable
+from pounce._timeouts import drain_with_timeout
 from pounce._timing import ServerTiming, elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp, Receive, Send
 from pounce._ws_handler import handle_websocket
@@ -548,7 +549,7 @@ class Worker:
         # Existing connections continue processing, but we stop accepting new
         # work to allow the worker to drain cleanly.
         if self._draining:
-            await write_drain_503_async(writer)
+            await write_drain_503_async(writer, timeout=self._config.write_timeout)
             return
 
         # Connection backpressure — reject when at capacity.
@@ -569,7 +570,7 @@ class Worker:
                     b"\r\n"
                     b"Service Unavailable"
                 )
-                await writer.drain()
+                await drain_with_timeout(writer, self._config.write_timeout)
                 writer.close()
                 await writer.wait_closed()
             except (OSError, ConnectionError):  # fmt: skip
@@ -923,7 +924,10 @@ class Worker:
         # chunk framing consistent before transferring bytes with os.sendfile.
         sendfile_fn = None
         if compressor is None and can_use_sendfile(writer):
-            sendfile_fn = create_sendfile_callable(writer)
+            sendfile_fn = create_sendfile_callable(
+                writer,
+                write_timeout=self._config.write_timeout,
+            )
             scope.setdefault("extensions", {})["pounce.sendfile"] = {"version": 1}
 
         # Built-in endpoints bypass ASGI; selection and response construction
@@ -972,7 +976,7 @@ class Worker:
         # H1-only — H2/H3 do not use this mechanism. Trailers are unsupported.
         if proto.client_is_waiting_for_100_continue:
             writer.write(proto.send_100_continue())
-            await writer.drain()
+            await drain_with_timeout(writer, self._config.write_timeout)
 
         # Determine body status and create receive callable.
         # All paths now create a disconnect event so the ASGI app can
@@ -1129,8 +1133,8 @@ class Worker:
 
         # Flush the writer
         drain_start = monotonic_ns() if profile_ctx is not None else 0
-        with contextlib.suppress(ConnectionError, OSError):
-            await writer.drain()
+        with contextlib.suppress(ConnectionError, OSError, RequestTimeoutError):
+            await drain_with_timeout(writer, self._config.write_timeout)
         if profile_ctx is not None:
             profile_ctx.drain_ms = elapsed_ms(drain_start)
 
@@ -1160,6 +1164,11 @@ class Worker:
         """Run the ASGI app with branded traceback and error response handling."""
         try:
             await self._app(scope, receive, send)
+        except RequestTimeoutError as exc:
+            if exc.code != "POUNCE_TIMEOUT_WRITE":
+                raise
+            if send_state.status == 0:
+                send_state.status = 408
         except Exception as _app_exc:
             self._logger.exception("ASGI app error on %s %s", scope["method"], scope["path"])
             from pounce import _output
@@ -1297,7 +1306,7 @@ class Worker:
 
         """
 
-        async def _read_body() -> None:
+        async def _read_body() -> bool:
             """Read remaining body data from the connection into the queue.
 
             Enforces max_request_size for streaming/chunked bodies. If the
@@ -1306,6 +1315,7 @@ class Worker:
             """
             max_body = self._config.max_request_size
             total_bytes_read = 0
+            timed_out = False
 
             try:
                 while True:
@@ -1315,21 +1325,21 @@ class Worker:
                             timeout=self._config.request_timeout,
                         )
                     except TimeoutError:
-                        await body_queue.put(BodyReceived(data=b"", more=False))
-                        return
+                        timed_out = True
+                        return True
                     except (ConnectionError, OSError):  # fmt: skip
                         await body_queue.put(BodyReceived(data=b"", more=False))
-                        return
+                        return False
 
                     if not data:
                         await body_queue.put(BodyReceived(data=b"", more=False))
-                        return
+                        return False
 
                     try:
                         events = proto.receive_data(data)
                     except ParseError:
                         await body_queue.put(BodyReceived(data=b"", more=False))
-                        return
+                        return False
 
                     for evt in events:
                         if isinstance(evt, BodyReceived):
@@ -1340,10 +1350,10 @@ class Worker:
                                     max_body,
                                 )
                                 await body_queue.put(BodyReceived(data=b"", more=False))
-                                return
+                                return False
                             await body_queue.put(evt)
                             if not evt.more:
-                                return
+                                return False
             except asyncio.CancelledError:
                 # Ensure the app unblocks if cancelled
                 await body_queue.put(BodyReceived(data=b"", more=False))
@@ -1351,8 +1361,9 @@ class Worker:
             finally:
                 # Signal disconnect so the ASGI app's receive() returns
                 # http.disconnect after the body is complete.
-                if disconnect is not None:
+                if disconnect is not None and not timed_out:
                     disconnect.set()
+            return False
 
         app_task = asyncio.create_task(
             self._run_app_with_error_handling(
@@ -1372,6 +1383,23 @@ class Worker:
             # allowed to finish generating its response, so the caller owns
             # which task gets drained.
             done, pending = await wait_first_completed(app_task, reader_task)
+
+            if reader_task in done and reader_task.result():
+                await cancel_and_drain(pending)
+                if send_state.status == 0:
+                    await self._send_error(
+                        writer,
+                        proto,
+                        408,
+                        "Request Timeout",
+                        code="POUNCE_TIMEOUT_REQUEST_BODY",
+                        hint=(
+                            "Increase request_timeout only for clients that "
+                            "legitimately upload slowly."
+                        ),
+                    )
+                    send_state.status = 408
+                return
 
             if reader_task in done and app_task not in done:
                 # The request body is complete; let the ASGI app finish
@@ -1495,7 +1523,7 @@ class Worker:
             raw = proto.send_response(status, headers)
             writer.write(raw)
             writer.write(proto.send_body(body, more=False))
-            await writer.drain()
+            await drain_with_timeout(writer, self._config.write_timeout)
         except Exception:  # noqa: S110 — best-effort error response on already-failing connection
             pass
 
@@ -1533,7 +1561,7 @@ class Worker:
             raw = proto.send_response(status, headers)
             writer.write(raw)
             writer.write(proto.send_body(body, more=False))
-            await writer.drain()
+            await drain_with_timeout(writer, self._config.write_timeout)
         except Exception:
             # Fallback to simple error if debug page fails
             await self._send_error(

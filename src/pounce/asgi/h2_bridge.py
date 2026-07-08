@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 from pounce._compression import Compressor, should_compress_body
 from pounce._headers import get_header
 from pounce._priority import PriorityScheduler
+from pounce._timeouts import drain_with_timeout, receive_with_timeout
 from pounce._timing import ServerTiming
 from pounce._types import Receive, Send
 from pounce.asgi._scope import build_base_scope
@@ -70,6 +71,8 @@ def build_h2_scope(
 
 def create_h2_receive(
     body_queue: asyncio.Queue[dict[str, Any]],
+    *,
+    timeout: float | None = None,
 ) -> Receive:
     """Create an ASGI receive callable for an HTTP/2 stream.
 
@@ -78,7 +81,9 @@ def create_h2_receive(
     """
 
     async def receive() -> dict[str, Any]:
-        return await body_queue.get()
+        if timeout is None:
+            return await body_queue.get()
+        return await receive_with_timeout(body_queue, timeout)
 
     return receive
 
@@ -120,6 +125,7 @@ def create_h2_send(
     # supply a Content-Length, the header commit is deferred until the first
     # body frame so the single-shot body size is known.
     deferred_start: tuple[int, list[tuple[bytes, bytes]]] | None = None
+    write_timeout = config.write_timeout if config is not None else 30.0
 
     def _commit_head(status: int, headers: list[tuple[bytes, bytes]]) -> None:
         """Build and send the response headers, injecting Content-Encoding.
@@ -276,7 +282,7 @@ def create_h2_send(
                 scheduler.schedule(stream_id)
             remaining = body
             loop = asyncio.get_running_loop()
-            deadline = loop.time() + 30.0
+            deadline = loop.time() + write_timeout
             try:
                 while remaining:
                     window = h2_conn.local_flow_control_window(stream_id)
@@ -287,7 +293,7 @@ def create_h2_send(
                         # must process WINDOW_UPDATE.  Yield the scheduler slot
                         # and wait for the handler to signal an H2 window change.
                         _flush(h2_conn, writer)
-                        await writer.drain()
+                        await drain_with_timeout(writer, write_timeout)
                         if scheduler is not None:
                             scheduler.unschedule(stream_id)
                         timeout = deadline - loop.time()
@@ -354,7 +360,7 @@ def create_h2_send(
             # Back-pressure: drain when the transport buffer is large
             transport = writer.transport
             if transport is not None and transport.get_write_buffer_size() > 65536:
-                await writer.drain()
+                await drain_with_timeout(writer, write_timeout)
 
             state.bytes_sent += original_len
             if not more_body:

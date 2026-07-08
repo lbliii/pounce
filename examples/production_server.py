@@ -151,6 +151,7 @@ if __name__ == "__main__":
         backlog=2048,
         keep_alive_timeout=5.0,
         request_timeout=30.0,
+        write_timeout=30.0,
         # Compression
         compression=True,
         compression_min_size=500,

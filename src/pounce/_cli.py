@@ -142,6 +142,7 @@ _SERVE_HELP = {
     "keep_alive_timeout": "Idle keep-alive timeout in seconds",
     "header_timeout": "Header receive timeout in seconds",
     "request_timeout": "Request body receive timeout in seconds",
+    "write_timeout": "Blocked response write timeout in seconds",
     "startup_timeout": "Max seconds to wait for app lifespan startup",
     "max_requests_per_connection": "Max requests per connection; 0 = unlimited",
     "shutdown_timeout": "Max seconds per worker during shutdown",
@@ -226,6 +227,7 @@ def serve(
     keep_alive_timeout: float | None = None,
     header_timeout: float | None = None,
     request_timeout: float | None = None,
+    write_timeout: float | None = None,
     startup_timeout: float | None = None,
     max_requests_per_connection: int | None = None,
     shutdown_timeout: float | None = None,
@@ -271,6 +273,7 @@ def serve(
             keep_alive_timeout=keep_alive_timeout,
             header_timeout=header_timeout,
             request_timeout=request_timeout,
+            write_timeout=write_timeout,
             startup_timeout=startup_timeout,
             max_requests_per_connection=max_requests_per_connection,
             shutdown_timeout=shutdown_timeout,
@@ -341,6 +344,7 @@ def _serve_impl(
     keep_alive_timeout: float | None,
     header_timeout: float | None,
     request_timeout: float | None,
+    write_timeout: float | None,
     startup_timeout: float | None,
     max_requests_per_connection: int | None,
     shutdown_timeout: float | None,
@@ -404,6 +408,8 @@ def _serve_impl(
         cli_overrides["header_timeout"] = header_timeout
     if request_timeout is not None:
         cli_overrides["request_timeout"] = request_timeout
+    if write_timeout is not None:
+        cli_overrides["write_timeout"] = write_timeout
     if startup_timeout is not None:
         cli_overrides["startup_timeout"] = startup_timeout
     if max_requests_per_connection is not None:
@@ -713,6 +719,7 @@ def check(
     keep_alive_timeout: float | None = None,
     header_timeout: float | None = None,
     request_timeout: float | None = None,
+    write_timeout: float | None = None,
     startup_timeout: float | None = None,
     max_requests_per_connection: int | None = None,
     shutdown_timeout: float | None = None,
@@ -782,6 +789,8 @@ def check(
         cli_overrides["header_timeout"] = header_timeout
     if request_timeout is not None:
         cli_overrides["request_timeout"] = request_timeout
+    if write_timeout is not None:
+        cli_overrides["write_timeout"] = write_timeout
     if startup_timeout is not None:
         cli_overrides["startup_timeout"] = startup_timeout
     if max_requests_per_connection is not None:
@@ -972,6 +981,7 @@ def _check_config_valid(
     keep_alive_timeout: float,
     header_timeout: float,
     request_timeout: float,
+    write_timeout: float,
     startup_timeout: float,
     max_requests_per_connection: int,
     shutdown_timeout: float,
@@ -1001,6 +1011,7 @@ def _check_config_valid(
             keep_alive_timeout=keep_alive_timeout,
             header_timeout=header_timeout,
             request_timeout=request_timeout,
+            write_timeout=write_timeout,
             startup_timeout=startup_timeout,
             max_requests_per_connection=max_requests_per_connection,
             shutdown_timeout=shutdown_timeout,

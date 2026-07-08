@@ -51,6 +51,7 @@ All timeouts and limits are numeric and non-sensitive.
 |----------------------------------|----------------|
 | `keep_alive_timeout`             | EXPOSE         |
 | `request_timeout`                | EXPOSE         |
+| `write_timeout`                  | EXPOSE         |
 | `header_timeout`                 | EXPOSE         |
 | `startup_timeout`                | EXPOSE         |
 | `shutdown_timeout`               | EXPOSE         |

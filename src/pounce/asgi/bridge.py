@@ -25,6 +25,7 @@ from typing import Any
 from pounce._compression import Compressor, should_compress_body
 from pounce._headers import get_header
 from pounce._sendfile import SendfileCallable, SendfileRegion
+from pounce._timeouts import drain_with_timeout
 from pounce._timing import ServerTiming
 from pounce._types import Receive, Send
 from pounce.asgi._scope import build_base_scope
@@ -331,6 +332,7 @@ def create_send(
     # first body frame so the single-shot body size is known. This holds the
     # pending ``(status, headers)`` until that frame arrives.
     deferred_start: tuple[int, list[tuple[bytes, bytes]]] | None = None
+    write_timeout = config.write_timeout if config is not None else 30.0
 
     def _build_head(status: int, headers: list[tuple[bytes, bytes]]) -> bytes:
         """Serialize response head, injecting Content-Encoding when compressing.
@@ -413,7 +415,7 @@ def create_send(
 
         transport = writer.transport
         if transport is not None and transport.get_write_buffer_size() > _DRAIN_THRESHOLD:
-            await writer.drain()
+            await drain_with_timeout(writer, write_timeout)
 
     async def send(message: dict[str, Any]) -> None:
         nonlocal response_started, response_complete, pending_head, compressor, deferred_start
@@ -594,7 +596,7 @@ def create_send(
             # with slow clients, without penalizing small responses.
             transport = writer.transport
             if transport is not None and transport.get_write_buffer_size() > _DRAIN_THRESHOLD:
-                await writer.drain()
+                await drain_with_timeout(writer, write_timeout)
 
             state.bytes_sent += original_len
             if not more_body:

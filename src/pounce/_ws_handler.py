@@ -18,6 +18,7 @@ from typing import Any
 
 from pounce._concurrency import race_first_completed
 from pounce._headers import get_header as _get_header_from_tuple
+from pounce._timeouts import drain_with_timeout
 from pounce._timing import elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
 from pounce.asgi.ws_bridge import build_ws_scope, create_ws_receive, create_ws_send
@@ -133,6 +134,7 @@ async def handle_websocket(
         ws_key,
         accept_event=accept_event,
         close_event=close_event,
+        write_timeout=config.write_timeout,
     )
 
     # Push the initial connect event
@@ -157,12 +159,10 @@ async def handle_websocket(
         try:
             while not close_event.is_set():
                 try:
-                    data = await asyncio.wait_for(
-                        reader.read(65536),
-                        timeout=config.keep_alive_timeout,
-                    )
-                except TimeoutError:
-                    break
+                    # An accepted WebSocket is an active protocol session, not
+                    # an idle HTTP keep-alive connection. Its lifetime is
+                    # governed by peer/app close and shutdown drain semantics.
+                    data = await reader.read(65536)
                 except (ConnectionError, OSError):  # fmt: skip
                     break
 
@@ -172,7 +172,7 @@ async def handle_websocket(
                 events, outbound = ws_proto.receive_data(data)
                 if outbound:
                     writer.write(outbound)
-                    await writer.drain()
+                    await drain_with_timeout(writer, config.write_timeout)
                 for event in events:
                     if isinstance(event, WebSocketDataReceived):
                         msg_size = len(event.data)
@@ -180,7 +180,7 @@ async def handle_websocket(
                             # RFC 6455 §7.4.1: 1009 = Message Too Big
                             close_data = ws_proto.close(1009, "Message too large")
                             writer.write(close_data)
-                            await writer.drain()
+                            await drain_with_timeout(writer, config.write_timeout)
                             return
                         if isinstance(event.data, str):
                             await receive_queue.put(

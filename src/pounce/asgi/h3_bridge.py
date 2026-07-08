@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from pounce._compression import Compressor, should_compress_body
 from pounce._headers import get_header
+from pounce._timeouts import receive_with_timeout
 from pounce._timing import ServerTiming
 from pounce._types import Receive, Send
 from pounce.asgi.bridge import SendState, _sanitize_headers, is_streaming_response
@@ -130,6 +131,8 @@ def build_h3_scope(
 
 def create_h3_receive(
     body_queue: asyncio.Queue[dict[str, Any]],
+    *,
+    timeout: float | None = None,
 ) -> Receive:
     """Create an ASGI receive callable for an HTTP/3 stream.
 
@@ -138,7 +141,9 @@ def create_h3_receive(
     """
 
     async def receive() -> dict[str, Any]:
-        return await body_queue.get()
+        if timeout is None:
+            return await body_queue.get()
+        return await receive_with_timeout(body_queue, timeout)
 
     return receive
 

@@ -153,7 +153,10 @@ compatibility before relying on it for production deploys.
 
 ## Troubleshooting
 
-**Workers not draining:** Increase `reload_timeout` or `shutdown_timeout`. Check for long-lived connections (WebSocket, streaming). Set `request_timeout` to cap individual requests.
+**Workers not draining:** Increase `reload_timeout` or `shutdown_timeout`. Check
+for long-lived connections (WebSocket, streaming). `request_timeout` bounds
+request-body progress; application execution is bounded by lifecycle drain
+deadlines rather than this network-input setting.
 
 **SIGKILL before drain complete (Kubernetes):** Increase `terminationGracePeriodSeconds` to exceed `shutdown_timeout` + preStop delay.
 

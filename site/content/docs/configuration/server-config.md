@@ -83,9 +83,10 @@ from the request path when disabled. Inspect the live classification with
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `keep_alive_timeout` | `float` | `5.0` | Seconds to keep idle connections open |
+| `keep_alive_timeout` | `float` | `5.0` | Seconds to keep an idle HTTP connection open between requests |
 | `header_timeout` | `float` | `10.0` | Seconds to receive complete request headers (slowloris protection) |
-| `request_timeout` | `float` | `30.0` | Maximum seconds for a complete request |
+| `request_timeout` | `float` | `30.0` | Maximum seconds to wait for the next request-body event |
+| `write_timeout` | `float` | `30.0` | Maximum seconds for blocked HTTP/1.1, HTTP/2, or WebSocket response delivery |
 | `startup_timeout` | `float` | `30.0` | Maximum seconds to wait for server startup |
 | `shutdown_timeout` | `float` | `10.0` | Seconds per worker join during shutdown (parallel in multi-worker) |
 

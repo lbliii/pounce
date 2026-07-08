@@ -99,6 +99,7 @@ class TestMaxRequestsPerConnection:
 class TestRequestTimeout:
     """request_timeout enforcement."""
 
+    @pytest.mark.issue(242)
     def test_slow_body_times_out(self):
         """A request body that never completes should eventually be handled."""
         config = ServerConfig(
@@ -131,8 +132,8 @@ class TestRequestTimeout:
                         resp += chunk
                 except TimeoutError, ConnectionError, OSError:
                     pass
-                # The connection should have been closed
-                # (either 200 with partial body, timeout, or connection reset)
+                assert b"HTTP/1.1 408" in resp
+                assert b"x-pounce-error-code: POUNCE_TIMEOUT_REQUEST_BODY" in resp
             finally:
                 tcp.close()
         finally:

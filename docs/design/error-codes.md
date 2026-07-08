@@ -46,7 +46,7 @@ Derived from existing `_errors.py` classes, plus `CONFIG` for Sprint 2's config-
 | Category     | Class                    | Status | Examples                                                   |
 |--------------|--------------------------|--------|------------------------------------------------------------|
 | `PARSE`      | `ParseError`             | 400    | `POUNCE_PARSE_MALFORMED_REQUEST_LINE`, `POUNCE_PARSE_BAD_HEADER` |
-| `TIMEOUT`    | `RequestTimeoutError`    | 408    | `POUNCE_TIMEOUT_REQUEST`, `POUNCE_TIMEOUT_KEEPALIVE`       |
+| `TIMEOUT`    | `RequestTimeoutError`    | 408    | `POUNCE_TIMEOUT_REQUEST_BODY`, `POUNCE_TIMEOUT_WRITE`      |
 | `LIMIT`      | `LimitError`             | 413/431| `POUNCE_LIMIT_HEADER_SIZE`, `POUNCE_LIMIT_BODY_SIZE`       |
 | `APP`        | `AppError`               | 500    | `POUNCE_APP_UNHANDLED`, `POUNCE_APP_BAD_RESPONSE`          |
 | `LIFESPAN`   | `LifespanError`          | 500    | `POUNCE_LIFESPAN_STARTUP_FAILED`, `POUNCE_LIFESPAN_TIMEOUT` |
