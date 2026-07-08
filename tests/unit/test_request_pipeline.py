@@ -276,7 +276,14 @@ class TestBuiltinEndpointDispatch:
         assert payload["worker"] == {"worker_id": 9, "active_connections": 4}
         assert "config" in payload
 
-    def test_builtin_endpoints_only_match_get(self) -> None:
+    def test_builtin_endpoints_match_get_and_head_only(self) -> None:
+        head = maybe_build_builtin_response(
+            ServerConfig(health_check_path="/healthz"),
+            "HEAD",
+            "/healthz",
+            worker_id=0,
+            active_connections=0,
+        )
         response = maybe_build_builtin_response(
             ServerConfig(health_check_path="/healthz", introspection_enabled=True),
             "POST",
@@ -285,7 +292,32 @@ class TestBuiltinEndpointDispatch:
             active_connections=0,
         )
 
+        assert head is not None
         assert response is None
+
+    def test_head_matches_introspection_builtin(self) -> None:
+        response = maybe_build_builtin_response(
+            ServerConfig(introspection_enabled=True),
+            b"HEAD",
+            "/_pounce/info",
+            worker_id=4,
+            active_connections=2,
+        )
+        assert response is not None
+        assert response.kind == "introspection"
+
+    @pytest.mark.skipif(not _HAS_ZSTD, reason="zstd not available")
+    def test_head_matches_dictionary_builtin(self) -> None:
+        dictionary = _make_dict()
+        response = maybe_build_builtin_response(
+            ServerConfig(compression_dictionaries=(dictionary,)),
+            b"HEAD",
+            f"/.well-known/compression-dictionary/{dictionary.sf_hash}",
+            worker_id=0,
+            active_connections=0,
+        )
+        assert response is not None
+        assert response.kind == "dictionary"
 
     @pytest.mark.skipif(not _HAS_ZSTD, reason="zstd not available")
     def test_dictionary_endpoint_serves_configured_bytes(self) -> None:

@@ -930,6 +930,7 @@ class Worker:
                 proto,
                 writer,
                 send_state,
+                request_method=request.method,
                 request_id=request_id,
                 config=self._config,
                 server=server,

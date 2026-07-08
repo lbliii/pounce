@@ -1,7 +1,7 @@
 """
 Built-in health check endpoint.
 
-Responds to GET requests at the configured ``health_check_path`` before
+Responds to GET and HEAD requests at the configured ``health_check_path`` before
 the request reaches the ASGI application.  Returns a JSON payload with
 server status, uptime, active connections, and worker identity.
 

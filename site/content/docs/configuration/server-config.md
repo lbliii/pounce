@@ -26,7 +26,7 @@ config = ServerConfig(
     workers=4,
     compression=True,
     server_timing=True,
-    health_check_path="/health",
+    health_check_path="/readyz",
 )
 ```
 
@@ -132,7 +132,7 @@ from the request path when disabled. Inspect the live classification with
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `server_timing` | `bool` | `False` | Inject `Server-Timing` header with parse/app/encode durations |
-| `health_check_path` | `str \| None` | `None` | Path for built-in health endpoint (e.g. `"/health"`). Disabled by default. |
+| `health_check_path` | `str \| None` | `None` | Path for the built-in readiness endpoint (recommended: `"/readyz"`). Returns 503 while draining; disabled by default. |
 | `introspection_enabled` | `bool` | `False` | Enable the built-in `/_pounce/info` endpoint. |
 | `introspection_bind` | `str` | `"127.0.0.1"` | Warning-policy bind value for introspection exposure. |
 | `introspection_path` | `str` | `"/_pounce/info"` | Path for the built-in introspection endpoint. |

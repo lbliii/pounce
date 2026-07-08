@@ -1300,6 +1300,39 @@ class TestRefactoredMethods:
         assert len(conn.h3.sent_headers) == 1
         assert json.loads(conn.h3.sent_data[0][1])["worker_id"] == 7
 
+    def test_maybe_handle_builtin_endpoint_head_has_get_headers_without_body(self) -> None:
+        from zoomies.core import QuicConfiguration
+
+        from pounce._h3_handler import _create_zoomies_datagram_protocol
+
+        config = _make_config(health_check_path="/readyz")
+        quic_config = QuicConfiguration(certificate=b"cert", private_key=b"key")
+        cls = _create_zoomies_datagram_protocol(
+            _dummy_app,
+            config,
+            logging.getLogger("test"),
+            _SERVER,
+            quic_config,
+            worker_id=7,
+        )
+        protocol = cls()
+        protocol.connection_made(MagicMock(spec=asyncio.DatagramTransport))
+        conn = _make_connection(addr=_ADDR_A)
+        conn.h3 = _FakeH3Connection()
+
+        handled = protocol._maybe_handle_builtin_endpoint(
+            conn,
+            0,
+            {"path": "/readyz", "method": "HEAD"},
+            _ADDR_A,
+        )
+
+        assert handled is True
+        response_headers = dict(conn.h3.sent_headers[0][1])
+        assert response_headers[b":status"] == b"200"
+        assert response_headers[b"content-length"] != b"0"
+        assert conn.h3.sent_data[0][1] == b""
+
     def test_maybe_handle_builtin_endpoint_serves_introspection(self) -> None:
         """The opt-in introspection endpoint bypasses ASGI on H3."""
         import json
