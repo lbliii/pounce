@@ -690,3 +690,82 @@ async def test_h2_large_response_advances_on_window_updates() -> None:
     assert stream_ended, "large response did not complete within the throughput floor"
     assert bytes(received) == payload
     assert elapsed < 2.0  # >1 MiB/s; regression was approximately 7 KiB/s
+
+
+@pytest.mark.timeout(5)
+async def test_h2_slow_peer_large_body_integrity_and_throughput() -> None:
+    """Slow WINDOW_UPDATE cadence preserves bytes past idle timeouts (#241)."""
+    from pounce._h2_handler import handle_h2_connection
+
+    payload = bytes(range(256)) * 8192  # 2 MiB with a truncation-visible pattern
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", str(len(payload)).encode())],
+            }
+        )
+        await send({"type": "http.response.body", "body": payload})
+
+    client = _make_client()
+    client.send_headers(
+        1,
+        [
+            (":method", "GET"),
+            (":path", "/slow-peer"),
+            (":authority", "example.test"),
+            (":scheme", "https"),
+        ],
+        end_stream=True,
+    )
+    reader = asyncio.StreamReader()
+    reader.feed_data(client.data_to_send())
+    writer = _FakeWriter()
+    task = asyncio.create_task(
+        handle_h2_connection(
+            app,
+            ServerConfig(keep_alive_timeout=0.01, access_log=False),
+            logging.getLogger("test.h2"),
+            reader,
+            writer,
+            ("127.0.0.1", 50000),
+            ("127.0.0.1", 8443),
+            "127.0.0.1:50000",
+        )
+    )
+
+    received = bytearray()
+    consumed = 0
+    stream_ended = False
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    deadline = started + 2.0
+    while not stream_ended and loop.time() < deadline:
+        # Deliberately exceed keep_alive_timeout while the peer neither reads
+        # nor replenishes flow control.  A 2 MiB body exhausts the default
+        # 65,535-byte windows many times, so both regressions are exercised.
+        await asyncio.sleep(0.02)
+        output = bytes(writer.data[consumed:])
+        consumed += len(output)
+        for event in client.receive_data(output):
+            if isinstance(event, h2.events.DataReceived):
+                received.extend(event.data)
+                client.acknowledge_received_data(
+                    event.flow_controlled_length,
+                    event.stream_id,
+                )
+            elif isinstance(event, h2.events.StreamEnded):
+                stream_ended = True
+        feedback = client.data_to_send()
+        if feedback:
+            reader.feed_data(feedback)
+
+    elapsed = loop.time() - started
+    reader.feed_eof()
+    await asyncio.wait_for(task, timeout=0.5)
+
+    assert stream_ended, "slow peer did not receive the complete H2 stream"
+    assert bytes(received) == payload
+    assert elapsed < 2.0  # >1 MiB/s despite the deliberately delayed peer cadence
