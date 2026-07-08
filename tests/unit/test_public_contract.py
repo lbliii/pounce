@@ -306,3 +306,24 @@ class TestDocsCliSnippets:
                         )
 
         assert failures == []
+
+
+class TestDeploymentDocsContract:
+    def test_railway_guide_covers_origin_protocol_and_proxy_identity(self) -> None:
+        guide = (ROOT / "site/content/docs/deployment/railway.md").read_text()
+
+        required = {
+            'scope["http_version"]',
+            "trusted_hosts",
+            "forwarded_for_trusted_hops",
+            "X-Forwarded-For",
+            "X-Forwarded-Proto",
+            "X-Forwarded-Host",
+            "X-Real-IP",
+            "bengal-pounce[h2]",
+            "https://github.com/lbliii/pounce/issues/231",
+            "https://docs.railway.com/networking/public-networking/specs-and-limits",
+        }
+
+        missing = {term for term in required if term not in guide}
+        assert missing == set(), f"Railway proxy-topology guide missing {sorted(missing)}"

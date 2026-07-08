@@ -41,6 +41,11 @@ When a trusted proxy sends `X-Forwarded-For`, Pounce updates:
 This applies consistently to HTTP/1.1, HTTP/2, HTTP/3, and WebSocket scopes so
 host-routed applications see the same tenant authority on every protocol path.
 
+For more than one trusted proxy hop, set `forwarded_for_trusted_hops` to the
+number of proxies in front of Pounce. Pounce selects the client address from
+that position on the right of the `X-Forwarded-For` chain, where trusted
+proxies append addresses. The default `1` matches one edge proxy.
+
 When an **untrusted** peer sends these headers, they are silently stripped.
 
 ```python
@@ -49,8 +54,13 @@ import pounce
 pounce.run(
     "myapp:app",
     trusted_hosts=frozenset({"10.0.0.1"}),  # Only trust your proxy
+    forwarded_for_trusted_hops=1,
 )
 ```
+
+`X-Real-IP` remains an ordinary request header; Pounce does not use it for
+`scope["client"]`. Do not use it for application auth or rate limiting unless
+your deployment separately proves that a trusted edge overwrites it.
 
 :::{warning}
 Never use `trusted_hosts=("*",)` on internet-facing deployments. Any client could spoof their IP address.
@@ -134,5 +144,6 @@ HTTP status codes 204 (No Content) and 304 (Not Modified) must not carry a messa
 ## See Also
 
 - [[docs/deployment/production|Production]] — Full production deployment guide
+- [[docs/deployment/railway|Railway]] — Edge/origin topology and a proxy-trust worked example
 - [[docs/deployment/observability|Observability]] — Health checks and request tracing
 - [[docs/configuration/server-config|ServerConfig]] — All configuration options

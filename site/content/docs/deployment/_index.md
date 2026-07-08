@@ -37,8 +37,8 @@ Tuning parallelism for your workload.
 :::{card} Railway
 :icon: cloud
 :link: ./railway
-:description: PORT, health checks, platform TLS, and deploy drains
-Deploying Pounce on Railway public networking.
+:description: Protocol hops, proxy trust, platform TLS, and deploy drains
+Deploying Pounce safely behind Railway public networking.
 :::{/card}
 
 :::{card} Compression
