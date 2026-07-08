@@ -235,6 +235,7 @@ dev = [
     "ty>=0.0.28",
     # Linting & Formatting
     "ruff>=0.15.9",
+    "import-linter>=2.0",
     # Changelog
     "towncrier>=24.0",
     # Pre-commit
@@ -274,8 +275,17 @@ ty = { cmd = "ty check src/pounce/", help = "Run ty type checker" }
 ty-strict = { cmd = "ty check src/pounce/ --error-on-warning", help = "Strict type checking" }
 
 # Linting & Formatting
-lint = { cmd = "ruff check .", help = "Run ruff linter" }
+lint-ruff = { cmd = "ruff check .", help = "Run ruff linter" }
 lint-fix = { cmd = "ruff check . --fix", help = "Run ruff linter with auto-fix" }
+lint-silent = { cmd = "bash scripts/check_silent_exceptions.sh src/pounce", help = "Reject silent broad exceptions" }
+lint-raises = { cmd = "python scripts/lint_raise_messages.py", help = "Enforce the raise-message debt ratchet" }
+lint-imports = { cmd = "lint-imports --config .importlinter", help = "Check layered architecture contracts" }
+lint = { sequence = [
+    "lint-ruff",
+    "lint-silent",
+    "lint-raises",
+    "lint-imports",
+], help = "Run all lint and architecture gates" }
 format = { cmd = "ruff format .", help = "Format code with ruff" }
 format-check = { cmd = "ruff format . --check", help = "Check formatting" }
 

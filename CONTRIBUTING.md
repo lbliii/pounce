@@ -20,8 +20,8 @@ first.
 
 ```bash
 make test     # full pytest suite (~15s)
-make lint     # ruff check src/ tests/
-make format   # ruff format src/ tests/  (writes)
+make lint     # ruff + silent/raise diagnostics + import architecture
+make format   # ruff format .  (writes)
 make ty       # ty check src/pounce/
 ```
 
@@ -29,6 +29,17 @@ Faster while iterating: `uv run pytest tests/unit/test_<area>.py -x --timeout=10
 
 A change is not done until `make lint` and `make ty` are clean with no new
 `# type: ignore` or `# noqa: S110` suppressions.
+
+`make lint` also runs the strict `.importlinter` contracts for
+`protocols`/`asgi`/`net` ownership and the raise-message debt ratchet. If an
+actionable raise message is fixed, remove its resolved fingerprint from
+`docs/design/raise-message-baseline.txt`; do not regenerate the baseline to
+admit new debt.
+
+For new public-path raises, name the offending value when one exists, state
+what was expected, and identify the governing field, ASGI message, protocol,
+or spec. The syntactic ratchet checks statically visible minimum context and
+punctuation; semantic `PounceError` code/catalog tests cover operator routing.
 
 ## Recipes
 

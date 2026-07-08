@@ -35,6 +35,12 @@ jobs:
       - name: Check silent exceptions
         run: bash scripts/check_silent_exceptions.sh src/pounce
 
+      - name: Check raise-message ratchet
+        run: uv run python scripts/lint_raise_messages.py
+
+      - name: Check architecture imports
+        run: uv run lint-imports --config .importlinter
+
   typecheck:
     name: Type Check
     runs-on: ubuntu-latest

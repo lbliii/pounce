@@ -47,6 +47,21 @@ This doc lives in pounce because pounce anchors the stack's claims/proof culture
 | 23 | Honest-caveat claim voice with exact numbers | patitas (GFM 654/672 with the 18 gaps enumerated; CHANGELOG self-discloses past bugs). No claim outruns its artifact |
 | 24 | Recorded operational evidence for deployables | elbysodic (`railway-production-smoke-record.md`, recovery drills, race-condition QA scripts); furatena (JSON evidence/baseline artifacts) |
 
+### Pounce adoption note
+
+Pounce enforces row 16 with strict `.importlinter` contracts: protocol state
+machines cannot import transport, ASGI, or worker orchestration; ASGI bridges
+cannot own transports/workers; and network/TLS helpers cannot import protocol,
+ASGI, or worker layers.
+
+For row 10, the silent-exception gate remains strict. The zoomies-derived
+raise-message rule found 101 legacy punctuation/minimum-context findings,
+including hot-path `PounceError` messages whose semantic code and catalog
+anchor are governed separately. `docs/design/raise-message-baseline.txt`
+records those exact findings as a duplicate-aware ratchet: any new or changed
+finding fails, and resolved fingerprints must be removed. This prevents new
+debt without disguising a diagnostics rewrite as a hygiene-only change.
+
 ---
 
 ## The evidence program
