@@ -48,9 +48,12 @@ instead of swapping to the failed generation.
 HTTP/3 uses a separate UDP/QUIC listener. Treat H3 reload/drain as limited until
 the protocol proof ledger records parity for that path.
 
-Current subprocess proof covers SIGTERM clean exit and SIGHUP recovery to
-serving traffic. It does not yet prove mixed active-request drain behavior under
-load, so avoid describing reload as lossless across all modes and protocols.
+Current subprocess proof covers SIGTERM mixed-traffic drain and SIGHUP recovery
+to serving traffic across the documented worker-mode matrix. The reproducible
+drain profile also drives SIGHUP followed by SIGTERM and records in-flight
+completion, bounded refusal outcomes, exit time, and orphan-worker absence.
+This mode-scoped proof does not imply lossless reload across every protocol;
+HTTP/3 remains limited by its separate proof ledger.
 
 ### Configuration
 
@@ -88,8 +91,10 @@ On SIGTERM or SIGINT, pounce drains connections then exits:
 
 1. **Stops accepting** new connections immediately
 2. **Finishes** active requests (up to `shutdown_timeout`)
-3. **Force-terminates** workers that exceed the timeout
-4. **Exits** with status 0
+3. **Force-terminates** work that exceeds the timeout
+4. Runs per-worker `pounce.worker.shutdown` hooks
+5. Completes ASGI `lifespan.shutdown`
+6. Releases listeners and **exits** with status 0
 
 ```python
 config = ServerConfig(

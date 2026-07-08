@@ -85,6 +85,13 @@ zero orphan child processes, and listener release across async/process,
 subinterpreter, and free-threaded sync execution. Reproducible artifact-shaped
 profiling for the same contract lives in `benchmarks/drain_profile.py`.
 
+SIGTERM shutdown ordering is a runtime contract: stop accepting new work,
+drain in-flight requests up to `shutdown_timeout`, force-close work that
+exceeds that bound, run per-worker `pounce.worker.shutdown` hooks, complete
+ASGI `lifespan.shutdown`, then release listeners and exit. The ordering between
+in-flight completion and final lifespan shutdown is enforced across worker
+modes by `test_sigterm_runs_lifespan_shutdown_after_inflight_completion`.
+
 Every serving mode emits `pounce.worker.startup` before accepting requests and
 `pounce.worker.shutdown` after draining, with the numeric `worker_id` in both
 scopes. The hooks run on the same per-worker event loop used for that worker's

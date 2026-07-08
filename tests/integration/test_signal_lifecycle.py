@@ -281,6 +281,54 @@ def _start_probe_server(
     return proc, port
 
 
+def _start_shutdown_order_server(
+    log_path: Path,
+    *,
+    workers: int,
+    worker_mode: str,
+) -> tuple[subprocess.Popen[bytes], int]:
+    port = _free_port()
+    env = _server_env()
+    env["POUNCE_SHUTDOWN_ORDER_LOG"] = str(log_path)
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "pounce",
+            "serve",
+            "--app",
+            "tests.shutdown_order_app:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--workers",
+            str(workers),
+            "--worker-mode",
+            worker_mode,
+            "--shutdown-timeout",
+            "3",
+            "--no-access-log",
+            "--signage",
+            "off",
+        ],
+        cwd=ROOT,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return proc, port
+
+
+def _wait_for_order_event(log_path: Path, event: str, *, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if log_path.exists() and event in log_path.read_text().splitlines():
+            return
+        time.sleep(0.02)
+    raise RuntimeError(f"shutdown-order probe did not record {event!r}")
+
+
 def _probe_request(port: int, path: str, *, timeout: float = 8.0) -> bytes:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(timeout)
@@ -412,6 +460,68 @@ _DRAIN_MODES = [
         ),
     ),
 ]
+
+_SHUTDOWN_ORDER_MODES = [
+    pytest.param(1, "async", id="single"),
+    pytest.param(2, "async", id="async-or-process"),
+    pytest.param(
+        2,
+        "subinterpreter",
+        id="subinterpreter",
+        marks=pytest.mark.skipif(
+            not _has_subinterpreters(),
+            reason="subinterpreters unavailable",
+        ),
+    ),
+    pytest.param(
+        2,
+        "sync",
+        id="sync",
+        marks=pytest.mark.skipif(
+            not _is_free_threaded(),
+            reason="sync execution needs thread mode (free-threaded 3.14t); "
+            "CI's 3.14t lane proves this path",
+        ),
+    ),
+]
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.timeout(60)
+@pytest.mark.parametrize(("workers", "worker_mode"), _SHUTDOWN_ORDER_MODES)
+def test_sigterm_runs_lifespan_shutdown_after_inflight_completion(
+    tmp_path: Path,
+    workers: int,
+    worker_mode: str,
+) -> None:
+    """SIGTERM drains an active request before lifespan.shutdown (#249)."""
+    order_log = tmp_path / "shutdown-order.log"
+    proc, port = _start_shutdown_order_server(
+        order_log,
+        workers=workers,
+        worker_mode=worker_mode,
+    )
+    try:
+        _wait_for_probe(port)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            slow = executor.submit(_probe_request, port, "/slow", timeout=10.0)
+            _wait_for_order_event(order_log, "request.start")
+            proc.send_signal(signal.SIGTERM)
+            response = slow.result(timeout=10.0)
+        stdout, stderr = proc.communicate(timeout=15.0)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate(timeout=3)
+
+    events = order_log.read_text().splitlines()
+    assert b" 200 " in response
+    assert b"slow-done" in response
+    assert events.index("request.start") < events.index("request.complete")
+    assert events.index("request.complete") < events.index("lifespan.shutdown")
+    assert proc.returncode == 0
+    assert b"Traceback" not in stdout + stderr
 
 
 @pytest.mark.integration
