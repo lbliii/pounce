@@ -141,10 +141,15 @@ is `site/content/docs/deployment/embedding.md`.
 
 | Mode | Startup Contract | Reload Contract | Shutdown Contract | Known Limits |
 |---|---|---|---|---|
-| `workers=1` | One app instance in the main process. | Development reload may restart the single worker path; SIGHUP-style rolling generation swap is not the primary contract. | Graceful shutdown via server shutdown event and lifespan shutdown. | No multi-worker drain generation. |
-| Thread workers on Python 3.14t | Multiple worker threads share one interpreter, app object, and frozen config. | Rolling generation swap can drain old thread workers while new workers start. | Per-worker drain and join behavior is supervised. | Shared mutable app state remains the app's responsibility. |
-| Process workers on GIL builds | Workers run in forked processes when available. | Process-mode reload may have different availability and downtime characteristics than thread-mode rolling reload. | Supervisor coordinates process shutdown and joins. | App import/fork constraints apply; no shared app object. |
-| Subinterpreter mode (beta) | Explicit `worker_mode="subinterpreter"` path. Beta: surfaced as `x-stability: beta` in `pounce config schema` and marked beta in the config docs. | Treat as limited/beta unless the specific lifecycle path has tests. | Requires explicit proof for state transfer and shutdown behavior. | Compatibility depends on subinterpreter-safe app/dependencies. See `docs/design/subinterpreter-workers.md` (status: beta). |
+| `workers=1` | One app instance on the direct async path when mode is `auto`, `sync`, or `async`. | Development reload may restart the single worker path; SIGHUP-style rolling generation swap is not the primary contract. | Graceful shutdown via server shutdown event and lifespan shutdown. | No multi-worker drain generation; explicit subinterpreter mode is the exception and uses the supervisor. |
+| Thread workers on Python 3.14t | With multiple workers, `worker_mode="auto"` resolves to sync threads sharing one interpreter, app object, and frozen config. | Rolling generation swap can drain old thread workers while new workers start. | Per-worker drain and join behavior is supervised. | Shared mutable app state remains the app's responsibility. |
+| Process workers on GIL builds | With multiple workers, `worker_mode="auto"` resolves to async forked processes when available. | Process-mode reload may have different availability and downtime characteristics than thread-mode rolling reload. | Supervisor coordinates process shutdown and joins. | App import/fork constraints apply; no shared app object. |
+| Subinterpreter mode (beta) | Explicit `worker_mode="subinterpreter"` path, including `workers=1`; embedded callers must provide `app_path`. Beta: surfaced as `x-stability: beta` in `pounce config schema` and marked beta in the config docs. | Treat as limited/beta unless the specific lifecycle path has tests. | Requires explicit proof for state transfer and shutdown behavior. | Compatibility depends on subinterpreter-safe app/dependencies. See `docs/design/subinterpreter-workers.md` (status: beta). |
+
+Startup output and the opt-in `/_pounce/info` endpoint expose the resolved
+worker model as `single (async)`, `thread (sync)`, `process (async)`, or
+`subinterpreter (async)` rather than requiring operators to infer it from the
+configured value.
 
 Subprocess signal proof in `tests/integration/test_signal_lifecycle.py` covers
 CLI SIGTERM clean exit, SIGHUP recovery to serving traffic, and mixed-traffic

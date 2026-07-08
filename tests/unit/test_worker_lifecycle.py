@@ -14,7 +14,8 @@ import threading
 
 import pytest
 
-from pounce._errors import WorkerError
+from pounce._errors import SupervisorError, WorkerError
+from pounce._runtime import WorkerMode
 from pounce._types import Receive, Scope, Send
 from pounce.config import ServerConfig
 from pounce.net.listener import create_listener
@@ -540,3 +541,36 @@ class TestSingleWorkerLifecycle:
 
         assert exc_info.value.code == "POUNCE_WORKER_STARTUP_FAILED"
         assert not server._started_event.is_set()
+
+
+class TestEmbeddedSubinterpreterBoundary:
+    """Embedded subinterpreter mode validates import identity before launch."""
+
+    @staticmethod
+    async def _app(scope: Scope, receive: Receive, send: Send) -> None:
+        return
+
+    @pytest.mark.issue(246)
+    def test_missing_app_path_fails_at_server_construction(self) -> None:
+        with pytest.raises(SupervisorError) as caught:
+            Server(ServerConfig(worker_mode="subinterpreter"), self._app)
+
+        assert caught.value.code == "POUNCE_SUPERVISOR_SUBINTERPRETER_NO_APP_PATH"
+        assert "app_path" in (caught.value.hint or "")
+
+    @pytest.mark.issue(246)
+    def test_one_subinterpreter_worker_uses_supervisor_path(self, mocker) -> None:
+        server = Server(
+            ServerConfig(worker_mode="subinterpreter", workers=1),
+            self._app,
+            app_path="tests.unit.test_worker_lifecycle:TestEmbeddedSubinterpreterBoundary._app",
+        )
+        mocker.patch("pounce.server.configure_logging")
+        mocker.patch.object(Server, "_apply_integrations", autospec=True)
+        mocker.patch.object(Server, "_log_worker_mode_notice", autospec=True)
+        mocker.patch.object(Server, "_print_banner", autospec=True)
+        run_multi = mocker.patch.object(Server, "_run_multi", autospec=True)
+
+        server.run()
+
+        run_multi.assert_called_once_with(server, 1, WorkerMode.SUBINTERPRETER)

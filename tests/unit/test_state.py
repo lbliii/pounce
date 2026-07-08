@@ -4,6 +4,8 @@ Exercises the pure reducer (no mocks needed) and the store integration
 (dispatch → state transitions).
 """
 
+import logging
+
 import pytest
 from milo._types import Action
 
@@ -25,11 +27,14 @@ from pounce._state import (
     WORKER_MAX_RESTARTS,
     WORKER_STARTED,
     ServerModel,
+    _log_startup_banner_text,
     _reset_store,
     dispatch,
     get_state,
     server_reducer,
 )
+from pounce.config import ServerConfig
+from pounce.display import DisplayConfig
 
 # ── Reducer unit tests ───────────────────────────────────
 
@@ -63,6 +68,7 @@ class TestServerReducer:
                     "config": None,
                     "effective_workers": 4,
                     "mode_label": "threads",
+                    "worker_model": "thread (sync)",
                     "gil_status": "nogil",
                 },
             ),
@@ -70,7 +76,22 @@ class TestServerReducer:
         assert state.phase == "startup"
         assert state.effective_workers == 4
         assert state.mode_label == "threads"
+        assert state.worker_model == "thread (sync)"
         assert state.gil_status == "nogil"
+
+    @pytest.mark.issue(246)
+    def test_text_startup_log_includes_resolved_worker_model(self, caplog) -> None:
+        with caplog.at_level(logging.INFO, logger="pounce"):
+            _log_startup_banner_text(
+                config=ServerConfig(),
+                display=DisplayConfig(),
+                effective_workers=4,
+                mode_label="threads",
+                worker_model="thread (sync)",
+                gil_status="nogil",
+            )
+
+        assert "resolved thread (sync)" in caplog.text
 
     def test_ready_sets_ready_phase(self):
         state = server_reducer(

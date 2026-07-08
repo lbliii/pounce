@@ -2,11 +2,16 @@
 
 from unittest.mock import patch
 
+import pytest
+
+from pounce._errors import SupervisorError
 from pounce._runtime import (
     default_worker_count,
     detect_worker_mode,
     is_gil_enabled,
     resolve_worker_execution_mode,
+    resolve_worker_model,
+    validate_subinterpreter_app_path,
 )
 
 
@@ -80,3 +85,31 @@ class TestResolveWorkerExecutionMode:
     def test_auto_gil_uses_async(self):
         with patch("pounce._runtime.is_gil_enabled", return_value=True):
             assert resolve_worker_execution_mode("auto") == "async"
+
+
+class TestResolveWorkerModel:
+    """The observable model matches the server's actual worker path (#246)."""
+
+    @pytest.mark.issue(246)
+    def test_auto_nogil_is_thread_sync(self):
+        with patch("pounce._runtime.is_gil_enabled", return_value=False):
+            assert resolve_worker_model("auto", 4) == "thread (sync)"
+
+    @pytest.mark.issue(246)
+    def test_auto_gil_is_process_async(self):
+        with patch("pounce._runtime.is_gil_enabled", return_value=True):
+            assert resolve_worker_model("auto", 4) == "process (async)"
+
+    def test_single_worker_uses_direct_async_path(self):
+        assert resolve_worker_model("auto", 1) == "single (async)"
+
+    def test_subinterpreter_is_explicit_even_with_one_worker(self):
+        assert resolve_worker_model("subinterpreter", 1) == "subinterpreter (async)"
+
+    @pytest.mark.issue(246)
+    def test_missing_subinterpreter_app_path_has_actionable_code(self):
+        with pytest.raises(SupervisorError) as caught:
+            validate_subinterpreter_app_path("subinterpreter", None)
+
+        assert caught.value.code == "POUNCE_SUPERVISOR_SUBINTERPRETER_NO_APP_PATH"
+        assert "app_path" in (caught.value.hint or "")

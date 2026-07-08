@@ -17,6 +17,18 @@ all in one process.
 pounce serve --app myapp:app --workers 4 --worker-mode subinterpreter
 ```
 
+The CLI supplies the import identity from `--app`. Embedded callers must pass
+the same identity explicitly:
+
+```python
+Server(config, app, app_path="myapp:app")
+```
+
+Pounce validates this at construction and raises
+`POUNCE_SUPERVISOR_SUBINTERPRETER_NO_APP_PATH` instead of silently selecting a
+different worker model. Explicit subinterpreter mode uses the supervisor even
+when `workers=1`.
+
 ---
 
 ## Architecture

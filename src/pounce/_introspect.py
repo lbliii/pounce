@@ -8,7 +8,8 @@ application.
 
 The response body is a JSON object with three sections:
 
-- **runtime**: Python version, GIL state, worker mode, server uptime.
+- **runtime**: Python version, GIL state, configured worker mode, resolved
+  worker model, and server uptime.
 - **worker**: per-worker identity (``worker_id``) and live counters
   (``active_connections``).
 - **config**: the :func:`~pounce._config_schema.redacted_config_view` of
@@ -27,6 +28,7 @@ import time
 from typing import TYPE_CHECKING
 
 from pounce._config_schema import redacted_config_view
+from pounce._runtime import resolve_worker_model
 
 if TYPE_CHECKING:
     from pounce.config import ServerConfig
@@ -64,6 +66,7 @@ def build_introspect_response(
             "python_version": sys.version.split()[0],
             "gil_enabled": _gil_enabled(),
             "worker_mode": config.worker_mode,
+            "worker_model": resolve_worker_model(config.worker_mode, config.resolve_workers()),
             "uptime_seconds": round(uptime_s, 1),
         },
         "worker": {

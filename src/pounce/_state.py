@@ -78,6 +78,7 @@ class ServerModel:
     phase: Phase = Phase.INIT
     effective_workers: int = 0
     mode_label: str = ""
+    worker_model: str = ""
     gil_status: str = ""
     supervisor_mode: str = ""
     generation: int = 0
@@ -103,6 +104,7 @@ def server_reducer(state: ServerModel | None, action: Action) -> ServerModel:
                 phase=Phase.STARTUP,
                 effective_workers=p["effective_workers"],
                 mode_label=p["mode_label"],
+                worker_model=p.get("worker_model", p["mode_label"]),
                 gil_status=p["gil_status"],
             )
 
@@ -183,6 +185,7 @@ def _log_startup_banner_text(
     display: DisplayConfig,
     effective_workers: int,
     mode_label: str,
+    worker_model: str,
     gil_status: str,
 ) -> None:
     """Emit startup identity lines when pretty banners are off or stderr is not a TTY."""
@@ -199,13 +202,14 @@ def _log_startup_banner_text(
     for line in display.lines:
         logger.info("%s", line)
     logger.info(
-        "pounce v%s | %s | %d %s worker(s) | %s | Python %s",
+        "pounce v%s | %s | %d %s worker(s) | %s | Python %s | resolved %s",
         __version__,
         url,
         effective_workers,
         mode_label,
         gil_status,
         sys.version.split()[0],
+        worker_model,
     )
 
 
@@ -235,6 +239,7 @@ def _render_action(action: Action) -> None:
             config = p["config"]
             effective_workers = p["effective_workers"]
             mode_label = p["mode_label"]
+            worker_model = p.get("worker_model", mode_label)
             gil_status = p["gil_status"]
 
             from pounce import __version__
@@ -248,6 +253,7 @@ def _render_action(action: Action) -> None:
                     display=display,
                     effective_workers=effective_workers,
                     mode_label=mode_label,
+                    worker_model=worker_model,
                     gil_status=gil_status,
                 )
                 return
@@ -285,7 +291,7 @@ def _render_action(action: Action) -> None:
             worker_label = "worker" if effective_workers == 1 else "workers"
             minimal_server_line = (
                 f"pounce v{__version__} · {url} · {effective_workers} "
-                f"{worker_label} ({mode_label}) · {gil_status}"
+                f"{worker_label} ({worker_model}) · {gil_status}"
             )
 
             _write(
@@ -296,7 +302,7 @@ def _render_action(action: Action) -> None:
                     url=url,
                     uds=config.uds,
                     workers=effective_workers,
-                    mode=mode_label,
+                    mode=worker_model,
                     log_level=config.log_level,
                     features=features,
                     hints=hints,

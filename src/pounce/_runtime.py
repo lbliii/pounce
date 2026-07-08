@@ -11,6 +11,8 @@ import os
 import sys
 from enum import StrEnum
 
+from pounce._errors import SupervisorError
+
 
 class WorkerMode(StrEnum):
     """Worker spawning strategy."""
@@ -93,3 +95,35 @@ def resolve_worker_execution_mode(worker_mode: str) -> WorkerExecutionMode:
             return WorkerExecutionMode.SYNC if not is_gil_enabled() else WorkerExecutionMode.ASYNC
         case _:
             return WorkerExecutionMode.ASYNC  # Unknown value — fall back to safe default
+
+
+def resolve_worker_model(worker_mode: str, worker_count: int) -> str:
+    """Return the actual spawning and execution model for this runtime.
+
+    A single worker uses the direct async server path. Multi-worker ``auto``
+    uses sync thread workers on a free-threaded build and async process workers
+    on a GIL build. Explicit subinterpreter mode always uses isolated async
+    workers, including when the configured worker count is one.
+    """
+    normalized = worker_mode.lower()
+    if normalized == "subinterpreter":
+        return "subinterpreter (async)"
+    if worker_count == 1:
+        return "single (async)"
+
+    strategy = detect_worker_mode()
+    execution = resolve_worker_execution_mode(normalized)
+    if strategy is WorkerMode.PROCESS and execution is WorkerExecutionMode.SYNC:
+        execution = WorkerExecutionMode.ASYNC
+    return f"{strategy.value} ({execution.value})"
+
+
+def validate_subinterpreter_app_path(worker_mode: str, app_path: str | None) -> None:
+    """Fail at the embedding boundary when isolated workers cannot import the app."""
+    if worker_mode.lower() == "subinterpreter" and not app_path:
+        raise SupervisorError(
+            "Subinterpreter workers require an app import path "
+            "(e.g., 'myapp:app'). Pass app_path to Server or use the CLI.",
+            code="POUNCE_SUPERVISOR_SUBINTERPRETER_NO_APP_PATH",
+            hint="Pass --app myapp:app at the CLI or app_path= to Server().",
+        )
