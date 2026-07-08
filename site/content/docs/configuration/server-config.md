@@ -170,9 +170,13 @@ configured `static_files` mounts; assets stored elsewhere need a matching
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `trusted_hosts` | `frozenset[str]` | `frozenset()` | Trusted proxy hosts for X-Forwarded-* header validation (empty = strip all proxy headers). Accepts any iterable; normalized to frozenset internally. |
+| `forwarded_for_trusted_hops` | `int` | `1` | Number of trusted proxy hops used to select the client address from the right side of `X-Forwarded-For`. Must be at least 1. |
 
 ::::{note}
-When `trusted_hosts` is empty, Pounce strips `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` from all requests. Set it to your reverse proxy's IP (e.g. `frozenset({"10.0.0.1"})`) or `frozenset({"*"})` to trust all peers. Trusted `X-Forwarded-Host` rewrites both `scope["server"]` and the ASGI `Host` header, including a forwarded port when present. Tuples and lists are also accepted and converted automatically.
+When `trusted_hosts` is empty, Pounce strips `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` from all requests. Set it to your reverse proxy's IP (e.g. `frozenset({"10.0.0.1"})`). Trusted `X-Forwarded-Host` rewrites both `scope["server"]` and the ASGI `Host` header, including a forwarded port when present. Tuples and lists are also accepted and converted automatically. A wildcard trusts every direct peer and is unsafe on an internet-reachable listener.
+
+`X-Real-IP` is not used to rewrite `scope["client"]`; only a trusted peer's
+`X-Forwarded-For` participates in Pounce client-address normalization.
 ::::
 
 ### TLS

@@ -121,9 +121,12 @@ pounce.run(
 Or via CLI:
 
 ```bash
-# Trust is configured via ServerConfig (no CLI flag — intentionally
-# requires programmatic configuration for safety)
+pounce serve --app myapp:app --trusted-hosts 10.0.0.1,10.0.0.2
 ```
+
+The CLI uses the default single trusted hop. Configure
+`forwarded_for_trusted_hops` in `ServerConfig` or `pounce.toml` when more than
+one trusted proxy sits in front of Pounce.
 
 :::{warning}
 Never set `trusted_hosts=("*",)` in internet-facing deployments. A wildcard trusts every peer, allowing any client to spoof their IP via `X-Forwarded-For`.

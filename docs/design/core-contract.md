@@ -68,6 +68,36 @@ For HTTP/2, `keep_alive_timeout` applies only when the connection has no
 active streams. A peer may remain quiet while it receives a response, so the
 idle timer must not cancel an in-flight response stream.
 
+## Proxy And Edge Topology Contract
+
+Each reverse-proxy hop negotiates its own transport and HTTP protocol. The
+client-to-edge protocol does not determine the edge-to-Pounce protocol, and the
+ASGI `scope["http_version"]` describes only the connection accepted by Pounce.
+For example, production incident #231 observed a Railway edge use HTTP/2 to the
+origin even when the external client used HTTP/1.1. Public docs must describe
+that as observed deployment evidence, not a guarantee for every Railway
+service or future platform version.
+
+Pounce treats proxy-derived identity as untrusted unless the direct peer is in
+`trusted_hosts`:
+
+- an empty `trusted_hosts` strips `X-Forwarded-*` before app dispatch;
+- a trusted peer may replace `scope["client"]` from `X-Forwarded-For`,
+  `scope["scheme"]` from `X-Forwarded-Proto`, and both `scope["server"]` and
+  the `Host` header from `X-Forwarded-Host`;
+- `forwarded_for_trusted_hops` selects the client address from the right side
+  of the forwarded chain, matching the number of trusted proxy hops;
+- `X-Real-IP` is not a Pounce identity input. It remains an ordinary request
+  header and must not be treated by an application as authenticated client
+  identity without a separately verified proxy boundary.
+
+TLS termination is also hop-specific. A platform edge may terminate public
+TLS and speak plain HTTP to Pounce; Pounce-owned TLS and ALPN apply only when
+`ssl_certfile` and `ssl_keyfile` terminate TLS at the Pounce listener.
+The implementation source is `src/pounce/_proxy.py`; cross-protocol authority
+proof lives in `tests/unit/test_tenant_scope_matrix.py` and Railway example
+proof lives in `tests/integration/test_examples.py`.
+
 ## Worker And Lifecycle Matrix
 
 | Mode | Startup Contract | Reload Contract | Shutdown Contract | Known Limits |
