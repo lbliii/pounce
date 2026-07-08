@@ -214,6 +214,7 @@ class TestProtocolProofLedger:
 
 class TestBenchmarkArtifactPolicy:
     REQUIRED_FIELDS: ClassVar[set[str]] = {
+        "artifact_schema_version",
         "artifact_id",
         "created_at",
         "git_sha",
@@ -242,8 +243,15 @@ class TestBenchmarkArtifactPolicy:
 
     def test_benchmark_artifact_schema_names_required_metadata(self) -> None:
         schema = json.loads(BENCHMARK_SCHEMA.read_text())
-        assert schema["version"] == 1
+        assert schema["version"] == 2
         assert set(schema["required_fields"]) == self.REQUIRED_FIELDS
+        assert "process_cpu_series" in schema["telemetry"]["required_fields"]
+        assert set(schema["telemetry"]["process_cpu_series"]["process_required_fields"]) == {
+            "pid",
+            "role",
+            "rss_bytes",
+            "cpu_percent",
+        }
         assert "not a product claim" in schema["notes"]
 
     def test_benchmark_policy_is_documented_for_contributors(self) -> None:

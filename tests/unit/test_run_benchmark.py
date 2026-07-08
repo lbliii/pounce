@@ -1,5 +1,6 @@
 """Unit tests for the standalone benchmark runner."""
 
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,8 @@ from benchmarks.run_benchmark import (
     build_artifact,
     build_profile_artifact,
     compare_artifact,
+    save_artifact,
+    validate_artifact,
 )
 
 
@@ -122,6 +125,7 @@ def test_build_artifact_has_required_schema_fields(monkeypatch: pytest.MonkeyPat
     )
 
     required = {
+        "artifact_schema_version",
         "artifact_id",
         "created_at",
         "git_sha",
@@ -303,6 +307,14 @@ def test_telemetry_sampler_aggregates_tree(monkeypatch: pytest.MonkeyPatch) -> N
     assert result.cpu_percent_peak == 100.0
     assert result.cpu_percent_mean == 100.0
     assert result.worker_pids == [10, 11]
+    assert result.interval_seconds == 0.01
+    [point] = result.process_cpu_series
+    assert point["rss_bytes_total"] == 50_000_000
+    assert point["cpu_percent_total"] == 100.0
+    assert point["processes"] == [
+        {"pid": 10, "role": "root", "rss_bytes": 30_000_000, "cpu_percent": 60.0},
+        {"pid": 11, "role": "child", "rss_bytes": 20_000_000, "cpu_percent": 40.0},
+    ]
 
 
 def test_telemetry_sampler_degrades_when_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -315,6 +327,7 @@ def test_telemetry_sampler_degrades_when_unsupported(monkeypatch: pytest.MonkeyP
     assert result.peak_rss_bytes is None
     assert result.cpu_percent_peak is None
     assert result.worker_pids == []
+    assert result.process_cpu_series == []
 
 
 def test_telemetry_block_reports_peak_and_cpu() -> None:
@@ -324,6 +337,28 @@ def test_telemetry_block_reports_peak_and_cpu() -> None:
             "cpu_percent_mean": 80.0,
             "cpu_percent_peak": 120.0,
             "worker_pids": [10, 11],
+            "telemetry_interval_seconds": 0.2,
+            "process_cpu_series": [
+                {
+                    "elapsed_seconds": 0.2,
+                    "rss_bytes_total": 50_000_000,
+                    "cpu_percent_total": 120.0,
+                    "processes": [
+                        {
+                            "pid": 10,
+                            "role": "root",
+                            "rss_bytes": 30_000_000,
+                            "cpu_percent": 20.0,
+                        },
+                        {
+                            "pid": 11,
+                            "role": "child",
+                            "rss_bytes": 20_000_000,
+                            "cpu_percent": 100.0,
+                        },
+                    ],
+                }
+            ],
         },
         {
             "peak_rss_bytes": 70_000_000,
@@ -338,6 +373,10 @@ def test_telemetry_block_reports_peak_and_cpu() -> None:
     assert block["cpu_percent"]["peak"] == 150.0
     assert block["cpu_percent"]["mean"] == 85.0
     assert block["worker_pids"] == [10, 11, 12]
+    [series] = block["process_cpu_series"]
+    assert series["server"] == "unknown"
+    assert series["interval_seconds"] == 0.2
+    assert series["points"][0]["processes"][1]["pid"] == 11
 
 
 def test_telemetry_block_unsupported_when_no_telemetry() -> None:
@@ -346,6 +385,7 @@ def test_telemetry_block_unsupported_when_no_telemetry() -> None:
     assert block["peak_rss_bytes"] is None
     assert block["cpu_percent"]["peak"] is None
     assert block["worker_pids"] == []
+    assert block["process_cpu_series"] == []
 
 
 def test_build_artifact_includes_telemetry_and_summary_fields() -> None:
@@ -367,6 +407,34 @@ def test_build_artifact_includes_telemetry_and_summary_fields() -> None:
                 "cpu_percent_mean": 80.0,
                 "cpu_percent_peak": 120.0,
                 "worker_pids": [10, 11, 12],
+                "telemetry_interval_seconds": 0.2,
+                "process_cpu_series": [
+                    {
+                        "elapsed_seconds": 0.2,
+                        "rss_bytes_total": 60_000_000,
+                        "cpu_percent_total": 120.0,
+                        "processes": [
+                            {
+                                "pid": 10,
+                                "role": "root",
+                                "rss_bytes": 20_000_000,
+                                "cpu_percent": 20.0,
+                            },
+                            {
+                                "pid": 11,
+                                "role": "child",
+                                "rss_bytes": 20_000_000,
+                                "cpu_percent": 50.0,
+                            },
+                            {
+                                "pid": 12,
+                                "role": "child",
+                                "rss_bytes": 20_000_000,
+                                "cpu_percent": 50.0,
+                            },
+                        ],
+                    }
+                ],
             }
         ],
     )
@@ -388,11 +456,64 @@ def test_build_artifact_includes_telemetry_and_summary_fields() -> None:
     assert artifact["telemetry"]["peak_rss_bytes"] == 60_000_000
     assert artifact["telemetry"]["cpu_percent"]["peak"] == 120.0
     assert artifact["telemetry"]["worker_pids"] == [10, 11, 12]
+    assert artifact["artifact_schema_version"] == 2
+    assert "process_cpu_series" not in artifact["samples"][0]
+    [series] = artifact["telemetry"]["process_cpu_series"]
+    assert series["sample_index"] == 1
+    assert series["points"][0]["processes"][2]["pid"] == 12
+    validate_artifact(artifact)
 
     [group] = artifact["summary"]["groups"]
     assert group["peak_rss_bytes"]["max"] == 60_000_000
     assert group["cpu_percent"]["max"] == 120.0
     assert group["worker_pids"] == [10, 11, 12]
+
+
+def test_save_artifact_rejects_incomplete_process_series(tmp_path: Path) -> None:
+    artifact = build_profile_artifact(
+        profile="process-cpu",
+        command=["python", "benchmarks/run_benchmark.py"],
+        server_command={"pounce": "python -m pounce serve ..."},
+        samples=[
+            {
+                "server": "pounce",
+                "workload": "hello",
+                "workers": 2,
+                "sample_index": 1,
+                "process_cpu_series": [
+                    {
+                        "elapsed_seconds": 0.2,
+                        "rss_bytes_total": 100,
+                        "cpu_percent_total": 50.0,
+                        "processes": [
+                            {
+                                "pid": 10,
+                                "role": "root",
+                                "rss_bytes": 100,
+                                "cpu_percent": 50.0,
+                            }
+                        ],
+                    }
+                ],
+                "telemetry_interval_seconds": 0.2,
+            }
+        ],
+        workers=2,
+        duration=1,
+        connections=1,
+        threads=1,
+        load_tool="wrk",
+        load_tool_version="wrk 4.2.0",
+        worker_mode="process",
+    )
+    invalid = deepcopy(artifact)
+    del invalid["telemetry"]["process_cpu_series"][0]["points"][0]["processes"][0]["cpu_percent"]
+    output = tmp_path / "invalid.json"
+
+    with pytest.raises(ValueError, match="missing required fields: cpu_percent"):
+        save_artifact(invalid, output)
+
+    assert not output.exists()
 
 
 # ── Regression gate (#140) ───────────────────────────────────────────
@@ -534,6 +655,7 @@ def test_build_profile_artifact_has_required_schema_fields() -> None:
         worker_mode="comparison",
     )
     required = {
+        "artifact_schema_version",
         "artifact_id",
         "created_at",
         "git_sha",

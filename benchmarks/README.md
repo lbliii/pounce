@@ -107,8 +107,10 @@ Required metadata:
 - sample count and grouped variance by server, workload, and worker count
 - per-sample server RSS when the platform exposes it
 - under-load process telemetry (`telemetry`): peak RSS summed across the
-  supervisor and any forked worker processes, mean/peak CPU%, and the observed
-  worker pids; best-effort and null when the platform does not expose it
+  root server and any forked worker processes, mean/peak aggregate CPU%, the
+  observed worker pids, and a per-process CPU/RSS time series for each repeated
+  benchmark sample; best-effort with null summaries or empty point lists when
+  the platform does not expose it
 - raw load-tool stdout/stderr entries per sample
 - summary table
 
