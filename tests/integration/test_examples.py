@@ -7,6 +7,10 @@ work".  If an example breaks after an API change, this catches it.
 
 """
 
+import subprocess
+import tomllib
+from pathlib import Path
+
 import pytest
 
 from tests.conftest import send_raw_request, start_worker
@@ -420,7 +424,9 @@ def test_railway_deploy_reads_port_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert config.host == "0.0.0.0"
     assert config.port == 9137  # reads the injected PORT
-    assert config.health_check_path == "/health"
+    assert config.health_check_path == "/readyz"
+    assert config.workers == 2
+    assert config.shutdown_timeout == 10
     assert config.log_format == "json"
     # Platform-terminated TLS: no in-container certs.
     assert config.ssl_certfile is None
@@ -431,7 +437,7 @@ def test_railway_deploy_reads_port_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.mark.timeout(10)
 def test_railway_deploy_health(monkeypatch: pytest.MonkeyPatch) -> None:
-    """examples/railway_deploy.py GET /health returns 200 healthy JSON.
+    """examples/railway_deploy.py GET /readyz returns 200 readiness JSON.
 
     Serves with the example's documented health_check_path so the built-in
     healthcheck path is exercised (port overridden to 0 for the test bind).
@@ -445,7 +451,7 @@ def test_railway_deploy_health(monkeypatch: pytest.MonkeyPatch) -> None:
     worker, sock, thread = start_worker(app, config)
     addr = sock.getsockname()
 
-    request = b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+    request = b"GET /readyz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
 
     try:
         response = send_raw_request(addr, request)
@@ -483,12 +489,51 @@ def test_railway_deploy_strips_untrusted_forwarded() -> None:
         response = send_raw_request(addr, request)
         assert b"HTTP/1.1 200" in response
         # Spoofed X-Forwarded-Proto must be ignored: scheme stays http.
-        assert b'"scheme": "http"' in response
-        assert b'"scheme": "https"' not in response
+        assert b'"scheme":"http"' in response
+        assert b'"scheme":"https"' not in response
     finally:
         worker.shutdown()
         thread.join(timeout=3)
         sock.close()
+
+
+def test_railway_recipe_assets_encode_the_deployment_contract() -> None:
+    """Docker and Railway config keep 3.14t, readiness, and drain aligned."""
+    recipe = Path(__file__).parents[2] / "examples" / "deploy" / "railway"
+    dockerfile = (recipe / "Dockerfile").read_text(encoding="utf-8")
+    start = (recipe / "start.sh").read_text(encoding="utf-8")
+    with (recipe / "railway.toml").open("rb") as file:
+        railway = tomllib.load(file)
+
+    assert "FROM python:3.14-slim" in dockerfile
+    assert "uv venv --python 3.14t" in dockerfile
+    assert "PYTHON_GIL=0" in dockerfile
+    assert "USER pounce" in dockerfile
+    assert "assert not sys._is_gil_enabled()" in start
+    assert "${PORT:?Railway must provide PORT}" in start
+
+    assert railway["build"] == {
+        "builder": "DOCKERFILE",
+        "dockerfilePath": "Dockerfile",
+    }
+    deploy = railway["deploy"]
+    assert deploy["healthcheckPath"] == "/readyz"
+    assert int(deploy["drainingSeconds"]) > 10
+    assert int(deploy["overlapSeconds"]) > 0
+    assert deploy["numReplicas"] == 1
+
+    subprocess.run(["sh", "-n", str(recipe / "start.sh")], check=True)
+
+
+def test_railway_smoke_accepts_current_cli_deployment_json() -> None:
+    """The remote smoke runner accepts current list and wrapped JSON shapes."""
+    from examples.deploy.railway.smoke import _deployment_items
+
+    deployment = {"id": "dep-1", "status": "SUCCESS"}
+    assert _deployment_items(json_payload := '[{"id":"dep-1","status":"SUCCESS"}]') == [
+        deployment
+    ], json_payload
+    assert _deployment_items('{"deployments":[{"id":"dep-1","status":"SUCCESS"}]}') == [deployment]
 
 
 # ---------------------------------------------------------------------------

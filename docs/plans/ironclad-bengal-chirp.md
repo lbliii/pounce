@@ -214,12 +214,20 @@ be treated as active work unless a later regression reopens them.
 - Required Proof: Example smoke test with injected `PORT`; docs/snippet test;
   trusted/untrusted `X-Forwarded-*` integration test.
 - Collateral: Deployment docs, production example, troubleshooting.
-- Confidence: High for `PORT` and healthchecks; medium for exact proxy header
-  trust until Railway ingress details are confirmed for this deployment.
+- Verification Status: machine-verified locally; live Railway redeploy proof
+  requires an explicit disposable project/service target.
+- Shipped Evidence: `examples/deploy/railway/` contains the 3.14t Docker image,
+  config-as-code, GIL assertion, and terminal-status-aware deploy/redeploy smoke
+  runner; `tests/integration/test_examples.py` covers the local config and
+  security boundary.
+- Confidence: High for `PORT`, healthchecks, overlap, and drain settings;
+  medium for exact proxy header trust until Railway ingress details are
+  confirmed for this deployment.
 
-References checked 2026-05-09:
-[Railway Public Networking](https://docs.railway.com/public-networking) and
-[Railway Healthchecks](https://docs.railway.com/reference/healthchecks).
+References rechecked 2026-07-08:
+[Railway Public Networking](https://docs.railway.com/networking/public-networking),
+[Railway Healthchecks](https://docs.railway.com/deployments/healthchecks), and
+[Deployment Teardown](https://docs.railway.com/deployments/deployment-teardown).
 
 ### P1. Reload And Drain Under Load
 
