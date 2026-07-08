@@ -1,0 +1,520 @@
+{
+  "artifact_id": "pounce-http3_hello-2026-07-08T123847-0400",
+  "created_at": "2026-07-08T12:38:47-0400",
+  "git_sha": "3ada848ce35a37772eb41d419d30aaab7504b120",
+  "command": "python benchmarks/h3_profile.py --connections 4 --duration 5 --repeat 5 --artifact-output benchmarks/artifacts/2026-07-08/http3-pounce-local.json",
+  "server_command": {
+    "pounce-http3": "python -m pounce serve --app benchmarks.apps.hello:app --host 127.0.0.1 --port 54367 --workers 1 --worker-mode async --ssl-certfile <generated-cert.pem> --ssl-keyfile <generated-key.pem> --http3 --no-access-log --signage off"
+  },
+  "workload": "http3_hello",
+  "python_version": "3.14.2 free-threading build (main, Dec 17 2025, 21:08:58) [Clang 21.1.4 ]",
+  "python_gil_mode": "free-threaded",
+  "os": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+  "hardware": "arm64 arm",
+  "worker_mode": "async+h3-thread",
+  "workers": 1,
+  "duration_seconds": 5,
+  "connections": 4,
+  "threads": 4,
+  "load_tool": "h3_profile.py",
+  "load_tool_version": "bengal-zoomies sans-I/O persistent-connection driver",
+  "comparison_target": null,
+  "comparison_target_version": null,
+  "samples": [
+    {
+      "server": "pounce-http3",
+      "workload": "http3_hello",
+      "workers": 1,
+      "duration_s": 5.0,
+      "threads": 4,
+      "connections": 4,
+      "req_per_sec": 43.6,
+      "avg_latency_ms": 95.928,
+      "p50_latency_ms": 59.069,
+      "p99_latency_ms": 367.12,
+      "transfer_per_sec": "566.80B",
+      "total_requests": 218,
+      "errors": 0,
+      "peak_rss_bytes": 76464128,
+      "cpu_percent_mean": 76.62,
+      "cpu_percent_peak": 100.0,
+      "worker_pids": [
+        78395
+      ],
+      "http3": {
+        "connections": 4,
+        "successful_connections": 4,
+        "requests": 218,
+        "errors": 0,
+        "response_bytes": 2834,
+        "req_per_sec": 43.6,
+        "latency_avg_ms": 95.928,
+        "latency_p50_ms": 59.069,
+        "latency_p99_ms": 367.12
+      },
+      "sample_index": 1
+    },
+    {
+      "server": "pounce-http3",
+      "workload": "http3_hello",
+      "workers": 1,
+      "duration_s": 5.0,
+      "threads": 4,
+      "connections": 4,
+      "req_per_sec": 42.8,
+      "avg_latency_ms": 96.152,
+      "p50_latency_ms": 33.604,
+      "p99_latency_ms": 427.573,
+      "transfer_per_sec": "556.40B",
+      "total_requests": 214,
+      "errors": 0,
+      "peak_rss_bytes": 76611584,
+      "cpu_percent_mean": 82.9,
+      "cpu_percent_peak": 99.6,
+      "worker_pids": [
+        83213
+      ],
+      "http3": {
+        "connections": 4,
+        "successful_connections": 4,
+        "requests": 214,
+        "errors": 0,
+        "response_bytes": 2782,
+        "req_per_sec": 42.8,
+        "latency_avg_ms": 96.152,
+        "latency_p50_ms": 33.604,
+        "latency_p99_ms": 427.573
+      },
+      "sample_index": 2
+    },
+    {
+      "server": "pounce-http3",
+      "workload": "http3_hello",
+      "workers": 1,
+      "duration_s": 5.0,
+      "threads": 4,
+      "connections": 4,
+      "req_per_sec": 43.4,
+      "avg_latency_ms": 97.153,
+      "p50_latency_ms": 42.629,
+      "p99_latency_ms": 529.07,
+      "transfer_per_sec": "564.20B",
+      "total_requests": 217,
+      "errors": 0,
+      "peak_rss_bytes": 76496896,
+      "cpu_percent_mean": 82.78,
+      "cpu_percent_peak": 99.1,
+      "worker_pids": [
+        87861
+      ],
+      "http3": {
+        "connections": 4,
+        "successful_connections": 4,
+        "requests": 217,
+        "errors": 0,
+        "response_bytes": 2821,
+        "req_per_sec": 43.4,
+        "latency_avg_ms": 97.153,
+        "latency_p50_ms": 42.629,
+        "latency_p99_ms": 529.07
+      },
+      "sample_index": 3
+    },
+    {
+      "server": "pounce-http3",
+      "workload": "http3_hello",
+      "workers": 1,
+      "duration_s": 5.0,
+      "threads": 4,
+      "connections": 4,
+      "req_per_sec": 44.4,
+      "avg_latency_ms": 92.951,
+      "p50_latency_ms": 42.023,
+      "p99_latency_ms": 604.383,
+      "transfer_per_sec": "577.20B",
+      "total_requests": 222,
+      "errors": 0,
+      "peak_rss_bytes": 76546048,
+      "cpu_percent_mean": 84.45,
+      "cpu_percent_peak": 100.0,
+      "worker_pids": [
+        92767
+      ],
+      "http3": {
+        "connections": 4,
+        "successful_connections": 4,
+        "requests": 222,
+        "errors": 0,
+        "response_bytes": 2886,
+        "req_per_sec": 44.4,
+        "latency_avg_ms": 92.951,
+        "latency_p50_ms": 42.023,
+        "latency_p99_ms": 604.383
+      },
+      "sample_index": 4
+    },
+    {
+      "server": "pounce-http3",
+      "workload": "http3_hello",
+      "workers": 1,
+      "duration_s": 5.0,
+      "threads": 4,
+      "connections": 4,
+      "req_per_sec": 44.8,
+      "avg_latency_ms": 95.022,
+      "p50_latency_ms": 50.044,
+      "p99_latency_ms": 604.509,
+      "transfer_per_sec": "582.40B",
+      "total_requests": 224,
+      "errors": 0,
+      "peak_rss_bytes": 76611584,
+      "cpu_percent_mean": 84.73,
+      "cpu_percent_peak": 99.9,
+      "worker_pids": [
+        97631
+      ],
+      "http3": {
+        "connections": 4,
+        "successful_connections": 4,
+        "requests": 224,
+        "errors": 0,
+        "response_bytes": 2912,
+        "req_per_sec": 44.8,
+        "latency_avg_ms": 95.022,
+        "latency_p50_ms": 50.044,
+        "latency_p99_ms": 604.509
+      },
+      "sample_index": 5
+    }
+  ],
+  "telemetry": {
+    "supported": true,
+    "peak_rss_bytes": 76611584,
+    "cpu_percent": {
+      "mean": 82.3,
+      "peak": 100.0
+    },
+    "cpu_seconds": null,
+    "worker_pids": [
+      78395,
+      83213,
+      87861,
+      92767,
+      97631
+    ],
+    "note": "peak_rss_bytes is the max under-load RSS summed across the supervisor and forked worker processes; cpu_percent aggregates the whole process tree. Null fields mean the platform did not expose process telemetry."
+  },
+  "variance": {
+    "sample_count": 5,
+    "groups": [
+      {
+        "server": "pounce-http3",
+        "workload": "http3_hello",
+        "workers": 1,
+        "sample_count": 5,
+        "req_per_sec": {
+          "min": 42.8,
+          "median": 43.6,
+          "p95": 44.8,
+          "max": 44.8,
+          "variance": 0.5119999999999998
+        },
+        "p99_latency_ms": {
+          "min": 367.12,
+          "median": 529.07,
+          "p95": 604.509,
+          "max": 604.509,
+          "variance": 9070.500318800003
+        },
+        "server_rss_bytes": null,
+        "peak_rss_bytes": {
+          "min": 76464128.0,
+          "median": 76546048.0,
+          "p95": 76611584.0,
+          "max": 76611584.0,
+          "variance": 3543348019.2
+        },
+        "cpu_percent": {
+          "min": 99.1,
+          "median": 99.9,
+          "p95": 100.0,
+          "max": 100.0,
+          "variance": 0.11760000000000209
+        },
+        "worker_pids": [
+          78395,
+          83213,
+          87861,
+          92767,
+          97631
+        ],
+        "errors_total": 0
+      }
+    ],
+    "note": "sample groups with sample_count < 2 are snapshots, not regression evidence"
+  },
+  "raw_output": [
+    {
+      "server": "pounce-http3",
+      "workload": "http3_hello",
+      "workers": 1,
+      "sample_index": 1,
+      "load_tool": "h3_profile.py",
+      "stdout": "{\"connections\": 4, \"errors\": 0, \"latency_avg_ms\": 95.928, \"latency_p50_ms\": 59.069, \"latency_p99_ms\": 367.12, \"req_per_sec\": 43.6, \"requests\": 218, \"response_bytes\": 2834, \"successful_connections\": 4}",
+      "stderr": "{\"ts\": \"2026-07-08T16:38:13.729071+00:00\", \"level\": \"info\", \"event\": \"startup\", \"version\": \"0.8.2\", \"python\": \"3.14.2\", \"gil\": \"nogil\", \"url\": \"https://127.0.0.1:54367\", \"pid\": 78395, \"workers\": 1, \"worker_mode\": \"single\", \"tls\": true, \"http3\": true, \"compression\": true}\n{\"ts\": \"2026-07-08T16:38:13.733597+00:00\", \"level\": \"info\", \"logger\": \"pounce.net\", \"message\": \"Listening on 127.0.0.1:54367 (backlog=2048)\"}\n{\"ts\": \"2026-07-08T16:38:13.733739+00:00\", \"level\": \"info\", \"logger\": \"pounce.net\", \"message\": \"UDP socket bound on 127.0.0.1:54367 (HTTP/3)\"}\n{\"ts\": \"2026-07-08T16:38:13.734392+00:00\", \"level\": \"info\", \"logger\": \"pounce.lifespan\", \"message\": \"Lifespan startup complete\"}\n{\"ts\": \"2026-07-08T16:38:13.737228+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"Ready to accept connections\"}\n{\"ts\": \"2026-07-08T16:38:19.790260+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"Shutting down \\u2014 draining connections...\"}\n{\"ts\": \"2026-07-08T16:38:19.790382+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"All connections drained\"}\n{\"ts\": \"2026-07-08T16:38:19.790712+00:00\", \"level\": \"info\", \"logger\": \"pounce.lifespan\", \"message\": \"Lifespan shutdown complete\"}\n{\"ts\": \"2026-07-08T16:38:19.790941+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"Pounce server stopped\"}"
+    },
+    {
+      "server": "pounce-http3",
+      "workload": "http3_hello",
+      "workers": 1,
+      "sample_index": 2,
+      "load_tool": "h3_profile.py",
+      "stdout": "{\"connections\": 4, \"errors\": 0, \"latency_avg_ms\": 96.152, \"latency_p50_ms\": 33.604, \"latency_p99_ms\": 427.573, \"req_per_sec\": 42.8, \"requests\": 214, \"response_bytes\": 2782, \"successful_connections\": 4}",
+      "stderr": "{\"ts\": \"2026-07-08T16:38:20.434231+00:00\", \"level\": \"info\", \"event\": \"startup\", \"version\": \"0.8.2\", \"python\": \"3.14.2\", \"gil\": \"nogil\", \"url\": \"https://127.0.0.1:54367\", \"pid\": 83213, \"workers\": 1, \"worker_mode\": \"single\", \"tls\": true, \"http3\": true, \"compression\": true}\n{\"ts\": \"2026-07-08T16:38:20.440336+00:00\", \"level\": \"info\", \"logger\": \"pounce.net\", \"message\": \"Listening on 127.0.0.1:54367 (backlog=2048)\"}\n{\"ts\": \"2026-07-08T16:38:20.440495+00:00\", \"level\": \"info\", \"logger\": \"pounce.net\", \"message\": \"UDP socket bound on 127.0.0.1:54367 (HTTP/3)\"}\n{\"ts\": \"2026-07-08T16:38:20.441113+00:00\", \"level\": \"info\", \"logger\": \"pounce.lifespan\", \"message\": \"Lifespan startup complete\"}\n{\"ts\": \"2026-07-08T16:38:20.443174+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"Ready to accept connections\"}\n{\"ts\": \"2026-07-08T16:38:26.513326+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"Shutting down \\u2014 draining connections...\"}\n{\"ts\": \"2026-07-08T16:38:26.513452+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"All connections drained\"}\n{\"ts\": \"2026-07-08T16:38:26.513775+00:00\", \"level\": \"info\", \"logger\": \"pounce.lifespan\", \"message\": \"Lifespan shutdown complete\"}\n{\"ts\": \"2026-07-08T16:38:26.513985+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"Pounce server stopped\"}"
+    },
+    {
+      "server": "pounce-http3",
+      "workload": "http3_hello",
+      "workers": 1,
+      "sample_index": 3,
+      "load_tool": "h3_profile.py",
+      "stdout": "{\"connections\": 4, \"errors\": 0, \"latency_avg_ms\": 97.153, \"latency_p50_ms\": 42.629, \"latency_p99_ms\": 529.07, \"req_per_sec\": 43.4, \"requests\": 217, \"response_bytes\": 2821, \"successful_connections\": 4}",
+      "stderr": "{\"ts\": \"2026-07-08T16:38:27.085930+00:00\", \"level\": \"info\", \"event\": \"startup\", \"version\": \"0.8.2\", \"python\": \"3.14.2\", \"gil\": \"nogil\", \"url\": \"https://127.0.0.1:54367\", \"pid\": 87861, \"workers\": 1, \"worker_mode\": \"single\", \"tls\": true, \"http3\": true, \"compression\": true}\n{\"ts\": \"2026-07-08T16:38:27.088261+00:00\", \"level\": \"info\", \"logger\": \"pounce.net\", \"message\": \"Listening on 127.0.0.1:54367 (backlog=2048)\"}\n{\"ts\": \"2026-07-08T16:38:27.088418+00:00\", \"level\": \"info\", \"logger\": \"pounce.net\", \"message\": \"UDP socket bound on 127.0.0.1:54367 (HTTP/3)\"}\n{\"ts\": \"2026-07-08T16:38:27.088804+00:00\", \"level\": \"info\", \"logger\": \"pounce.lifespan\", \"message\": \"Lifespan startup complete\"}\n{\"ts\": \"2026-07-08T16:38:27.094663+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"Ready to accept connections\"}\n{\"ts\": \"2026-07-08T16:38:33.533638+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"Shutting down \\u2014 draining connections...\"}\n{\"ts\": \"2026-07-08T16:38:33.533760+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"All connections drained\"}\n{\"ts\": \"2026-07-08T16:38:33.534124+00:00\", \"level\": \"info\", \"logger\": \"pounce.lifespan\", \"message\": \"Lifespan shutdown complete\"}\n{\"ts\": \"2026-07-08T16:38:33.534376+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"Pounce server stopped\"}"
+    },
+    {
+      "server": "pounce-http3",
+      "workload": "http3_hello",
+      "workers": 1,
+      "sample_index": 4,
+      "load_tool": "h3_profile.py",
+      "stdout": "{\"connections\": 4, \"errors\": 0, \"latency_avg_ms\": 92.951, \"latency_p50_ms\": 42.023, \"latency_p99_ms\": 604.383, \"req_per_sec\": 44.4, \"requests\": 222, \"response_bytes\": 2886, \"successful_connections\": 4}",
+      "stderr": "{\"ts\": \"2026-07-08T16:38:34.403703+00:00\", \"level\": \"info\", \"event\": \"startup\", \"version\": \"0.8.2\", \"python\": \"3.14.2\", \"gil\": \"nogil\", \"url\": \"https://127.0.0.1:54367\", \"pid\": 92767, \"workers\": 1, \"worker_mode\": \"single\", \"tls\": true, \"http3\": true, \"compression\": true}\n{\"ts\": \"2026-07-08T16:38:34.409271+00:00\", \"level\": \"info\", \"logger\": \"pounce.net\", \"message\": \"Listening on 127.0.0.1:54367 (backlog=2048)\"}\n{\"ts\": \"2026-07-08T16:38:34.409417+00:00\", \"level\": \"info\", \"logger\": \"pounce.net\", \"message\": \"UDP socket bound on 127.0.0.1:54367 (HTTP/3)\"}\n{\"ts\": \"2026-07-08T16:38:34.409765+00:00\", \"level\": \"info\", \"logger\": \"pounce.lifespan\", \"message\": \"Lifespan startup complete\"}\n{\"ts\": \"2026-07-08T16:38:34.412415+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"Ready to accept connections\"}\n{\"ts\": \"2026-07-08T16:38:40.356046+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"Shutting down \\u2014 draining connections...\"}\n{\"ts\": \"2026-07-08T16:38:40.356155+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"All connections drained\"}\n{\"ts\": \"2026-07-08T16:38:40.356510+00:00\", \"level\": \"info\", \"logger\": \"pounce.lifespan\", \"message\": \"Lifespan shutdown complete\"}\n{\"ts\": \"2026-07-08T16:38:40.356738+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"Pounce server stopped\"}"
+    },
+    {
+      "server": "pounce-http3",
+      "workload": "http3_hello",
+      "workers": 1,
+      "sample_index": 5,
+      "load_tool": "h3_profile.py",
+      "stdout": "{\"connections\": 4, \"errors\": 0, \"latency_avg_ms\": 95.022, \"latency_p50_ms\": 50.044, \"latency_p99_ms\": 604.509, \"req_per_sec\": 44.8, \"requests\": 224, \"response_bytes\": 2912, \"successful_connections\": 4}",
+      "stderr": "{\"ts\": \"2026-07-08T16:38:41.185204+00:00\", \"level\": \"info\", \"event\": \"startup\", \"version\": \"0.8.2\", \"python\": \"3.14.2\", \"gil\": \"nogil\", \"url\": \"https://127.0.0.1:54367\", \"pid\": 97631, \"workers\": 1, \"worker_mode\": \"single\", \"tls\": true, \"http3\": true, \"compression\": true}\n{\"ts\": \"2026-07-08T16:38:41.186669+00:00\", \"level\": \"info\", \"logger\": \"pounce.net\", \"message\": \"Listening on 127.0.0.1:54367 (backlog=2048)\"}\n{\"ts\": \"2026-07-08T16:38:41.186784+00:00\", \"level\": \"info\", \"logger\": \"pounce.net\", \"message\": \"UDP socket bound on 127.0.0.1:54367 (HTTP/3)\"}\n{\"ts\": \"2026-07-08T16:38:41.187094+00:00\", \"level\": \"info\", \"logger\": \"pounce.lifespan\", \"message\": \"Lifespan startup complete\"}\n{\"ts\": \"2026-07-08T16:38:41.188024+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"Ready to accept connections\"}\n{\"ts\": \"2026-07-08T16:38:47.445855+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"Shutting down \\u2014 draining connections...\"}\n{\"ts\": \"2026-07-08T16:38:47.445965+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"All connections drained\"}\n{\"ts\": \"2026-07-08T16:38:47.446337+00:00\", \"level\": \"info\", \"logger\": \"pounce.lifespan\", \"message\": \"Lifespan shutdown complete\"}\n{\"ts\": \"2026-07-08T16:38:47.446550+00:00\", \"level\": \"info\", \"logger\": \"pounce\", \"message\": \"Pounce server stopped\"}"
+    }
+  ],
+  "summary": {
+    "groups": [
+      {
+        "server": "pounce-http3",
+        "workload": "http3_hello",
+        "workers": 1,
+        "sample_count": 5,
+        "req_per_sec": {
+          "min": 42.8,
+          "median": 43.6,
+          "p95": 44.8,
+          "max": 44.8,
+          "variance": 0.5119999999999998
+        },
+        "p99_latency_ms": {
+          "min": 367.12,
+          "median": 529.07,
+          "p95": 604.509,
+          "max": 604.509,
+          "variance": 9070.500318800003
+        },
+        "server_rss_bytes": null,
+        "peak_rss_bytes": {
+          "min": 76464128.0,
+          "median": 76546048.0,
+          "p95": 76611584.0,
+          "max": 76611584.0,
+          "variance": 3543348019.2
+        },
+        "cpu_percent": {
+          "min": 99.1,
+          "median": 99.9,
+          "p95": 100.0,
+          "max": 100.0,
+          "variance": 0.11760000000000209
+        },
+        "worker_pids": [
+          78395,
+          83213,
+          87861,
+          92767,
+          97631
+        ],
+        "errors_total": 0
+      }
+    ],
+    "results": [
+      {
+        "server": "pounce-http3",
+        "workload": "http3_hello",
+        "workers": 1,
+        "duration_s": 5.0,
+        "threads": 4,
+        "connections": 4,
+        "req_per_sec": 43.6,
+        "avg_latency_ms": 95.928,
+        "p50_latency_ms": 59.069,
+        "p99_latency_ms": 367.12,
+        "transfer_per_sec": "566.80B",
+        "total_requests": 218,
+        "errors": 0,
+        "peak_rss_bytes": 76464128,
+        "cpu_percent_mean": 76.62,
+        "cpu_percent_peak": 100.0,
+        "worker_pids": [
+          78395
+        ],
+        "http3": {
+          "connections": 4,
+          "successful_connections": 4,
+          "requests": 218,
+          "errors": 0,
+          "response_bytes": 2834,
+          "req_per_sec": 43.6,
+          "latency_avg_ms": 95.928,
+          "latency_p50_ms": 59.069,
+          "latency_p99_ms": 367.12
+        },
+        "sample_index": 1
+      },
+      {
+        "server": "pounce-http3",
+        "workload": "http3_hello",
+        "workers": 1,
+        "duration_s": 5.0,
+        "threads": 4,
+        "connections": 4,
+        "req_per_sec": 42.8,
+        "avg_latency_ms": 96.152,
+        "p50_latency_ms": 33.604,
+        "p99_latency_ms": 427.573,
+        "transfer_per_sec": "556.40B",
+        "total_requests": 214,
+        "errors": 0,
+        "peak_rss_bytes": 76611584,
+        "cpu_percent_mean": 82.9,
+        "cpu_percent_peak": 99.6,
+        "worker_pids": [
+          83213
+        ],
+        "http3": {
+          "connections": 4,
+          "successful_connections": 4,
+          "requests": 214,
+          "errors": 0,
+          "response_bytes": 2782,
+          "req_per_sec": 42.8,
+          "latency_avg_ms": 96.152,
+          "latency_p50_ms": 33.604,
+          "latency_p99_ms": 427.573
+        },
+        "sample_index": 2
+      },
+      {
+        "server": "pounce-http3",
+        "workload": "http3_hello",
+        "workers": 1,
+        "duration_s": 5.0,
+        "threads": 4,
+        "connections": 4,
+        "req_per_sec": 43.4,
+        "avg_latency_ms": 97.153,
+        "p50_latency_ms": 42.629,
+        "p99_latency_ms": 529.07,
+        "transfer_per_sec": "564.20B",
+        "total_requests": 217,
+        "errors": 0,
+        "peak_rss_bytes": 76496896,
+        "cpu_percent_mean": 82.78,
+        "cpu_percent_peak": 99.1,
+        "worker_pids": [
+          87861
+        ],
+        "http3": {
+          "connections": 4,
+          "successful_connections": 4,
+          "requests": 217,
+          "errors": 0,
+          "response_bytes": 2821,
+          "req_per_sec": 43.4,
+          "latency_avg_ms": 97.153,
+          "latency_p50_ms": 42.629,
+          "latency_p99_ms": 529.07
+        },
+        "sample_index": 3
+      },
+      {
+        "server": "pounce-http3",
+        "workload": "http3_hello",
+        "workers": 1,
+        "duration_s": 5.0,
+        "threads": 4,
+        "connections": 4,
+        "req_per_sec": 44.4,
+        "avg_latency_ms": 92.951,
+        "p50_latency_ms": 42.023,
+        "p99_latency_ms": 604.383,
+        "transfer_per_sec": "577.20B",
+        "total_requests": 222,
+        "errors": 0,
+        "peak_rss_bytes": 76546048,
+        "cpu_percent_mean": 84.45,
+        "cpu_percent_peak": 100.0,
+        "worker_pids": [
+          92767
+        ],
+        "http3": {
+          "connections": 4,
+          "successful_connections": 4,
+          "requests": 222,
+          "errors": 0,
+          "response_bytes": 2886,
+          "req_per_sec": 44.4,
+          "latency_avg_ms": 92.951,
+          "latency_p50_ms": 42.023,
+          "latency_p99_ms": 604.383
+        },
+        "sample_index": 4
+      },
+      {
+        "server": "pounce-http3",
+        "workload": "http3_hello",
+        "workers": 1,
+        "duration_s": 5.0,
+        "threads": 4,
+        "connections": 4,
+        "req_per_sec": 44.8,
+        "avg_latency_ms": 95.022,
+        "p50_latency_ms": 50.044,
+        "p99_latency_ms": 604.509,
+        "transfer_per_sec": "582.40B",
+        "total_requests": 224,
+        "errors": 0,
+        "peak_rss_bytes": 76611584,
+        "cpu_percent_mean": 84.73,
+        "cpu_percent_peak": 99.9,
+        "worker_pids": [
+          97631
+        ],
+        "http3": {
+          "connections": 4,
+          "successful_connections": 4,
+          "requests": 224,
+          "errors": 0,
+          "response_bytes": 2912,
+          "req_per_sec": 44.8,
+          "latency_avg_ms": 95.022,
+          "latency_p50_ms": 50.044,
+          "latency_p99_ms": 604.509
+        },
+        "sample_index": 5
+      }
+    ]
+  },
+  "protocol": "HTTP/3 over QUIC/UDP",
+  "tls": "ephemeral self-signed ECDSA P-256 certificate",
+  "caveat": "Local protocol snapshot; no HTTP/2 comparison and no public product-level performance claim. Re-run on the target deployment platform."
+}
