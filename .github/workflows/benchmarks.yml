@@ -84,7 +84,7 @@ jobs:
             --workload "${{ matrix.workload }}" \
             --workers 4 \
             --duration "${DURATION}" \
-            --connections 100 \
+            --connections 4 \
             --repeat "${REPEAT}" \
             --rate "${TARGET_RPS}" \
             --servers "${{ matrix.servers }}" \

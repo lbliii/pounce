@@ -23,6 +23,7 @@ def test_benchmark_workflow_emits_validated_sustained_release_assets() -> None:
     workflow = WORKFLOW.read_text()
 
     assert '--duration "${DURATION}"' in workflow
+    assert "--connections 4" in workflow
     assert '--repeat "${REPEAT}"' in workflow
     assert '--rate "${TARGET_RPS}"' in workflow
     assert "pounce,uvicorn,hypercorn,granian" in workflow
