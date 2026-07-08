@@ -26,7 +26,7 @@ Pounce supports:
 - **Standard WebSocket** — Upgrade from HTTP/1.1
 - **WebSocket over HTTP/2** — Multiplexed with other HTTP/2 streams when both
   `ws` and `h2` extras are installed
-- **Per-message compression** — Via the permessage-deflate extension
+- **Per-message compression** — Via the negotiated permessage-deflate extension
 
 ## ASGI WebSocket Lifecycle
 
@@ -88,10 +88,18 @@ WebSocket connections share some settings with HTTP connections:
 
 | Setting | Default | Applies To |
 |---------|---------|-----------|
-| `websocket_compression` | `True` | Enable permessage-deflate compression |
+| `websocket_compression` | `True` | Allow permessage-deflate negotiation; compression remains off unless the client explicitly offers it |
 | `websocket_max_message_size` | `10,485,760` (10 MB) | Maximum WebSocket message size |
 | `max_connections` | `10,000` | Total connections (HTTP + WebSocket) |
 | `shutdown_timeout` | `10.0` | Graceful close during shutdown |
+
+Pounce never enables compression from configuration alone. It parses every
+`Sec-WebSocket-Extensions` offer, negotiates `permessage-deflate` and its
+window/context parameters through wsproto, and echoes only the agreed response.
+A client that does not offer the extension receives no
+`Sec-WebSocket-Extensions` response and all outgoing frames remain
+uncompressed. The same rule applies to HTTP/1.1 Upgrade and RFC 8441 WebSocket
+over HTTP/2.
 
 ## See Also
 

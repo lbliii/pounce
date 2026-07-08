@@ -61,7 +61,7 @@ Normative language:
 |---|---|---|---|
 | HTTP/1.1 | Core | built in | Parser safety tests, response framing tests, limits tests, ASGI integration, and hot-path benchmark notes when changed. |
 | HTTP/2 | Optional | `bengal-pounce[h2]` | Installed-extra tests, missing-extra diagnostics, stream/reset tests, scope parity, and docs for unsupported cases. |
-| WebSocket | Optional | `bengal-pounce[ws]` | Handshake, accept/send/receive/close, disconnect, subprotocol, compression, and missing-extra tests. WebSocket-over-H2 requires RFC 8441 integration proof before broad claims. |
+| WebSocket | Optional | `bengal-pounce[ws]` | Handshake, accept/send/receive/close, disconnect, subprotocol, compression, and missing-extra tests. `permessage-deflate` activates only after an explicit client offer; config permission alone never emits an extension response or compressed frame. WebSocket-over-H2 requires RFC 8441 integration proof before broad claims. |
 | HTTP/3 | Optional | `bengal-pounce[h3]` plus TLS/UDP | Real QUIC request tests, TLS/Alt-Svc behavior, malformed/limit handling, 0-RTT policy, lifecycle/reload proof, benchmark evidence, and missing-extra diagnostics. Over-budget drain closes QUIC after `shutdown_timeout`; WebSocket-over-H3 is a separate unsupported protocol. |
 
 Timeouts are state-specific rather than interchangeable:

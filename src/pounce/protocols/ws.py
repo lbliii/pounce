@@ -114,16 +114,17 @@ class WSProtocol:
 
     Args:
         subprotocol: The negotiated subprotocol (if any).
-        enable_compression: Enable permessage-deflate compression (default: False).
+        enable_compression: Allow permessage-deflate negotiation (default: False).
+            Compression remains disabled unless ``compression_offer`` carries
+            the client's explicit offer.
         compression_offer: The client's ``permessage-deflate`` extension offer
             (the single extension segment, e.g.
             ``"permessage-deflate; client_max_window_bits=10"``). When provided
             alongside ``enable_compression`` it is run through wsproto's
             RFC 7692 negotiation (``PerMessageDeflate.accept``) so the agreed
             window-bits / no-context-takeover parameters are echoed back and the
-            LZ77 window is constrained accordingly. When ``None`` the extension
-            is negotiated with no parameters and a bare ``permessage-deflate``
-            token is echoed.
+            LZ77 window is constrained accordingly. When ``None``, compression
+            remains disabled even if ``enable_compression`` is true.
 
     Raises:
         RuntimeError: If wsproto is not installed.
@@ -151,13 +152,13 @@ class WSProtocol:
         # RFC 7692 parameter string we echo in ``Sec-WebSocket-Extensions``.
         extensions_list: list[Any] = []
         self._extensions_response: str | None = None
-        if enable_compression:
+        if enable_compression and compression_offer is not None:
             deflate = wsproto.extensions.PerMessageDeflate()
             # ``accept`` parses ``client_max_window_bits`` / ``server_max_window_bits``
-            # / ``*_no_context_takeover`` and constrains the window. A missing or
-            # parameterless offer yields an empty string -> echo the bare token.
-            offer = compression_offer if compression_offer is not None else "permessage-deflate"
-            agreed = deflate.accept(offer)
+            # / ``*_no_context_takeover`` and constrains the window. A
+            # parameterless explicit offer yields an empty string -> echo the
+            # bare token.
+            agreed = deflate.accept(compression_offer)
             extensions_list.append(deflate)
             if isinstance(agreed, str) and agreed:
                 self._extensions_response = f"permessage-deflate; {agreed}"

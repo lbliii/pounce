@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -74,6 +75,61 @@ def _response_statuses(client: Any, data: bytes) -> list[int]:
         for event in client.receive_data(data)
         if isinstance(event, h2.events.ResponseReceived)
     ]
+
+
+@pytest.mark.issue(256)
+@pytest.mark.parametrize(
+    ("offer", "compressed"),
+    [
+        (None, False),
+        (b"permessage-deflate", True),
+    ],
+)
+async def test_h2_websocket_compression_requires_client_offer(
+    offer: bytes | None, compressed: bool
+) -> None:
+    """RFC 8441 acceptance headers and outgoing RSV1 agree on negotiation."""
+    pytest.importorskip("wsproto")
+    from pounce._h2_handler import handle_h2_websocket_stream
+    from pounce.protocols._base import RequestReceived
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:
+        assert (await receive())["type"] == "websocket.connect"
+        await send({"type": "websocket.accept"})
+        await send({"type": "websocket.send", "text": "A" * 1000})
+        await send({"type": "websocket.close"})
+
+    headers = [(b"host", b"example.test")]
+    if offer is not None:
+        headers.append((b"sec-websocket-extensions", offer))
+    request = RequestReceived(
+        method=b"CONNECT",
+        target=b"/ws",
+        http_version="2",
+        headers=tuple(headers),
+    )
+    h2_conn = MagicMock()
+    h2_conn.data_to_send.return_value = b"h2-output"
+    writer = _FakeWriter()
+
+    await handle_h2_websocket_stream(
+        app,
+        ServerConfig(websocket_compression=True, access_log=False),
+        logging.getLogger("test.h2.websocket.compression"),
+        h2_conn,
+        1,
+        request,
+        asyncio.Queue(),
+        writer,
+        ("127.0.0.1", 50000),
+        ("127.0.0.1", 8443),
+        "127.0.0.1:50000",
+    )
+
+    accept_headers = h2_conn.send_response_headers.call_args_list[0].args[2]
+    assert ((b"sec-websocket-extensions", b"permessage-deflate") in accept_headers) is compressed
+    message_frame = h2_conn.send_data.call_args_list[0].args[1]
+    assert bool(message_frame[0] & 0x40) is compressed
 
 
 async def test_h2_content_length_over_limit_rejected_before_app_dispatch() -> None:

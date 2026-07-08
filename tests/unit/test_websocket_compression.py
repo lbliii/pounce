@@ -67,21 +67,31 @@ class TestWSProtocolCompression:
 
     def test_create_with_compression(self):
         """Test creating WSProtocol with compression."""
-        ws_proto = WSProtocol(enable_compression=True)
+        ws_proto = WSProtocol(
+            enable_compression=True,
+            compression_offer="permessage-deflate",
+        )
 
         assert ws_proto.is_closed is False
         assert ws_proto.extensions_response == "permessage-deflate"
 
     def test_compression_with_subprotocol(self):
         """Test WSProtocol with both compression and subprotocol."""
-        ws_proto = WSProtocol(subprotocol="chat", enable_compression=True)
+        ws_proto = WSProtocol(
+            subprotocol="chat",
+            enable_compression=True,
+            compression_offer="permessage-deflate",
+        )
 
         assert ws_proto.subprotocol == "chat"
         assert ws_proto.extensions_response == "permessage-deflate"
 
     def test_send_message_with_compression(self):
         """Test sending messages with compression enabled."""
-        ws_proto = WSProtocol(enable_compression=True)
+        ws_proto = WSProtocol(
+            enable_compression=True,
+            compression_offer="permessage-deflate",
+        )
 
         # Send a text message
         frame = ws_proto.send_message("Hello, WebSocket!")
@@ -96,8 +106,14 @@ class TestWSProtocolCompression:
     def test_receive_data_with_compression(self):
         """Test receiving compressed WebSocket frames."""
         # Create two protocol instances (client and server simulation)
-        ws_sender = WSProtocol(enable_compression=True)
-        ws_receiver = WSProtocol(enable_compression=True)
+        ws_sender = WSProtocol(
+            enable_compression=True,
+            compression_offer="permessage-deflate",
+        )
+        ws_receiver = WSProtocol(
+            enable_compression=True,
+            compression_offer="permessage-deflate",
+        )
 
         # Send a text message
         text_data = "This is a test message that should be compressed."
@@ -145,12 +161,18 @@ class TestCompressionNegotiation:
         assert ws_proto.extensions_response is None
 
         # With compression
-        ws_proto = WSProtocol(enable_compression=True)
+        ws_proto = WSProtocol(
+            enable_compression=True,
+            compression_offer="permessage-deflate",
+        )
         assert ws_proto.extensions_response == "permessage-deflate"
 
     def test_compression_reduces_bandwidth(self):
         """Test that compression reduces frame size for repetitive data."""
-        ws_compressed = WSProtocol(enable_compression=True)
+        ws_compressed = WSProtocol(
+            enable_compression=True,
+            compression_offer="permessage-deflate",
+        )
         ws_uncompressed = WSProtocol(enable_compression=False)
 
         # Highly repetitive data that compresses well
@@ -166,7 +188,10 @@ class TestCompressionNegotiation:
 
     def test_close_with_compression(self):
         """Test close frames work with compression enabled."""
-        ws_proto = WSProtocol(enable_compression=True)
+        ws_proto = WSProtocol(
+            enable_compression=True,
+            compression_offer="permessage-deflate",
+        )
 
         close_frame = ws_proto.close(code=1000, reason="Normal closure")
 
@@ -178,10 +203,12 @@ class TestCompressionNegotiation:
 class TestWindowBitsNegotiation:
     """RFC 7692 window-bits negotiation from the client offer (#116)."""
 
-    def test_no_offer_echoes_bare_token(self):
-        """No offer (None) negotiates with no params and echoes bare token."""
+    @pytest.mark.issue(256)
+    def test_no_offer_keeps_compression_disabled(self):
+        """Config permission without a client offer never activates compression."""
         ws_proto = WSProtocol(enable_compression=True, compression_offer=None)
-        assert ws_proto.extensions_response == "permessage-deflate"
+        assert ws_proto.extensions_response is None
+        assert ws_proto._conn._proto.extensions == []
 
     def test_bare_offer_echoes_bare_token(self):
         """A bare permessage-deflate offer echoes the bare token."""
