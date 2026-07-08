@@ -21,10 +21,16 @@ from pounce._compression import Compressor, create_compressor
 from pounce._errors import RequestTimeoutError
 from pounce._headers import get_header as _get_header
 from pounce._timeouts import drain_with_timeout
+from pounce._timing import elapsed_ms, monotonic_ns
 from pounce._types import ASGIApp
 from pounce.asgi.bridge import SendState, create_send
 from pounce.config import ServerConfig
-from pounce.lifecycle import LifecycleCollector
+from pounce.lifecycle import (
+    LifecycleCollector,
+    ResponseCompleted,
+    StreamClosed,
+    StreamOpened,
+)
 from pounce.protocols._base import RequestReceived
 from pounce.protocols.h1 import H1Protocol
 
@@ -45,6 +51,8 @@ class StreamingHandoff:
     scope: dict[str, Any]
     body: bytes
     request_id: str | None
+    worker_id: int = 0
+    connection_id: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,6 +305,24 @@ class AsyncPool:
             return {"type": "http.request", "body": body, "more_body": False}
 
         send_state = SendState()
+        request_started_ns = monotonic_ns()
+        stream_started_ns = 0
+
+        def record_stream_started() -> None:
+            nonlocal stream_started_ns
+            if stream_started_ns or self._lifecycle is None:
+                return
+            stream_started_ns = monotonic_ns()
+            self._lifecycle.record(
+                StreamOpened(
+                    connection_id=handoff.connection_id,
+                    worker_id=handoff.worker_id,
+                    method=scope.get("method", "unknown"),
+                    path=scope.get("path", "/"),
+                    timestamp_ns=stream_started_ns,
+                )
+            )
+
         send = create_send(
             proto,
             writer,
@@ -308,6 +334,7 @@ class AsyncPool:
             config=self._config,
             server=scope.get("server", ("localhost", 0)),
             compression_min_size=self._config.compression_min_size,
+            on_stream_start=record_stream_started,
         )
 
         scope = dict(scope)
@@ -330,6 +357,35 @@ class AsyncPool:
                 except (OSError, ConnectionError, RequestTimeoutError):  # fmt: skip
                     pass
         finally:
+            if self._lifecycle is not None:
+                if stream_started_ns:
+                    if self._pool_shutdown.is_set():
+                        reason = "drain"
+                    elif send_state.response_complete:
+                        reason = "complete"
+                    else:
+                        reason = "error"
+                    self._lifecycle.record(
+                        StreamClosed(
+                            connection_id=handoff.connection_id,
+                            worker_id=handoff.worker_id,
+                            duration_ms=elapsed_ms(stream_started_ns),
+                            reason=reason,
+                            timestamp_ns=monotonic_ns(),
+                        )
+                    )
+                self._lifecycle.record(
+                    ResponseCompleted(
+                        connection_id=handoff.connection_id,
+                        worker_id=handoff.worker_id,
+                        status=send_state.status or 500,
+                        bytes_sent=send_state.bytes_sent,
+                        duration_ms=elapsed_ms(request_started_ns),
+                        timestamp_ns=monotonic_ns(),
+                        method=scope.get("method", "unknown"),
+                        streaming=send_state.streaming,
+                    )
+                )
             try:
                 writer.close()
                 await writer.wait_closed()

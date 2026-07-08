@@ -18,6 +18,7 @@ every 3 seconds with a JSON payload.
 
 import asyncio
 import json
+import threading
 import time
 from typing import Any
 
@@ -52,10 +53,32 @@ def _sse_event(event: str, data: str, event_id: int | None = None) -> bytes:
 
 _HEARTBEAT_INTERVAL = 1.0  # seconds
 _MESSAGE_INTERVAL = 3.0  # seconds
+_drain_signals: dict[tuple[int, int], threading.Event] = {}
+_drain_signals_lock = threading.Lock()
 
 
 async def app(scope: Scope, receive: Receive, send: Send) -> None:
     """Stream SSE events until the client disconnects."""
+    if scope["type"] == "pounce.worker.startup":
+        key = (scope["worker_id"], scope["generation"])
+        with _drain_signals_lock:
+            _drain_signals[key] = threading.Event()
+        return
+
+    if scope["type"] == "pounce.worker.draining":
+        key = (scope["worker_id"], scope["generation"])
+        with _drain_signals_lock:
+            drain_signal = _drain_signals.get(key)
+        if drain_signal is not None:
+            drain_signal.set()
+        return
+
+    if scope["type"] == "pounce.worker.shutdown":
+        key = (scope["worker_id"], scope["generation"])
+        with _drain_signals_lock:
+            _drain_signals.pop(key, None)
+        return
+
     if scope["type"] == "lifespan":
         while True:
             message = await receive()
@@ -70,6 +93,10 @@ async def app(scope: Scope, receive: Receive, send: Send) -> None:
         return
 
     await receive()
+    worker = scope.get("extensions", {}).get("pounce.worker", {})
+    key = (worker.get("worker_id", -1), worker.get("generation", 0))
+    with _drain_signals_lock:
+        drain_signal = _drain_signals.setdefault(key, threading.Event())
 
     # SSE responses must not be compressed (breaks streaming in most clients).
     # pounce automatically disables compression when it detects a
@@ -91,6 +118,16 @@ async def app(scope: Scope, receive: Receive, send: Send) -> None:
 
     try:
         while True:
+            if drain_signal.is_set():
+                await send(
+                    {
+                        "type": "http.response.body",
+                        "body": _sse_event("pounce-close", "worker draining"),
+                        "more_body": False,
+                    }
+                )
+                return
+
             now = time.monotonic()
             tick += 1
 

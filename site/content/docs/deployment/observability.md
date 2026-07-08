@@ -148,6 +148,8 @@ config = ServerConfig(
 | `http_request_duration_seconds` | Histogram | Request duration distribution |
 | `http_connections_active` | Gauge | Open TCP connections |
 | `http_requests_in_flight` | Gauge | Requests being processed |
+| `http_streams_active` | Gauge | Open streaming HTTP responses |
+| `http_stream_duration_seconds` | Histogram | Completed stream lifetime |
 | `http_bytes_sent_total` | Counter | Total response bytes |
 
 ### Programmatic Access

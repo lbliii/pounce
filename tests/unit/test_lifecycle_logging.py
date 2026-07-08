@@ -18,6 +18,7 @@ from pounce.lifecycle import (
     LoggingCollector,
     RequestStarted,
     ResponseCompleted,
+    StreamClosed,
     monotonic_ns,
 )
 
@@ -214,6 +215,24 @@ class TestLoggingCollector:
 
             assert mock_log.called
             assert mock_log.call_args[0][0] == logging.WARNING
+
+    def test_drained_stream_close_logged_at_info(self):
+        collector = LoggingCollector(log_format="json")
+        event = StreamClosed(
+            connection_id=1,
+            worker_id=1,
+            duration_ms=250.0,
+            reason="drain",
+            timestamp_ns=monotonic_ns(),
+        )
+
+        with patch.object(collector._logger, "log") as mock_log:
+            collector.record(event)
+
+            assert mock_log.call_args[0][0] == logging.INFO
+            log_data = json.loads(mock_log.call_args[0][2])
+            assert log_data["event"] == "StreamClosed"
+            assert log_data["reason"] == "drain"
 
     def test_connection_closed_logged_at_debug(self):
         """Test that ConnectionCompleted is logged at DEBUG level."""

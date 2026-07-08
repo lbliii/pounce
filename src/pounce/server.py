@@ -390,7 +390,7 @@ class Server:
             try:
                 await asyncio.wait_for(
                     self._app(
-                        {"type": "pounce.worker.startup", "worker_id": 0},
+                        {"type": "pounce.worker.startup", "worker_id": 0, "generation": 0},
                         _worker_lifecycle_receive,
                         _worker_lifecycle_send,
                     ),
@@ -452,14 +452,36 @@ class Server:
                     with contextlib.suppress(asyncio.CancelledError):
                         await h3_task
                 dispatch(SHUTDOWN_START)
+                timeout = self._config.shutdown_timeout
+                drain_deadline = asyncio.get_running_loop().time() + timeout
+                try:
+                    await asyncio.wait_for(
+                        self._app(
+                            {
+                                "type": "pounce.worker.draining",
+                                "worker_id": 0,
+                                "generation": 0,
+                                "reason": "shutdown",
+                                "timeout": timeout,
+                            },
+                            _worker_lifecycle_receive,
+                            _worker_lifecycle_send,
+                        ),
+                        timeout=min(timeout, 1.0),
+                    )
+                except Exception:
+                    logger.debug(
+                        "Worker draining hook raised or timed out (expected for apps without it)",
+                        exc_info=True,
+                    )
                 server.close()  # Stop accepting new connections
 
                 # Grace period: wait for in-flight connections to complete
-                timeout = self._config.shutdown_timeout
+                remaining = max(0.0, drain_deadline - asyncio.get_running_loop().time())
                 try:
                     await asyncio.wait_for(
                         server.wait_closed(),
-                        timeout=timeout,
+                        timeout=remaining,
                     )
                     dispatch(SHUTDOWN_DRAINED)
                 except TimeoutError:
@@ -469,7 +491,7 @@ class Server:
                 try:
                     await asyncio.wait_for(
                         self._app(
-                            {"type": "pounce.worker.shutdown", "worker_id": 0},
+                            {"type": "pounce.worker.shutdown", "worker_id": 0, "generation": 0},
                             _worker_lifecycle_receive,
                             _worker_lifecycle_send,
                         ),

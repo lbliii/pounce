@@ -82,6 +82,20 @@
       "notes": "Stable is scoped to ASGI web workers. It does not claim job/hybrid worker support, arbitrary object sharing, synchronous execution, universal C-extension compatibility, or unqualified zero downtime."
     },
     {
+      "id": "long-lived-stream-lifetime",
+      "type": "behavior",
+      "status": "mode-scoped-proof",
+      "files": [
+        "docs/design/core-contract.md",
+        "site/content/docs/deployment/lifecycle.md",
+        "site/content/docs/deployment/observability.md",
+        "site/content/docs/deployment/railway.md"
+      ],
+      "patterns": ["pounce.worker.draining", "http_streams_active", "http_stream_duration_seconds"],
+      "proof": "tests/integration/test_stream_lifetime.py proves an open SSE response survives header, body, keep-alive, and write timer intervals, receives a generation-scoped reload notification, emits a final app close event, and closes within the worker drain bound. tests/integration/test_testing.py proves two real Pounce instances serve connection-pinned SSE through RoundRobinTestProxy.",
+      "notes": "The active-stream and drain-hook proof covers HTTP/1 async workers and the free-threaded sync handoff pool. Railway still imposes its own documented request-duration limit, so clients must reconnect."
+    },
+    {
       "id": "server-timing-every-response",
       "type": "behavior",
       "status": "config-scoped",

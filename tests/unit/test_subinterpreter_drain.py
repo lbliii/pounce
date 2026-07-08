@@ -28,6 +28,7 @@ from pounce._subinterpreter_bootstrap import (
     STATUS_DRAINING,
     STATUS_IDLE,
     _iic_bridge,
+    _run_worker_draining_hook,
 )
 
 
@@ -114,6 +115,31 @@ async def test_reload_drain_closes_old_acceptor_before_announcing_idle() -> None
     assert server.closed is True
     assert worker._draining is True
     assert worker._async_shutdown.is_set()
+
+
+@pytest.mark.asyncio
+async def test_draining_hook_carries_reload_generation_identity() -> None:
+    scopes: list[dict] = []
+
+    async def app(scope, receive, send) -> None:
+        scopes.append(scope)
+
+    worker = _FakeWorker()
+    worker._app = app
+    worker._worker_id = 3
+    worker._generation = 8
+
+    await _run_worker_draining_hook(worker, "reload")
+
+    assert scopes == [
+        {
+            "type": "pounce.worker.draining",
+            "worker_id": 3,
+            "generation": 8,
+            "reason": "reload",
+            "timeout": worker._config.shutdown_timeout,
+        }
+    ]
 
 
 @pytest.mark.asyncio

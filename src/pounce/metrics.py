@@ -10,6 +10,8 @@ Metrics:
     - ``http_request_duration_seconds`` — histogram of request durations
     - ``http_connections_active`` — gauge of open connections
     - ``http_requests_in_flight`` — gauge of in-progress requests
+    - ``http_streams_active`` — gauge of open streaming responses
+    - ``http_stream_duration_seconds`` — histogram of completed stream lifetimes
 
 Label stability contract (``http_requests_total``):
     - ``method`` — the uppercase HTTP request method as parsed (e.g.
@@ -34,6 +36,8 @@ from pounce.lifecycle import (
     LifecycleEvent,
     RequestStarted,
     ResponseCompleted,
+    StreamClosed,
+    StreamOpened,
 )
 
 # Default histogram bucket boundaries (seconds), matching Prometheus defaults
@@ -82,6 +86,10 @@ class PrometheusCollector:
         "_requests_in_flight",
         "_requests_total",
         "_start_time_ns",
+        "_stream_duration_buckets",
+        "_stream_duration_count",
+        "_stream_duration_sum",
+        "_streams_active",
     )
 
     def __init__(
@@ -100,6 +108,10 @@ class PrometheusCollector:
         # Gauges
         self._connections_active: int = 0
         self._requests_in_flight: int = 0
+        self._streams_active: int = 0
+        self._stream_duration_sum: float = 0.0
+        self._stream_duration_count: int = 0
+        self._stream_duration_buckets: dict[float, int] = dict.fromkeys(duration_buckets, 0)
         # Totals
         self._bytes_sent_total: int = 0
         self._start_time_ns: int = time.monotonic_ns()
@@ -132,6 +144,17 @@ class PrometheusCollector:
                         if duration_s <= boundary:
                             self._duration_buckets[boundary] += 1
                             break
+                case StreamOpened():
+                    self._streams_active += 1
+                case StreamClosed():
+                    self._streams_active = max(0, self._streams_active - 1)
+                    duration_s = event.duration_ms / 1000.0
+                    self._stream_duration_sum += duration_s
+                    self._stream_duration_count += 1
+                    for boundary in self._bucket_boundaries:
+                        if duration_s <= boundary:
+                            self._stream_duration_buckets[boundary] += 1
+                            break
                 case ClientDisconnected():
                     self._requests_in_flight = max(0, self._requests_in_flight - 1)
 
@@ -148,6 +171,9 @@ class PrometheusCollector:
                 "duration_count": self._duration_count,
                 "connections_active": self._connections_active,
                 "requests_in_flight": self._requests_in_flight,
+                "streams_active": self._streams_active,
+                "stream_duration_sum_seconds": self._stream_duration_sum,
+                "stream_duration_count": self._stream_duration_count,
                 "bytes_sent_total": self._bytes_sent_total,
             }
 
@@ -190,6 +216,24 @@ class PrometheusCollector:
             lines.append("# HELP http_requests_in_flight Requests currently being processed.")
             lines.append("# TYPE http_requests_in_flight gauge")
             lines.append(f"http_requests_in_flight {self._requests_in_flight}")
+
+            # http_streams_active (gauge)
+            lines.append("# HELP http_streams_active Open streaming HTTP responses.")
+            lines.append("# TYPE http_streams_active gauge")
+            lines.append(f"http_streams_active {self._streams_active}")
+
+            # http_stream_duration_seconds (histogram)
+            lines.append(
+                "# HELP http_stream_duration_seconds Completed streaming response lifetime."
+            )
+            lines.append("# TYPE http_stream_duration_seconds histogram")
+            cumulative = 0
+            for boundary in self._bucket_boundaries:
+                cumulative += self._stream_duration_buckets[boundary]
+                le = "+Inf" if math.isinf(boundary) else str(boundary)
+                lines.append(f'http_stream_duration_seconds_bucket{{le="{le}"}} {cumulative}')
+            lines.append(f"http_stream_duration_seconds_sum {self._stream_duration_sum}")
+            lines.append(f"http_stream_duration_seconds_count {self._stream_duration_count}")
 
             # http_bytes_sent_total (counter)
             lines.append("# HELP http_bytes_sent_total Total bytes sent in responses.")

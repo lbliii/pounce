@@ -81,6 +81,28 @@ class ResponseCompleted:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class StreamOpened:
+    """A streaming HTTP response started and remains open."""
+
+    connection_id: int
+    worker_id: int
+    method: str
+    path: str
+    timestamp_ns: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class StreamClosed:
+    """A streaming HTTP response ended."""
+
+    connection_id: int
+    worker_id: int
+    duration_ms: float
+    reason: str  # "complete" | "client_disconnect" | "drain" | "error"
+    timestamp_ns: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ClientDisconnected:
     """The client closed the connection unexpectedly."""
 
@@ -105,7 +127,13 @@ class ConnectionCompleted:
 
 # Union of all lifecycle event types
 type LifecycleEvent = (
-    ConnectionOpened | RequestStarted | ResponseCompleted | ClientDisconnected | ConnectionCompleted
+    ConnectionOpened
+    | RequestStarted
+    | ResponseCompleted
+    | StreamOpened
+    | StreamClosed
+    | ClientDisconnected
+    | ConnectionCompleted
 )
 
 
@@ -334,6 +362,12 @@ class LoggingCollector:
                 else:
                     level = logging.DEBUG
                     msg = "Response completed"
+            case StreamOpened():
+                level = logging.DEBUG
+                msg = "Stream opened"
+            case StreamClosed():
+                level = logging.INFO if event.reason == "drain" else logging.DEBUG
+                msg = "Stream closed"
             case ClientDisconnected():
                 level = logging.WARNING
                 msg = "Client disconnected"

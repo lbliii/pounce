@@ -165,9 +165,10 @@ zero orphan child processes, and listener release across async/process,
 subinterpreter, and free-threaded sync execution. Reproducible artifact-shaped
 profiling for the same contract lives in `benchmarks/drain_profile.py`.
 
-SIGTERM shutdown ordering is a runtime contract: stop accepting new work,
-drain in-flight requests up to `shutdown_timeout`, force-close work that
-exceeds that bound, run per-worker `pounce.worker.shutdown` hooks, complete
+SIGTERM shutdown ordering is a runtime contract: emit the bounded
+`pounce.worker.draining` hook, stop accepting new work, drain in-flight
+requests up to `shutdown_timeout`, force-close work that exceeds that bound,
+run per-worker `pounce.worker.shutdown` hooks, complete
 ASGI `lifespan.shutdown`, then release listeners and exit. The ordering between
 in-flight completion and final lifespan shutdown is enforced across worker
 modes by `test_sigterm_runs_lifespan_shutdown_after_inflight_completion`.
@@ -181,9 +182,15 @@ successful until the process can no longer make forward progress. During final
 connection rejection, clients may observe the generic drain 503 or a refused
 connection instead of the endpoint JSON; all three outcomes mean not ready.
 
-Every serving mode emits `pounce.worker.startup` before accepting requests and
-`pounce.worker.shutdown` after draining, with the numeric `worker_id` in both
-scopes. The hooks run on the same per-worker event loop used for that worker's
+Every serving mode emits `pounce.worker.startup` before accepting requests,
+`pounce.worker.draining` at drain start, and `pounce.worker.shutdown` after
+draining. Each scope carries numeric `worker_id` and `generation`; the draining
+scope also carries `reason` (`reload` or `shutdown`) and the timeout budget.
+HTTP scopes expose the same identity as `extensions["pounce.worker"]`, so an
+app can close only streams pinned to the retiring generation. The drain hook
+is limited to one second and runs within `shutdown_timeout`; apps should use it
+to signal existing stream registries, not perform long cleanup. The hooks run
+on the same per-worker event loop used for that worker's
 inline ASGI requests; sync workers use their private runner loop. Requests
 handed to the async streaming pool follow that pool's existing loop ownership.
 The default `worker_startup_failure="ignore"` policy preserves compatibility
@@ -210,6 +217,8 @@ at `metrics_path` when `metrics_enabled`.
 | `http_request_duration_seconds` | histogram (`_bucket`/`_sum`/`_count`) |
 | `http_connections_active` | gauge |
 | `http_requests_in_flight` | gauge |
+| `http_streams_active` | gauge |
+| `http_stream_duration_seconds` | histogram (`_bucket`/`_sum`/`_count`) |
 | `http_bytes_sent_total` | counter |
 
 ### Lifecycle event names
@@ -223,6 +232,8 @@ field emitted by `LoggingCollector` and the event class names consumed by any
 | `ConnectionOpened` | TCP connection accepted |
 | `RequestStarted` | HTTP request head fully parsed |
 | `ResponseCompleted` | HTTP response fully sent |
+| `StreamOpened` | streaming HTTP response started |
+| `StreamClosed` | streaming HTTP response ended, with completion reason and duration |
 | `ClientDisconnected` | client closed the connection unexpectedly |
 | `ConnectionCompleted` | TCP connection closed |
 

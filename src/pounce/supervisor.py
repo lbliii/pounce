@@ -1073,6 +1073,7 @@ class Supervisor:
                 self._app,
                 worker_sock,
                 worker_id=worker_id,
+                generation=self._generation,
                 shutdown_event=self._shutdown_event,
                 ssl_context=self._ssl_context,
                 lifecycle_collector=self._lifecycle_collector,
@@ -1087,6 +1088,7 @@ class Supervisor:
                 self._app,
                 self._worker_socket(socket_index),
                 worker_id=worker_id,
+                generation=self._generation,
                 shutdown_event=self._shutdown_event,
                 max_connections=self._per_worker_max_base
                 + (1 if worker_id < self._per_worker_max_remainder else 0),
@@ -1218,6 +1220,7 @@ class Supervisor:
                 sock_fd=sock_fd,
                 sock_family=sock_family,
                 worker_id=worker_id,
+                generation=self._generation,
                 parent_sys_path=parent_sys_path,
             )
         except Exception:
@@ -1231,7 +1234,8 @@ class Supervisor:
             "sys.path[:] = list(parent_sys_path)\n"
             "from pounce._subinterpreter_bootstrap import bootstrap\n"
             "bootstrap(ctrl_queue, status_queue, config_json, lifespan_state_json,\n"
-            "          app_import_path, sock_fd, sock_family, worker_id, parent_sys_path)\n"
+            "          app_import_path, sock_fd, sock_family, worker_id, generation, "
+            "parent_sys_path)\n"
         )
 
         def _run_subinterpreter() -> None:
