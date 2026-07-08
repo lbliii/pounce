@@ -497,6 +497,7 @@ def test_railway_deploy_strips_untrusted_forwarded() -> None:
         sock.close()
 
 
+@pytest.mark.issue(248)
 def test_railway_recipe_assets_encode_the_deployment_contract() -> None:
     """Docker and Railway config keep 3.14t, readiness, and drain aligned."""
     recipe = Path(__file__).parents[2] / "examples" / "deploy" / "railway"
@@ -506,7 +507,9 @@ def test_railway_recipe_assets_encode_the_deployment_contract() -> None:
         railway = tomllib.load(file)
 
     assert "FROM python:3.14-slim" in dockerfile
-    assert "uv venv --python 3.14t" in dockerfile
+    assert "UV_PYTHON_INSTALL_DIR=/opt/uv-python" in dockerfile
+    assert "uv venv --managed-python --python 3.14t" in dockerfile
+    assert '/opt/venv/bin/python -c "import sys; assert not sys._is_gil_enabled()"' in dockerfile
     assert "PYTHON_GIL=0" in dockerfile
     assert "USER pounce" in dockerfile
     assert "assert not sys._is_gil_enabled()" in start
@@ -525,6 +528,7 @@ def test_railway_recipe_assets_encode_the_deployment_contract() -> None:
     subprocess.run(["sh", "-n", str(recipe / "start.sh")], check=True)
 
 
+@pytest.mark.issue(248)
 def test_railway_smoke_accepts_current_cli_deployment_json() -> None:
     """The remote smoke runner accepts current list and wrapped JSON shapes."""
     from examples.deploy.railway.smoke import _deployment_items

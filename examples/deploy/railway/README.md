@@ -5,6 +5,11 @@ free-threaded CPython 3.14t with `uv`, forces `PYTHON_GIL=0`, refuses to boot if
 the GIL is enabled, binds `0.0.0.0:$PORT`, and uses Pounce's built-in
 `/readyz` endpoint to gate deployment activation.
 
+The image requires uv's managed interpreter and installs it under
+`/opt/uv-python`, so the GIL-enabled Python already present in the base image
+cannot satisfy the `3.14t` request and the non-root runtime user can read the
+selected interpreter.
+
 Railway's config keeps one replica, overlaps the old deployment for five
 seconds, and allows 15 seconds between `SIGTERM` and `SIGKILL`. Pounce's own
 shutdown timeout is 10 seconds, leaving the platform a five-second safety

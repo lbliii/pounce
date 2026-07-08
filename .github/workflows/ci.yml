@@ -152,7 +152,7 @@ jobs:
           printf '%s' "$body" | grep --fixed-strings '"status":"ok"'
           printf '%s' "$body" | grep --fixed-strings '"gil_enabled":false'
           docker exec pounce-railway-ci \
-            python -c "import sys; assert not sys._is_gil_enabled()"
+            /opt/venv/bin/python -c "import sys; assert not sys._is_gil_enabled()"
 
           docker stop --time 20 pounce-railway-ci
           test "$(docker inspect --format '{{.State.ExitCode}}' pounce-railway-ci)" = "0"
