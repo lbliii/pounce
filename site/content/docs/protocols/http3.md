@@ -68,6 +68,8 @@ pounce serve --app myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem --htt
 - `Alt-Svc` is advertised from HTTP/2 responses when HTTP/3 is enabled.
 - Built-in health, introspection, and compression-dictionary endpoints match
   the HTTP/1.1 and HTTP/2 paths and report the serving worker's real ID.
+- Valid extension-method tokens are preserved. `QUERY` and its request body
+  reach ASGI unchanged; Pounce adds no application or caching semantics.
 - Lifespan state is passed into H3 ASGI scopes.
 - Real-socket reload/drain tests cover generation rotation, bounded shutdown,
   and orphan-thread cleanup. Streams that finish within `shutdown_timeout`
@@ -80,3 +82,10 @@ pounce serve --app myapp:app --ssl-certfile cert.pem --ssl-keyfile key.pem --htt
 HTTP/3 is therefore an optional protocol path in the proof ledger. Its QUIC
 lifecycle semantics remain explicit rather than being described as identical
 to TCP, and WebSocket-over-H3 remains separately unsupported.
+
+The HTTP `QUERY` method is still an
+[active IETF Internet-Draft](https://datatracker.ietf.org/doc/draft-ietf-httpbis-safe-method-w-body/).
+The draft defines it as safe and idempotent, so Pounce's HTTP/3 0-RTT policy
+does not classify `QUERY` with the rejected unsafe methods. Applications remain
+responsible for query semantics, authorization, caching, replay tolerance, and
+media-type validation.

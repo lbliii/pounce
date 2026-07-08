@@ -322,6 +322,72 @@ class TestQuicHandshakeIntegration:
         assert b"x-request-id" in response_headers
         assert response_body == b"hello-from-pounce"
 
+    @pytest.mark.issue(257)
+    @pytest.mark.asyncio
+    async def test_http3_query_method_and_body_reach_asgi(
+        self,
+        tls_certs: tuple[bytes, bytes],
+    ) -> None:
+        """A real QUIC/H3 exchange preserves QUERY and request content."""
+
+        async def app(scope: Any, receive: Any, send: Any) -> None:
+            body = bytearray()
+            while True:
+                message = await receive()
+                body.extend(message.get("body", b""))
+                if not message.get("more_body", False):
+                    break
+            response = scope["method"].encode() + b":" + bytes(body)
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": response})
+
+        from zoomies.events import H3DataReceived, H3HeadersReceived, StreamDataReceived
+
+        protocol, transport = _build_protocol(tls_certs, app)
+        client_quic, client_h3 = _make_client()
+        client_addr = ("127.0.0.1", 5000)
+        server_addr = ("127.0.0.1", 4433)
+        assert await _do_handshake(
+            client_quic,
+            protocol,
+            transport,
+            client_addr,
+            server_addr,
+        )
+
+        body = b'{"category":"books"}'
+        now = time.monotonic()
+        client_h3.send_headers(
+            0,
+            [
+                (b":method", b"QUERY"),
+                (b":path", b"/catalog"),
+                (b":scheme", b"https"),
+                (b":authority", b"localhost"),
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+            end_stream=False,
+        )
+        client_h3.send_data(0, body, end_stream=True)
+
+        _shuttle_to_server(client_quic, protocol, client_addr, now=now)
+        await asyncio.sleep(0.2)
+
+        response_headers = None
+        response_body = bytearray()
+        for event in _shuttle_to_client(transport, client_quic, server_addr, now=now):
+            if isinstance(event, StreamDataReceived):
+                for h3_event in client_h3.handle_event(event):
+                    if isinstance(h3_event, H3HeadersReceived):
+                        response_headers = dict(h3_event.headers)
+                    elif isinstance(h3_event, H3DataReceived):
+                        response_body.extend(h3_event.data)
+
+        assert response_headers is not None
+        assert response_headers[b":status"] == b"200"
+        assert bytes(response_body) == b"QUERY:" + body
+
     @pytest.mark.asyncio
     async def test_connection_limit_with_real_handshakes(
         self,

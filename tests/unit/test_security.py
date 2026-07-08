@@ -208,6 +208,30 @@ class TestMaxHeadersEnforcement:
         assert result is not None
 
 
+@pytest.mark.issue(257)
+class TestFastParserExtensionMethods:
+    """The sync hot path accepts valid extension-method tokens unchanged."""
+
+    def test_query_with_body_is_preserved(self) -> None:
+        body = b'{"category":"books"}'
+        raw = (
+            b"QUERY /catalog HTTP/1.1\r\n"
+            b"Host: example.test\r\n"
+            b"Content-Type: application/json\r\n"
+            + f"Content-Length: {len(body)}\r\n\r\n".encode()
+            + body
+        )
+
+        request, parsed_body, consumed, chunked = parse_request(memoryview(raw), len(raw))
+
+        assert request is not None
+        assert request.method == b"QUERY"
+        assert request.target == b"/catalog"
+        assert parsed_body == body
+        assert consumed == len(raw)
+        assert chunked is False
+
+
 class TestDuplicateHostRejection:
     """Both worker paths must reject >1 Host header (RFC 9112 §3.2)."""
 
