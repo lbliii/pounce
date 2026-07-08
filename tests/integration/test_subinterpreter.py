@@ -392,6 +392,7 @@ class TestSubinterpreterWorker:
             sup_thread.join(timeout=5.0)
             _close_sockets(sockets)
 
+    @pytest.mark.issue(239)
     def test_graceful_reload(self) -> None:
         """Reload under load should preserve service and lifespan state."""
         port = _find_free_port()
