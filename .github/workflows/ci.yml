@@ -118,6 +118,51 @@ jobs:
         # process-vs-thread regression, on the GIL/process path.
         run: uv run pytest tests/unit/test_supervisor.py -ra -q --timeout=90 --timeout-method=thread
 
+  railway-recipe:
+    name: Railway Recipe (3.14t container)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build Railway image
+        working-directory: examples/deploy/railway
+        run: docker build --tag pounce-railway-recipe:ci .
+
+      - name: Prove GIL-off runtime, readiness, traffic, and SIGTERM exit
+        run: |
+          set -euo pipefail
+          docker run --detach --name pounce-railway-ci \
+            --env PORT=8000 \
+            --publish 127.0.0.1:18080:8000 \
+            pounce-railway-recipe:ci
+
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18080/readyz >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              docker logs pounce-railway-ci
+              exit 1
+            fi
+            sleep 1
+          done
+
+          body=$(curl --fail --silent http://127.0.0.1:18080/)
+          printf '%s' "$body" | grep --fixed-strings '"status":"ok"'
+          printf '%s' "$body" | grep --fixed-strings '"gil_enabled":false'
+          docker exec pounce-railway-ci \
+            /opt/venv/bin/python -c "import sys; assert not sys._is_gil_enabled()"
+
+          docker stop --time 20 pounce-railway-ci
+          test "$(docker inspect --format '{{.State.ExitCode}}' pounce-railway-ci)" = "0"
+
+      - name: Show logs and clean up
+        if: always()
+        run: |
+          docker logs pounce-railway-ci || true
+          docker rm --force pounce-railway-ci || true
+
   framework-compat:
     name: Framework Compatibility
     runs-on: ubuntu-latest

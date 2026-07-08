@@ -68,8 +68,9 @@ if __name__ == "__main__":
         app,
         host="0.0.0.0",
         port=int(os.environ["PORT"]),
-        workers=0,
-        health_check_path="/health",
+        workers=2,
+        health_check_path="/readyz",
+        shutdown_timeout=10,
         log_format="json",
         access_log=False,
     )
@@ -84,18 +85,21 @@ python railway_app.py
 For a plain import-string app that does not need custom `ServerConfig` values:
 
 ```bash
-pounce serve --app myapp:app --host 0.0.0.0 --port "$PORT" --workers 0 --health-check-path /health --log-format json --no-access-log
+pounce serve --app myapp:app --host 0.0.0.0 --port "$PORT" --workers 2 --health-check-path /readyz --shutdown-timeout 10 --log-format json --no-access-log
 ```
 
-A checked-in, smoke-tested version of this recipe lives at
-[examples/railway_deploy.py](https://github.com/lbliii/pounce/blob/main/examples/railway_deploy.py).
-Copy it as a starting point — it reads `$PORT`, binds `0.0.0.0`, serves
-`/health`, emits JSON logs, and keeps proxy trust off by default.
+A complete deployment bundle lives at
+[examples/deploy/railway](https://github.com/lbliii/pounce/tree/main/examples/deploy/railway).
+It includes a CPython 3.14t Dockerfile, a GIL-off boot assertion,
+`railway.toml`, the app/config example, and a smoke runner that proves initial
+deployment plus continuous fast and slow traffic through a graceful redeploy.
+The earlier [single-file example](https://github.com/lbliii/pounce/blob/main/examples/railway_deploy.py)
+remains as a compatibility entrypoint.
 
 ## Health Checks
 
-Configure Railway's healthcheck path to `/health`, matching
-`health_check_path="/health"`. Railway uses the service `PORT` for healthcheck
+Configure Railway's healthcheck path to `/readyz`, matching
+`health_check_path="/readyz"`. Railway uses the service `PORT` for healthcheck
 traffic, and healthchecks gate deployment activation rather than continuous
 monitoring.
 
@@ -197,10 +201,13 @@ add deployment-specific middleware with its own verified trust boundary.
 
 ## Graceful Deploys
 
-Set Pounce shutdown and Railway drain windows together:
+Set Pounce shutdown and Railway drain windows together. The checked-in
+`railway.toml` expresses these values directly:
 
-```bash
-RAILWAY_DEPLOYMENT_DRAINING_SECONDS=30
+```toml
+[deploy]
+overlapSeconds = "5"
+drainingSeconds = "15"
 ```
 
 ```python
@@ -208,14 +215,34 @@ pounce.run(
     app,
     host="0.0.0.0",
     port=int(os.environ["PORT"]),
-    shutdown_timeout=25,
-    health_check_path="/health",
+    shutdown_timeout=10,
+    health_check_path="/readyz",
 )
 ```
 
-The Railway drain window should be slightly longer than Pounce's
-`shutdown_timeout` so in-flight requests can finish before the platform sends a
-hard kill.
+The Railway drain window must be longer than Pounce's `shutdown_timeout` so
+in-flight requests can finish before the platform sends a hard kill. Railway's
+default drain is zero seconds, so omitting this setting forfeits graceful
+shutdown even when the server handles `SIGTERM` correctly.
+
+## Smoke Proof
+
+Run the bundled proof against an explicit Railway project, environment,
+service, and public origin:
+
+```bash
+python examples/deploy/railway/smoke.py \
+  --project PROJECT_ID \
+  --environment production \
+  --service SERVICE_ID \
+  --origin https://SERVICE.up.railway.app
+```
+
+The runner does not infer a linked target. It uploads the recipe, waits for the
+new deployment to reach terminal `SUCCESS`, checks `/readyz`, confirms the
+container reports `gil_enabled=false`, then uploads a second deployment while
+continuously probing fast and slow requests. It exits nonzero on any dropped
+request or failed deployment.
 
 ## Multi-Tenant Host Routing
 
@@ -241,3 +268,5 @@ framework config.
 - [Railway Private Networking](https://docs.railway.com/networking/private-networking/how-it-works)
 - [Railway Healthchecks](https://docs.railway.com/deployments/healthchecks)
 - [Railway Variables Reference](https://docs.railway.com/reference/variables)
+- [Railway Deployment Teardown](https://docs.railway.com/deployments/deployment-teardown)
+- [Railway Config as Code](https://docs.railway.com/config-as-code/reference)

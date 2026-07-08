@@ -74,7 +74,7 @@ keep these run commands and endpoints honest.
 | `production_server.py` | Full production config: metrics, rate limiting, queueing, hot reload, optional Sentry. | `python examples/production_server.py` | `GET /`, `/health`, `/metrics`, `/slow`, `/error` | `sentry-sdk` (optional, via `SENTRY_DSN`) | production |
 | `rate_limiting_demo.py` | Token-bucket per-IP rate limiting (5 req/s, burst 10) with a dashboard. | `python examples/rate_limiting_demo.py` | `GET /` (dashboard), `/api`, `/metrics`; 429 when limited | none | example |
 | `metrics_monitoring.py` | Live Prometheus metrics + dashboard. | `python examples/metrics_monitoring.py` | `GET /` (dashboard), `/metrics`, `/api/fast`, `/api/slow`, `/api/error` | none | example |
-| `railway_deploy.py` | Railway/PaaS recipe: bind `0.0.0.0:$PORT`, platform TLS, `/health`, JSON logs, proxy-trust off by default. | `pounce serve --app examples.railway_deploy:app --host 0.0.0.0 --port "$PORT" --health-check-path /health --log-format json --no-access-log` | `GET /health` → `{"status": "ok"}`; `GET /` → JSON | none | production |
+| `railway_deploy.py` | Compatibility entrypoint for the complete Railway recipe in `deploy/railway/`: 3.14t image, `$PORT`, `/readyz`, bounded drain, and deploy/redeploy smoke proof. | `python examples/railway_deploy.py` | `GET /readyz` → `{"status": "ok", ...}`; `GET /` → GIL/runtime JSON | none | production |
 
 ### Prototypes
 
