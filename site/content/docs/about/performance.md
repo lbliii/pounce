@@ -53,6 +53,14 @@ On Python 3.14t, workers share the same interpreter, application object, and
 frozen server configuration. Pounce keeps request-local mutable state separate
 from shared server-owned objects.
 
+The Chirp-shaped sustained
+[GitHub Actions snapshot](https://github.com/lbliii/pounce/actions/runs/28981909028)
+measured 196.7 MiB aggregate median peak RSS for four Pounce process workers and
+108.0 MiB for four Pounce thread workers, about 45% less in this run. Both modes
+completed the fixed 1,000 req/s schedule with zero errors. Those figures are
+three-sample Ubuntu CI results, not a general memory ratio; application state,
+allocator behavior, and workload shape can change the comparison.
+
 ## Compression
 
 Pounce negotiates content-encoding automatically via `Accept-Encoding`:
@@ -150,6 +158,11 @@ GitHub releases receive the schema-validated JSON artifacts as release assets.
 Four persistent connections match the four workers so the free-threaded sync
 lane measures active request handling rather than queued connections waiting
 for a connection-owning worker.
+
+The current sustained run and its full Pounce, uvicorn, Hypercorn, and Granian
+comparison are linked from the repository benchmark notes. It is a fixed-rate
+tail-latency snapshot rather than a maximum-throughput ranking, and the notes
+retain scheduler drops rather than hiding comparisons that miss the target.
 
 An artifact file records the command, server command, git SHA, Python/GIL mode,
 OS/hardware, workload, worker count, duration, connections, load tool, samples,

@@ -135,6 +135,35 @@ Current local snapshot artifacts:
 | `benchmarks/artifacts/2026-07-08/process-cpu-local.json` | Hello workload, pounce-only, 2 process-worker samples with per-process CPU/RSS series | Local macOS/GIL-enabled proof run; validates telemetry capture, not a release performance claim. |
 | `benchmarks/artifacts/2026-07-08/http3-pounce-local.json` | HTTP/3 hello response over 4 persistent QUIC connections, 5 samples, 5s each | Local macOS/Python 3.14t run; protocol snapshot only, with no HTTP/2 comparison or product-level performance claim. |
 
+### Current sustained CI snapshot
+
+[Workflow run 28981909028](https://github.com/lbliii/pounce/actions/runs/28981909028)
+benchmarked commit `fd826630e9ea3843f4c03e74f9243d01427be958` on GitHub-hosted
+Ubuntu runners. Each row is the median of three 120-second Chirp samples with
+four workers, four persistent connections, and a fixed 1,000 req/s schedule.
+Latency includes scheduler delay to avoid coordinated omission. Peak RSS is the
+aggregate across the server parent and worker processes where applicable.
+
+| Python / mode | Server | Completed req/s | p99 | p999 | Peak RSS | Drops/sample |
+|---|---|---:|---:|---:|---:|---:|
+| 3.14 / processes | Pounce | 1,000 | 0.436 ms | 0.721 ms | 196.7 MiB | 0 |
+| 3.14 / processes | uvicorn | 97.5 | 123.753 ms | 124.339 ms | 173.9 MiB | 108,287 |
+| 3.14 / processes | Hypercorn | 1,000 | 0.437 ms | 0.767 ms | 179.7 MiB | 0 |
+| 3.14 / processes | Granian | 1,000 | 0.389 ms | 0.781 ms | 245.5 MiB | 0 |
+| 3.14t / threads | Pounce | 1,000 | 0.443 ms | 0.521 ms | 108.0 MiB | 0 |
+| 3.14t / comparison | uvicorn | 97.5 | 123.308 ms | 124.125 ms | 312.2 MiB | 108,287 |
+| 3.14t / comparison | Hypercorn | 1,000 | 0.588 ms | 0.774 ms | 311.6 MiB | 0 |
+
+This is a fixed-rate latency snapshot, not a maximum-throughput ranking. Uvicorn
+did not sustain the target in this four-persistent-connection scenario: each of
+its three samples completed about 11,700 of 120,000 scheduled requests. The
+remaining requests were rejected by the driver's bounded scheduler queue; they
+were not HTTP status failures or transport exceptions. More connections can
+change that result, so do not generalize it beyond this recorded workload.
+Pounce, Hypercorn, and Granian reported no scheduler, status, or transport
+errors. The workflow page carries the four schema-validated raw JSON artifacts;
+published releases attach equivalent artifacts as permanent release assets.
+
 ## Scheduled and Release Evidence
 
 `.github/workflows/benchmarks.yml` runs the fixed-rate driver weekly, on manual
