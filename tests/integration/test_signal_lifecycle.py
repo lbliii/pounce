@@ -525,6 +525,7 @@ def test_sigterm_runs_lifespan_shutdown_after_inflight_completion(
 
 
 @pytest.mark.integration
+@pytest.mark.issue(301)
 @pytest.mark.slow
 @pytest.mark.timeout(60)
 @pytest.mark.parametrize("worker_mode", _DRAIN_MODES)

@@ -26,6 +26,7 @@ import socket
 import ssl
 import sys
 import threading
+import weakref
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
@@ -81,6 +82,36 @@ from pounce.protocols._base import (
 from pounce.protocols.h1 import H1Protocol
 
 _DRAIN_HOOK_TIMEOUT = 1.0
+
+
+def _make_asyncio_server_wakeup_idempotent(server: asyncio.Server) -> None:
+    """Guard CPython's server wakeup against a late second transport detach.
+
+    CPython 3.14 tracks transports in a ``WeakSet``.  An abandoned transport
+    can disappear from that set before its destructor calls ``_detach()``, so
+    ``close()`` and the delayed detach can both call ``_wakeup()``.  The first
+    call sets ``_waiters`` to ``None``; the unguarded second call tries to
+    iterate it.  Patch only the affected standard-library implementation, not
+    third-party event-loop server objects.
+
+    Remove this compatibility guard after python/cpython#130141 is resolved.
+    """
+    if type(server) is not asyncio.Server:
+        return
+
+    server_internal = cast("Any", server)
+    server_ref = weakref.ref(server_internal)
+    wakeup = type(server_internal)._wakeup
+    wakeup_lock = threading.Lock()
+
+    def wakeup_once() -> None:
+        with wakeup_lock:
+            current = server_ref()
+            if current is None or current._waiters is None:
+                return
+            wakeup(current)
+
+    server_internal._wakeup = wakeup_once
 
 
 def _create_h1_protocol(
@@ -140,6 +171,7 @@ class Worker:
         "_async_shutdown",
         "_config",
         "_conn_lock",
+        "_connection_tasks",
         "_draining",
         "_ext_shutdown",
         "_generation",
@@ -180,6 +212,9 @@ class Worker:
         self._async_shutdown: asyncio.Event | None = None  # created inside event loop
         self._loop: asyncio.AbstractEventLoop | None = None  # set in _serve
         self._active_connections = 0
+        # asyncio.Server tracks clients weakly. Retain each accepted handler
+        # task until its writer has detached so loop teardown never owns it.
+        self._connection_tasks: set[asyncio.Task[None]] = set()
         self._conn_lock = threading.Lock()
         self._max_connections = max_connections
         self._ssl_context = ssl_context
@@ -333,10 +368,11 @@ class Worker:
             return
 
         server = await asyncio.start_server(
-            self._handle_connection,
+            self._start_connection,
             sock=self._sock,
             ssl=self._ssl_context,
         )
+        _make_asyncio_server_wakeup_idempotent(server)
         self._report_startup_status("serving")
 
         self._logger.debug("Worker %d started, accepting connections", self._worker_id)
@@ -414,6 +450,16 @@ class Worker:
                         await asyncio.wait_for(server.wait_closed(), timeout=2.0)
             except (ValueError, OSError):  # fmt: skip
                 pass  # fd already closed by another worker sharing the socket
+
+            # ``wait_closed`` proves transport detach. Cancel only application
+            # cleanup still running after that point, then retain the tasks
+            # through cancellation so asyncio.run() has nothing left to reap.
+            connection_tasks = tuple(self._connection_tasks)
+            for task in connection_tasks:
+                if not task.done():
+                    task.cancel()
+            if connection_tasks:
+                await asyncio.gather(*connection_tasks, return_exceptions=True)
 
             # Per-worker shutdown hook — runs on this worker's event loop
             # for proper async resource cleanup.  Errors are logged but
@@ -569,6 +615,33 @@ class Worker:
         elif self._async_shutdown is not None and self._loop is not None:
             self._loop.call_soon_threadsafe(self._async_shutdown.set)
 
+    def _start_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        """Retain an accepted connection task through transport detach."""
+        task = asyncio.create_task(self._run_connection(reader, writer))
+        self._connection_tasks.add(task)
+        task.add_done_callback(self._connection_tasks.discard)
+
+    async def _run_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        """Run one handler with unconditional writer ownership."""
+        try:
+            await self._handle_connection(reader, writer)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self._logger.exception("Unhandled error before connection cleanup")
+        finally:
+            writer.close()
+            with contextlib.suppress(OSError, ConnectionError, RequestTimeoutError):
+                await writer.wait_closed()
+
     # ------------------------------------------------------------------
     # Connection dispatch
     # ------------------------------------------------------------------
@@ -613,10 +686,12 @@ class Worker:
                     b"Service Unavailable"
                 )
                 await drain_with_timeout(writer, self._config.write_timeout)
-                writer.close()
-                await writer.wait_closed()
-            except (OSError, ConnectionError):  # fmt: skip
+            except (OSError, ConnectionError, RequestTimeoutError):  # fmt: skip
                 pass
+            finally:
+                writer.close()
+                with contextlib.suppress(OSError, ConnectionError, RequestTimeoutError):
+                    await writer.wait_closed()
             return
 
         # Disable Nagle's algorithm for low-latency request-response
@@ -684,8 +759,6 @@ class Worker:
                         client_str,
                     )
                 finally:
-                    with self._conn_lock:
-                        self._active_connections -= 1
                     self._lifecycle.record(
                         ConnectionCompleted(
                             connection_id=conn_id,
@@ -705,6 +778,11 @@ class Worker:
                         await writer.wait_closed()
                     except (OSError, ConnectionError):  # fmt: skip
                         pass
+                    finally:
+                        # Idle means the transport has detached, not merely
+                        # that application work has returned.
+                        with self._conn_lock:
+                            self._active_connections -= 1
                 return
 
         self._lifecycle.record(
@@ -882,8 +960,6 @@ class Worker:
 
             _output.branded_traceback(_conn_exc, worker_id=self._worker_id)
         finally:
-            with self._conn_lock:
-                self._active_connections -= 1
             self._lifecycle.record(
                 ConnectionCompleted(
                     connection_id=conn_id,
@@ -903,6 +979,11 @@ class Worker:
                 await writer.wait_closed()
             except (OSError, ConnectionError):  # fmt: skip
                 pass
+            finally:
+                # Keep the handler active through transport detach so worker
+                # drain cannot return while asyncio still owns the socket.
+                with self._conn_lock:
+                    self._active_connections -= 1
 
     # ------------------------------------------------------------------
     # HTTP/1.1 request processing
