@@ -122,6 +122,10 @@ def _parallel_join_targets(
 _MAX_RESTARTS: Final = 5
 _RESTART_WINDOW: Final = 60.0  # seconds
 _HEALTH_CHECK_INTERVAL: Final = 1.0  # seconds
+# Application work drains for ``shutdown_timeout``. Allow a small, fixed grace
+# after that deadline for task cancellation, QUIC CONNECTION_CLOSE, transport
+# teardown, and event-loop exit before deciding an H3 thread is orphaned.
+_H3_WORKER_CLEANUP_GRACE: Final = 1.0
 
 
 class TCPWorker(Protocol):
@@ -950,34 +954,37 @@ class Supervisor:
             # Signal each old H3 worker to stop *itself* (drains in-flight
             # streams within shutdown_timeout, then closes its transport).
             for h3_handle in old_h3_handles:
-                if h3_handle.reload_shutdown_event is not None:
+                if h3_handle.worker is not None:
+                    h3_handle.worker.shutdown_for_reload()
+                elif h3_handle.reload_shutdown_event is not None:
                     h3_handle.reload_shutdown_event.set()
-                elif h3_handle.worker is not None:
-                    # Defensive: a handle without a per-worker event would fall
-                    # back to the shared event — avoid that (split-brain). Only
-                    # signal the worker directly when no shared event is wired.
-                    h3_handle.worker.shutdown()
 
-            # Spawn the new H3 generation bound to the reimported app. Clear the
-            # list first so _spawn_h3_worker appends a clean generation rather
-            # than overwriting old handles we still need to join.
-            self._h3_handles = []
-            for i in range(self._effective_workers):
-                if i < len(self._udp_sockets):
-                    self._spawn_h3_worker(i)
-
-            # Join the old H3 generation (parallel, shutdown_timeout per worker).
+            # A UDP listener cannot safely feed two event loops at once. Retire
+            # and join the old generation before duplicating the canonical
+            # supervisor-owned socket for its replacement. ``shutdown_timeout``
+            # remains the application drain budget; the fixed grace covers only
+            # cancellation and transport/event-loop cleanup.
             if old_h3_handles:
-                _parallel_join_targets([h.target for h in old_h3_handles], join_per)
-            for h3_handle in old_h3_handles:
-                if h3_handle.target.is_alive():
+                _parallel_join_targets(
+                    [h.target for h in old_h3_handles],
+                    join_per + _H3_WORKER_CLEANUP_GRACE,
+                )
+            alive_h3_handles = [h for h in old_h3_handles if h.target.is_alive()]
+            if alive_h3_handles:
+                self._h3_handles = old_h3_handles
+                for h3_handle in alive_h3_handles:
                     logger.warning(
-                        "Old H3 worker %d thread still alive after %.1fs reload drain "
-                        "— OS threads cannot be killed; stale H3 work may run until "
-                        "process exit",
+                        "Old H3 worker %d thread still alive after %.1fs reload drain and "
+                        "cleanup — not starting a competing H3 generation; restart the "
+                        "process if the worker does not exit",
                         h3_handle.worker_id,
-                        join_per,
+                        join_per + _H3_WORKER_CLEANUP_GRACE,
                     )
+            else:
+                self._h3_handles = []
+                for i in range(self._effective_workers):
+                    if i < len(self._udp_sockets):
+                        self._spawn_h3_worker(i)
 
         dispatch(RELOAD_COMPLETE, workers=len(new_handles), generation=self._generation)
 
@@ -1310,7 +1317,9 @@ class Supervisor:
         worker = H3Worker(
             self._config,
             self._app,
-            self._udp_sockets[worker_id],
+            # Preserve the canonical supervisor-owned listener across reloads.
+            # The worker and its asyncio datagram transport own this duplicate.
+            self._udp_sockets[worker_id].dup(),
             worker_id=worker_id,
             shutdown_event=self._shutdown_event,
             reload_shutdown_event=reload_shutdown_event,

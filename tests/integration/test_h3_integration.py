@@ -732,6 +732,11 @@ class TestH3ReloadDrainDeployContract:
             sup._spawn_h3_worker(0)
             server_addr = udps[0].getsockname()
             _wait_for_udp_ready(server_addr)
+            handle = sup._h3_handles[0]
+            assert handle.worker is not None
+            canonical_fd = udps[0].fileno()
+            assert handle.worker._sock is not udps[0]
+            assert handle.worker._sock.fileno() != canonical_fd
             assert _count_h3_worker_threads() == baseline + 1
 
             # Establish a couple of concurrent in-flight requests (distinct
@@ -763,6 +768,8 @@ class TestH3ReloadDrainDeployContract:
             assert settled == baseline, (
                 f"orphaned H3 threads after _drain: {_list_h3_worker_threads()}"
             )
+            assert handle.worker._sock.fileno() == -1
+            assert udps[0].fileno() == canonical_fd
             # Bounded: drain's H3 join is shutdown_timeout per worker.
             assert elapsed < sup._config.shutdown_timeout + 3.0
         finally:
@@ -804,6 +811,10 @@ class TestH3ReloadDrainDeployContract:
             server_addr = udps[0].getsockname()
             _wait_for_udp_ready(server_addr)
             old_handle = sup._h3_handles[0]
+            assert old_handle.worker is not None
+            canonical_fd = udps[0].fileno()
+            assert old_handle.worker._sock is not udps[0]
+            assert old_handle.worker._sock.fileno() != canonical_fd
             assert _count_h3_worker_threads() == baseline + 1
 
             for _ in range(2):
@@ -849,6 +860,11 @@ class TestH3ReloadDrainDeployContract:
                 f"orphaned/extra H3 threads after reload: {_list_h3_worker_threads()}"
             )
             assert not old_handle.target.is_alive(), "old H3 worker thread orphaned"
+            assert old_handle.worker._sock.fileno() == -1
+            assert udps[0].fileno() == canonical_fd
+            assert new_handle.worker is not None
+            assert new_handle.worker._sock is not udps[0]
+            assert new_handle.worker._sock.fileno() != canonical_fd
             assert new_handle.target.is_alive(), "new H3 generation not running"
             assert elapsed < sup._config.reload_timeout + 3.0
         finally:

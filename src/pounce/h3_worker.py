@@ -87,8 +87,14 @@ class H3Worker:
 
     def run(self) -> None:
         """Start the H3 worker's event loop (blocking)."""
-        maybe_pin_worker(self._worker_id, self._config)
-        asyncio.run(self._serve())
+        try:
+            maybe_pin_worker(self._worker_id, self._config)
+            asyncio.run(self._serve())
+        finally:
+            # The supervisor gives each H3 generation a dup'd UDP listener.
+            # Keep closure under worker ownership even when setup fails before
+            # asyncio creates a datagram transport.
+            self._sock.close()
 
     async def _serve(self) -> None:
         """Run the QUIC datagram endpoint until shutdown."""
@@ -204,5 +210,22 @@ class H3Worker:
         """Signal the worker to stop."""
         if self._ext_shutdown is not None:
             self._ext_shutdown.set()
-        elif self._async_shutdown is not None and self._loop is not None:
-            self._loop.call_soon_threadsafe(self._async_shutdown.set)
+        self._wake_async_shutdown()
+
+    def shutdown_for_reload(self) -> None:
+        """Stop only this H3 generation without signalling TCP workers."""
+        if self._reload_shutdown is not None:
+            self._reload_shutdown.set()
+        self._wake_async_shutdown()
+
+    def _wake_async_shutdown(self) -> None:
+        """Wake the worker loop immediately instead of waiting for its poll tick."""
+        async_shutdown = self._async_shutdown
+        loop = self._loop
+        if async_shutdown is None or loop is None:
+            return
+        try:
+            loop.call_soon_threadsafe(async_shutdown.set)
+        except RuntimeError:
+            # A concurrently completed worker already owns socket cleanup.
+            self._logger.debug("H3 worker loop already closed during shutdown")
