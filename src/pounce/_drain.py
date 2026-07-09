@@ -70,5 +70,10 @@ async def write_drain_503_async(
     with contextlib.suppress(OSError, RequestTimeoutError):
         writer.write(DRAIN_503_RESPONSE)
         await drain_with_timeout(writer, timeout)
-        writer.close()
+
+    # Closing is unconditional: a failed drain must not leave the transport for
+    # event-loop finalization, where free-threaded shutdown can race its cleanup.
+    writer.close()
+    # A peer reset may surface again while the transport finishes closing.
+    with contextlib.suppress(OSError, RequestTimeoutError):
         await writer.wait_closed()

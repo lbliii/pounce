@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import socket
+from typing import cast
 
 import pytest
 
+import pounce._drain as drain_module
 from pounce._drain import (
     DRAIN_503_RESPONSE,
     write_drain_503_async,
@@ -17,6 +19,27 @@ from pounce._drain import (
 def _split_headers_body(raw: bytes) -> tuple[list[bytes], bytes]:
     head, _, body = raw.partition(b"\r\n\r\n")
     return head.split(b"\r\n"), body
+
+
+class _RecordingWriter:
+    """Minimal StreamWriter stand-in for shutdown failure-path proof."""
+
+    def __init__(self, *, wait_closed_error: OSError | None = None) -> None:
+        self.closed = False
+        self.wait_closed_called = False
+        self.wait_closed_error = wait_closed_error
+        self.written = b""
+
+    def write(self, data: bytes) -> None:
+        self.written += data
+
+    def close(self) -> None:
+        self.closed = True
+
+    async def wait_closed(self) -> None:
+        self.wait_closed_called = True
+        if self.wait_closed_error is not None:
+            raise self.wait_closed_error
 
 
 def test_drain_503_wire_format() -> None:
@@ -89,3 +112,43 @@ async def test_write_drain_503_async_emits_and_closes() -> None:
         chunks.append(data)
     client_sock.close()
     assert b"".join(chunks) == DRAIN_503_RESPONSE
+
+
+@pytest.mark.issue(297)
+@pytest.mark.asyncio
+async def test_write_drain_503_async_closes_after_drain_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reset while draining must not leave transport cleanup to loop teardown."""
+
+    async def _failed_drain(writer: asyncio.StreamWriter, timeout: float) -> None:
+        del writer, timeout
+        raise OSError("client reset")
+
+    monkeypatch.setattr(drain_module, "drain_with_timeout", _failed_drain)
+    writer = _RecordingWriter()
+
+    await write_drain_503_async(cast("asyncio.StreamWriter", writer))
+
+    assert writer.written == DRAIN_503_RESPONSE
+    assert writer.closed
+    assert writer.wait_closed_called
+
+
+@pytest.mark.issue(297)
+@pytest.mark.asyncio
+async def test_write_drain_503_async_tolerates_wait_closed_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A peer reset reported during close remains a bounded shutdown outcome."""
+
+    async def _completed_drain(writer: asyncio.StreamWriter, timeout: float) -> None:
+        del writer, timeout
+
+    monkeypatch.setattr(drain_module, "drain_with_timeout", _completed_drain)
+    writer = _RecordingWriter(wait_closed_error=OSError("peer already gone"))
+
+    await write_drain_503_async(cast("asyncio.StreamWriter", writer))
+
+    assert writer.closed
+    assert writer.wait_closed_called
