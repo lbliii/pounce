@@ -6,12 +6,13 @@ Tests for enhanced connection draining and shutdown.
 import asyncio
 import contextlib
 import threading
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from pounce.config import ServerConfig
-from pounce.worker import Worker
+from pounce.worker import Worker, _make_asyncio_server_wakeup_idempotent
 
 
 class TestConnectionDraining:
@@ -37,6 +38,20 @@ class TestConnectionDraining:
     def shutdown_event(self):
         """Shutdown event for coordinating worker shutdown."""
         return threading.Event()
+
+    @pytest.mark.issue(301)
+    @pytest.mark.asyncio
+    async def test_asyncio_server_wakeup_is_idempotent(self):
+        """A late transport detach cannot wake a closed server twice."""
+        loop = asyncio.get_running_loop()
+        server = asyncio.Server(loop, [], lambda: None, None, 1, None)
+        _make_asyncio_server_wakeup_idempotent(server)
+
+        server_internal = cast("Any", server)
+        wakeup = server_internal._wakeup
+        wakeup()
+        assert server_internal._waiters is None
+        wakeup()
 
     @pytest.mark.asyncio
     async def test_rejects_connections_when_draining(self, config, mock_sock, shutdown_event):
@@ -151,6 +166,176 @@ class TestConnectionDraining:
         if writer.write.called:
             response = writer.write.call_args[0][0]
             assert b"Server shutting down" not in response
+
+    @pytest.mark.issue(301)
+    @pytest.mark.asyncio
+    async def test_connection_remains_active_until_writer_detaches(
+        self, config, mock_sock, shutdown_event
+    ):
+        """Idle accounting must include asynchronous transport closure."""
+
+        async def simple_app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"OK"})
+
+        worker = Worker(
+            app=simple_app,
+            config=config,
+            sock=mock_sock,
+            worker_id=1,
+            max_connections=100,
+            shutdown_event=shutdown_event,
+        )
+        reader = AsyncMock(spec=asyncio.StreamReader)
+        reader.read = AsyncMock(
+            side_effect=[b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"]
+        )
+        writer = AsyncMock(spec=asyncio.StreamWriter)
+        writer.get_extra_info.side_effect = lambda name, default=None: {
+            "peername": ("127.0.0.1", 12345),
+            "sockname": ("127.0.0.1", 8000),
+        }.get(name, default)
+        writer.write = Mock()
+        writer.drain = AsyncMock()
+        writer.close = Mock()
+        close_started = asyncio.Event()
+        release_close = asyncio.Event()
+
+        async def wait_closed() -> None:
+            close_started.set()
+            await release_close.wait()
+
+        writer.wait_closed = AsyncMock(side_effect=wait_closed)
+
+        connection_task = asyncio.create_task(worker._handle_connection(reader, writer))
+        await asyncio.wait_for(close_started.wait(), timeout=1.0)
+
+        assert worker._active_connections == 1
+        assert not worker.is_idle()
+
+        release_close.set()
+        await connection_task
+        assert worker.is_idle()
+
+    @pytest.mark.issue(301)
+    @pytest.mark.asyncio
+    async def test_capacity_rejection_closes_after_write_failure(
+        self, config, mock_sock, shutdown_event
+    ):
+        """A reset while writing the capacity 503 must not leak its transport."""
+
+        async def simple_app(scope, receive, send):
+            pass
+
+        worker = Worker(
+            app=simple_app,
+            config=config,
+            sock=mock_sock,
+            worker_id=1,
+            max_connections=1,
+            shutdown_event=shutdown_event,
+        )
+        worker._active_connections = 1
+        reader = AsyncMock(spec=asyncio.StreamReader)
+        writer = AsyncMock(spec=asyncio.StreamWriter)
+        writer.write = Mock()
+        writer.close = Mock()
+        writer.wait_closed = AsyncMock()
+
+        with patch(
+            "pounce.worker.drain_with_timeout",
+            new=AsyncMock(side_effect=OSError("client reset")),
+        ):
+            await worker._handle_connection(reader, writer)
+
+        writer.close.assert_called_once_with()
+        writer.wait_closed.assert_awaited_once_with()
+
+    @pytest.mark.issue(301)
+    @pytest.mark.asyncio
+    async def test_full_shutdown_waits_for_server_without_aborting_clients(
+        self, config, mock_sock, shutdown_event
+    ):
+        """The server drain does not cut off an in-flight accepted request."""
+
+        async def lifecycle_app(scope, receive, send):
+            pass
+
+        calls: list[str] = []
+
+        class RecordingServer:
+            def close(self) -> None:
+                calls.append("close")
+
+            async def wait_closed(self) -> None:
+                calls.append("wait_closed")
+
+            def abort_clients(self) -> None:
+                calls.append("abort_clients")
+
+        worker = Worker(
+            app=lifecycle_app,
+            config=config,
+            sock=mock_sock,
+            worker_id=1,
+            shutdown_event=shutdown_event,
+        )
+        worker._draining = True
+        shutdown_event.set()
+
+        with patch(
+            "pounce.worker.asyncio.start_server",
+            new=AsyncMock(return_value=RecordingServer()),
+        ):
+            await worker._serve()
+
+        assert calls[:2] == ["close", "wait_closed"]
+        assert "abort_clients" not in calls
+
+    @pytest.mark.issue(301)
+    @pytest.mark.asyncio
+    async def test_accepted_task_is_retained_until_writer_detaches(
+        self, config, mock_sock, shutdown_event
+    ):
+        """An accepted handler retains its writer through transport detach."""
+
+        async def simple_app(scope, receive, send):
+            pass
+
+        async def handled_connection(self, reader, writer) -> None:
+            pass
+
+        worker = Worker(
+            app=simple_app,
+            config=config,
+            sock=mock_sock,
+            worker_id=1,
+            shutdown_event=shutdown_event,
+        )
+        reader = AsyncMock(spec=asyncio.StreamReader)
+        writer = AsyncMock(spec=asyncio.StreamWriter)
+        writer.close = Mock()
+        detach_started = asyncio.Event()
+        release_detach = asyncio.Event()
+
+        async def wait_closed() -> None:
+            detach_started.set()
+            await release_detach.wait()
+
+        writer.wait_closed = AsyncMock(side_effect=wait_closed)
+
+        with patch.object(Worker, "_handle_connection", new=handled_connection):
+            worker._start_connection(reader, writer)
+            await asyncio.wait_for(detach_started.wait(), timeout=1.0)
+
+            assert len(worker._connection_tasks) == 1
+            release_detach.set()
+            await asyncio.gather(*worker._connection_tasks)
+            await asyncio.sleep(0)
+
+        assert worker._connection_tasks == set()
+        writer.close.assert_called_once_with()
+        writer.wait_closed.assert_awaited_once_with()
 
     def test_start_draining_sets_flag(self, config, mock_sock, shutdown_event):
         """Test that start_draining() sets the draining flag."""
