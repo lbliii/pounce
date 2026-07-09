@@ -79,8 +79,8 @@ release: build publish
 # Create GitHub release from site release notes; triggers python-publish workflow → PyPI
 # Strips YAML frontmatter (--- ... ---) from notes before passing to gh
 gh-release:
-	@VERSION=$$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/'); \
-	PROJECT=$$(grep '^name = ' pyproject.toml | sed 's/name = "\(.*\)"/\1/'); \
+	@VERSION=$$(python3 scripts/release_metadata.py version); \
+	PROJECT=$$(python3 scripts/release_metadata.py name); \
 	NOTES="site/content/releases/$$VERSION.md"; \
 	if [ ! -f "$$NOTES" ]; then echo "Error: $$NOTES not found"; exit 1; fi; \
 	echo "Creating release v$$VERSION for $$PROJECT..."; \
