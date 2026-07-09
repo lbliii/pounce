@@ -546,6 +546,7 @@ def test_railway_recipe_assets_encode_the_deployment_contract() -> None:
         railway = tomllib.load(file)
 
     assert "FROM python:3.14-slim" in dockerfile
+    assert "ARG POUNCE_VERSION=0.9.0" in dockerfile
     assert "UV_PYTHON_INSTALL_DIR=/opt/uv-python" in dockerfile
     assert "uv venv --managed-python --python 3.14t" in dockerfile
     assert '/opt/venv/bin/python -c "import sys; assert not sys._is_gil_enabled()"' in dockerfile
@@ -594,7 +595,7 @@ def test_railway_canary_probe_matches_only_the_full_expected_commit() -> None:
         "channel": "main-canary",
         "gil_enabled": False,
         "git_commit": sha,
-        "pounce_version": "0.8.2",
+        "pounce_version": "0.9.0",
         "python_version": "3.14.3",
     }
     assert _matches_expected_commit(payload, sha)
