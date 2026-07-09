@@ -15,7 +15,7 @@ WORKDIR /app
 
 # Pin the published Pounce release. Override this build argument deliberately
 # when validating a newer release candidate.
-ARG POUNCE_VERSION=0.8.2
+ARG POUNCE_VERSION=0.9.0
 RUN uv python install 3.14t \
     && uv venv --managed-python --python 3.14t /opt/venv \
     && uv pip install --python /opt/venv/bin/python "bengal-pounce==${POUNCE_VERSION}" \
