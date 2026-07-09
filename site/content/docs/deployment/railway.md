@@ -93,6 +93,9 @@ A complete deployment bundle lives at
 It includes a CPython 3.14t Dockerfile, a GIL-off boot assertion,
 `railway.toml`, the app/config example, and a smoke runner that proves initial
 deployment plus continuous fast and slow traffic through a graceful redeploy.
+The adjacent `Dockerfile.canary` installs the current repository checkout for
+the public main-branch canary; the release Dockerfile remains pinned to a
+published package version so those two proof claims cannot be confused.
 The earlier [single-file example](https://github.com/lbliii/pounce/blob/main/examples/railway_deploy.py)
 remains as a compatibility entrypoint.
 
@@ -226,6 +229,23 @@ default drain is zero seconds, so omitting this setting forfeits graceful
 shutdown even when the server handles `SIGTERM` correctly.
 
 ## Smoke Proof
+
+### Every-merge main canary
+
+The repository maintainer runs a best-effort public canary at
+<https://pounce-railway-smoke-production.up.railway.app>. Railway watches the
+GitHub `main` branch and builds `examples/deploy/railway/Dockerfile.canary` from
+the repository root. The app reports the non-secret Railway git commit and
+deployment channel alongside its Pounce/Python versions and GIL state.
+
+On every merge, `.github/workflows/railway-main-canary.yml` waits until the
+public app serves that exact commit, then checks `/readyz`, a normal request, a
+slow request, and a finite SSE stream. The workflow uses no Railway credential;
+deployment remains Railway-owned and the independent check observes only the
+public origin. This is canary evidence for unreleased `main`, not a release or
+uptime guarantee.
+
+### Full deploy and redeploy proof
 
 Run the bundled proof against an explicit Railway project, environment,
 service, and public origin:

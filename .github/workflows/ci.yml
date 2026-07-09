@@ -135,6 +135,13 @@ jobs:
         working-directory: examples/deploy/railway
         run: docker build --tag pounce-railway-recipe:ci .
 
+      - name: Build Railway main-canary image from this checkout
+        run: >-
+          docker build
+          --file examples/deploy/railway/Dockerfile.canary
+          --tag pounce-railway-canary:ci
+          .
+
       - name: Prove GIL-off runtime, readiness, traffic, and SIGTERM exit
         run: |
           set -euo pipefail
@@ -163,11 +170,40 @@ jobs:
           docker stop --time 20 pounce-railway-ci
           test "$(docker inspect --format '{{.State.ExitCode}}' pounce-railway-ci)" = "0"
 
+          docker run --detach --name pounce-railway-canary-ci \
+            --env PORT=8000 \
+            --env POUNCE_DEPLOYMENT_CHANNEL=main-canary \
+            --env RAILWAY_GIT_COMMIT_SHA="$GITHUB_SHA" \
+            --publish 127.0.0.1:18081:8000 \
+            pounce-railway-canary:ci
+
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18081/readyz >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              docker logs pounce-railway-canary-ci
+              exit 1
+            fi
+            sleep 1
+          done
+
+          canary_body=$(curl --fail --silent http://127.0.0.1:18081/)
+          printf '%s' "$canary_body" | grep --fixed-strings '"channel":"main-canary"'
+          printf '%s' "$canary_body" | grep --fixed-strings "\"git_commit\":\"$GITHUB_SHA\""
+          stream_body=$(curl --fail --silent http://127.0.0.1:18081/stream)
+          test "$(printf '%s' "$stream_body" | grep --count 'event: canary')" = "2"
+
+          docker stop --time 20 pounce-railway-canary-ci
+          test "$(docker inspect --format '{{.State.ExitCode}}' pounce-railway-canary-ci)" = "0"
+
       - name: Show logs and clean up
         if: always()
         run: |
           docker logs pounce-railway-ci || true
           docker rm --force pounce-railway-ci || true
+          docker logs pounce-railway-canary-ci || true
+          docker rm --force pounce-railway-canary-ci || true
 
   framework-compat:
     name: Framework Compatibility

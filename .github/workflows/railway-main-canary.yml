@@ -1,0 +1,31 @@
+name: Railway Main Canary
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: railway-main-canary
+  cancel-in-progress: true
+
+jobs:
+  public-probe:
+    name: Verify deployed main commit
+    if: github.repository == 'lbliii/pounce'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Wait for Railway and verify public canary
+        run: >-
+          python3 examples/deploy/railway/canary_probe.py
+          --origin https://pounce-railway-smoke-production.up.railway.app
+          --expected-sha "${{ github.sha }}"
+          --timeout 900
