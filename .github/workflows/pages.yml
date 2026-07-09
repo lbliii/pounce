@@ -56,9 +56,16 @@ jobs:
 
       - name: Build documentation site
         working-directory: site
-        run: uv run bengal site build --environment production
+        run: uv run bengal build --environment production
         env:
           PYTHON_GIL: "0"
+
+      - name: Verify Pages entry point
+        run: |
+          if [[ ! -s site/public/index.html ]]; then
+            echo "::error::Bengal did not produce site/public/index.html; refusing to deploy an incomplete Pages artifact."
+            exit 1
+          fi
 
       - name: Prepare for upload
         run: |
