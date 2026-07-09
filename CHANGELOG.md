@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- towncrier release notes start -->
 
-## [0.9.0] — 2026-07-08
+## [0.9.0] — 2026-07-09
 
 ### Added
 
@@ -66,6 +66,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Encode Railway overlap and drain windows as numbers so the platform accepts the
   checked-in deployment recipe. ([#291](https://github.com/lbliii/pounce/issues/291))
 - Restored the GitHub Pages site build by upgrading the documentation toolchain to Bengal 0.5.1 and rejecting deployment artifacts that lack the generated homepage.
+- Async workers now close shutdown-503 transports even when a client resets or
+  times out during the write, preventing free-threaded event-loop teardown
+  tracebacks during SIGTERM drain. ([#297](https://github.com/lbliii/pounce/issues/297))
+- Give each HTTP/3 worker generation its own duplicated UDP listener, fully
+  retire the old generation before replacement, and preserve the
+  supervisor-owned socket across reloads so transport cleanup cannot orphan or
+  invalidate the new worker. ([#296](https://github.com/lbliii/pounce/pull/296))
 
 
 ## [0.8.2] — 2026-07-06
