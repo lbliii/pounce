@@ -498,6 +498,7 @@ def test_railway_deploy_strips_untrusted_forwarded() -> None:
 
 
 @pytest.mark.issue(248)
+@pytest.mark.issue(291)
 def test_railway_recipe_assets_encode_the_deployment_contract() -> None:
     """Docker and Railway config keep 3.14t, readiness, and drain aligned."""
     recipe = Path(__file__).parents[2] / "examples" / "deploy" / "railway"
@@ -521,8 +522,10 @@ def test_railway_recipe_assets_encode_the_deployment_contract() -> None:
     }
     deploy = railway["deploy"]
     assert deploy["healthcheckPath"] == "/readyz"
-    assert int(deploy["drainingSeconds"]) > 10
-    assert int(deploy["overlapSeconds"]) > 0
+    assert type(deploy["drainingSeconds"]) is int
+    assert type(deploy["overlapSeconds"]) is int
+    assert deploy["drainingSeconds"] == 15
+    assert deploy["overlapSeconds"] == 5
     assert deploy["numReplicas"] == 1
 
     subprocess.run(["sh", "-n", str(recipe / "start.sh")], check=True)

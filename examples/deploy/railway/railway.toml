@@ -10,5 +10,5 @@ restartPolicyMaxRetries = 3
 numReplicas = 1
 # Keep the old deployment routable briefly after the new one becomes healthy,
 # then give Pounce longer than its 10-second shutdown timeout before SIGKILL.
-overlapSeconds = "5"
-drainingSeconds = "15"
+overlapSeconds = 5
+drainingSeconds = 15

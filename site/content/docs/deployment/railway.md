@@ -206,8 +206,8 @@ Set Pounce shutdown and Railway drain windows together. The checked-in
 
 ```toml
 [deploy]
-overlapSeconds = "5"
-drainingSeconds = "15"
+overlapSeconds = 5
+drainingSeconds = 15
 ```
 
 ```python
