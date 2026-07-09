@@ -11,6 +11,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- towncrier release notes start -->
 
+## [0.9.0] — 2026-07-08
+
+### Added
+
+- Add sustained fixed-rate p50/p99/p999 benchmark evidence, uvicorn/Hypercorn/Granian comparisons, and weekly/manual/release artifact generation for Python 3.14 and 3.14t. ([#228](https://github.com/lbliii/pounce/issues/228))
+- Define the long-lived HTTP stream contract: active SSE responses survive request-idle timers; `pounce.worker.draining` gives apps a bounded, generation-scoped close notification before reload or shutdown; `StreamOpened`/`StreamClosed` drive `http_streams_active` and `http_stream_duration_seconds`; and `RoundRobinTestProxy` provides a reusable two-instance SSE test substrate. ([#238](https://github.com/lbliii/pounce/issues/238))
+- Add a reproducible real-CLI HTTP/3 benchmark profile with repeated-sample
+  variance, raw QUIC-client output, and process telemetry; promote HTTP/3 from
+  optional-limited to optional after closing its reload/drain and evidence gates. ([#240](https://github.com/lbliii/pounce/issues/240))
+- Added state-specific timeout enforcement: request-body progress now reports
+  `POUNCE_TIMEOUT_REQUEST_BODY`, blocked H1/H2/WebSocket response delivery is
+  bounded by `write_timeout` with `POUNCE_TIMEOUT_WRITE`, and accepted WebSockets
+  are no longer reaped by HTTP keep-alive timeout. ([#242](https://github.com/lbliii/pounce/issues/242))
+- Added `http2_enabled` and the `--no-http2` CLI escape hatch so operators can
+  force HTTP/1.1 ALPN at a Pounce-owned TLS origin while diagnosing edge/origin
+  HTTP/2 failures. ([#243](https://github.com/lbliii/pounce/issues/243))
+- Make `worker_startup_failure="shutdown"` fail server boot with exit code 1 and `POUNCE_WORKER_STARTUP_FAILED`, and delay multi-worker readiness until every worker startup hook and listener succeeds. ([#245](https://github.com/lbliii/pounce/issues/245))
+- Add an official Railway deployment bundle with a uv-installed CPython 3.14t image, GIL-off boot assertion, `$PORT` binding, `/readyz` healthcheck, bounded deployment drain settings, and an executable deploy/redeploy traffic smoke proof. ([#248](https://github.com/lbliii/pounce/issues/248))
+- `/_pounce/info` now reports the Pounce version, a structured Python build
+  fingerprint, free-threaded build capability, runtime GIL state, and the
+  operator-supplied `POUNCE_BUILD_ID` when set. ([#252](https://github.com/lbliii/pounce/issues/252))
+- Add schema-validated per-process CPU and RSS time series to reproducible
+  benchmark artifacts. ([#253](https://github.com/lbliii/pounce/issues/253))
+- Prove and document HTTP `QUERY` method and request-body forwarding across HTTP/1.1, HTTP/2, and HTTP/3 without claiming application-level query or caching semantics. ([#257](https://github.com/lbliii/pounce/issues/257))
+- CI and `make lint` now enforce strict protocol/ASGI/network import boundaries
+  and a duplicate-aware public raise-message debt ratchet alongside the existing
+  silent-exception gate. ([#264](https://github.com/lbliii/pounce/issues/264))
+- Add a GitHub-connected Railway main canary image and public post-merge probe
+  while keeping the published-release recipe pinned and distinct. ([#293](https://github.com/lbliii/pounce/issues/293))
+
+### Changed
+
+- Promote explicit subinterpreter ASGI web workers to stable after adding replacement-readiness gating, old-generation acceptor retirement, concurrent-load reload proof, and exact lifespan-state checks across reload and health-monitor respawn. Import-path, async-only, JSON-safe state, and dependency-compatibility limits remain explicit; proposed job/hybrid roles are out of scope. ([#239](https://github.com/lbliii/pounce/issues/239))
+- Prove the OpenTelemetry request-span contract through the OTLP/HTTP collector
+  boundary and document its guaranteed names, attributes, and status mapping. ([#255](https://github.com/lbliii/pounce/issues/255))
+
+### Fixed
+
+- Prevent subinterpreter crash recovery from closing a listener descriptor number
+  after the worker already released it and the OS reassigned it to another
+  resource. ([#106](https://github.com/lbliii/pounce/issues/106))
+- Prevent HTTP/2 `keep_alive_timeout` from truncating active response streams; idle connections are still reaped normally. ([#231](https://github.com/lbliii/pounce/issues/231))
+- Resume HTTP/2 response writes directly from flow-control window updates, avoiding read-loop starvation and very slow large-body delivery. ([#232](https://github.com/lbliii/pounce/issues/232))
+- Prevent Linux subinterpreter reloads from resetting a connection accepted just before the old generation closes its listener. ([#239](https://github.com/lbliii/pounce/issues/239))
+- Emit `pounce.worker.startup` and `pounce.worker.shutdown` scopes from sync workers on their per-worker runner loop, matching async and subinterpreter worker lifecycle behavior. ([#244](https://github.com/lbliii/pounce/issues/244))
+- Resolved worker models are now reported in startup output and
+  `/_pounce/info`; embedded subinterpreter mode requires `app_path` up front and
+  uses the supervised isolated-worker path even when `workers=1`. ([#246](https://github.com/lbliii/pounce/issues/246))
+- Serve built-in health, introspection, and compression-dictionary endpoints for `HEAD` with GET-equivalent status and headers but no response body; document the endpoint as `/readyz` readiness with separate application-owned `/healthz` liveness. ([#250](https://github.com/lbliii/pounce/issues/250))
+- WebSocket `permessage-deflate` now requires an explicit client offer at the
+  protocol boundary; HTTP/1.1 and HTTP/2 tests prove non-negotiating clients
+  receive no extension header or compressed frames. ([#256](https://github.com/lbliii/pounce/issues/256))
+- Encode Railway overlap and drain windows as numbers so the platform accepts the
+  checked-in deployment recipe. ([#291](https://github.com/lbliii/pounce/issues/291))
+- Restored the GitHub Pages site build by upgrading the documentation toolchain to Bengal 0.5.1 and rejecting deployment artifacts that lack the generated homepage.
+
+
 ## [0.8.2] — 2026-07-06
 
 ### Added
