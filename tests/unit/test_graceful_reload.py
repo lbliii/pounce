@@ -5,6 +5,7 @@ Tests for graceful worker reload functionality.
 
 import asyncio
 import socket
+import threading
 import time
 
 import pytest
@@ -327,9 +328,12 @@ class TestH3WorkerRotationOnReload:
         shutdown event, which would also stop TCP workers). Exits promptly so
         the supervisor's parallel join completes within reload_timeout.
         """
-        ev = worker._reload_shutdown
-        if ev is not None:
-            ev.wait(timeout=5.0)
+        try:
+            ev = worker._reload_shutdown
+            if ev is not None:
+                ev.wait(timeout=5.0)
+        finally:
+            worker._sock.close()
 
     def test_h3_generation_rotated_to_new_workers(self, monkeypatch):
         """After reload, _h3_handles are a NEW generation bound to the new app,
@@ -347,6 +351,9 @@ class TestH3WorkerRotationOnReload:
             old_handle = sup._h3_handles[0]
             assert old_handle.worker is not None
             assert old_handle.worker._app is old_app
+            canonical_fd = udp.fileno()
+            assert old_handle.worker._sock is not udp
+            assert old_handle.worker._sock.fileno() != canonical_fd
             assert old_handle.target.is_alive()
 
             # Reload reimports the app -> return the NEW app.
@@ -385,11 +392,64 @@ class TestH3WorkerRotationOnReload:
             assert not old_handle.target.is_alive(), (
                 "old H3 worker thread survived past reload_timeout"
             )
+            assert old_handle.worker._sock.fileno() == -1
+            assert udp.fileno() == canonical_fd
+            assert new_handle.worker._sock is not udp
+            assert new_handle.worker._sock.fileno() != canonical_fd
         finally:
             # Release any new-gen H3 threads still waiting on their event.
             for h in sup._h3_handles:
                 if h.reload_shutdown_event is not None:
                     h.reload_shutdown_event.set()
+            sup._shutdown_event.set()
+            udp.close()
+
+    def test_h3_reload_refuses_competing_generation_when_old_thread_survives(self, monkeypatch):
+        """A stuck old H3 owner blocks replacement instead of sharing UDP input."""
+        stop = threading.Event()
+
+        def stuck_h3_run(worker: H3Worker) -> None:
+            try:
+                stop.wait(timeout=5.0)
+            finally:
+                worker._sock.close()
+
+        sup, udp = self._make_h3_supervisor(_make_marker_app("OLD"))
+        try:
+            monkeypatch.setattr(H3Worker, "run", stuck_h3_run, raising=True)
+            sup._spawn_h3_worker(0)
+            old_handle = sup._h3_handles[0]
+
+            import pounce._importer as importer
+            import pounce.supervisor as supervisor_module
+
+            monkeypatch.setattr(
+                importer,
+                "reimport_app",
+                lambda *_a, **_k: _make_marker_app("NEW"),
+            )
+            monkeypatch.setattr(
+                Supervisor,
+                "_create_worker",
+                lambda self, worker_id, socket_index: _IdleFakeWorker(),
+            )
+            monkeypatch.setattr(
+                supervisor_module,
+                "_parallel_join_targets",
+                lambda _targets, _timeout: None,
+            )
+
+            sup._graceful_reload_impl()
+
+            assert sup._h3_handles == [old_handle]
+            assert old_handle.target.is_alive()
+            assert not sup._shutdown_event.is_set()
+        finally:
+            stop.set()
+            for handle in sup._h3_handles:
+                handle.target.join(timeout=1.0)
+                if handle.worker is not None:
+                    handle.worker._sock.close()
             sup._shutdown_event.set()
             udp.close()
 
@@ -465,11 +525,14 @@ class TestH3DrainOnShutdown:
         also trips the assertion. The interval stays well under shutdown_timeout
         so a correct, joining ``_drain`` still completes within budget.
         """
-        ev = worker._ext_shutdown
-        if ev is not None:
-            ev.wait(timeout=5.0)
-        # Simulate bounded in-flight-stream drain work after the stop signal.
-        time.sleep(0.3)
+        try:
+            ev = worker._ext_shutdown
+            if ev is not None:
+                ev.wait(timeout=5.0)
+            # Simulate bounded in-flight-stream drain work after the stop signal.
+            time.sleep(0.3)
+        finally:
+            worker._sock.close()
 
     def test_drain_signals_and_joins_h3_workers(self, monkeypatch):
         """_drain sets the shared shutdown event, the H3 thread observes it and

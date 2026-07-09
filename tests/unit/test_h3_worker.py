@@ -146,6 +146,52 @@ class TestH3WorkerShutdown:
         finally:
             sock.close()
 
+    def test_reload_shutdown_is_generation_scoped_and_wakes_loop(self) -> None:
+        """Reload shutdown wakes this worker without setting the shared event."""
+        sock = _make_udp_socket()
+        try:
+            shared = threading.Event()
+            reload_event = threading.Event()
+            worker = H3Worker(
+                _make_config(),
+                _noop_app,
+                sock,
+                shutdown_event=shared,
+                reload_shutdown_event=reload_event,
+                ssl_certfile="/tmp/cert.pem",
+                ssl_keyfile="/tmp/key.pem",
+            )
+            worker._loop = MagicMock()
+            worker._async_shutdown = MagicMock()
+
+            worker.shutdown_for_reload()
+
+            assert reload_event.is_set()
+            assert not shared.is_set()
+            worker._loop.call_soon_threadsafe.assert_called_once_with(worker._async_shutdown.set)
+        finally:
+            sock.close()
+
+    def test_run_closes_owned_socket_when_serve_returns(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Worker-owned listener duplicates close even when setup exits early."""
+        sock = _make_udp_socket()
+        worker = H3Worker(
+            _make_config(),
+            _noop_app,
+            sock,
+            ssl_certfile="/tmp/cert.pem",
+            ssl_keyfile="/tmp/key.pem",
+        )
+
+        async def return_immediately(_worker: H3Worker) -> None:
+            return
+
+        monkeypatch.setattr(H3Worker, "_serve", return_immediately)
+        worker.run()
+        assert sock.fileno() == -1
+
     async def test_bridge_shutdown_propagates(self) -> None:
         """_bridge_shutdown detects ext event and sets async shutdown."""
         sock = _make_udp_socket()
