@@ -14,7 +14,8 @@ import queue
 import statistics
 import threading
 import time
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from math import ceil
 from urllib.parse import urlsplit
 
@@ -25,6 +26,15 @@ class _Counters:
     bytes_received: int = 0
     status_errors: int = 0
     transport_errors: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class FixedRateRequest:
+    """One request variant rotated by the fixed-rate load driver."""
+
+    method: str = "GET"
+    body: bytes | None = None
+    headers: Mapping[str, str] = field(default_factory=dict)
 
 
 def _percentile_ms(latencies_ns: list[int], percentile: float) -> float:
@@ -44,6 +54,7 @@ def run_fixed_rate(
     rate: int,
     method: str = "GET",
     body_size: str | None = None,
+    requests: Sequence[FixedRateRequest] | None = None,
 ) -> dict:
     """Drive *url* at ``rate`` scheduled requests/second.
 
@@ -59,6 +70,8 @@ def run_fixed_rate(
         raise ValueError("connections must be >= 1")
     if rate < 1:
         raise ValueError("rate must be >= 1")
+    if requests is not None and not requests:
+        raise ValueError("requests must contain at least one request variant")
 
     parsed = urlsplit(url)
     if parsed.scheme != "http" or parsed.hostname is None:
@@ -68,8 +81,11 @@ def run_fixed_rate(
         target = f"{target}?{parsed.query}"
     body = b"x" * int(body_size) if body_size and method == "POST" else None
     headers = {"content-type": "application/octet-stream"} if body is not None else {}
+    request_plan = (
+        tuple(requests) if requests is not None else (FixedRateRequest(method, body, headers),)
+    )
 
-    schedule: queue.Queue[int | None] = queue.Queue(maxsize=max(2, connections * 2))
+    schedule: queue.Queue[tuple[int, int] | None] = queue.Queue(maxsize=max(2, connections * 2))
     latencies_ns: list[int] = []
     counters = _Counters()
     result_lock = threading.Lock()
@@ -78,10 +94,12 @@ def run_fixed_rate(
         connection: http.client.HTTPConnection | None = None
         try:
             while True:
-                scheduled_ns = schedule.get()
+                scheduled = schedule.get()
                 try:
-                    if scheduled_ns is None:
+                    if scheduled is None:
                         return
+                    scheduled_ns, request_index = scheduled
+                    request = request_plan[request_index % len(request_plan)]
                     if connection is None:
                         connection = http.client.HTTPConnection(
                             parsed.hostname,
@@ -89,7 +107,12 @@ def run_fixed_rate(
                             timeout=max(5.0, duration),
                         )
                     try:
-                        connection.request(method, target, body=body, headers=headers)
+                        connection.request(
+                            request.method,
+                            target,
+                            body=request.body,
+                            headers=dict(request.headers),
+                        )
                         response = connection.getresponse()
                         payload = response.read()
                         latency_ns = time.perf_counter_ns() - scheduled_ns
@@ -125,7 +148,7 @@ def run_fixed_rate(
         if remaining_ns > 0:
             time.sleep(remaining_ns / 1_000_000_000)
         try:
-            schedule.put_nowait(due_ns)
+            schedule.put_nowait((due_ns, request_index))
             scheduled += 1
         except queue.Full:
             dropped += 1

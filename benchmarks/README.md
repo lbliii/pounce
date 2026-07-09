@@ -16,7 +16,7 @@ brew install wrk    # or: go install github.com/rakyll/hey@latest
 # Quick benchmark (hello-world, 10s, 1 worker)
 python benchmarks/run_benchmark.py
 
-# Full suite, all workloads, 4 workers
+# General suite, excluding specialized fixed-rate-only workloads, 4 workers
 python benchmarks/run_benchmark.py --workload all --workers 4 --duration 30
 
 # Bengal static-site workload
@@ -24,6 +24,12 @@ python benchmarks/run_benchmark.py --workload bengal --workers 1 --duration 10
 
 # Chirp/LB Sonic-shaped forum workload
 python benchmarks/run_benchmark.py --workload chirp --workers 4 --duration 30
+
+# Milo MCP mixed CPU/blocking tools under sustained fixed-rate load
+python benchmarks/run_benchmark.py --workload mcp --workers 4 --duration 120 \
+    --connections 4 --repeat 3 --rate 1000 \
+    --servers pounce,uvicorn \
+    --artifact-output artifacts/mcp-sustained.json
 
 # Repeat each workload for artifact variance
 python benchmarks/run_benchmark.py --workload chirp --repeat 5 --artifact-output artifacts/chirp.json
@@ -59,6 +65,15 @@ python benchmarks/run_benchmark.py --workload chirp --artifact-output artifacts/
 | `chirp_asset` | `benchmarks.apps.chirp_forum:app` | Chirp/LB Sonic-shaped forum CSS asset |
 | `chirp_events` | `benchmarks.apps.chirp_forum:app` | Chirp/LB Sonic-shaped forum SSE first event |
 | `chirp_home` | `benchmarks.apps.chirp_forum:app` | Chirp/LB Sonic-shaped multi-tenant forum home |
+| `mcp` | `benchmarks.apps.milo_mcp:app` | Real Milo Streamable HTTP `tools/call` requests alternating pure-Python CPU and blocking handlers |
+
+The `mcp` workload requires Milo's public `CLI.asgi_app()` implementation.
+Until [milo-cli#127](https://github.com/lbliii/milo-cli/pull/127) reaches a
+release, install that branch in the benchmark environment and treat every run
+as development evidence, not a public product claim. The workload requires
+`--rate` because its alternating JSON bodies and routing/auth headers use the
+built-in coordinated-omission-safe driver; `wrk` and `hey` are rejected rather
+than silently measuring a different request.
 
 ### Runner Options
 
