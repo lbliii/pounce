@@ -131,6 +131,7 @@ def _start_supervisor(
 class TestSubinterpreterFDLeak:
     """No net FD growth across abnormal respawns and force-stopped reloads."""
 
+    @pytest.mark.issue(106)
     def test_no_fd_leak_across_abnormal_respawns(self) -> None:
         """Killing the worker via IIC shutdown (simulated crash) N times must
         not leak the dup'd listener FD: the parent reclaims it on respawn."""

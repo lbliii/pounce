@@ -148,6 +148,7 @@ class _WorkerHandle:
         "restart_count",
         "restarts",
         "sock_fd",
+        "sock_fd_closed_by_worker",
         "started_at",
         "target",
         "worker",
@@ -174,6 +175,11 @@ class _WorkerHandle:
         # The parent records it so it can reclaim the FD if the subinterpreter
         # stops abnormally without its own clean self-close (issue #106).
         self.sock_fd: int | None = None
+        # Main-interpreter Event set only after the generated subinterpreter
+        # wrapper confirms that its FD cleanup ran. This prevents the parent
+        # from closing a stale descriptor number that the OS has already
+        # reassigned between worker exit and the health-monitor tick.
+        self.sock_fd_closed_by_worker: threading.Event | None = None
 
 
 class _H3WorkerHandle:
@@ -1185,6 +1191,8 @@ class Supervisor:
         # Create IIC queues for this worker
         ctrl_queue = ci.create_queue()
         status_queue = ci.create_queue()
+        fd_status_queue = ci.create_queue()
+        fd_closed_by_worker = threading.Event()
 
         # Serialize config to JSON (IIC-safe string)
         config_json = self._config.to_json()
@@ -1214,6 +1222,7 @@ class Supervisor:
             interp.prepare_main(
                 ctrl_queue=ctrl_queue,
                 status_queue=status_queue,
+                fd_status_queue=fd_status_queue,
                 config_json=config_json,
                 lifespan_state_json=lifespan_state_json,
                 app_import_path=self._app_path,
@@ -1230,12 +1239,22 @@ class Supervisor:
         # Bootstrap code: set sys.path first (subinterpreter starts with minimal path),
         # then import and call the bootstrap function.
         bootstrap_code = (
+            "import contextlib\n"
+            "import os\n"
             "import sys\n"
             "sys.path[:] = list(parent_sys_path)\n"
-            "from pounce._subinterpreter_bootstrap import bootstrap\n"
-            "bootstrap(ctrl_queue, status_queue, config_json, lifespan_state_json,\n"
-            "          app_import_path, sock_fd, sock_family, worker_id, generation, "
+            "_pounce_bootstrap_called = False\n"
+            "try:\n"
+            "    from pounce._subinterpreter_bootstrap import bootstrap\n"
+            "    _pounce_bootstrap_called = True\n"
+            "    bootstrap(ctrl_queue, status_queue, config_json, lifespan_state_json,\n"
+            "              app_import_path, sock_fd, sock_family, worker_id, generation, "
             "parent_sys_path)\n"
+            "finally:\n"
+            "    if not _pounce_bootstrap_called:\n"
+            "        with contextlib.suppress(OSError):\n"
+            "            os.close(sock_fd)\n"
+            "    fd_status_queue.put(('closed',))\n"
         )
 
         def _run_subinterpreter() -> None:
@@ -1244,6 +1263,8 @@ class Supervisor:
             except Exception:
                 logger.exception("Subinterpreter worker %d failed", worker_id)
             finally:
+                if _try_iic_get(fd_status_queue) == ("closed",):
+                    fd_closed_by_worker.set()
                 with contextlib.suppress(
                     Exception
                 ):  # silent: best-effort cleanup of subinterpreter
@@ -1267,6 +1288,7 @@ class Supervisor:
         # Record the dup'd listener FD so the parent can reclaim it if this
         # worker stops abnormally without a clean self-close (issue #106).
         handle.sock_fd = sock_fd
+        handle.sock_fd_closed_by_worker = fd_closed_by_worker
         if worker_id < len(self._handles):
             self._handles[worker_id] = handle
         else:
@@ -1506,15 +1528,19 @@ class Supervisor:
         its descriptor budget (issue #106). The parent recorded the FD on
         :attr:`_WorkerHandle.sock_fd`, so it can reclaim it here.
 
-        ``contextlib.suppress(OSError)`` covers the race where the worker's own
-        clean self-close already closed this FD. The recorded value is cleared
-        afterwards so a later cycle cannot double-close an FD the OS may have
-        reassigned to an unrelated open file.
+        The generated bootstrap wrapper acknowledges its worker-side close with
+        a parent-owned Event before the host thread exits. In that case this
+        method only clears the record: calling ``os.close`` on the old numeric
+        value could close an unrelated resource if the OS already reused it.
+        Without an acknowledgement, the parent still owns abnormal cleanup.
         """
         fd = handle.sock_fd
         if fd is None:
             return
         handle.sock_fd = None
+        closed_by_worker = handle.sock_fd_closed_by_worker
+        if closed_by_worker is not None and closed_by_worker.is_set():
+            return
         with contextlib.suppress(OSError):
             os.close(fd)
 
