@@ -1,0 +1,32 @@
+# Main-branch canary image. Unlike the release recipe in Dockerfile, this
+# installs the repository checkout so every Railway source deployment proves
+# the exact commit that landed on main.
+FROM python:3.14-slim
+
+COPY --from=ghcr.io/astral-sh/uv:0.10.8 /uv /usr/local/bin/uv
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHON_GIL=0 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_INSTALL_DIR=/opt/uv-python \
+    PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /src
+COPY pyproject.toml README.md /src/
+COPY src /src/src
+
+RUN uv python install 3.14t \
+    && uv venv --managed-python --python 3.14t /opt/venv \
+    && uv pip install --python /opt/venv/bin/python /src \
+    && /opt/venv/bin/python -c "import pounce, sys; assert not sys._is_gil_enabled(); assert pounce.__file__.startswith('/opt/venv/')"
+
+RUN useradd --create-home --uid 10001 pounce
+WORKDIR /app
+COPY --chown=pounce:pounce examples/deploy/railway/app.py examples/deploy/railway/start.sh /app/
+RUN chmod 0555 /app/start.sh
+
+USER pounce
+
+EXPOSE 8000
+CMD ["/app/start.sh"]

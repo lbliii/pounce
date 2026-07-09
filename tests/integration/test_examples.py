@@ -497,12 +497,50 @@ def test_railway_deploy_strips_untrusted_forwarded() -> None:
         sock.close()
 
 
+@pytest.mark.timeout(10)
+def test_railway_probe_reports_build_identity_and_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The public canary exposes only explicit build identity and a finite SSE proof."""
+    from examples.railway_deploy import app
+
+    monkeypatch.setenv("POUNCE_DEPLOYMENT_CHANNEL", "main-canary")
+    monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "abc123")
+    monkeypatch.setenv("RAILWAY_GIT_BRANCH", "main")
+    worker, sock, thread = start_worker(app)
+    addr = sock.getsockname()
+
+    try:
+        root = send_raw_request(
+            addr,
+            b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        assert b'"channel":"main-canary"' in root
+        assert b'"git_commit":"abc123"' in root
+        assert b'"git_branch":"main"' in root
+        assert b'"pounce_version":' in root
+        assert b'"python_version":' in root
+
+        stream = send_raw_request(
+            addr,
+            b"GET /stream HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        assert b"content-type: text/event-stream" in stream.lower()
+        assert stream.count(b"event: canary\n") == 2
+        assert b'"git_commit":"abc123"' in stream
+    finally:
+        worker.shutdown()
+        thread.join(timeout=3)
+        sock.close()
+
+
 @pytest.mark.issue(248)
 @pytest.mark.issue(291)
 def test_railway_recipe_assets_encode_the_deployment_contract() -> None:
     """Docker and Railway config keep 3.14t, readiness, and drain aligned."""
     recipe = Path(__file__).parents[2] / "examples" / "deploy" / "railway"
     dockerfile = (recipe / "Dockerfile").read_text(encoding="utf-8")
+    canary_dockerfile = (recipe / "Dockerfile.canary").read_text(encoding="utf-8")
     start = (recipe / "start.sh").read_text(encoding="utf-8")
     with (recipe / "railway.toml").open("rb") as file:
         railway = tomllib.load(file)
@@ -513,6 +551,10 @@ def test_railway_recipe_assets_encode_the_deployment_contract() -> None:
     assert '/opt/venv/bin/python -c "import sys; assert not sys._is_gil_enabled()"' in dockerfile
     assert "PYTHON_GIL=0" in dockerfile
     assert "USER pounce" in dockerfile
+    assert "COPY src /src/src" in canary_dockerfile
+    assert "uv pip install --python /opt/venv/bin/python /src" in canary_dockerfile
+    assert "bengal-pounce==" not in canary_dockerfile
+    assert "examples/deploy/railway/app.py" in canary_dockerfile
     assert "assert not sys._is_gil_enabled()" in start
     assert "${PORT:?Railway must provide PORT}" in start
 
@@ -541,6 +583,37 @@ def test_railway_smoke_accepts_current_cli_deployment_json() -> None:
         deployment
     ], json_payload
     assert _deployment_items('{"deployments":[{"id":"dep-1","status":"SUCCESS"}]}') == [deployment]
+
+
+def test_railway_canary_probe_matches_only_the_full_expected_commit() -> None:
+    from examples.deploy.railway.canary_probe import _matches_expected_commit, _verify_runtime
+
+    sha = "a" * 40
+    payload = {
+        "status": "ok",
+        "channel": "main-canary",
+        "gil_enabled": False,
+        "git_commit": sha,
+        "pounce_version": "0.8.2",
+        "python_version": "3.14.3",
+    }
+    assert _matches_expected_commit(payload, sha)
+    assert not _matches_expected_commit(payload, "a" * 39)
+    _verify_runtime(payload, sha)
+
+
+def test_railway_main_canary_workflow_is_public_and_main_scoped() -> None:
+    workflow = (Path(__file__).parents[2] / ".github/workflows/railway-main-canary.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "push:" in workflow
+    assert "branches: [main]" in workflow
+    assert "github.repository == 'lbliii/pounce'" in workflow
+    assert "${{ github.sha }}" in workflow
+    assert "canary_probe.py" in workflow
+    assert "pounce-railway-smoke-production.up.railway.app" in workflow
+    assert "secrets." not in workflow
 
 
 # ---------------------------------------------------------------------------

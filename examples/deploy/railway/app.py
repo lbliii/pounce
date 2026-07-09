@@ -8,7 +8,23 @@ import os
 import sys
 from typing import Any
 
-from pounce import ServerConfig, run
+from pounce import ServerConfig, __version__, run
+
+
+def _runtime_payload(scope: dict[str, Any]) -> dict[str, Any]:
+    """Return public, non-secret identity for the deployed Pounce build."""
+    return {
+        "status": "ok",
+        "service": os.environ.get("RAILWAY_SERVICE_NAME", "pounce-railway"),
+        "channel": os.environ.get("POUNCE_DEPLOYMENT_CHANNEL", "release"),
+        "message": "Hello from pounce on Railway!",
+        "pounce_version": __version__,
+        "python_version": sys.version.split()[0],
+        "gil_enabled": sys._is_gil_enabled(),
+        "git_commit": os.environ.get("RAILWAY_GIT_COMMIT_SHA"),
+        "git_branch": os.environ.get("RAILWAY_GIT_BRANCH"),
+        "scheme": scope["scheme"],
+    }
 
 
 async def app(scope: dict[str, Any], receive: Any, send: Any) -> None:
@@ -26,19 +42,40 @@ async def app(scope: dict[str, Any], receive: Any, send: Any) -> None:
         return
 
     await receive()
+    if scope["path"] == "/stream":
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"text/event-stream"),
+                    (b"cache-control", b"no-cache"),
+                ],
+            }
+        )
+        for sequence in (1, 2):
+            event = json.dumps(
+                {
+                    "sequence": sequence,
+                    "git_commit": os.environ.get("RAILWAY_GIT_COMMIT_SHA"),
+                },
+                separators=(",", ":"),
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": f"event: canary\ndata: {event}\n\n".encode(),
+                    "more_body": sequence == 1,
+                }
+            )
+            if sequence == 1:
+                await asyncio.sleep(0.05)
+        return
+
     if scope["path"] == "/slow":
         await asyncio.sleep(float(os.environ.get("POUNCE_RECIPE_SLOW_SECONDS", "1.5")))
 
-    body = json.dumps(
-        {
-            "status": "ok",
-            "service": "pounce-railway",
-            "message": "Hello from pounce on Railway!",
-            "gil_enabled": sys._is_gil_enabled(),
-            "scheme": scope["scheme"],
-        },
-        separators=(",", ":"),
-    ).encode("utf-8")
+    body = json.dumps(_runtime_payload(scope), separators=(",", ":")).encode("utf-8")
     await send(
         {
             "type": "http.response.start",
