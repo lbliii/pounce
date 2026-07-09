@@ -212,7 +212,7 @@ exclude_lines = [
 
 [dependency-groups]
 docs = [
-    "bengal>=0.2.6", # Static site generator for documentation
+    "bengal>=0.5.1", # Static site generator for documentation
     "lunr>=0.8.0",   # Pre-built search index
 ]
 test-frameworks = [
