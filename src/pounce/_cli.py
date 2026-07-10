@@ -9,78 +9,70 @@ Built on milo-cli for type-driven parsing, MCP server, and llms.txt generation.
 
 """
 
-import argparse
 import sys
+import warnings
 from pathlib import Path
+from typing import Any
 
 from milo.commands import CLI
+from milo.help import HelpState
 
 from pounce import __version__
-from pounce._bench import _BENCH_HELP, register_bench_command
+from pounce._bench import register_bench_command
 from pounce._importer import import_app
 from pounce.config import ServerConfig
 from pounce.display import CliDisplayOverrides
 from pounce.server import Server
 
 
-def _render_branded_help(parser: argparse.ArgumentParser) -> str:
-    """Render help for a parser through pounce's help.kida template."""
+def _render_help_state(state: HelpState) -> str:
+    """Render Milo help metadata through Pounce's branded template."""
+    import os
+
     from pounce._output import _get_env
 
-    env = _get_env()
-    template = env.get_template("help.kida")
+    try:
+        output = _get_env().get_template("help.kida").render(state=state)
+        force_color = os.environ.get("FORCE_COLOR") == "1"
+        if not force_color and (os.environ.get("NO_COLOR") is not None or not sys.stdout.isatty()):
+            from kida.environment.terminal import strip_colors
 
-    from milo.help import HelpState
+            output = strip_colors(output)
+        return output
+    except Exception as exc:
+        warnings.warn(
+            f"Pounce help rendering failed for {state.prog!r}: {exc}. "
+            "Falling back to plain text.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return _render_plain_help(state)
 
-    # Build subcommand help text from parser choices.
-    # Argparse names the subparser dest based on the parser group: the top-level
-    # pounce parser uses ``_command``, while ``cli.group("config", ...)`` builds
-    # a nested parser whose dest is ``_command_config``. Accept both shapes so
-    # nested command groups render their subcommands instead of leaking the
-    # internal dest as a positional.
-    _sub_help = {}
-    for action_group in parser._action_groups:
-        for action in action_group._group_actions:
-            is_subcommand = action.dest == "_command" or action.dest.startswith("_command_")
-            if is_subcommand and isinstance(action.choices, dict):
-                for name, sp in action.choices.items():
-                    if isinstance(sp, argparse.ArgumentParser):
-                        # Use the 'help' kwarg from add_parser(), stored on the action
-                        _sub_help[name] = ""
-                # Also check the subparser action's _choices_actions for help text
-                for choice_action in getattr(action, "_choices_actions", []):
-                    _sub_help[choice_action.dest] = choice_action.help or ""
 
-    groups = []
-    for action_group in parser._action_groups:
-        actions = []
-        for action in action_group._group_actions:
-            choices = action.choices
-            is_subcommand = action.dest == "_command" or action.dest.startswith("_command_")
-            if is_subcommand and isinstance(choices, dict):
-                choices = {name: _sub_help.get(name, "") for name in choices}
-            actions.append(
-                {
-                    "option_strings": action.option_strings,
-                    "dest": action.dest,
-                    "help": action.help or "",
-                    "default": action.default,
-                    "required": getattr(action, "required", False),
-                    "choices": choices,
-                    "nargs": action.nargs,
-                    "metavar": action.metavar,
-                }
-            )
-        if actions:
-            groups.append({"title": action_group.title or "", "actions": actions})
+def _render_plain_help(state: HelpState) -> str:
+    """Render dependency-free plain help when the branded template fails."""
+    heading = f"{state.prog} - {state.description}" if state.description else state.prog
+    lines = [heading]
+    if state.commands:
+        lines.extend(["", "Commands:"])
+        lines.extend(f"  {cmd['name']:<20} {cmd.get('help', '')}" for cmd in state.commands)
+    if state.options:
+        lines.extend(["", "Options:"])
+        lines.extend(f"  {opt['flags']:<20} {opt.get('help', '')}" for opt in state.options)
+    for group in state.groups:
+        lines.extend(["", f"{group.get('title', 'Options').title()}:"])
+        for action in group.get("actions", ()):
+            flags = ", ".join(action.get("option_strings", ())) or action.get("dest", "")
+            lines.append(f"  {flags:<20} {action.get('help', '')}")
+    if state.epilog:
+        lines.extend(["", state.epilog])
+    return "\n".join(lines)
 
-    state = HelpState(
-        prog=parser.prog,
-        description=parser.description or "",
-        groups=tuple(groups),
-        epilog=_config_epilog_for(parser.prog),
-    )
-    return template.render(state=state)
+
+def _write_help(state: HelpState) -> None:
+    """Write one complete help report to stdout."""
+    sys.stdout.write(_render_help_state(state).rstrip() + "\n")
+    sys.stdout.flush()
 
 
 _CONFIG_EPILOG = (
@@ -97,102 +89,113 @@ def _config_epilog_for(prog: str) -> str:
     return ""
 
 
-def _install_branded_help(parser: argparse.ArgumentParser) -> None:
-    """Patch format_help on a parser and all its subparsers to use branded templates."""
-    original = parser.format_help
-
-    def branded_format_help() -> str:
-        try:
-            return _render_branded_help(parser)
-        except Exception:
-            return original()
-
-    parser.format_help = branded_format_help  # ty: ignore[invalid-assignment]
-
-    if parser._subparsers:
-        for action in parser._subparsers._actions:
-            choices = getattr(action, "choices", None)
-            if not isinstance(choices, dict):
-                continue
-            for sp in choices.values():
-                _install_branded_help(sp)
-
-
-# Help text for serve arguments (milo doesn't propagate these from annotations).
-_SERVE_HELP = {
-    "app": "ASGI application (e.g., 'myapp:app' or 'myapp:create_app()')",
-    "config": "Path to config file (pounce.toml or pyproject.toml); auto-detected if omitted",
-    "host": "Bind address",
-    "port": "Bind port",
-    "workers": "Number of workers; 0 = auto-detect",
-    "worker_mode": "Worker model: auto, sync, async, or subinterpreter",
-    "cpu_affinity": "Pin each worker to a CPU core (Linux only)",
-    "log_level": "Log level",
-    "log_format": "Log format: auto, text, or json",
-    "root_path": "ASGI root_path for reverse proxy setups",
-    "no_compression": "Disable response compression (config file: compression = false)",
-    "server_timing": "Enable Server-Timing header injection",
-    "no_access_log": "Disable access logging (config file: access_log = false)",
-    "ssl_certfile": "Path to TLS certificate file (enables HTTPS)",
-    "ssl_keyfile": "Path to TLS private key file",
-    "no_http2": "Disable h2 ALPN advertisement; force HTTP/1.1 at the TLS origin",
-    "http3": "Enable HTTP/3 (QUIC/UDP); requires TLS (config: http3_enabled)",
-    "reload": "Auto-reload on source file changes",
-    "reload_include": "Extra file extensions to watch (comma-separated)",
-    "reload_dir": "Extra directories to watch (repeatable) (config: reload_dirs)",
-    "keep_alive_timeout": "Idle keep-alive timeout in seconds",
-    "header_timeout": "Header receive timeout in seconds",
-    "request_timeout": "Request body receive timeout in seconds",
-    "write_timeout": "Blocked response write timeout in seconds",
-    "startup_timeout": "Max seconds to wait for app lifespan startup",
-    "max_requests_per_connection": "Max requests per connection; 0 = unlimited",
-    "shutdown_timeout": "Max seconds per worker during shutdown",
-    "uds": "Unix domain socket path",
-    "health_check_path": "Built-in readiness endpoint path",
-    "debug": "Enable rich error pages (never use in production!)",
-    "trusted_hosts": "Comma-separated trusted hostnames for X-Forwarded-* headers",
-    "metrics": "Enable Prometheus /metrics endpoint (config: metrics_enabled)",
-    "app_name": "Application name shown in the startup banner",
-    "app_tagline": "Short description shown under the application name",
-    "app_version": "Application version string for the startup banner",
-    "signage": "Banner layout: full, minimal, or off (pretty mode only)",
-}
-
-
-_CHECK_HELP = {
-    **_SERVE_HELP,
-}
-
-_INFO_HELP = {
-    "app": "ASGI application (optional, for framework detection)",
-}
-
-# Merge all help dicts for subparser enrichment
-_ALL_HELP = {**_SERVE_HELP, **_CHECK_HELP, **_INFO_HELP, **_BENCH_HELP}
-
-
-def _enrich_subparser_help(parser: argparse.ArgumentParser) -> None:
-    """Add help text to subparser arguments that milo left blank."""
-    if parser._subparsers:
-        for action in parser._subparsers._actions:
-            choices = getattr(action, "choices", None)
-            if not isinstance(choices, dict):
-                continue
-            for sp in choices.values():
-                for ag in sp._action_groups:
-                    for a in ag._group_actions:
-                        if not a.help and a.dest in _ALL_HELP:
-                            a.help = _ALL_HELP[a.dest]
-
-
 class _PounceCLI(CLI):
-    """CLI subclass that enables branded help output."""
+    """CLI subclass that renders Milo metadata with Pounce branding."""
 
-    def build_parser(self) -> argparse.ArgumentParser:
-        parser = super().build_parser()
-        _enrich_subparser_help(parser)
-        _install_branded_help(parser)
-        return parser
+    def _format_root_help(self) -> None:
+        commands = tuple(
+            [
+                {"name": cmd.name, "help": cmd.description}
+                for cmd in self.commands.values()
+                if not cmd.hidden and "cli" in cmd.surfaces
+            ]
+            + [
+                {"name": group.name, "help": group.description}
+                for group in self.groups.values()
+                if not group.hidden
+            ]
+        )
+        options = tuple(
+            {
+                "flags": ", ".join(spec.flags),
+                "help": spec.description,
+                "metavar": spec.metavar,
+                "default": spec.default,
+            }
+            for spec in self.root_option_specs()
+        )
+        _write_help(
+            HelpState(
+                prog=self.name,
+                description=self.description,
+                commands=commands,
+                options=options,
+            )
+        )
+
+    def _format_group_help(self, group: Any, prog: str) -> None:
+        definition = group.to_def()
+        commands = tuple(
+            [
+                {"name": cmd.name, "help": cmd.description}
+                for cmd in definition.commands.values()
+                if not cmd.hidden and "cli" in cmd.surfaces
+            ]
+            + [
+                {"name": child.name, "help": child.description}
+                for child in definition.groups.values()
+                if not child.hidden
+            ]
+        )
+        _write_help(
+            HelpState(
+                prog=prog,
+                description=definition.description,
+                commands=commands,
+            )
+        )
+
+    def _format_command_help(self, command: Any, prog: str) -> None:
+        schema = command.schema
+        required = set(schema.get("required", ()))
+        actions: list[dict[str, Any]] = [
+            {
+                "option_strings": ("-h", "--help"),
+                "dest": "help",
+                "help": "show this help message and exit",
+                "default": "==SUPPRESS==",
+                "required": False,
+                "choices": None,
+                "nargs": 0,
+                "metavar": None,
+            }
+        ]
+        for name, prop in schema.get("properties", {}).items():
+            presentation = prop.get("x-milo-cli", {})
+            positional = presentation.get("kind") == "positional"
+            actions.append(
+                {
+                    "option_strings": () if positional else (f"--{name.replace('_', '-')}",),
+                    "dest": name,
+                    "help": prop.get("description", ""),
+                    "default": prop.get("default", "==SUPPRESS=="),
+                    "required": name in required,
+                    "choices": prop.get("enum"),
+                    "nargs": "+" if prop.get("type") == "array" else None,
+                    "metavar": presentation.get("metavar"),
+                }
+            )
+        actions.append(
+            {
+                "option_strings": ("--format",),
+                "dest": "format",
+                "help": "Output format",
+                "default": "plain",
+                "required": False,
+                "choices": ("plain", "json", "table"),
+                "nargs": None,
+                "metavar": None,
+            }
+        )
+        _write_help(
+            HelpState(
+                prog=prog,
+                description=command.description,
+                groups=({"title": "Options", "actions": tuple(actions)},),
+                examples=tuple(command.examples),
+                epilog=_config_epilog_for(prog),
+            )
+        )
 
 
 cli = _PounceCLI(
@@ -247,6 +250,44 @@ def serve(
 
     Accepts an ASGI application reference (e.g., 'myapp:app' or
     'myapp:create_app()') and starts serving it.
+
+    Args:
+        app: ASGI application (e.g., ``myapp:app`` or ``myapp:create_app()``).
+        config: Path to pounce.toml or pyproject.toml; auto-detected if omitted.
+        host: Bind address.
+        port: Bind port.
+        workers: Number of workers; zero selects the automatic default.
+        worker_mode: Worker model: auto, sync, async, or subinterpreter.
+        cpu_affinity: Pin each worker to a CPU core on Linux.
+        log_level: Log level.
+        log_format: Log format: auto, text, or json.
+        root_path: ASGI root path for reverse-proxy setups.
+        no_compression: Disable response compression.
+        server_timing: Enable Server-Timing header injection.
+        no_access_log: Disable access logging.
+        ssl_certfile: TLS certificate path; enables HTTPS.
+        ssl_keyfile: TLS private-key path.
+        no_http2: Disable h2 ALPN advertisement and force HTTP/1.1 at the origin.
+        http3: Enable HTTP/3; requires TLS and the h3 extra.
+        reload: Reload automatically when source files change.
+        reload_include: Extra file extensions to watch, comma-separated.
+        reload_dir: Extra directories to watch; may be repeated.
+        keep_alive_timeout: Idle keep-alive timeout in seconds.
+        header_timeout: Header receive timeout in seconds.
+        request_timeout: Request-body receive timeout in seconds.
+        write_timeout: Blocked response-write timeout in seconds.
+        startup_timeout: Maximum lifespan-startup wait in seconds.
+        max_requests_per_connection: Requests per connection; zero is unlimited.
+        shutdown_timeout: Maximum worker-shutdown wait in seconds.
+        uds: Unix domain socket path.
+        health_check_path: Built-in readiness endpoint path.
+        debug: Enable rich error pages; never enable in production.
+        trusted_hosts: Trusted proxy hostnames, comma-separated.
+        metrics: Enable the Prometheus metrics endpoint.
+        app_name: Application name displayed in the startup banner.
+        app_tagline: Short description displayed below the application name.
+        app_version: Application version displayed in the startup banner.
+        signage: Banner layout: full, minimal, or off.
     """
     # Ensure current directory is on sys.path so that local modules
     # can be imported (e.g., ``pounce serve --app myapp:app`` from the project dir).
@@ -663,6 +704,9 @@ def info(output_format: str = "text") -> None:
 
     Pass ``--output-format json`` for a stable, machine-readable dict suitable
     for ``pounce info --output-format json | jq``.
+
+    Args:
+        output_format: Output format: text or json.
     """
     import os
     import platform
@@ -744,6 +788,44 @@ def check(
 
     Takes the same arguments as ``serve`` and validates them without
     starting the server.  Exits with code 1 if any check fails.
+
+    Args:
+        app: ASGI application (e.g., ``myapp:app`` or ``myapp:create_app()``).
+        config: Path to pounce.toml or pyproject.toml; auto-detected if omitted.
+        host: Bind address.
+        port: Bind port.
+        workers: Number of workers; zero selects the automatic default.
+        worker_mode: Worker model: auto, sync, async, or subinterpreter.
+        cpu_affinity: Pin each worker to a CPU core on Linux.
+        log_level: Log level.
+        log_format: Log format: auto, text, or json.
+        root_path: ASGI root path for reverse-proxy setups.
+        no_compression: Disable response compression.
+        server_timing: Enable Server-Timing header injection.
+        no_access_log: Disable access logging.
+        ssl_certfile: TLS certificate path; enables HTTPS.
+        ssl_keyfile: TLS private-key path.
+        no_http2: Disable h2 ALPN advertisement and force HTTP/1.1 at the origin.
+        http3: Enable HTTP/3; requires TLS and the h3 extra.
+        reload: Reload automatically when source files change.
+        reload_include: Extra file extensions to watch, comma-separated.
+        reload_dir: Extra directories to watch; may be repeated.
+        keep_alive_timeout: Idle keep-alive timeout in seconds.
+        header_timeout: Header receive timeout in seconds.
+        request_timeout: Request-body receive timeout in seconds.
+        write_timeout: Blocked response-write timeout in seconds.
+        startup_timeout: Maximum lifespan-startup wait in seconds.
+        max_requests_per_connection: Requests per connection; zero is unlimited.
+        shutdown_timeout: Maximum worker-shutdown wait in seconds.
+        uds: Unix domain socket path.
+        health_check_path: Built-in readiness endpoint path.
+        debug: Enable rich error pages; never enable in production.
+        trusted_hosts: Trusted proxy hostnames, comma-separated.
+        metrics: Enable the Prometheus metrics endpoint.
+        app_name: Application name displayed in the startup banner.
+        app_tagline: Short description displayed below the application name.
+        app_version: Application version displayed in the startup banner.
+        signage: Banner layout: full, minimal, or off.
     """
     if "" not in sys.path and "." not in sys.path:
         sys.path.insert(0, ".")
@@ -1085,6 +1167,10 @@ def init(directory: str | None = None, force: bool = False) -> None:
     Refuses to overwrite existing scaffold files unless ``--force`` is set.
     Intended for fresh directories — real projects already have their own
     app and config.
+
+    Args:
+        directory: Target directory; defaults to the current directory.
+        force: Overwrite existing scaffold files.
     """
     from pounce._init import InitError, run_init
 
@@ -1129,6 +1215,9 @@ def config_schema(output_format: str = "json") -> None:
     document with types, defaults, and enum constraints.
     ``--output-format toml-template`` emits a commented ``pounce.toml``
     skeleton ready to uncomment and edit.
+
+    Args:
+        output_format: Output format: json or toml-template.
     """
     import json as _json
 
@@ -1167,6 +1256,13 @@ def config_show(
     Secrets and filesystem paths are never printed — fields classified as
     ``REDACT_TO_BOOL`` appear as ``<name>_set = true|false``, and fields
     outside the allowlist are omitted entirely.
+
+    Args:
+        config: Path to pounce.toml or pyproject.toml; auto-detected if omitted.
+        output_format: Output format: toml or json.
+        host: Override the displayed bind address.
+        port: Override the displayed bind port.
+        workers: Override the displayed worker count.
     """
     import json as _json
 

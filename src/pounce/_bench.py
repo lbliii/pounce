@@ -514,14 +514,6 @@ def _format_results(suites: list[BenchSuite]) -> str:
 # ── CLI registration ─────────────────────────────────────────────────
 
 
-_BENCH_HELP = {
-    "workers": "Number of server workers (default: 1)",
-    "duration": "Duration of each workload in seconds (default: 10)",
-    "connections": "Number of concurrent connections (default: 50)",
-    "compare": "Also benchmark uvicorn for comparison",
-}
-
-
 def register_bench_command(cli: Any) -> None:
     """Register the ``bench`` subcommand on the CLI."""
 
@@ -547,6 +539,12 @@ def register_bench_command(cli: Any) -> None:
         product claim. For reproducible, citable evidence (git SHA, variance,
         CPU/RSS telemetry) use ``benchmarks/run_benchmark.py --artifact-output``,
         which emits artifacts following ``benchmarks/artifact-schema.json``.
+
+        Args:
+            workers: Number of server workers.
+            duration: Duration of each workload in seconds.
+            connections: Number of concurrent connections.
+            compare: Also benchmark uvicorn for comparison.
         """
         suites: list[BenchSuite] = []
 
