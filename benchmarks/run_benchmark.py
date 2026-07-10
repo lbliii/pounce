@@ -42,13 +42,14 @@ import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 
 try:
-    from benchmarks.fixed_rate import run_fixed_rate
+    from benchmarks.fixed_rate import FixedRateRequest, run_fixed_rate
 except ModuleNotFoundError:
     # Direct ``python benchmarks/run_benchmark.py`` execution places the
     # benchmarks directory, not the repository root, on sys.path.
-    from fixed_rate import run_fixed_rate
+    from fixed_rate import FixedRateRequest, run_fixed_rate
 
 _COMMAND_ERRORS = (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired)
 _LOAD_TOOL_FIND_ERRORS = (FileNotFoundError, subprocess.TimeoutExpired)
@@ -106,7 +107,48 @@ class BenchmarkSuite:
 # Workload definitions
 # ---------------------------------------------------------------------------
 
-WORKLOADS: dict[str, dict[str, str]] = {
+
+def _mcp_tool_request(
+    request_id: int,
+    name: str,
+    arguments: dict[str, object],
+) -> FixedRateRequest:
+    body = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "tools/call",
+            "params": {
+                "name": name,
+                "arguments": arguments,
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientInfo": {
+                        "name": "pounce-benchmark",
+                        "version": "1.0",
+                    },
+                    "io.modelcontextprotocol/clientCapabilities": {},
+                },
+            },
+        },
+        separators=(",", ":"),
+    ).encode()
+    return FixedRateRequest(
+        method="POST",
+        body=body,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            "MCP-Protocol-Version": "2026-07-28",
+            "Mcp-Method": "tools/call",
+            "Mcp-Name": name,
+            "Authorization": "Bearer pounce-benchmark-token",
+            "Origin": "https://benchmark.invalid",
+        },
+    )
+
+
+WORKLOADS: dict[str, dict[str, Any]] = {
     "hello": {
         "app": "benchmarks.apps.hello:app",
         "description": "Minimal hello-world (measures server overhead)",
@@ -173,6 +215,17 @@ WORKLOADS: dict[str, dict[str, str]] = {
         "description": "Chirp/LB Sonic-shaped multi-tenant forum home",
         "method": "GET",
         "path": "/",
+    },
+    "mcp": {
+        "app": "benchmarks.apps.milo_mcp:app",
+        "description": "Milo MCP tools/call mix (CPU and blocking handlers)",
+        "method": "POST",
+        "path": "/mcp",
+        "fixed_rate_only": True,
+        "requests": (
+            _mcp_tool_request(1, "cpu_digest", {"iterations": 2500}),
+            _mcp_tool_request(2, "blocking_lookup", {"delay_ms": 5}),
+        ),
     },
 }
 
@@ -266,6 +319,17 @@ def _sample_plan(workloads: list[str], repeat: int) -> list[tuple[int, str]]:
         raise ValueError(msg)
     return [
         (sample_index, workload) for sample_index in range(1, repeat + 1) for workload in workloads
+    ]
+
+
+def _workload_plan(workload: str, *, fixed_rate: bool) -> list[str]:
+    """Expand ``all`` without selecting workloads the active driver cannot run."""
+    if workload != "all":
+        return [workload]
+    return [
+        name
+        for name, config in WORKLOADS.items()
+        if fixed_rate or not config.get("fixed_rate_only")
     ]
 
 
@@ -786,6 +850,8 @@ def run_benchmark(
     tool = load_tool or ("pounce-fixed-rate" if rate is not None else _find_load_tool())
     if tool == "pounce-fixed-rate" and (rate is None or rate < 1):
         raise ValueError("fixed-rate load requires rate >= 1")
+    if wl.get("fixed_rate_only") and tool != "pounce-fixed-rate":
+        raise ValueError(f"{workload} workload requires --rate and the fixed-rate driver")
     results: list[BenchmarkResult] = []
 
     method = wl.get("method", "GET")
@@ -800,6 +866,7 @@ def run_benchmark(
                 rate=rate or 0,
                 method=method,
                 body_size=body_size,
+                requests=wl.get("requests"),
             )
         runner = _run_wrk if tool == "wrk" else _run_hey
         return runner(
@@ -1126,7 +1193,7 @@ def build_artifact(
     else:
         comparison_target = None
         comparison_version = None
-    workloads = list(WORKLOADS) if workload == "all" else [workload]
+    workloads = _workload_plan(workload, fixed_rate=load_tool == "pounce-fixed-rate")
     for wl in workloads:
         for server_index, server_name in enumerate(selected_servers):
             server_commands[f"{server_name}:{wl}"] = _command_string(
@@ -1668,7 +1735,7 @@ def main() -> None:
         platform=platform.platform(),
     )
 
-    workloads = list(WORKLOADS) if args.workload == "all" else [args.workload]
+    workloads = _workload_plan(args.workload, fixed_rate=args.rate is not None)
     all_results: list[BenchmarkResult] = []
 
     print("Pounce Benchmark Suite")

@@ -1,5 +1,6 @@
 """Unit tests for the standalone benchmark runner."""
 
+import json
 from copy import deepcopy
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import pytest
 
 import benchmarks.run_benchmark as runner
 from benchmarks.run_benchmark import (
+    WORKLOADS,
     BenchmarkSuite,
     _benchmark_url,
     _command_string,
@@ -16,9 +18,11 @@ from benchmarks.run_benchmark import (
     _server_command,
     _telemetry_block,
     _TelemetrySampler,
+    _workload_plan,
     build_artifact,
     build_profile_artifact,
     compare_artifact,
+    run_benchmark,
     save_artifact,
     validate_artifact,
 )
@@ -37,6 +41,38 @@ def test_benchmark_url_exposes_named_profile_paths() -> None:
     assert _benchmark_url(8100, "bengal_feed") == "http://127.0.0.1:8100/feed.xml"
     assert _benchmark_url(8100, "chirp_events") == "http://127.0.0.1:8100/events"
     assert _benchmark_url(8100, "chirp_home") == "http://127.0.0.1:8100/"
+
+
+@pytest.mark.issue(229)
+def test_mcp_workload_rotates_authenticated_cpu_and_blocking_calls() -> None:
+    workload = WORKLOADS["mcp"]
+    assert _benchmark_url(8100, "mcp") == "http://127.0.0.1:8100/mcp"
+    assert workload["app"] == "benchmarks.apps.milo_mcp:app"
+
+    requests = workload["requests"]
+    names = []
+    for request in requests:
+        payload = json.loads(request.body)
+        names.append(payload["params"]["name"])
+        assert request.headers["Authorization"] == "Bearer pounce-benchmark-token"
+        assert request.headers["Mcp-Method"] == "tools/call"
+        assert request.headers["Mcp-Name"] == payload["params"]["name"]
+        assert payload["params"]["_meta"]["io.modelcontextprotocol/protocolVersion"] == "2026-07-28"
+    assert names == ["cpu_digest", "blocking_lookup"]
+
+
+@pytest.mark.issue(229)
+def test_mcp_workload_requires_coordinated_omission_safe_driver() -> None:
+    with pytest.raises(ValueError, match="mcp workload requires --rate"):
+        run_benchmark(
+            workload="mcp",
+            workers=1,
+            duration=1,
+            threads=1,
+            connections=1,
+            compare=False,
+            load_tool="wrk",
+        )
 
 
 def test_pounce_server_command_uses_current_cli_shape() -> None:
@@ -99,6 +135,13 @@ def test_sample_plan_repeats_each_workload_in_order() -> None:
         (2, "hello"),
         (2, "chirp"),
     ]
+
+
+@pytest.mark.issue(229)
+def test_all_workloads_include_mcp_only_with_fixed_rate_driver() -> None:
+    assert "mcp" not in _workload_plan("all", fixed_rate=False)
+    assert "mcp" in _workload_plan("all", fixed_rate=True)
+    assert _workload_plan("mcp", fixed_rate=False) == ["mcp"]
 
 
 def test_sample_plan_rejects_zero_repeat() -> None:
