@@ -140,15 +140,18 @@ class TestWorkerModeHelpText:
     """The stable --worker-mode help stays aligned across commands."""
 
     def test_serve_help_lists_stable_subinterpreter_mode(self) -> None:
-        from pounce._cli import _SERVE_HELP
+        from pounce._cli import cli
 
-        assert "subinterpreter" in _SERVE_HELP["worker_mode"]
-        assert "beta" not in _SERVE_HELP["worker_mode"]
+        description = cli.commands["serve"].schema["properties"]["worker_mode"]["description"]
+        assert "subinterpreter" in description
+        assert "beta" not in description
 
     def test_check_inherits_stable_help(self) -> None:
         # 'check' must expose the same flags/help as 'serve' (parity).
-        from pounce._cli import _CHECK_HELP, _SERVE_HELP
+        from pounce._cli import cli
 
-        assert _CHECK_HELP["worker_mode"] == _SERVE_HELP["worker_mode"]
-        assert "subinterpreter" in _CHECK_HELP["worker_mode"]
-        assert "beta" not in _CHECK_HELP["worker_mode"]
+        serve = cli.commands["serve"].schema["properties"]["worker_mode"]["description"]
+        check = cli.commands["check"].schema["properties"]["worker_mode"]["description"]
+        assert check == serve
+        assert "subinterpreter" in check
+        assert "beta" not in check

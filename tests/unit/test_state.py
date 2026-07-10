@@ -7,7 +7,7 @@ Exercises the pure reducer (no mocks needed) and the store integration
 import logging
 
 import pytest
-from milo._types import Action
+from milo import Action
 
 from pounce._state import (
     BANNER,

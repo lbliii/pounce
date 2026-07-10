@@ -24,7 +24,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any, Final
 
-from milo._types import Action
+from milo import Action
 from milo.state import Store
 
 from pounce.config import ServerConfig
