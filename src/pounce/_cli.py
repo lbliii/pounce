@@ -41,8 +41,7 @@ def _render_help_state(state: HelpState) -> str:
         return output
     except Exception as exc:
         warnings.warn(
-            f"Pounce help rendering failed for {state.prog!r}: {exc}. "
-            "Falling back to plain text.",
+            f"Pounce help rendering failed for {state.prog!r}: {exc}. Falling back to plain text.",
             UserWarning,
             stacklevel=2,
         )

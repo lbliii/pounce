@@ -139,7 +139,9 @@ class TestServeCheckHelp:
         assert serve_tool["inputSchema"]["properties"]["worker_mode"]["description"] == expected
         assert expected in _run_help("serve")
 
-    def test_root_help_does_not_import_lazy_commands(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_root_help_does_not_import_lazy_commands(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pounce._cli import _PounceCLI
 
         lazy_cli = _PounceCLI(name="pounce", description="lazy fixture")
