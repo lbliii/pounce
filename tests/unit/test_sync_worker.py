@@ -13,6 +13,8 @@ import threading
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from pounce._types import ASGIApp, Receive, Scope, Send
 from pounce.async_pool import StreamingHandoff, WebSocketHandoff
 from pounce.config import ServerConfig
@@ -104,6 +106,31 @@ class MockSocket(_MockSocketBase):
 
 class MockSocketNoSendmsg(_MockSocketBase):
     """Mock socket without sendmsg (e.g., SSL-wrapped sockets)."""
+
+
+class PartialSendmsgSocket(_MockSocketBase):
+    """Mock a legal partial ``sendmsg`` result in the header or body."""
+
+    def __init__(self, recv_data: bytes, *, partial_in: str) -> None:
+        super().__init__(recv_data)
+        self.partial_in = partial_in
+        self.sendmsg_calls = 0
+        self.sendall_calls = 0
+
+    def sendmsg(self, buffers: list[bytes | bytearray]) -> int:
+        self.sendmsg_calls += 1
+        head, body = buffers
+        if self.partial_in == "header":
+            accepted = min(7, len(head))
+        else:
+            accepted = len(head) + max(1, len(body) // 2)
+        data = bytes(head) + bytes(body)
+        self.sent_data.extend(data[:accepted])
+        return accepted
+
+    def sendall(self, data: bytes | bytearray) -> None:
+        self.sendall_calls += 1
+        super().sendall(data)
 
 
 def _build_http_request(
@@ -454,6 +481,35 @@ class TestSyncWorkerErrorPaths:
 
         response = bytes(mock_sock.sent_data)
         assert b"HTTP/1.1 200" in response
+
+    @staticmethod
+    def _assert_partial_sendmsg_is_completed(partial_in: str) -> None:
+        request_bytes = _build_http_request(headers={"Connection": "close"})
+        mock_sock = PartialSendmsgSocket(request_bytes, partial_in=partial_in)
+        worker = _make_worker()
+        runner = asyncio.Runner()
+        try:
+            worker._handle_connection(mock_sock, ("127.0.0.1", 54321), runner)
+        finally:
+            runner.close()
+
+        head, separator, body = bytes(mock_sock.sent_data).partition(b"\r\n\r\n")
+        assert separator == b"\r\n\r\n"
+        assert b"HTTP/1.1 200" in head
+        assert b"content-length: 2" in head.lower()
+        assert body == b"ok"
+        assert mock_sock.sendmsg_calls == 1
+        assert mock_sock.sendall_calls >= 1
+
+    @pytest.mark.issue(312)
+    def test_partial_sendmsg_in_header_is_completed(self) -> None:
+        """A partial header write cannot drop the header suffix or body."""
+        self._assert_partial_sendmsg_is_completed("header")
+
+    @pytest.mark.issue(312)
+    def test_partial_sendmsg_in_body_is_completed(self) -> None:
+        """A partial body write resumes at the exact unsent body offset."""
+        self._assert_partial_sendmsg_is_completed("body")
 
     def test_parse_error_returns_400(self) -> None:
         """Malformed request gets 400 Bad Request."""

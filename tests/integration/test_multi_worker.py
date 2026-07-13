@@ -60,6 +60,32 @@ async def _hello_app(scope: Scope, receive: Receive, send: Send) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
+_LARGE_BUFFERED_BODY = bytes(range(256)) * 4096  # 1 MiB, deterministic content
+
+
+async def _large_buffered_app(scope: Scope, receive: Receive, send: Send) -> None:
+    """Return a buffered response larger than a constrained socket send buffer."""
+    if scope["type"] == "lifespan":
+        while True:
+            message = await receive()
+            if message["type"] == "lifespan.startup":
+                await send({"type": "lifespan.startup.complete"})
+            elif message["type"] == "lifespan.shutdown":
+                await send({"type": "lifespan.shutdown.complete"})
+                return
+        return
+
+    await receive()
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-length", str(len(_LARGE_BUFFERED_BODY)).encode())],
+        }
+    )
+    await send({"type": "http.response.body", "body": _LARGE_BUFFERED_BODY})
+
+
 def _make_slow_app(started: threading.Event) -> ASGIApp:
     async def _app(scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "lifespan":
@@ -194,6 +220,55 @@ class TestMultiWorkerServing:
             for s in set(sockets):
                 with contextlib.suppress(Exception):
                     s.close()
+
+    @pytest.mark.issue(312)
+    def test_sync_worker_completes_large_buffered_response_under_backpressure(self):
+        """A real partial ``sendmsg`` delivers every buffered response byte."""
+        config = ServerConfig(
+            host="127.0.0.1",
+            port=0,
+            workers=1,
+            worker_mode="sync",
+            access_log=False,
+        )
+        sockets = create_listeners(config, 1, shared=True)
+        for listener in sockets:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+        addr = sockets[0].getsockname()
+        supervisor = Supervisor(config, _large_buffered_app, mode="thread")
+        thread = threading.Thread(target=supervisor.run, args=(sockets,), daemon=True)
+        thread.start()
+        _wait_for_ready(addr)
+
+        response = bytearray()
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(30.0)
+        try:
+            client.connect(addr)
+            client.sendall(
+                b"GET /catalog.json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+            )
+            time.sleep(0.05)
+            while True:
+                chunk = client.recv(4096)
+                if not chunk:
+                    break
+                response.extend(chunk)
+                time.sleep(0.0005)
+        finally:
+            client.close()
+            supervisor.shutdown()
+            thread.join(timeout=5.0)
+            for listener in set(sockets):
+                with contextlib.suppress(OSError):
+                    listener.close()
+
+        head, separator, body = bytes(response).partition(b"\r\n\r\n")
+        assert separator == b"\r\n\r\n"
+        assert b"HTTP/1.1 200" in head
+        assert f"content-length: {len(_LARGE_BUFFERED_BODY)}".encode() in head.lower()
+        assert body == _LARGE_BUFFERED_BODY
+        assert not thread.is_alive()
 
 
 class TestMultiWorkerShutdown:
