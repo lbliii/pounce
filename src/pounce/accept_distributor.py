@@ -14,7 +14,8 @@ import socket
 import ssl
 import threading
 
-from pounce._drain import write_drain_503_sync
+from pounce._drain import write_drain_503_sync, write_drain_response_sync
+from pounce.config import ServerConfig
 
 logger = logging.getLogger("pounce.accept_distributor")
 
@@ -39,6 +40,7 @@ class AcceptDistributor:
     """
 
     __slots__ = (
+        "_config",
         "_conn_queue",
         "_drain_event",
         "_ext_shutdown",
@@ -52,11 +54,13 @@ class AcceptDistributor:
         sock: socket.socket,
         conn_queue: queue.Queue[tuple[socket.socket, object]],
         *,
+        config: ServerConfig | None = None,
         shutdown_event: threading.Event | None = None,
         drain_event: threading.Event | None = None,
         ssl_context: ssl.SSLContext | None = None,
     ) -> None:
         self._sock = sock
+        self._config = config
         self._conn_queue = conn_queue
         self._ext_shutdown = shutdown_event
         self._drain_event = drain_event
@@ -93,7 +97,15 @@ class AcceptDistributor:
             # the shared queue (it would be orphaned at process exit). Answer
             # the client with a bounded, actionable 503 and close.
             if self._drain_event is not None and self._drain_event.is_set():
-                write_drain_503_sync(conn)
+                if self._config is None:
+                    write_drain_503_sync(conn)
+                else:
+                    write_drain_response_sync(
+                        conn,
+                        self._config,
+                        worker_id=0,
+                        active_connections=0,
+                    )
                 with contextlib.suppress(OSError):
                     conn.close()
                 continue

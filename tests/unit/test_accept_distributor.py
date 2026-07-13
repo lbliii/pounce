@@ -1,5 +1,6 @@
 """Tests for AcceptDistributor — connection accept and distribution."""
 
+import json
 import queue
 import socket
 import ssl
@@ -9,6 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from pounce.accept_distributor import AcceptDistributor, is_shared_socket
+from pounce.config import ServerConfig
 
 # ---------------------------------------------------------------------------
 # is_shared_socket
@@ -243,3 +245,50 @@ class TestAcceptDistributorShutdown:
 
         with pytest.raises(OSError, match="unexpected error"):
             dist.run()
+
+    @pytest.mark.issue(308)
+    def test_drain_health_request_preserves_structured_readiness(self):
+        """Late health probes keep the built-in JSON contract at distribution."""
+        shutdown = threading.Event()
+        drain = threading.Event()
+        drain.set()
+        conn_queue: queue.Queue = queue.Queue()
+
+        mock_conn = MagicMock(spec=socket.socket)
+        mock_conn.family = socket.AF_INET
+        mock_conn.recv.return_value = (
+            b"GET /readyz HTTP/1.1\r\nHost: example.test\r\nConnection: close\r\n\r\n"
+        )
+
+        mock_sock = MagicMock(spec=socket.socket)
+        call_count = 0
+
+        def accept_side_effect():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return (mock_conn, ("127.0.0.1", 5000))
+            shutdown.set()
+            raise TimeoutError
+
+        mock_sock.accept = accept_side_effect
+        dist = AcceptDistributor(
+            mock_sock,
+            conn_queue,
+            config=ServerConfig(health_check_path="/readyz"),
+            shutdown_event=shutdown,
+            drain_event=drain,
+        )
+
+        dist.run()
+
+        response = mock_conn.sendall.call_args.args[0]
+        _, _, body = response.partition(b"\r\n\r\n")
+        payload = json.loads(body)
+        assert response.startswith(b"HTTP/1.1 503 Service Unavailable")
+        assert b"Content-Type: application/json" in response
+        assert payload["status"] == "draining"
+        assert payload["worker_id"] == 0
+        assert payload["active_connections"] == 0
+        assert conn_queue.empty()
+        mock_conn.close.assert_called_once_with()

@@ -36,7 +36,7 @@ import h11
 from pounce._concurrency import cancel_and_drain, wait_first_completed
 from pounce._cpu_affinity import maybe_pin_worker
 from pounce._dictionary_endpoint import use_as_dictionary_headers
-from pounce._drain import write_drain_503_async
+from pounce._drain import write_drain_response_async
 from pounce._errors import ParseError, RequestTimeoutError
 from pounce._h2_handler import handle_h2_connection
 from pounce._headers import is_websocket_upgrade as _is_websocket_upgrade
@@ -664,7 +664,13 @@ class Worker:
         # Existing connections continue processing, but we stop accepting new
         # work to allow the worker to drain cleanly.
         if self._draining:
-            await write_drain_503_async(writer, timeout=self._config.write_timeout)
+            await write_drain_response_async(
+                reader,
+                writer,
+                self._config,
+                worker_id=self._worker_id,
+                active_connections=self._active_connection_count(),
+            )
             return
 
         # Connection backpressure — reject when at capacity.

@@ -179,8 +179,11 @@ configure it as `/readyz`: it returns 200 while the worker accepts traffic and
 same status and headers; `HEAD` has no body. A separate `/healthz` liveness
 endpoint, when required by the platform, is application-owned and should remain
 successful until the process can no longer make forward progress. During final
-connection rejection, clients may observe the generic drain 503 or a refused
-connection instead of the endpoint JSON; all three outcomes mean not ready.
+connection rejection, late HTTP/1 `GET` and `HEAD` requests that match the
+configured readiness path preserve that structured JSON 503 contract. Other
+paths and methods receive the generic drain 503, while requests arriving after
+the listener closes may receive a refused connection; all outcomes mean not
+ready.
 
 Every serving mode emits `pounce.worker.startup` before accepting requests,
 `pounce.worker.draining` at drain start, and `pounce.worker.shutdown` after

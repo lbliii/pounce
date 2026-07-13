@@ -27,7 +27,7 @@ from pounce._compression import (
 )
 from pounce._cpu_affinity import maybe_pin_worker
 from pounce._dictionary_endpoint import use_as_dictionary_headers
-from pounce._drain import write_drain_503_sync
+from pounce._drain import write_drain_response_sync
 from pounce._fast_h1 import ParseError
 from pounce._fast_h1 import parse_request as _fast_parse
 from pounce._request_pipeline import (
@@ -519,7 +519,7 @@ class SyncWorker:
                 self._handle_connection(conn, cast("tuple[str, int]", addr), runner)
             else:
                 # Past the bounded window: refuse cleanly so we still exit.
-                self._send_drain_503(conn)
+                self._send_drain_503(conn, timeout=0.0)
 
     def _drain_accept_window(self) -> None:
         """For a bounded window, accept new connections and answer them a 503.
@@ -564,11 +564,20 @@ class SyncWorker:
             except OSError:
                 break
             conn.setblocking(True)
-            self._send_drain_503(conn)
+            self._send_drain_503(
+                conn,
+                timeout=max(deadline - time.monotonic(), 0.0),
+            )
 
-    def _send_drain_503(self, conn: socket.socket) -> None:
-        """Write the shared drain 503 to *conn* and close it."""
-        write_drain_503_sync(conn)
+    def _send_drain_503(self, conn: socket.socket, *, timeout: float | None = None) -> None:
+        """Write the request-aware drain 503 to *conn* and close it."""
+        write_drain_response_sync(
+            conn,
+            self._config,
+            worker_id=self._worker_id,
+            active_connections=self._active_connection_count(),
+            timeout=timeout,
+        )
         with contextlib.suppress(OSError):
             conn.close()
 

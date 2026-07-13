@@ -1049,6 +1049,7 @@ class Supervisor:
         distributor = AcceptDistributor(
             self._sockets[0],
             shared_queue,
+            config=self._config,
             shutdown_event=self._shutdown_event,
             drain_event=drain_event,
             ssl_context=self._ssl_context,
