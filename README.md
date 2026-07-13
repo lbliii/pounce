@@ -28,7 +28,10 @@ Pounce's built-in HTTP/1.1 parser is optimized for the sync worker hot path, its
 use generational worker swaps with drain behavior.
 
 On Python 3.14t, worker threads share one interpreter and one copy of your app. On GIL
-builds, Pounce falls back to multi-process workers automatically.
+builds, Pounce falls back to forked multi-process workers automatically. Apps
+used with multiple process workers must keep pre-fork state fork-safe: create
+thread-, executor-, and connection-owning resources in `pounce.worker.startup`,
+or use `workers=1`. See the [worker guide](site/content/docs/deployment/workers.md#process-workers-gil).
 
 **Why people pick it:**
 
@@ -198,7 +201,10 @@ pounce.run(
 With `workers=1`, Pounce uses the direct single-worker async path. With multiple
 workers and `worker_mode="auto"`, **Python 3.14t** resolves to sync thread
 workers in one shared process, while a **GIL build** resolves to async process
-workers. The supervisor detects the runtime through `sys._is_gil_enabled()`.
+workers using `fork`. The supervisor detects the runtime through
+`sys._is_gil_enabled()`. Pounce does not currently offer a `spawn` or
+`forkserver` process-worker mode; apps must satisfy the
+[pre-fork safety contract](site/content/docs/deployment/workers.md#process-workers-gil).
 Startup output and `/_pounce/info` expose the resolved model.
 
 `worker_mode="subinterpreter"` is explicit and uses isolated async workers even

@@ -319,6 +319,52 @@ class TestDocsCliSnippets:
 
 
 class TestDeploymentDocsContract:
+    @pytest.mark.issue(306)
+    def test_process_worker_fork_safety_contract_is_public(self) -> None:
+        docs = {
+            ROOT / "docs/design/core-contract.md": {
+                "fork-safe",
+                "`pounce.worker.startup`",
+                '`worker_startup_failure="shutdown"`',
+                "`spawn`",
+                "`forkserver`",
+                "`workers=1`",
+                "Python 3.14t",
+            },
+            ROOT / "README.md": {
+                "pre-fork state fork-safe",
+                "`pounce.worker.startup`",
+                "`workers=1`",
+            },
+            ROOT / "site/content/docs/deployment/workers.md": {
+                "fork-safe",
+                "`pounce.worker.startup`",
+                '`worker_startup_failure="shutdown"`',
+                "`spawn`",
+                "`forkserver`",
+                "`--workers 1`",
+                "Python 3.14t",
+            },
+            ROOT / "site/content/docs/deployment/embedding.md": {
+                "fork-safe",
+                "`pounce.worker.startup`",
+                '`worker_startup_failure="shutdown"`',
+                "`spawn`",
+                "`forkserver`",
+                "`workers=1`",
+                "Python 3.14t",
+            },
+        }
+
+        failures: list[str] = []
+        for path, required in docs.items():
+            text = path.read_text()
+            missing = {term for term in required if term not in text}
+            if missing:
+                failures.append(f"{path.relative_to(ROOT)} missing {sorted(missing)}")
+
+        assert failures == []
+
     @pytest.mark.issue(264)
     def test_deployment_smoke_evidence_format_requires_operational_proof(self) -> None:
         evidence = (ROOT / "docs/design/deployment-smoke-evidence.md").read_text()

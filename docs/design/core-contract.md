@@ -143,8 +143,26 @@ is `site/content/docs/deployment/embedding.md`.
 |---|---|---|---|---|
 | `workers=1` | One app instance on the direct async path when mode is `auto`, `sync`, or `async`. | Development reload may restart the single worker path; SIGHUP-style rolling generation swap is not the primary contract. | Graceful shutdown via server shutdown event and lifespan shutdown. | No multi-worker drain generation; explicit subinterpreter mode is the exception and uses the supervisor. |
 | Thread workers on Python 3.14t | With multiple workers, `worker_mode="auto"` resolves to sync threads sharing one interpreter, app object, and frozen config. | Rolling generation swap can drain old thread workers while new workers start. | Per-worker drain and join behavior is supervised. | Shared mutable app state remains the app's responsibility. |
-| Process workers on GIL builds | With multiple workers, `worker_mode="auto"` resolves to async forked processes when available. | Process-mode reload may have different availability and downtime characteristics than thread-mode rolling reload. | Supervisor coordinates process shutdown and joins. | App import/fork constraints apply; no shared app object. |
+| Process workers on GIL builds | With multiple workers, `worker_mode="auto"` resolves to async forked processes when available. The app, completed main lifespan startup, and their live state are inherited. | Process-mode reload may have different availability and downtime characteristics than thread-mode rolling reload. | Supervisor coordinates process shutdown and joins. | Pre-fork application state must be fork-safe; no shared app object. |
 | Subinterpreter ASGI web workers (stable) | Explicit `worker_mode="subinterpreter"` path, including `workers=1`; embedded callers must provide `app_path`. The main interpreter owns lifespan and copies JSON-safe state into each isolated worker. | Replacements must report serving before old acceptors retire; old connections drain within `reload_timeout`. Tests exercise concurrent requests and exact state after reload. | Supervisor drain/shutdown is bounded; health-monitor respawn receives the original JSON-safe lifespan state. | Async workers only; app and extensions must support subinterpreters; process-local resources use worker hooks. Job/hybrid roles from #230 are out of scope. See `docs/design/subinterpreter-workers.md`. |
+
+Process workers deliberately use `fork` so Pounce can inherit ASGI callables
+that cannot be pickled, including closures created by middleware and framework
+decorators. Pounce does not currently provide a `spawn` or `forkserver`
+process-worker option. On a GIL build, code that runs before the fork—including
+module import, `Server` construction, and ASGI `lifespan.startup`—must not leave
+process-local clients, executors, background threads, or synchronization
+primitives in a state that is unsafe to inherit. A lock held by a thread that
+does not survive the fork can remain locked forever even though the worker
+reports ready.
+
+Applications should create or replace process-local resources in
+`pounce.worker.startup`, which runs inside each worker before it accepts
+requests, and set `worker_startup_failure="shutdown"` when successful
+initialization is required for readiness. If the application cannot meet the
+pre-fork contract, use `workers=1` or a Python 3.14t thread-worker deployment.
+Adding another process start method would require a separate contract for app
+import, lifespan ownership, serialization, reload, and compatibility.
 
 Startup output and the opt-in `/_pounce/info` endpoint expose the resolved
 worker model as `single (async)`, `thread (sync)`, `process (async)`, or
