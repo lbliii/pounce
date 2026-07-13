@@ -11,6 +11,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- towncrier release notes start -->
 
+## [0.9.1] — 2026-07-13
+
+### Added
+
+- Add an artifact-ready Milo MCP workload, rotating fixed-rate request variants, and real-worker routing-header/SSE framing proof for hosted MCP deployments. ([#229](https://github.com/lbliii/pounce/issues/229))
+
+### Changed
+
+- CLI help now uses Milo's metadata hooks and schema-derived parameter
+  descriptions instead of traversing argparse internals. Branded help, JSON
+  Schema, and MCP discovery now share the command docstrings as their description
+  source; the minimum Milo version is 0.4.0. ([#304](https://github.com/lbliii/pounce/issues/304))
+- Pin the stable Railway release recipe to Pounce 0.9.0 after publication while
+  keeping the separate main-branch canary on each repository checkout.
+
+### Fixed
+
+- `make gh-release` now reads the package name and version structurally from the
+  PEP 621 `[project]` table, preventing Towncrier category names from corrupting
+  GitHub release titles. ([#300](https://github.com/lbliii/pounce/issues/300))
+- Async workers now retain every accepted connection task until its writer
+  detaches, keep connections active through writer closure, and guard CPython
+  3.14's server wakeup against a second delayed transport detach. This prevents
+  asyncio weak-reference teardown from raising during SIGTERM without cutting
+  off in-flight requests; capacity-rejection writers also close after failed
+  writes. ([#301](https://github.com/lbliii/pounce/issues/301))
+- Late HTTP/1 `GET` and `HEAD` probes for the configured readiness path now keep
+  the structured draining JSON 503 response at async-worker and shared
+  multi-worker connection-rejection boundaries. Other late paths and methods
+  continue to receive the generic shutdown 503. ([#308](https://github.com/lbliii/pounce/issues/308))
+
+
 ## [0.9.0] — 2026-07-09
 
 ### Added
