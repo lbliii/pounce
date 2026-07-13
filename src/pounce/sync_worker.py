@@ -76,6 +76,27 @@ _DRAIN_ACCEPT_POLL_S: float = 0.1
 _DRAIN_HOOK_TIMEOUT: float = 1.0
 
 
+def _send_response_parts(conn: socket.socket, head: bytes, body: bytes) -> None:
+    """Send an HTTP response iovec completely.
+
+    ``socket.sendmsg`` may accept only a prefix of the supplied buffers under
+    downstream backpressure. Preserve the allocation-free one-call fast path,
+    then use ``sendall`` only for the unsent suffix.
+    """
+    sent = conn.sendmsg([head, body])
+    total = len(head) + len(body)
+    if sent >= total:
+        return
+    if sent < len(head):
+        conn.sendall(memoryview(head)[sent:])
+        if body:
+            conn.sendall(body)
+        return
+    body_offset = sent - len(head)
+    if body_offset < len(body):
+        conn.sendall(memoryview(body)[body_offset:])
+
+
 async def _worker_lifecycle_receive() -> dict[str, Any]:
     """Return a disconnect message for worker lifecycle extension scopes."""
     return {"type": "http.disconnect"}
@@ -1059,7 +1080,7 @@ class SyncWorker:
         )
         try:
             if hasattr(conn, "sendmsg"):
-                conn.sendmsg([head, body_bytes])
+                _send_response_parts(conn, head, body_bytes)
             else:
                 conn.sendall(head + body_bytes)
         except TimeoutError:
