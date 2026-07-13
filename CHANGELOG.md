@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- towncrier release notes start -->
 
+## [0.9.2] — 2026-07-13
+
+### Fixed
+
+- Complete partial sync-worker `sendmsg()` writes instead of silently dropping the
+  unsent suffix of large buffered HTTP/1 responses under downstream backpressure. ([#312](https://github.com/lbliii/pounce/issues/312))
+
+
 ## [0.9.1] — 2026-07-13
 
 ### Added
