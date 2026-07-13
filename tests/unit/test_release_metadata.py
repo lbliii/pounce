@@ -23,4 +23,4 @@ def test_release_title_uses_only_pep621_project_metadata() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "bengal-pounce 0.9.1"
+    assert result.stdout.strip() == "bengal-pounce 0.9.2"
