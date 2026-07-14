@@ -78,6 +78,14 @@ from the request path when disabled. Inspect the live classification with
 | `cpu_affinity` | `bool` | `False` | Pin each worker to a CPU core (Linux only, reduces cache thrashing) |
 | `executor_threads_per_worker` | `int` | `0` | Per-worker thread pool size for `asyncio.to_thread()`. 0 = auto-size. |
 
+::::{warning}
+On a GIL build, `workers=2+` uses `fork`. State created during module import,
+`Server` construction, or main lifespan startup must be fork-safe. Initialize
+process-local resources in `pounce.worker.startup` with
+`worker_startup_failure="shutdown"`, or use `workers=1`. See
+[[docs/deployment/workers|Workers]] for the complete contract.
+::::
+
 ### Timeouts
 
 | Field | Type | Default | Description |

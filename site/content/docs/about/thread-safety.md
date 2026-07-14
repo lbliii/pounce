@@ -14,7 +14,7 @@ category: explanation
 
 Python 3.14t (PEP 703) removes the Global Interpreter Lock. For the first time, Python threads execute in true parallel. This changes the rules for server design:
 
-- **GIL builds**: Multi-worker means multi-process (fork). Each process has its own memory space. Thread safety is irrelevant between workers.
+- **GIL builds**: Multi-worker means multi-process (`fork`). Each process has its own memory space after startup, but application state inherited at fork must be fork-safe.
 - **Free-threading builds**: Multi-worker means multi-thread. All workers share one memory space. Thread safety matters.
 
 Pounce is designed for the free-threading world. The key principle: **server-owned shared configuration is frozen, mutable request data is per-request**.
@@ -65,7 +65,12 @@ Pounce detects the runtime mode at startup via `sys._is_gil_enabled()`:
 #   GIL enabled → workers are processes
 ```
 
-The supervisor adapts automatically. Your code and config stay the same.
+The supervisor adapts automatically, but the application initialization
+contract differs by mode. On a GIL build, module import and main lifespan
+startup happen before process workers fork. Resources that own threads,
+executors, locks, or process-local connections should be created in
+`pounce.worker.startup`; otherwise use `workers=1`. See the
+[[docs/deployment/workers|Workers guide]] for the full pre-fork contract.
 
 ## The Brotli Principle
 

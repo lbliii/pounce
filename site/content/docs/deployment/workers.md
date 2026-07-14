@@ -83,8 +83,28 @@ On Python 3.14t, each worker is a thread with its own asyncio event loop:
 On GIL builds, each worker is a separate process:
 
 - **Isolated memory** — Each process has its own copy of everything
-- **Fork-based** — Similar to Uvicorn/Gunicorn multi-process model
+- **Fork-based** — The already-imported app and completed main lifespan startup are inherited
 - **Higher memory** — N copies of the application
+
+:::{warning}
+The state inherited by process workers must be fork-safe. Do not start
+background threads or executors, hold synchronization primitives, or create
+process-local clients during module import, `Server` construction, or
+`lifespan.startup` when using multiple workers on a GIL build. A child can
+inherit a locked object without the thread that would release it, report ready,
+and then hang when a request touches that object.
+:::
+
+Pounce deliberately uses `fork` so closures and other non-picklable ASGI
+callables continue to work. It does not currently provide a `spawn` or
+`forkserver` process-worker option.
+
+Create or replace process-local resources in `pounce.worker.startup`, which
+runs separately inside every worker before it accepts requests. Set
+`worker_startup_failure="shutdown"` when that initialization must succeed
+before readiness. If the app cannot satisfy this pre-fork contract, use
+`--workers 1` or deploy on Python 3.14t, where automatic multi-worker mode uses
+threads instead of forked processes.
 
 ## Tuning Guidelines
 
@@ -110,5 +130,6 @@ The supervisor runs a health-check loop for multi-worker mode:
 ## See Also
 
 - [[docs/about/thread-safety|Thread Safety]] — Shared state model
+- [[docs/deployment/embedding|Framework Embedding]] — Launcher and initialization contracts
 - [[docs/about/architecture|Architecture]] — Supervisor design
 - [[docs/deployment/production|Production]] — Full production setup

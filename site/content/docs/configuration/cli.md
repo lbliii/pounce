@@ -31,6 +31,13 @@ The `--app` argument is a Python module path with an attribute, e.g. `myapp:app`
 | `--worker-mode TEXT` | `auto` | Worker execution model. With multiple workers, `auto` is sync threads on 3.14t and async processes on a GIL build; `workers=1` uses the direct async path. `subinterpreter` is explicit and always supervised. |
 | `--cpu-affinity` | `disabled` | Pin each worker to a CPU core (Linux only, reduces cache thrashing) |
 
+::::{warning}
+On a GIL build, multiple process workers use `fork`; application state created
+before worker startup must be fork-safe. See
+[[docs/deployment/workers|Workers]] for per-worker initialization guidance and
+safe alternatives.
+::::
+
 ### Timeouts
 
 | Flag | Default | Description |

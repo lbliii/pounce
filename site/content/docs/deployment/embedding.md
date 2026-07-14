@@ -90,6 +90,23 @@ falling back or starting an unusable worker. Pounce enforces this boundary with
 `POUNCE_SUPERVISOR_SUBINTERPRETER_NO_APP_PATH`; explicit subinterpreter mode is
 supervised even when `workers=1`.
 
+## Process-Worker Initialization Is A Fork Boundary
+
+On a GIL build with multiple workers, Pounce uses `fork`. The live app and the
+state produced by main `lifespan.startup` are inherited by every worker. An
+embedding framework must therefore finish the pre-fork phase without live
+background threads, running executors, held synchronization primitives, or
+process-local clients that are unsafe to inherit. Readiness cannot prove that
+an inherited lock or executor will make progress when a later request uses it.
+
+Use `pounce.worker.startup` to create or replace process-local resources in
+each child, and set `worker_startup_failure="shutdown"` when that initialization
+is required. If the framework cannot provide a fork-safe boundary, it should
+select `workers=1` or require Python 3.14t thread workers. Pounce does not
+currently provide a `spawn` or `forkserver` process-worker option; adding one
+would require an explicit app-import, lifespan, serialization, and reload
+contract rather than a silent fallback.
+
 ## Framework-Owned Endpoints
 
 A framework may own `/health`, `/ready`, metrics, or introspection. In that
@@ -113,9 +130,10 @@ socket:
 2. Trusted and untrusted forwarded authority, including the configured hop
    count.
 3. Required worker startup success and failure before readiness.
-4. SIGTERM drain bounded by the configured shutdown timeout.
-5. Every supported worker mode; reject unsupported modes before binding.
-6. Programmatic and CLI launchers produce the same `ServerConfig` policy.
+4. On GIL process workers, fork-safe pre-start state and per-worker resource initialization.
+5. SIGTERM drain bounded by the configured shutdown timeout.
+6. Every supported worker mode; reject unsupported modes before binding.
+7. Programmatic and CLI launchers produce the same `ServerConfig` policy.
 
 Snapshot tests of a constructor call are useful drift guards, but lifecycle,
 protocol, and proxy claims still need observable worker/socket tests.

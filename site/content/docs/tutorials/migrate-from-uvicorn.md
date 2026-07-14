@@ -60,11 +60,17 @@ pounce.run("myapp:app", host="0.0.0.0", port=8000, workers=4)
 :::{dropdown} Worker model
 :icon: cpu
 
-Uvicorn uses processes for parallelism (fork). Pounce uses threads on Python 3.14t. This means:
+Pounce uses threads on Python 3.14t. In that runtime mode, this means:
 
 - **Lower memory** — One copy of the app instead of N
 - **Shared state** — Frozen config is shared, not duplicated
 - **No fork** — No copy-on-write, no IPC overhead
+
+On a standard GIL build, Pounce instead uses forked process workers. Keep
+pre-fork application state fork-safe, initialize process-local resources in
+`pounce.worker.startup`, or choose `--workers 1`. See
+[[docs/deployment/workers|Workers]] before migrating a launcher that creates
+threads, executors, locks, or connection pools before server startup.
 :::
 
 :::{dropdown} Compression
