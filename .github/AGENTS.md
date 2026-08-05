@@ -30,7 +30,10 @@ surprising release paths.
 - **Framework compatibility.** CI installs the framework dependency group and runs `tests/integration/frameworks/`.
 - **Changelog gate.** `changelog.yml` requires Towncrier fragments for package-affecting changes unless release/skip policy applies.
 - **Issue closure gate.** `issue-closure-gate.yml` requires executable `@pytest.mark.issue(N)` acceptance proof or an explicit non-testable exemption when a PR closes an issue.
-- **Release path.** `python-publish.yml` builds on release publish and uses OIDC `id-token: write` only for PyPI upload.
+- **Release path.** `python-publish.yml` builds on release publish with
+  job-scoped `PYTHON_GIL=0` on free-threaded jobs only, and uses OIDC
+  `id-token: write` only for PyPI upload (never inherit GIL=0 into
+  `pypi-publish`).
 - **Dependency automation.** `dependabot.yml` updates GitHub Actions weekly.
 - **Local parity.** `Makefile` and `pyproject.toml` poe tasks should stay aligned with CI feedback loops.
 
